@@ -298,6 +298,32 @@ export interface RuntimeSandboxJobRequest {
   workspaceQuotaBytes?: number | null;
   sharedQuotaBytes?: number | null;
   args: Record<string, unknown>;
+  /**
+   * ADR-151 — set only for `toolCode: "script.execute"`. The exact immutable
+   * pinned `ScriptVersion.id` the sandbox must independently reload and run.
+   * Always `null` for every other tool.
+   */
+  scriptVersionId: string | null;
+  /**
+   * ADR-151 — owning Skill id for the pinned Script capability. The sandbox
+   * independently re-checks the assistant's current Role, Skill state, and
+   * SkillScript link before admission and again immediately before execution.
+   * Always `null` for every non-Script tool.
+   */
+  scriptSkillId: string | null;
+  /**
+   * ADR-151 — exact immutable content hash pinned at bundle materialization.
+   * The sandbox recomputes the complete executable-contract hash and compares
+   * both stored and recomputed values. Always `null` for non-Script tools.
+   */
+  scriptContentHash: string | null;
+  /**
+   * ADR-151 — set only for `toolCode: "script.execute"`. Server-derived
+   * (never model-supplied) idempotency key backing the
+   * `@@unique([assistantId, scriptInvocationKey])` admission row. Always
+   * `null` for every other tool.
+   */
+  scriptInvocationKey: string | null;
 }
 
 export interface RuntimeSandboxDocumentSyncOutcome {
@@ -318,6 +344,50 @@ export interface RuntimeSandboxToolResult {
   job: RuntimeSandboxJobResult | null;
   paths: string[];
   documentSync?: RuntimeSandboxDocumentSyncOutcome[];
+}
+
+/**
+ * ADR-151 — model-facing result of the `script` tool's `execute` action.
+ * `output` is the Script's structured result after it has been parsed and
+ * validated against the exact published output JSON Schema; it is never raw
+ * stdout/stderr. `jobId` is included only for cross-referencing tool-progress
+ * observations, never for exposing sandbox/pod mechanics to the model.
+ */
+export interface RuntimeScriptToolResult {
+  toolCode: "script.execute";
+  executionMode: "sandbox";
+  action: "completed" | "blocked" | "skipped";
+  reason: string | null;
+  warning: string | null;
+  scriptKey: string | null;
+  versionNumber: number | null;
+  jobId: string | null;
+  output: unknown;
+}
+
+/**
+ * ADR-151 — deterministic canonical JSON serialization used on both sides of
+ * the `scriptInvocationKey` idempotency boundary: the runtime derives the key
+ * from turn identity, and the sandbox re-derives a canonical hash of the
+ * validated input payload to detect same-key/different-input conflicts.
+ * Object keys are sorted; array order and primitive values are preserved
+ * exactly. Not intended for human-readable output.
+ */
+export function canonicalizeJsonForHash(value: unknown): string {
+  if (value === undefined) {
+    return "null";
+  }
+  if (value === null || typeof value !== "object") {
+    return JSON.stringify(value);
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => canonicalizeJsonForHash(item)).join(",")}]`;
+  }
+  const row = value as Record<string, unknown>;
+  const keys = Object.keys(row).sort();
+  return `{${keys
+    .map((key) => `${JSON.stringify(key)}:${canonicalizeJsonForHash(row[key])}`)
+    .join(",")}}`;
 }
 
 /**
@@ -3404,6 +3474,35 @@ export interface RuntimeTurnAutoCompactionState {
 
 // ADR-118 Slice 4 — scenario catalog shape in the materialized runtime bundle.
 
+/**
+ * ADR-151 — exactly how a Script's mapped input value is sourced at execution
+ * time. Mirrors the authored `SkillScenarioScriptInputSource` one-to-one;
+ * carried unchanged through materialization since the runtime (not the API)
+ * performs the actual mapping immediately before `script.execute`.
+ */
+export type RuntimeScriptInputSource =
+  | { source: "literal"; value: unknown }
+  | { source: "current_user_message" }
+  | { source: "tool_input"; name: string };
+
+/**
+ * ADR-151 — the exact immutable pin resolved at bundle-materialization time
+ * through the owning Skill's `SkillScript` link to `Script.currentPublishedVersion`.
+ * `inputSchema` is the bounded published input JSON Schema, carried only for
+ * building the dynamic `script` tool projection; `code`/`entryCommand`/`runtime`
+ * are deliberately absent — the sandbox reloads those directly from the exact
+ * pinned `scriptVersionId` and they must never reach a prompt/tool descriptor.
+ */
+export interface RuntimeBundleSkillScenarioScriptRef {
+  scriptKey: string;
+  scriptId: string;
+  scriptVersionId: string;
+  versionNumber: number;
+  contentHash: string;
+  inputMapping: Record<string, RuntimeScriptInputSource>;
+  inputSchema: Record<string, unknown>;
+}
+
 export interface RuntimeBundleSkillScenarioStep {
   number: number;
   directive: string;
@@ -3418,6 +3517,8 @@ export interface RuntimeBundleSkillScenarioStep {
   recoveryGuidance?: string | null;
   /** ADR-119 Slice 10 — step 1 only: overrides auto-derived catalog first_step_preview (≤200 chars). */
   firstStepPreview?: string | null;
+  /** ADR-151 — exact pinned Script reference, or `null` when no Script is authored. */
+  scriptRef: RuntimeBundleSkillScenarioScriptRef | null;
 }
 
 export interface RuntimeBundleSkillScenario {

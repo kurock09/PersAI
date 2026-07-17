@@ -64,6 +64,21 @@ void test("Script parsers require exact localized catalog and executable shapes"
       }),
     /remote references/
   );
+  assert.throws(
+    () =>
+      parseScriptVersionCreateInput({
+        ...executable,
+        manifest: {
+          ...executable.manifest,
+          environment: { PERSAI_SCRIPT_OUTPUT_PATH: "/tmp/override" }
+        }
+      }),
+    /reserved by the platform/
+  );
+  assert.throws(
+    () => parseScriptVersionCreateInput({ ...executable, inputSchema: { type: "string" } }),
+    /inputSchema.type must be object/
+  );
 });
 
 void test("Script publish hash is stable over canonical executable fields", () => {
@@ -155,6 +170,28 @@ void test("Scenario scriptRef canonicalizes absence and accepts only bounded dis
       }),
     /must be literal/
   );
+  for (const dangerous of ["__proto__", "constructor", "prototype"]) {
+    assert.throws(
+      () =>
+        parseCreateSkillScenarioInput({
+          ...base,
+          steps: [
+            {
+              number: 1,
+              directive: "Run.",
+              negativeGuards: [],
+              scriptRef: {
+                scriptKey: "customer_export",
+                inputMapping: {
+                  safe: { source: "tool_input", name: dangerous }
+                }
+              }
+            }
+          ]
+        }),
+      /invalid format/
+    );
+  }
 });
 
 void test("persisted malformed non-null scriptRef fails closed instead of canonicalizing to null", () => {

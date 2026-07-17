@@ -87,6 +87,10 @@ const TESTS: Array<{ modulePath: string; exportName: string }> = [
     exportName: "runRuntimeSkillToolServiceTest"
   },
   {
+    modulePath: "./runtime-script-tool.service.test.ts",
+    exportName: "runRuntimeScriptToolServiceTest"
+  },
+  {
     modulePath: "./build-active-scenario-block.service.test.ts",
     exportName: "runBuildActiveScenarioBlockServiceTest"
   },
@@ -98,6 +102,10 @@ const TESTS: Array<{ modulePath: string; exportName: string }> = [
   },
   { modulePath: "./idempotency.service.test.ts", exportName: "runIdempotencyServiceTest" },
   { modulePath: "./adr149-receipt-reconcile.test.ts", exportName: "runAdr149ReceiptReconcileTest" },
+  {
+    modulePath: "./adr149-tool-abort-on-stop.test.ts",
+    exportName: "runAdr149ToolAbortOnStopTest"
+  },
   { modulePath: "./turn-acceptance.service.test.ts", exportName: "runTurnAcceptanceServiceTest" },
   {
     modulePath: "./prompt-cache-stable-blocks.test.ts",
@@ -139,6 +147,10 @@ const TESTS: Array<{ modulePath: string; exportName: string }> = [
     exportName: "runProjectToolExchangesForModelTest"
   },
   { modulePath: "./turn-execution.service.test.ts", exportName: "runTurnExecutionServiceTest" },
+  {
+    modulePath: "./turn-execution.service.test.ts",
+    exportName: "runAdr151TurnDispatchIntegrationTest"
+  },
   { modulePath: "./turn-execution.service.test.ts", exportName: "runRecentPdfsHintTests" },
   {
     modulePath: "./turn-finalization.service.test.ts",

@@ -568,6 +568,52 @@ export async function runNativeToolProjectionTest(): Promise<void> {
   });
 
   const projected = projectRuntimeNativeTools(artifact.bundle);
+  const activeScriptRef = {
+    scriptKey: "projection_script",
+    scriptId: "script-projection",
+    scriptVersionId: "script-version-projection",
+    versionNumber: 1,
+    contentHash: "a".repeat(64),
+    inputMapping: {},
+    inputSchema: {
+      type: "object",
+      properties: {},
+      additionalProperties: false
+    }
+  };
+  const sandboxEnabledBundle = {
+    ...artifact.bundle,
+    runtime: {
+      ...artifact.bundle.runtime,
+      sandbox: {
+        ...artifact.bundle.runtime.sandbox,
+        enabled: true
+      }
+    }
+  } as typeof artifact.bundle;
+  const sandboxDisabledBundle = {
+    ...sandboxEnabledBundle,
+    runtime: {
+      ...sandboxEnabledBundle.runtime,
+      sandbox: {
+        ...sandboxEnabledBundle.runtime.sandbox,
+        enabled: false
+      }
+    }
+  } as typeof artifact.bundle;
+  assert.ok(
+    projectRuntimeNativeTools(sandboxEnabledBundle, { activeScriptRef }).tools.some(
+      (tool) => tool.name === "script"
+    ),
+    "script must be projected for an active scriptRef when sandbox is enabled"
+  );
+  assert.equal(
+    projectRuntimeNativeTools(sandboxDisabledBundle, { activeScriptRef }).tools.some(
+      (tool) => tool.name === "script"
+    ),
+    false,
+    "script must be omitted when sandbox is disabled even with an active scriptRef"
+  );
   const webSearch = projected.tools.find((tool) => tool.name === "web_search");
   const files = projected.tools.find((tool) => tool.name === "files");
   const exec = projected.tools.find((tool) => tool.name === "exec");

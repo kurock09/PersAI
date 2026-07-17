@@ -83,7 +83,11 @@ test("SandboxClientService waitForCompletion uses bounded long-poll status reque
       runtimeSessionId: "session-1",
       toolCode: "files",
       policy: DEFAULT_RUNTIME_SANDBOX_POLICY,
-      args: { action: "list" }
+      args: { action: "list" },
+      scriptVersionId: null,
+      scriptSkillId: null,
+      scriptContentHash: null,
+      scriptInvocationKey: null
     });
 
     assert.equal(result.status, "completed");

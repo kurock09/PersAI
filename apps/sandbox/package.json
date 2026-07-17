@@ -19,6 +19,7 @@
     "@persai/config": "workspace:*",
     "@persai/runtime-contract": "workspace:*",
     "@prisma/client": "6.19.2",
+    "ajv": "^8.18.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2",
     "zod": "^4.1.11"

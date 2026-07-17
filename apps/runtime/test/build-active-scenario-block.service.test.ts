@@ -7,6 +7,7 @@ import type {
 } from "@persai/runtime-contract";
 import {
   BuildActiveScenarioBlockService,
+  resolveActiveScenarioStep,
   resolveCurrentStepIndex
 } from "../src/modules/turns/build-active-scenario-block.service";
 
@@ -31,14 +32,16 @@ const CAROUSEL_SCENARIO: RuntimeBundleSkillScenario = {
       directive: "CALL image_generate with outputMode=series, count=8",
       recommendedToolCall: "image_generate",
       mayBeSkippedIf: null,
-      negativeGuards: ["collapse into one call"]
+      negativeGuards: ["collapse into one call"],
+      scriptRef: null
     },
     {
       number: 2,
       directive: "Call skill({ action: release }) when done.",
       recommendedToolCall: null,
       mayBeSkippedIf: null,
-      negativeGuards: []
+      negativeGuards: [],
+      scriptRef: null
     }
   ],
   recommendedTools: ["image_generate"],
@@ -235,6 +238,36 @@ const inactiveState: RuntimeSkillDecisionState = {
 export async function runBuildActiveScenarioBlockServiceTest(): Promise<void> {
   const svc = new BuildActiveScenarioBlockService();
 
+  {
+    const bundle = createBundle([
+      { id: "skill-marketer", name: "Marketer", scenarios: [CAROUSEL_SCENARIO] }
+    ]);
+    const active = resolveActiveScenarioStep({
+      bundle,
+      skillDecisionState: {
+        ...activeStateWithScenario,
+        activeSkillId: "skill-marketer",
+        activeScenarioKey: "instagram_carousel"
+      },
+      chatPlanTodos: [
+        makeTodo({ id: "one", status: "completed" }),
+        makeTodo({ id: "two", status: "in_progress" })
+      ]
+    });
+    assert.equal(active?.stepIndex, 1);
+    assert.equal(active?.step.number, 2);
+    const revoked = resolveActiveScenarioStep({
+      bundle,
+      skillDecisionState: {
+        ...activeStateWithScenario,
+        activeSkillId: null,
+        activeScenarioKey: null
+      },
+      chatPlanTodos: null
+    });
+    assert.equal(revoked, null);
+  }
+
   // (a) Null state → no block
   {
     const bundle = createBundle([{ id: "skill-marketer", name: "Marketer" }]);
@@ -325,7 +358,8 @@ export async function runBuildActiveScenarioBlockServiceTest(): Promise<void> {
           directive: "Write the caption.",
           recommendedToolCall: null,
           mayBeSkippedIf: null,
-          negativeGuards: []
+          negativeGuards: [],
+          scriptRef: null
         }
       ]
     };
@@ -370,7 +404,8 @@ export async function runBuildActiveScenarioBlockServiceTest(): Promise<void> {
           directive: "Do the thing.",
           recommendedToolCall: "image_edit",
           mayBeSkippedIf: null,
-          negativeGuards: []
+          negativeGuards: [],
+          scriptRef: null
         }
       ]
     };
@@ -383,7 +418,8 @@ export async function runBuildActiveScenarioBlockServiceTest(): Promise<void> {
           directive: "Do the other thing.",
           recommendedToolCall: null,
           mayBeSkippedIf: null,
-          negativeGuards: []
+          negativeGuards: [],
+          scriptRef: null
         }
       ]
     };
@@ -429,6 +465,7 @@ export async function runBuildActiveScenarioBlockServiceTest(): Promise<void> {
           recommendedToolCall: null,
           mayBeSkippedIf: null,
           negativeGuards: [],
+          scriptRef: null,
           expectedUserResponse: "4 brief items",
           nextStepTrigger: null,
           recoveryGuidance: null
@@ -463,6 +500,7 @@ export async function runBuildActiveScenarioBlockServiceTest(): Promise<void> {
           recommendedToolCall: null,
           mayBeSkippedIf: null,
           negativeGuards: [],
+          scriptRef: null,
           expectedUserResponse: null,
           nextStepTrigger: null,
           recoveryGuidance: null
@@ -496,6 +534,7 @@ export async function runBuildActiveScenarioBlockServiceTest(): Promise<void> {
           recommendedToolCall: null,
           mayBeSkippedIf: null,
           negativeGuards: [],
+          scriptRef: null,
           expectedUserResponse: null,
           nextStepTrigger: "All items collected.",
           recoveryGuidance: null
@@ -526,6 +565,7 @@ export async function runBuildActiveScenarioBlockServiceTest(): Promise<void> {
           recommendedToolCall: null,
           mayBeSkippedIf: null,
           negativeGuards: [],
+          scriptRef: null,
           expectedUserResponse: null,
           nextStepTrigger: null,
           recoveryGuidance: null
@@ -559,6 +599,7 @@ export async function runBuildActiveScenarioBlockServiceTest(): Promise<void> {
           recommendedToolCall: null,
           mayBeSkippedIf: null,
           negativeGuards: [],
+          scriptRef: null,
           expectedUserResponse: null,
           nextStepTrigger: null,
           recoveryGuidance: "Ask the user to clarify."
@@ -589,6 +630,7 @@ export async function runBuildActiveScenarioBlockServiceTest(): Promise<void> {
           recommendedToolCall: null,
           mayBeSkippedIf: null,
           negativeGuards: [],
+          scriptRef: null,
           expectedUserResponse: null,
           nextStepTrigger: null,
           recoveryGuidance: null
@@ -621,7 +663,8 @@ export async function runBuildActiveScenarioBlockServiceTest(): Promise<void> {
           directive: "No guards here.",
           recommendedToolCall: null,
           mayBeSkippedIf: null,
-          negativeGuards: []
+          negativeGuards: [],
+          scriptRef: null
         }
       ]
     };
@@ -651,7 +694,8 @@ export async function runBuildActiveScenarioBlockServiceTest(): Promise<void> {
           directive: "With guards.",
           recommendedToolCall: null,
           mayBeSkippedIf: null,
-          negativeGuards: ["skip this step", "call image_edit yet"]
+          negativeGuards: ["skip this step", "call image_edit yet"],
+          scriptRef: null
         }
       ]
     };

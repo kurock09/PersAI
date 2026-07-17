@@ -33,6 +33,8 @@ import type {
   RuntimeTurnRequest,
   RuntimeTurnResult,
   RuntimeTurnStreamEvent,
+  RuntimeBundleSkillScenarioScriptRef,
+  RuntimeSkillDecisionState,
   RuntimeTodoItem,
   RuntimeWorkerToolsConfig
 } from "@persai/runtime-contract";
@@ -2087,6 +2089,261 @@ function enableTodoWriteTool(entry: RuntimeBundleCacheEntry | null): void {
   });
 }
 
+export async function runAdr151TurnDispatchIntegrationTest(): Promise<void> {
+  const scriptRef: RuntimeBundleSkillScenarioScriptRef = {
+    scriptKey: "dispatch_script",
+    scriptId: "script-dispatch",
+    scriptVersionId: "script-version-dispatch",
+    versionNumber: 1,
+    contentHash: "a".repeat(64),
+    inputMapping: {},
+    inputSchema: { type: "object", properties: {}, additionalProperties: false }
+  };
+  const baseBundle = createBundleEntry().parsedBundle;
+  const bundle = {
+    ...baseBundle,
+    runtime: {
+      ...baseBundle.runtime,
+      sandbox: { ...baseBundle.runtime.sandbox, enabled: true }
+    },
+    skills: {
+      enabled: [
+        {
+          id: "skill-script",
+          name: "Script Skill",
+          scenarios: [
+            {
+              key: "script_scenario",
+              displayName: "Script Scenario",
+              description: "Exercise dispatch-time script authorization.",
+              iconEmoji: null,
+              intentExamples: ["run script"],
+              steps: [
+                {
+                  number: 1,
+                  directive: "Execute the active script.",
+                  recommendedToolCall: "script",
+                  mayBeSkippedIf: null,
+                  negativeGuards: [],
+                  scriptRef
+                },
+                {
+                  number: 2,
+                  directive: "Finish without a script.",
+                  recommendedToolCall: null,
+                  mayBeSkippedIf: null,
+                  negativeGuards: [],
+                  scriptRef: null
+                }
+              ],
+              recommendedTools: ["script"],
+              exitCondition: "Both steps are complete."
+            }
+          ]
+        }
+      ]
+    }
+  } as unknown as AssistantRuntimeBundle;
+  const activeSkillState: RuntimeSkillDecisionState = {
+    status: "active",
+    activeSkillId: "skill-script",
+    activeSkillName: "Script Skill",
+    activeScenarioKey: "script_scenario",
+    activeScenarioDisplayName: "Script Scenario",
+    topicSummary: null
+  };
+  const stepOneTodos: RuntimeTodoItem[] = [
+    { id: "step-1", parentId: null, content: "Execute script", status: "in_progress" },
+    { id: "step-2", parentId: null, content: "Finish", status: "pending" }
+  ];
+  const stepTwoTodos: RuntimeTodoItem[] = [
+    { id: "step-1", parentId: null, content: "Execute script", status: "completed" },
+    { id: "step-2", parentId: null, content: "Finish", status: "in_progress" }
+  ];
+  let liveTodos: readonly RuntimeTodoItem[] = stepTwoTodos;
+  const hydrationService: Pick<TurnContextHydrationService, "buildChatPlanBlock"> = {
+    async buildChatPlanBlock() {
+      return {
+        block: {
+          role: "user",
+          content: "<persai_chat_plan />",
+          cacheRole: "volatile_context"
+        },
+        todos: liveTodos
+      };
+    }
+  };
+  const observedSteps: Array<number | null> = [];
+  const runtimeScriptToolService = {
+    async executeToolCall(input: {
+      activeScenarioStep: { step: { number: number; scriptRef: unknown } } | null;
+    }) {
+      const activeScriptStep =
+        input.activeScenarioStep?.step.scriptRef === null ? null : input.activeScenarioStep;
+      observedSteps.push(activeScriptStep?.step.number ?? null);
+      return activeScriptStep === null
+        ? {
+            payload: { toolCode: "script", action: "skipped", reason: "script_not_active" },
+            isError: true
+          }
+        : {
+            payload: {
+              toolCode: "script",
+              action: "completed",
+              content: { dispatchedStep: activeScriptStep.step.number }
+            },
+            isError: false
+          };
+    }
+  };
+  const service = new TurnExecutionService(
+    null as never,
+    null as never,
+    null as never,
+    null as never,
+    hydrationService as TurnContextHydrationService,
+    null as never,
+    null as never,
+    null as never,
+    null as never,
+    null as never,
+    null as never,
+    null as never,
+    null as never,
+    null as never,
+    null as never,
+    null as never,
+    null as never,
+    null as never,
+    null as never,
+    null as never,
+    runtimeScriptToolService as never,
+    null as never,
+    null as never,
+    null as never,
+    null as never,
+    null as never,
+    null as never,
+    new BuildActiveScenarioBlockService(),
+    { buildBlocks: () => [] } as never,
+    null as never,
+    null as never
+  );
+  const privateAccess = service as unknown as {
+    executeProjectedToolCall(
+      execution: unknown,
+      acceptedTurn: AcceptedRuntimeTurn,
+      input: RuntimeTurnRequest,
+      toolCall: ProviderGatewayToolCall,
+      currentUserMessageId: string | null,
+      currentArtifacts: readonly unknown[],
+      currentFileHandles: readonly RuntimeFileHandle[],
+      availableWorkingFileHandles: readonly RuntimeFileHandle[],
+      turnState: unknown
+    ): Promise<{ payload: Record<string, unknown> }>;
+    refreshVolatilePrefix(
+      execution: unknown,
+      input: RuntimeTurnRequest,
+      toolBudgetSnapshot: unknown,
+      turnState: unknown
+    ): Promise<void>;
+  };
+  const request = createRuntimeTurnRequest();
+  const execution = {
+    bundle,
+    projectedTools: {
+      tools: [{ name: "script", description: "Execute active script.", inputSchema: {} }],
+      knowledgeSearchSources: [],
+      knowledgeFetchSources: []
+    },
+    nativeToolProjectionOptions: { activeScriptRef: scriptRef },
+    providerRequest: {
+      messages: [{ role: "user", content: request.message.text }],
+      tools: [{ name: "script", description: "Execute active script.", inputSchema: {} }]
+    },
+    volatilePrefixLength: 0,
+    currentSkillDecisionState: activeSkillState as RuntimeSkillDecisionState | null,
+    currentTurnHasUserAttachedImage: false
+  };
+  const turnState = {
+    wireExpandedCatalogToolCodes: new Set<string>(),
+    catalogToolMetrics: {
+      projectedCatalogCount: 0,
+      describedCount: 0,
+      executionRejectedCount: 0
+    }
+  };
+  const providerScriptCall: ProviderGatewayToolCall = {
+    id: "script-call-1",
+    name: "script",
+    arguments: { action: "execute", input: {} }
+  };
+
+  const revokedOutcome = await privateAccess.executeProjectedToolCall(
+    execution,
+    createAcceptedTurn(),
+    request,
+    providerScriptCall,
+    request.idempotencyKey,
+    [],
+    [],
+    [],
+    turnState
+  );
+  assert.equal(revokedOutcome.payload.reason, "script_not_active");
+  assert.deepEqual(observedSteps, [null]);
+
+  liveTodos = stepOneTodos;
+  const authorizedOutcome = await privateAccess.executeProjectedToolCall(
+    execution,
+    createAcceptedTurn(),
+    request,
+    providerScriptCall,
+    request.idempotencyKey,
+    [],
+    [],
+    [],
+    turnState
+  );
+  assert.equal(authorizedOutcome.payload.action, "completed");
+  assert.deepEqual(observedSteps, [null, 1]);
+
+  execution.currentSkillDecisionState = null;
+  const releasedSkillOutcome = await privateAccess.executeProjectedToolCall(
+    execution,
+    createAcceptedTurn(),
+    request,
+    providerScriptCall,
+    request.idempotencyKey,
+    [],
+    [],
+    [],
+    turnState
+  );
+  assert.equal(releasedSkillOutcome.payload.reason, "script_not_active");
+  assert.deepEqual(observedSteps, [null, 1, null]);
+
+  execution.currentSkillDecisionState = activeSkillState;
+  await privateAccess.refreshVolatilePrefix(execution, request, {}, turnState);
+  assert.ok(execution.providerRequest.tools.some((tool) => tool.name === "script"));
+  liveTodos = stepTwoTodos;
+  await privateAccess.refreshVolatilePrefix(execution, request, {}, turnState);
+  assert.equal(
+    execution.providerRequest.tools.some((tool) => tool.name === "script"),
+    false
+  );
+  execution.currentSkillDecisionState = null;
+  liveTodos = stepOneTodos;
+  await privateAccess.refreshVolatilePrefix(execution, request, {}, turnState);
+  assert.equal(
+    execution.providerRequest.tools.some((tool) => tool.name === "script"),
+    false
+  );
+  console.log(
+    "[adr151-turn-dispatch] live dispatch reauthorization and volatile script projection assertions passed"
+  );
+}
+
 export async function runTurnExecutionServiceTest(): Promise<void> {
   const bundleRegistry = new FakeRuntimeBundleRegistryService();
   const providerGatewayClient = new FakeProviderGatewayClientService();
@@ -2189,6 +2446,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     runtimeTodoWriteToolService,
     runtimeQuotaStatusToolService,
     runtimeSandboxToolService as never,
+    null as never, // runtimeScriptToolService
     runtimeGrepGlobToolService as never,
     runtimeBackgroundTaskToolService,
     runtimeScheduledActionToolService,
@@ -2402,6 +2660,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     runtimeTodoWriteToolService,
     runtimeQuotaStatusToolService,
     runtimeSandboxToolService as never,
+    null as never, // runtimeScriptToolService
     runtimeGrepGlobToolService as never,
     runtimeBackgroundTaskToolService,
     runtimeScheduledActionToolService,
@@ -2480,6 +2739,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     runtimeTodoWriteToolService,
     runtimeQuotaStatusToolService,
     runtimeSandboxToolService as never,
+    null as never, // runtimeScriptToolService
     runtimeGrepGlobToolService as never,
     runtimeBackgroundTaskToolService,
     runtimeScheduledActionToolService,
@@ -8027,14 +8287,16 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
                     directive: "Collect brief.",
                     recommendedToolCall: null,
                     mayBeSkippedIf: null,
-                    negativeGuards: []
+                    negativeGuards: [],
+                    scriptRef: null
                   },
                   {
                     number: 2,
                     directive: "Generate images.",
                     recommendedToolCall: "image_generate",
                     mayBeSkippedIf: null,
-                    negativeGuards: []
+                    negativeGuards: [],
+                    scriptRef: null
                   }
                 ],
                 recommendedTools: ["image_generate"],
@@ -8734,6 +8996,7 @@ export function buildTurnExecutionHarness(): TurnExecutionHarness {
     runtimeTodoWriteToolService,
     runtimeQuotaStatusToolService,
     runtimeSandboxToolService as never,
+    null as never, // runtimeScriptToolService
     runtimeGrepGlobToolService as never,
     runtimeBackgroundTaskToolService,
     runtimeScheduledActionToolService,
@@ -8776,6 +9039,7 @@ function buildMinimalTurnExecutionService(): TurnExecutionService {
     null as never, // runtimeTodoWriteToolService
     null as never, // runtimeQuotaStatusToolService
     null as never, // runtimeSandboxToolService
+    null as never, // runtimeScriptToolService
     null as never, // runtimeGrepGlobToolService
     null as never, // runtimeBackgroundTaskToolService
     null as never, // runtimeScheduledActionToolService

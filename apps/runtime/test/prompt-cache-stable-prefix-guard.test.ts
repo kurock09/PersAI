@@ -56,7 +56,8 @@ function makeScenario(
         directive,
         recommendedToolCall: null,
         mayBeSkippedIf: null,
-        negativeGuards: []
+        negativeGuards: [],
+        scriptRef: null
       }
     ],
     recommendedTools: [],

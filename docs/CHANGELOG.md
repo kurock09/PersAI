@@ -3,8 +3,60 @@
 > Archive: detailed historical entries from 2026-06-05 and earlier moved to `docs/CHANGELOG.archive-2026-06-05-details-and-earlier.md`; entries from 2026-05-19 and earlier remain in `docs/CHANGELOG.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: current entries plus concise recent summaries only.
 
+## 2026-07-17
+
+- **ADR (ADR-151 Scenario + Runtime implementation independently audited
+  CLEAN locally).** Made authored Script refs
+  fail materialization closed; removed optional runtime `scriptRef`
+  compatibility; added sandbox admission/execution reauthorization, canonical
+  executable hash and input/output schema enforcement, preflight winner
+  exclusion, trap plus proven control-plane cleanup/pod retirement, safe Script
+  cwd, per-invocation bounded result framing, exact `LimitedCollector` retention,
+  reserved-name/prototype/extra-field rejection, and local-ref/allOf dynamic
+  schema projection. The final runtime audit repair adds production
+  `SCRIPT_TOOL_CODE` dispatch coverage for live todo/Skill reauthorization,
+  proves `refreshVolatilePrefix` adds/removes `script`, requires sandbox-enabled
+  dynamic projection, wires the ADR-149 abort suite into the real runtime gate,
+  and pins ordinary-stdout redirection plus precise direct-stdout overflow
+  diagnostics. Wired ADR-151 runtime and sandbox tests into real package gates;
+  focused and actual API/runtime/sandbox suites are green. The final
+  allowed-model runtime/security re-audit returned CLEAN; Kubernetes policy/
+  cleanup, true concurrent PostgreSQL admission, and a deployed model-driven
+  warm-session Script turn remain live-only acceptance probes.
+
 ## 2026-07-16
 
+- **ADR (ADR-151 Scenario + Runtime block implemented locally; accepted/open,
+  audit pending).** On top of the audited Domain + Admin API checkpoint
+  (`cbeaccb4`): async Scenario-step `scriptRef` materialization pins the
+  exact `{scriptId, scriptVersionId, versionNumber, contentHash}` through the
+  owning Skill's live `SkillScript` link (one lookup per distinct
+  `scriptKey`; admitted bundles keep their old pin after a republish;
+  the 2026-07-17 repair makes archived/unlinked authored refs fail closed);
+  a new internal `apps/api` read
+  boundary re-authorizes that exact pin live (Script status, SkillScript
+  link, hash/key match) without ever returning code; the provider-facing
+  `script` tool (`{action:"execute", input:object}`,
+  `SandboxJob.toolCode`/internal operation exactly `script.execute`) is
+  dynamically projected only when the active Scenario step carries a
+  materialized `scriptRef` and is re-resolved (not just re-projected)
+  immediately before dispatch via one shared current-step resolver; runtime
+  input mapping supports `literal` / `current_user_message` / `tool_input`
+  sources validated against the published input/output JSON Schemas with
+  strict Ajv 8.18 Draft 2020-12, plus a server-derived
+  `scriptInvocationKey`. `SandboxService.submitJob` admits `script.execute`
+  atomically by `(assistantId, scriptInvocationKey)` before ordinary
+  preflight/backlog consumption, resolving `P2002` races to a
+  winner/loser replay and a version/input mismatch to a stable
+  `idempotency_conflict`; execution runs through the exact existing warm
+  session sandbox with code/input/output staged transiently under `/tmp`
+  (never persisted to workspace GCS/Files/snapshots) and reserved
+  `PERSAI_SCRIPT_*` env vars. Also repaired a pre-existing `LimitedCollector`
+  unbounded-retention bug in `ExecPodBridgeService` (shared correctness, not
+  new policy). Focused tests added across apps/api, apps/runtime, and
+  apps/sandbox; full local test suites, lint, typecheck, and format:check are
+  green. No Helm/image change. Runtime/security audit, Admin UI, MCP,
+  deployment, and live acceptance remain pending — do not claim them.
 - **ADR (ADR-151 reusable Scripts core; accepted/open).** Founder-approved
   documentation checkpoint on clean baseline `36947f75`: platform-global
   Script + immutable published ScriptVersion; ordered full-replace Skill links;

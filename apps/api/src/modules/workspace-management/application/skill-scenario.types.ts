@@ -100,6 +100,7 @@ const MAX_SCRIPT_INPUT_MAPPING_BYTES = 16_384;
 const MAX_SCRIPT_LITERAL_DEPTH = 8;
 const KEY_REGEX = /^[a-z][a-z0-9_]{1,63}$/;
 const INPUT_NAME_REGEX = /^[A-Za-z_][A-Za-z0-9_.-]{0,127}$/;
+const FORBIDDEN_OBJECT_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 
 export function parseCreateSkillScenarioInput(body: unknown): CreateSkillScenarioInput {
   const row = asObject(body, "Request body");
@@ -358,7 +359,7 @@ function parseScriptRef(value: unknown, path: string): SkillScenarioScriptRef | 
   }
   const inputMapping: Record<string, SkillScenarioScriptInputSource> = {};
   for (const [name, sourceValue] of entries) {
-    if (!INPUT_NAME_REGEX.test(name)) {
+    if (!INPUT_NAME_REGEX.test(name) || FORBIDDEN_OBJECT_KEYS.has(name)) {
       throw new Error(`${path}.inputMapping key "${name}" has an invalid format.`);
     }
     inputMapping[name] = parseScriptInputSource(sourceValue, `${path}.inputMapping.${name}`);
@@ -383,7 +384,7 @@ function parseScriptInputSource(value: unknown, path: string): SkillScenarioScri
   if (row.source === "tool_input") {
     assertExactKeys(row, ["source", "name"], path);
     const name = parseBoundedString(row.name, `${path}.name`, 1, 128);
-    if (!INPUT_NAME_REGEX.test(name)) {
+    if (!INPUT_NAME_REGEX.test(name) || FORBIDDEN_OBJECT_KEYS.has(name)) {
       throw new Error(`${path}.name has an invalid format.`);
     }
     return { source: "tool_input", name };

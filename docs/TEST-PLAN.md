@@ -4,30 +4,90 @@ This document defines the current verification baseline for the active PersAI-na
 
 ADR-072 is closed as the historical native migration ADR. Current continuation work should be checked against `docs/ADR/078-consolidated-follow-through-program.md`. `Step 15a` is cancelled and is not an active verification track. ADR-087 defines the unified quota-advisory and paid light-mode target state. ADR-088 defines the unified notification platform target state.
 
-## ADR-151 reusable Scripts core (Accepted / Open; Domain + Admin API local)
+## ADR-151 reusable Scripts core (Accepted / Open; Domain + Admin API + Scenario/Runtime block local)
 
 The local Domain + Admin API block covers parser/hash/schema guards, DB
 immutability migration contracts, publish/invalidation, ordered replacement,
 archive guards, Scenario mapping, controllers, and explicit auth registration.
-Before its final deploy gate, retain that coverage and add:
+The Scenario + Runtime block, implemented locally in the same session,
+additionally covers:
 
-1. Script and immutable published ScriptVersion lifecycle, RU/EN metadata,
-   content hash, strict manifest, input/output schema, archive behavior;
-2. ordered full-replace Skill–Script links, proving no code copy and no change to
-   ADR-147 Role-only effective Skills;
-3. Scenario `scriptRef` availability/version resolution and bounded input-mapping
-   validation;
-4. active-step-only synchronous `script.execute`, validated result, and no
-   automatic Scenario advance/workflow engine;
-5. existing `SandboxJob` admission: atomic missing-key create, running poll,
-   terminal replay, and same-key version/input `idempotency_conflict`;
-6. inherited sandbox behavior: same workspace/runtime tools/egress, Stop,
-   deadline/resource/cancel/cleanup, and ADR-150 warm-pod-only install-layer
-   cold-start behavior;
-7. Admin Scripts UI at Admin Roles quality, thin MCP wrappers over real APIs, and
+- **Materialization** (`apps/api/test/script-ref-materialization.test.ts`):
+  exact `{scriptId, scriptVersionId, versionNumber, contentHash}` pin with
+  `inputMapping` carried through unchanged; one lookup per distinct
+  `scriptKey` (not per step); unresolvable references (unlinked, archived,
+  draft-only/no frozen hash, or schema-incompatible mapping) throw the stable
+  typed materialization error and fail the bundle closed; only an authored
+  null remains null; a later republish only changes a _future_
+  materialization, never a bundle already materialized.
+- **Internal artifact API**
+  (`apps/api/test/internal-runtime-script-artifact.service.test.ts`): success
+  path returns the exact pin plus bounded executable/schema metadata (never
+  code); an older published version remains valid after a newer publish;
+  fails closed on missing assistant, Skill no longer effective
+  (unassigned/archived), version not found/not published, content-hash
+  mismatch, scriptKey mismatch, Script archived, and Script no longer linked
+  to the Skill; input parsing rejects malformed UUIDs/empty strings.
+- **Runtime tool dispatch**
+  (`apps/runtime/test/runtime-script-tool.service.test.ts`,
+  `apps/runtime/test/turn-execution.service.test.ts`, and
+  `apps/runtime/test/native-tool-projection.test.ts`): skips when no
+  active step/materialized `scriptRef`, when the sandbox is unconfigured, or
+  when the turn's abort signal is already set; rejects malformed
+  exact `{action, input}` arguments (extra fields and omitted input fail);
+  maps `literal` / `current_user_message` / `tool_input` sources into a
+  null-prototype object and rejects reserved prototype-pollution names;
+  dynamic projection preserves local `$defs`/`$ref` and combines constraints
+  with `allOf` when one model field feeds multiple Script properties;
+  propagates the internal artifact API's live-authorization failure
+  verbatim; fails closed on input/output JSON Schema violations; derives a
+  deterministic `scriptInvocationKey` from
+  `requestId:toolCallId:scriptVersionId` (same triple ⇒ same key, different
+  tool-call id ⇒ different key); distinguishes `blocked` (policy preflight)
+  from `skipped` (validation/execution/output failures); maps a mid-execution
+  `AbortError` to `user_stopped`. Production `SCRIPT_TOOL_CODE` dispatch
+  re-reads live chat-plan todos and current Skill state rather than trusting
+  projection-time state; `refreshVolatilePrefix` adds/removes the dynamic
+  `script` tool as todo/Skill state changes; projection also requires
+  `bundle.runtime.sandbox.enabled === true`.
+- **Sandbox admission/idempotency**
+  (`apps/sandbox/test/script-execute-idempotency.test.ts`): atomic
+  create-by-`(assistantId, scriptInvocationKey)` runs before ordinary
+  preflight/backlog consumption; a `P2002` collision replays the winner's
+  queued/running/terminal state; a same-key call pinned to a different
+  version or a different canonical input hash fails closed with
+  `idempotency_conflict`; the just-created winner is excluded from backlog
+  and daily-quota preflight counts; only the winning admission's real pod execution
+  ever runs (asserted by counting `execPodBridgeService.runInPod` calls
+  across a real winner + loser pair). Direct tests also prove admission-time
+  and pre-execution authorization, archive/unlink TOCTOU denial, complete
+  executable hash verification, input/output schema validation, safe relative
+  and full-workspace `workingDirectory`, traversal rejection, and cleanup
+  failure pod retirement. A direct stdout framing-budget overflow persists
+  `stdout_limit_exceeded`, never the misleading `script_output_missing`.
+- **Sandbox execution-support pure helpers**
+  (`apps/sandbox/test/script-execution-support.test.ts`): policy
+  reconciliation takes the stricter of assistant/Script limits;
+  `computeScriptInputHash` is canonical/deterministic; the execution shell
+  command exports reserved `PERSAI_SCRIPT_*` env vars (authoring rejects
+  collisions; sandbox still overrides defensively), installs cleanup traps,
+  redirects ordinary entry stdout to diagnostic stderr, and bounds wrapper
+  framing output by the effective Script/stdout/single-file minimum;
+  stdout splitting uses the final per-invocation marker; result parsing fails
+  closed on missing/oversized/non-JSON output.
+- **`LimitedCollector` regression**
+  (`apps/sandbox/test/exec-pod-bridge.service.test.ts`): retained bytes never
+  exceed the configured limit, including one huge crossing chunk and repeated
+  chunks while the stream continues draining; no false-positive limit trip
+  when total bytes stay within bound.
+
+Before the later final deploy gate, retain all of the above plus:
+
+1. Admin Scripts UI at Admin Roles quality, thin MCP wrappers over real APIs, and
    existing real chat smoke;
-8. independent allowed-model audits for schema/migration and runtime/security
-   blocks before final repository verification.
+2. an independent allowed-model runtime/security audit of the `script` tool
+   dispatch, sandbox admission, and artifact-API authorization before final
+   repository verification.
 
 Do not add acceptance for a `ScriptRun`, Tool SDK, browser executor, async
 `jobRef`/`wait`/`notify`, managed-secret redaction/TTL/revoke, or a separate

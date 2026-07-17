@@ -69,6 +69,7 @@ import { InternalRuntimeTaskRegistryController } from "./interface/http/internal
 import { InternalRuntimeBackgroundTasksController } from "./interface/http/internal-runtime-background-tasks.controller";
 import { InternalRuntimeToolQuotaController } from "./interface/http/internal-runtime-tool-quota.controller";
 import { InternalRuntimeSkillStateController } from "./interface/http/internal-runtime-skill-state.controller";
+import { InternalRuntimeScriptArtifactController } from "./interface/http/internal-runtime-script-artifact.controller";
 import { InternalRuntimeChatTodosController } from "./interface/http/internal-runtime-chat-todos.controller";
 import { AssistantChatTodosController } from "./interface/http/assistant-chat-todos.controller";
 import { InternalSmokeReceiptsController } from "./interface/http/internal-smoke-receipts.controller";
@@ -247,6 +248,7 @@ import { SkillRetrievalPolicyService } from "./application/skill-retrieval-polic
 import { SkillRetrievalStateService } from "./application/skill-retrieval-state.service";
 import { AutoSkillRoutingStateService } from "./application/auto-skill-routing-state.service";
 import { InternalRuntimeSkillStateService } from "./application/internal-runtime-skill-state.service";
+import { InternalRuntimeScriptArtifactService } from "./application/internal-runtime-script-artifact.service";
 import { WriteAssistantMemoryService } from "./application/write-assistant-memory.service";
 import { AssistantChatTodosService } from "./application/assistant-chat-todos.service";
 import { HydrateMemoryForTurnService } from "./application/hydrate-memory-for-turn.service";
@@ -501,6 +503,7 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     InternalRuntimeBackgroundTasksController,
     InternalRuntimeToolQuotaController,
     InternalRuntimeSkillStateController,
+    InternalRuntimeScriptArtifactController,
     InternalRuntimeChatTodosController,
     AssistantChatTodosController,
     InternalSmokeReceiptsController,
@@ -696,6 +699,7 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     SkillRetrievalStateService,
     AutoSkillRoutingStateService,
     InternalRuntimeSkillStateService,
+    InternalRuntimeScriptArtifactService,
     WriteAssistantMemoryService,
     AssistantChatTodosService,
     HydrateMemoryForTurnService,

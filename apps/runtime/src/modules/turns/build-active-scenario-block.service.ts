@@ -118,6 +118,54 @@ export function resolveCurrentStepIndex(
   return Math.min(completedCount, stepCount - 1);
 }
 
+/**
+ * ADR-151 — the single shared "what is the model's exact current Scenario
+ * step, right now" resolver. Reuses the exact same {@link resolveCurrentStepIndex}
+ * semantics {@link BuildActiveScenarioBlockService.buildBlock} renders from, so
+ * the `script` tool's projection/dispatch gate can never disagree with what the
+ * volatile `<persai_active_scenario>` block shows the model for this turn.
+ * Returns `null` whenever `buildBlock` would also render nothing (no active
+ * scenario, skill/scenario no longer in the bundle, or zero steps).
+ */
+export type ResolvedActiveScenarioStep = {
+  skillId: string;
+  scenarioKey: string;
+  scenario: RuntimeBundleSkillScenario;
+  step: RuntimeBundleSkillScenarioStep;
+  stepIndex: number;
+};
+
+export function resolveActiveScenarioStep(params: {
+  bundle: AssistantRuntimeBundle;
+  skillDecisionState: RuntimeSkillDecisionState | null | undefined;
+  chatPlanTodos?: readonly RuntimeTodoItem[] | null;
+}): ResolvedActiveScenarioStep | null {
+  const state = params.skillDecisionState;
+  if (
+    state === null ||
+    state === undefined ||
+    state.activeScenarioKey === null ||
+    state.activeSkillId === null
+  ) {
+    return null;
+  }
+  const enabledSkills = params.bundle.skills?.enabled ?? [];
+  const skill = enabledSkills.find((s) => s.id === state.activeSkillId) ?? null;
+  if (skill === null) {
+    return null;
+  }
+  const scenario = (skill.scenarios ?? []).find((s) => s.key === state.activeScenarioKey) ?? null;
+  if (scenario === null || scenario.steps.length === 0) {
+    return null;
+  }
+  const stepIndex = resolveCurrentStepIndex(scenario.steps.length, params.chatPlanTodos ?? null);
+  const step = scenario.steps[stepIndex];
+  if (step === undefined) {
+    return null;
+  }
+  return { skillId: skill.id, scenarioKey: scenario.key, scenario, step, stepIndex };
+}
+
 function escapeXml(text: string): string {
   return text
     .replace(/&/g, "&amp;")

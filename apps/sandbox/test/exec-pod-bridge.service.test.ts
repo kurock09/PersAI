@@ -28,6 +28,7 @@ import { DEFAULT_RUNTIME_SANDBOX_POLICY } from "@persai/runtime-contract";
 import type { CoreV1Api, V1Pod } from "@kubernetes/client-node";
 import {
   ExecPodBridgeService,
+  LimitedCollector,
   WORKSPACE_MOUNT_HYDRATE_CONCURRENCY
 } from "../src/exec-pod-bridge.service";
 
@@ -2359,4 +2360,56 @@ test("ExecPodBridgeService: cold-start runInPod bootstraps only the writable wor
     !dirsScript.includes("/workspace/assistants/"),
     "bootstrap must not hardcode assistant/session subdirs; hydrate/push materialize the tree"
   );
+});
+
+void test("LimitedCollector stops retaining chunks once the byte limit is crossed, while still draining", async () => {
+  const limitBytes = 1_000;
+  const collector = new LimitedCollector(
+    limitBytes,
+    "stdout_limit_exceeded",
+    `Sandbox stdout exceeded ${String(limitBytes)} bytes.`
+  );
+
+  const chunk = Buffer.alloc(200, "a");
+  const totalChunks = 500; // 100,000 bytes written; far beyond the 1,000-byte limit.
+  for (let i = 0; i < totalChunks; i += 1) {
+    await new Promise<void>((resolve, reject) => {
+      collector.write(chunk, (error) => (error ? reject(error) : resolve()));
+    });
+  }
+
+  assert.ok(collector.limitError !== null, "limit must be flagged once crossed");
+  assert.equal(collector.limitError?.code, "stdout_limit_exceeded");
+
+  assert.equal(collector.collect().length, limitBytes);
+});
+
+void test("LimitedCollector retains at most limitBytes when one chunk is oversized", async () => {
+  const collector = new LimitedCollector(
+    1_000,
+    "stdout_limit_exceeded",
+    "Sandbox stdout exceeded 1000 bytes."
+  );
+  await new Promise<void>((resolve, reject) => {
+    collector.write(Buffer.alloc(100_000, "x"), (error) => (error ? reject(error) : resolve()));
+  });
+  assert.equal(collector.limitError?.code, "stdout_limit_exceeded");
+  assert.equal(collector.collect().length, 1_000);
+});
+
+void test("LimitedCollector never flags the limit when total bytes stay within it", async () => {
+  const limitBytes = 1_000;
+  const collector = new LimitedCollector(
+    limitBytes,
+    "stderr_limit_exceeded",
+    `Sandbox stderr exceeded ${String(limitBytes)} bytes.`
+  );
+  const chunk = Buffer.alloc(100, "b");
+  for (let i = 0; i < 5; i += 1) {
+    await new Promise<void>((resolve, reject) => {
+      collector.write(chunk, (error) => (error ? reject(error) : resolve()));
+    });
+  }
+  assert.equal(collector.limitError, null);
+  assert.equal(collector.collect().length, 500);
 });

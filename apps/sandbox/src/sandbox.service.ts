@@ -4,6 +4,7 @@ import { promises as fs } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import { join, extname, basename, isAbsolute, relative, resolve, sep } from "node:path";
 import { Inject, Injectable, Logger } from "@nestjs/common";
+import Ajv2020 from "ajv/dist/2020.js";
 import type { SandboxConfig } from "@persai/config";
 import type {
   RuntimeSandboxJobRequest,
@@ -48,6 +49,24 @@ import {
   isSessionDependencyVisiblePath,
   SESSION_DEPENDENCY_CONTOUR_LIMITS
 } from "./session-runtime-contour";
+import {
+  buildScriptExecutionShellCommand,
+  buildScriptResultMarker,
+  computeScriptExecutableContentHash,
+  computeScriptInputHash,
+  parseScriptExecutionResultJson,
+  reconcileScriptSandboxPolicy,
+  resolveEffectiveScriptOutputBytes,
+  splitScriptExecutionStdout,
+  type SandboxScriptVersionArtifact
+} from "./script-execution-support";
+
+const scriptSchemaValidator = new Ajv2020({
+  strict: true,
+  strictSchema: true,
+  allErrors: true,
+  validateSchema: true
+});
 
 type WorkspaceStats = {
   fileCount: number;
@@ -162,6 +181,9 @@ export class SandboxService {
   }
 
   async submitJob(request: RuntimeSandboxJobRequest): Promise<RuntimeSandboxJobResult> {
+    if (request.toolCode === "script.execute") {
+      return this.submitScriptExecuteJob(request);
+    }
     const preflightViolation = await this.resolvePreflightViolation(request);
     const created = await this.prisma.sandboxJob.create({
       data: {
@@ -201,6 +223,320 @@ export class SandboxService {
       });
     }
     return this.pollJob(created.id);
+  }
+
+  /**
+   * ADR-151 — `script.execute` admission is atomic-create-by-`(assistantId,
+   * scriptInvocationKey)` BEFORE the ordinary preflight/backlog checks run,
+   * so a same-key retry never re-consumes quota/backlog capacity. Only the
+   * winner of the unique-constraint race actually executes; every other
+   * caller with the same key gets the winner's own live/terminal state —
+   * queued/running jobs are polled normally, and a terminal job replays its
+   * persisted result. A same-key call pinned to a different `scriptVersionId`
+   * or a different canonical input hash is a stable `idempotency_conflict`,
+   * never a silent second execution.
+   */
+  private async submitScriptExecuteJob(
+    request: RuntimeSandboxJobRequest
+  ): Promise<RuntimeSandboxJobResult> {
+    const scriptVersionId = request.scriptVersionId;
+    const scriptSkillId = request.scriptSkillId;
+    const expectedContentHash = request.scriptContentHash;
+    const scriptInvocationKey = request.scriptInvocationKey;
+    if (
+      scriptVersionId === null ||
+      scriptSkillId === null ||
+      expectedContentHash === null ||
+      scriptInvocationKey === null
+    ) {
+      return this.synthesizeScriptFailure(
+        request,
+        "script_execute_missing_pin",
+        "script.execute requires a complete pinned Script capability."
+      );
+    }
+    let artifact: SandboxScriptVersionArtifact;
+    try {
+      artifact = await this.loadAuthorizedScriptVersionArtifact({
+        assistantId: request.assistantId,
+        skillId: scriptSkillId,
+        scriptVersionId,
+        expectedContentHash
+      });
+    } catch (error) {
+      const { code, message } = this.normalizeSandboxError(error);
+      return this.synthesizeScriptFailure(request, code, message);
+    }
+    const mappedInput = (request.args as { input?: unknown }).input ?? null;
+    const inputValidation = this.validateScriptSchema(artifact.inputSchema, mappedInput);
+    if (!inputValidation.ok) {
+      return this.synthesizeScriptFailure(request, "script_input_invalid", inputValidation.message);
+    }
+    const inputHash = computeScriptInputHash(mappedInput);
+    const reconciledPolicy = reconcileScriptSandboxPolicy(request.policy, artifact.limits);
+    const resultMarker = buildScriptResultMarker(scriptInvocationKey);
+    const effectiveOutputBytes = resolveEffectiveScriptOutputBytes(
+      reconciledPolicy,
+      artifact.limits,
+      resultMarker
+    );
+    if (effectiveOutputBytes < 1) {
+      return this.synthesizeScriptFailure(
+        request,
+        "script_output_limit_invalid",
+        "The effective Script output limit is too small for the structured result protocol."
+      );
+    }
+    const reconciledRequest: RuntimeSandboxJobRequest = { ...request, policy: reconciledPolicy };
+
+    let created: { id: string } | null = null;
+    let creationError: unknown = null;
+    try {
+      created = await this.prisma.sandboxJob.create({
+        data: {
+          assistantId: request.assistantId,
+          workspaceId: request.workspaceId,
+          runtimeRequestId: request.runtimeRequestId,
+          runtimeSessionId: request.runtimeSessionId,
+          toolCode: request.toolCode,
+          scriptVersionId,
+          scriptInvocationKey,
+          status: "queued",
+          relativeWorkspace: ".",
+          policySnapshot: this.toJsonValue({
+            ...reconciledPolicy,
+            scriptInputHash: inputHash,
+            scriptContentHash: artifact.contentHash,
+            scriptRuntime: artifact.runtime,
+            scriptLimits: artifact.limits,
+            scriptEffectiveOutputBytes: effectiveOutputBytes,
+            scriptResultMarker: resultMarker
+          }),
+          requestPayload: this.toJsonValue(request.args)
+        },
+        select: { id: true }
+      });
+    } catch (error) {
+      if (!this.isPrismaUniqueConstraintError(error)) {
+        throw error;
+      }
+      creationError = error;
+    }
+
+    if (created === null) {
+      const existing = await this.prisma.sandboxJob.findUnique({
+        where: {
+          assistantId_scriptInvocationKey: {
+            assistantId: request.assistantId,
+            scriptInvocationKey
+          }
+        }
+      });
+      if (existing === null) {
+        throw creationError;
+      }
+      const existingSnapshot =
+        existing.policySnapshot !== null &&
+        typeof existing.policySnapshot === "object" &&
+        !Array.isArray(existing.policySnapshot)
+          ? (existing.policySnapshot as Record<string, unknown>)
+          : {};
+      const versionMatches = existing.scriptVersionId === scriptVersionId;
+      const inputMatches = existingSnapshot.scriptInputHash === inputHash;
+      if (!versionMatches || !inputMatches) {
+        return {
+          jobId: existing.id,
+          status: "failed",
+          toolCode: request.toolCode,
+          reason: "idempotency_conflict",
+          warning:
+            "A script execution with this invocation key is already recorded with a different pinned version or input.",
+          violationCode: "idempotency_conflict",
+          violationMessage: "scriptInvocationKey collision with a different version or input.",
+          exitCode: null,
+          stdout: null,
+          stderr: null,
+          content: null,
+          files: []
+        };
+      }
+      return this.pollJob(existing.id);
+    }
+
+    this.sandboxObservabilityService.recordSubmittedJob();
+    const preflightViolation = await this.resolvePreflightViolation(reconciledRequest, created.id);
+    if (preflightViolation !== null) {
+      await this.prisma.sandboxJob.update({
+        where: { id: created.id },
+        data: {
+          status: "blocked",
+          completedAt: new Date(),
+          violationCode: preflightViolation.code,
+          violationMessage: this.stripNulCharacters(preflightViolation.message),
+          resultPayload: {
+            reason: preflightViolation.code,
+            warning: this.stripNulCharacters(preflightViolation.message),
+            exitCode: null,
+            stdout: null,
+            stderr: null,
+            content: null
+          }
+        }
+      });
+      return this.pollJob(created.id);
+    }
+    const createdJobId = created.id;
+    void this.enqueueWorkspaceJob(
+      this.buildWorkspaceSessionKey(request.assistantId, request.workspaceId),
+      () => this.executeQueuedJob(createdJobId, reconciledRequest)
+    ).catch((error) => {
+      this.logger.error(`Sandbox script job ${createdJobId} crashed: ${String(error)}`);
+    });
+    return this.pollJob(createdJobId);
+  }
+
+  private synthesizeScriptFailure(
+    request: RuntimeSandboxJobRequest,
+    code: string,
+    message: string
+  ): RuntimeSandboxJobResult {
+    return {
+      jobId: randomUUID(),
+      status: "blocked",
+      toolCode: request.toolCode,
+      reason: code,
+      warning: message,
+      violationCode: code,
+      violationMessage: message,
+      exitCode: null,
+      stdout: null,
+      stderr: null,
+      content: null,
+      files: []
+    };
+  }
+
+  private async loadAuthorizedScriptVersionArtifact(input: {
+    assistantId: string;
+    skillId: string;
+    scriptVersionId: string;
+    expectedContentHash: string;
+  }): Promise<SandboxScriptVersionArtifact> {
+    const assistant = await this.prisma.assistant.findUnique({
+      where: { id: input.assistantId },
+      select: { roleId: true }
+    });
+    if (assistant === null) {
+      this.throwPolicy("runtime_script_assistant_not_found", "The Script assistant was not found.");
+    }
+    const roleSkill = await this.prisma.assistantRoleSkill.findUnique({
+      where: { roleId_skillId: { roleId: assistant.roleId, skillId: input.skillId } },
+      select: { skill: { select: { status: true, archivedAt: true } } }
+    });
+    if (
+      roleSkill === null ||
+      roleSkill.skill.status !== "active" ||
+      roleSkill.skill.archivedAt !== null
+    ) {
+      this.throwPolicy(
+        "runtime_script_skill_not_effective",
+        "The referenced Skill is no longer effective for this assistant."
+      );
+    }
+    const row = await this.prisma.scriptVersion.findUnique({
+      where: { id: input.scriptVersionId },
+      select: {
+        id: true,
+        scriptId: true,
+        version: true,
+        status: true,
+        contentHash: true,
+        code: true,
+        runtime: true,
+        entryCommand: true,
+        manifest: true,
+        inputSchema: true,
+        outputSchema: true,
+        limits: true,
+        script: { select: { key: true, status: true } }
+      }
+    });
+    if (row === null) {
+      this.throwPolicy(
+        "runtime_script_version_not_found",
+        "The pinned Script version was not found."
+      );
+    }
+    if (row.status !== "published") {
+      this.throwPolicy(
+        "runtime_script_version_not_published",
+        "The pinned Script version is not published."
+      );
+    }
+    if (row.script.status === "archived") {
+      this.throwPolicy("runtime_script_archived", "The Script has been archived.");
+    }
+    if (row.script.status !== "published") {
+      this.throwPolicy("runtime_script_not_published", "The Script is not published.");
+    }
+    const link = await this.prisma.skillScript.findUnique({
+      where: { skillId_scriptId: { skillId: input.skillId, scriptId: row.scriptId } },
+      select: { skillId: true }
+    });
+    if (link === null) {
+      this.throwPolicy(
+        "runtime_script_unlinked",
+        "The Script is no longer linked to the referenced Skill."
+      );
+    }
+    const artifact: SandboxScriptVersionArtifact = {
+      id: row.id,
+      scriptId: row.scriptId,
+      scriptKey: row.script.key,
+      version: row.version,
+      contentHash: row.contentHash,
+      status: row.status,
+      code: row.code,
+      runtime: row.runtime,
+      entryCommand: row.entryCommand,
+      manifest: row.manifest as SandboxScriptVersionArtifact["manifest"],
+      inputSchema: row.inputSchema as Record<string, unknown>,
+      outputSchema: row.outputSchema as Record<string, unknown>,
+      limits: row.limits as SandboxScriptVersionArtifact["limits"],
+      scriptStatus: row.script.status
+    };
+    const recomputedHash = computeScriptExecutableContentHash(artifact);
+    if (
+      artifact.contentHash === null ||
+      artifact.contentHash !== input.expectedContentHash ||
+      recomputedHash !== input.expectedContentHash
+    ) {
+      this.throwPolicy(
+        "runtime_script_content_hash_mismatch",
+        "The pinned Script executable content hash does not match."
+      );
+    }
+    return artifact;
+  }
+
+  private validateScriptSchema(
+    schema: Record<string, unknown>,
+    value: unknown
+  ): { ok: true } | { ok: false; message: string } {
+    try {
+      const validate = scriptSchemaValidator.compile(schema);
+      if (validate(value)) {
+        return { ok: true };
+      }
+      const detail = (validate.errors ?? [])
+        .slice(0, 5)
+        .map((error) => `${error.instancePath || "/"} ${error.message ?? "is invalid"}`)
+        .join("; ")
+        .slice(0, 600);
+      return { ok: false, message: detail || "Script value does not match its schema." };
+    } catch {
+      return { ok: false, message: "The published Script schema is invalid." };
+    }
   }
 
   async cancelJob(jobId: string): Promise<RuntimeSandboxJobResult> {
@@ -691,13 +1027,15 @@ export class SandboxService {
   }
 
   private async resolvePreflightViolation(
-    request: RuntimeSandboxJobRequest
+    request: RuntimeSandboxJobRequest,
+    excludeJobId?: string
   ): Promise<{ code: string; message: string } | null> {
     await this.failStalePendingJobsBeforeBacklogCount(request);
 
     const [pendingJobs, workspacePendingJobs] = await Promise.all([
       this.prisma.sandboxJob.count({
         where: {
+          ...(excludeJobId === undefined ? {} : { id: { not: excludeJobId } }),
           status: {
             in: [...PENDING_SANDBOX_JOB_STATUSES]
           }
@@ -705,6 +1043,7 @@ export class SandboxService {
       }),
       this.prisma.sandboxJob.count({
         where: {
+          ...(excludeJobId === undefined ? {} : { id: { not: excludeJobId } }),
           assistantId: request.assistantId,
           workspaceId: request.workspaceId,
           status: {
@@ -737,6 +1076,7 @@ export class SandboxService {
       const startOfDay = this.startOfUtcDay(new Date());
       const jobsToday = await this.prisma.sandboxJob.count({
         where: {
+          ...(excludeJobId === undefined ? {} : { id: { not: excludeJobId } }),
           assistantId: request.assistantId,
           workspaceId: request.workspaceId,
           createdAt: {
@@ -886,8 +1226,19 @@ export class SandboxService {
         jobId,
         expectedStatus: "running",
         data: {
-          status: "completed",
+          status:
+            request.toolCode === "script.execute" && result.reason !== null
+              ? "failed"
+              : "completed",
           completedAt: new Date(),
+          ...(request.toolCode === "script.execute" && result.reason !== null
+            ? {
+                violationCode: this.stripNulCharacters(result.reason),
+                violationMessage: this.stripNulCharacters(
+                  result.warning ?? "Script execution failed."
+                )
+              }
+            : {}),
           ...(result.execPodName !== undefined ? { execPodName: result.execPodName } : {}),
           resultPayload: {
             reason: this.stripNulCharactersNullable(result.reason),
@@ -1128,6 +1479,33 @@ export class SandboxService {
           input.request.workspaceId,
           input.signal
         );
+      case "script.execute": {
+        const scriptVersionId = input.request.scriptVersionId;
+        if (scriptVersionId === null || scriptVersionId === undefined) {
+          this.throwPolicy(
+            "script_execute_missing_version",
+            "script.execute requires a pinned scriptVersionId."
+          );
+        }
+        return this.executeScriptRun(
+          input.workspaceRoot,
+          input.currentRoot,
+          input.request.args,
+          input.request.policy,
+          input.leaseGuard,
+          input.jobId,
+          input.request.runtimeSessionId ?? null,
+          input.request.assistantId,
+          input.assistantHandle,
+          input.siblingHandles,
+          input.request.workspaceId,
+          input.signal,
+          scriptVersionId,
+          input.request.scriptInvocationKey ?? null,
+          input.request.scriptSkillId,
+          input.request.scriptContentHash
+        );
+      }
       default:
         this.throwPolicy(
           "tool_not_supported",
@@ -1226,6 +1604,199 @@ export class SandboxService {
       execPodName: result.execPodName,
       execPodBinding: result.execPodBinding,
       producedFiles
+    };
+  }
+
+  /**
+   * ADR-151 — execute a Script through the exact existing warm session
+   * sandbox path: same lease/pod/workspace/cwd/egress/quota machinery as
+   * `exec`/`shell`, with the Script's own immutable `code`/`entryCommand`
+   * reloaded server-side by `scriptVersionId` (never trusted from the model
+   * or the request payload). Code/input/output all stage under a transient
+   * `/tmp` directory that is removed by the wrapper script itself on every
+   * exit path and is never scanned as a produced/visible workspace file, so
+   * it can never reach GCS/Files/snapshots. The Script's ordinary working
+   * directory remains the session workspace root (`currentRoot`).
+   */
+  private async executeScriptRun(
+    workspaceRoot: string,
+    currentRoot: string,
+    args: Record<string, unknown>,
+    policy: RuntimeSandboxPolicy,
+    leaseGuard: WorkspaceLeaseGuard,
+    jobId: string,
+    runtimeSessionId: string | null,
+    assistantId: string,
+    assistantHandle: string,
+    siblingHandles: readonly string[],
+    workspaceId: string,
+    signal: AbortSignal,
+    scriptVersionId: string,
+    scriptInvocationKey: string | null,
+    scriptSkillId: string | null,
+    expectedContentHash: string | null
+  ): Promise<SandboxToolExecutionResult> {
+    if (scriptSkillId === null || expectedContentHash === null || scriptInvocationKey === null) {
+      this.throwPolicy("script_execute_missing_pin", "The Script capability pin is incomplete.");
+    }
+    const artifact = await this.loadAuthorizedScriptVersionArtifact({
+      assistantId,
+      skillId: scriptSkillId,
+      scriptVersionId,
+      expectedContentHash
+    });
+    const mappedInput = (args as { input?: unknown }).input ?? {};
+    const inputValidation = this.validateScriptSchema(artifact.inputSchema, mappedInput);
+    if (!inputValidation.ok) {
+      this.throwPolicy("script_input_invalid", inputValidation.message);
+    }
+    const inputJson = JSON.stringify(mappedInput);
+    const inputSizeBytes = Buffer.byteLength(inputJson, "utf8");
+    if (inputSizeBytes > policy.maxSingleFileWriteBytes) {
+      this.throwPolicy(
+        "single_file_write_limit_exceeded",
+        `Script input is ${String(inputSizeBytes)} bytes, above the per-file limit of ${String(
+          policy.maxSingleFileWriteBytes
+        )}.`
+      );
+    }
+
+    this.assertWorkspaceLeaseActive(leaseGuard);
+
+    const scriptDir = `/tmp/persai-script/${jobId}`;
+    const resultMarker = buildScriptResultMarker(scriptInvocationKey);
+    const effectiveOutputBytes = resolveEffectiveScriptOutputBytes(
+      policy,
+      artifact.limits,
+      resultMarker
+    );
+    const stagingFiles: SessionPodStagingFile[] = [
+      { absolutePath: `${scriptDir}/entry`, contents: Buffer.from(artifact.code, "utf8") },
+      { absolutePath: `${scriptDir}/input.json`, contents: Buffer.from(inputJson, "utf8") }
+    ];
+    const wrapperScript = buildScriptExecutionShellCommand({
+      scriptDir,
+      entryCommand: artifact.entryCommand,
+      invocationKey: scriptInvocationKey,
+      manifestEnvironment: artifact.manifest.environment,
+      resultMarker,
+      maxOutputBytes: effectiveOutputBytes
+    });
+
+    const absoluteCwd = this.resolveShellExecCwdPath(
+      workspaceRoot,
+      currentRoot,
+      artifact.manifest.workingDirectory
+    );
+    await fs.mkdir(absoluteCwd, { recursive: true });
+    let boundScriptPod: ExecPodJobBinding | null = null;
+    let result: Awaited<ReturnType<ExecPodBridgeService["runInPod"]>> | null = null;
+    let executionError: unknown = null;
+    try {
+      result = await this.execPodBridgeService.runInPod({
+        jobId,
+        leaseToken: leaseGuard.handle.leaseToken,
+        leaseHolderId: leaseGuard.handle.holderId,
+        runtimeSessionId,
+        assistantId,
+        assistantHandle,
+        siblingHandles,
+        workspaceId,
+        workspaceRoot,
+        absoluteCwd,
+        command: "/bin/bash",
+        args: ["-lc", wrapperScript],
+        policy,
+        stagingFiles,
+        signal,
+        onBound: (binding) => {
+          boundScriptPod = binding;
+          this.activeJobBindings.set(jobId, {
+            binding,
+            runtimeSessionId,
+            processCleanupStarted: false
+          });
+          leaseGuard.podBinding = binding;
+        }
+      });
+      boundScriptPod = result.execPodBinding ?? boundScriptPod;
+    } catch (error) {
+      executionError = error;
+    }
+    const cleanupBinding = boundScriptPod ?? leaseGuard.podBinding;
+    if (cleanupBinding !== null) {
+      try {
+        await this.execPodBridgeService.cleanupBoundScriptTransientDirectory({
+          binding: cleanupBinding
+        });
+      } catch (cleanupError) {
+        await this.execPodBridgeService.retireModelJobPod({ binding: cleanupBinding });
+        throw cleanupError;
+      }
+    }
+    if (executionError !== null) {
+      throw executionError;
+    }
+    if (result === null) {
+      this.throwPolicy("script_execution_failed", "Script execution returned no result.");
+    }
+    leaseGuard.podBinding = result.execPodBinding ?? null;
+
+    const { diagnosticStdout, resultText } = splitScriptExecutionStdout(
+      result.stdout,
+      resultMarker
+    );
+    if (result.exitCode !== 0) {
+      return {
+        reason: "process_failed",
+        warning: null,
+        exitCode: result.exitCode,
+        stdout: diagnosticStdout,
+        stderr: result.stderr,
+        content: null,
+        durationMs: result.durationMs,
+        execPodName: result.execPodName,
+        execPodBinding: result.execPodBinding
+      };
+    }
+    const parsed = parseScriptExecutionResultJson(resultText, effectiveOutputBytes);
+    if (!parsed.ok) {
+      return {
+        reason: parsed.code,
+        warning: parsed.message,
+        exitCode: result.exitCode,
+        stdout: diagnosticStdout,
+        stderr: result.stderr,
+        content: null,
+        durationMs: result.durationMs,
+        execPodName: result.execPodName,
+        execPodBinding: result.execPodBinding
+      };
+    }
+    const outputValidation = this.validateScriptSchema(artifact.outputSchema, parsed.value);
+    if (!outputValidation.ok) {
+      return {
+        reason: "script_output_schema_invalid",
+        warning: outputValidation.message,
+        exitCode: result.exitCode,
+        stdout: diagnosticStdout,
+        stderr: result.stderr,
+        content: null,
+        durationMs: result.durationMs,
+        execPodName: result.execPodName,
+        execPodBinding: result.execPodBinding
+      };
+    }
+    return {
+      reason: null,
+      warning: null,
+      exitCode: result.exitCode,
+      stdout: diagnosticStdout,
+      stderr: result.stderr,
+      content: resultText,
+      durationMs: result.durationMs,
+      execPodName: result.execPodName,
+      execPodBinding: result.execPodBinding
     };
   }
 

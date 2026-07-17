@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import Ajv2020 from "ajv/dist/2020.js";
 import type { Script, ScriptVersion, SkillScript } from "@prisma/client";
+import { canonicalizeJsonForHash } from "@persai/runtime-contract";
 
 export type LocalizedScriptText = { ru: string; en: string };
 export type ScriptStatus = "draft" | "published" | "archived";
@@ -83,6 +84,7 @@ const RUNTIME_PATTERN = /^[a-z][a-z0-9_.-]{0,63}$/;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_SCHEMA_BYTES = 65_536;
 const MAX_SCHEMA_DEPTH = 16;
+const RESERVED_SCRIPT_ENV_PREFIX = "PERSAI_SCRIPT_";
 const ajv = new Ajv2020({
   strict: true,
   strictSchema: true,
@@ -162,6 +164,9 @@ export function parseOrderedScriptIds(value: unknown): string[] {
 
 export function validateExecutableContract(input: ScriptVersionWriteInput): void {
   validateJsonSchema(input.inputSchema, "inputSchema");
+  if (input.inputSchema.type !== "object") {
+    throw new Error("inputSchema.type must be object for Scenario input mapping.");
+  }
   validateJsonSchema(input.outputSchema, "outputSchema");
 }
 
@@ -170,13 +175,7 @@ export function computeScriptContentHash(input: ScriptVersionWriteInput): string
 }
 
 export function canonicalJson(value: unknown): string {
-  if (value === null || typeof value !== "object") return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
-  const row = value as Record<string, unknown>;
-  return `{${Object.keys(row)
-    .sort()
-    .map((key) => `${JSON.stringify(key)}:${canonicalJson(row[key])}`)
-    .join(",")}}`;
+  return canonicalizeJsonForHash(value);
 }
 
 export function toScriptState(row: Script): ScriptState {
@@ -270,6 +269,9 @@ function manifest(value: unknown): ScriptManifest {
   for (const [key, val] of Object.entries(environmentRow)) {
     if (!/^[A-Z_][A-Z0-9_]{0,127}$/.test(key))
       throw new Error("manifest environment key is invalid.");
+    if (key.startsWith(RESERVED_SCRIPT_ENV_PREFIX)) {
+      throw new Error(`manifest environment key "${key}" is reserved by the platform.`);
+    }
     environment[key] = text(val, `manifest.environment.${key}`, 0, 4_096, false);
   }
   return {

@@ -1,5 +1,151 @@
 # SESSION-HANDOFF
 
+## 2026-07-17 — ADR-151 Scenario + Runtime audit repairs verified locally
+
+Status: **Accepted / Open — runtime implementation and its independent
+runtime/security re-audit are locally CLEAN at checkpoint `db1f7205`; Admin
+UI/MCP, deploy, and live acceptance remain pending.** The block started from
+the audited Domain + Admin API checkpoint `cbeaccb4`; no push or deployment was
+made.
+
+The parent/independent-audit repair pass closed the candidate's verification
+and security gaps: real runtime/sandbox tests are wired into package gates;
+authored non-null Script refs fail materialization closed and runtime
+`scriptRef` is required-nullable; sandbox authorization and complete canonical
+hash verification run before admission and again before execution; input and
+output schemas are enforced before durable admission/success; winner preflight
+counts exclude the winner; transient protocol files have trap plus
+control-plane cleanup with pod retirement on uncertainty; per-invocation final
+marker framing and effective output caps are bounded; `LimitedCollector`
+retains at most its exact cap; Script cwd reuses the safe shell/exec resolver;
+reserved env/prototype names/extra tool fields are rejected; dynamic schemas
+preserve local refs and combine shared-field constraints.
+
+The final runtime audit repair adds an actual provider `script` call through
+`TurnExecutionService`'s production `SCRIPT_TOOL_CODE` branch. Its assertions
+prove dispatch re-reads live current Skill state plus chat-plan todos
+(projection is not authorization), and that `refreshVolatilePrefix`
+adds/removes `script` as todo/Skill state changes. Dynamic projection now also
+requires `bundle.runtime.sandbox.enabled === true`. The ADR-149 stop/abort test
+is an exported named runner in the isolated runtime gate. Wrapper tests pin
+ordinary entry stdout redirection to diagnostic stderr, while sandbox-level
+coverage proves a direct stdout framing-budget overflow persists
+`stdout_limit_exceeded`, not `script_output_missing`.
+
+Verification completed on the repaired tree: focused ADR-151 API/runtime/
+sandbox tests, actual `@persai/api`, `@persai/runtime`, and `@persai/sandbox`
+package suites, plus the final repository gates listed below. ADR-151 Script
+assertions visibly executed in both runtime and sandbox package outputs.
+
+The independent allowed-model final sign-off returned CLEAN after rerunning the
+actual runtime package suite, focused runtime assertions, and 55 focused
+sandbox assertions. It confirmed both repaired package-gate gaps,
+sandbox-disabled projection, precise framing overflow diagnostics, and no
+repair regressions. Live residuals are limited to real Kubernetes
+policy/cleanup behavior, true concurrent PostgreSQL unique-key races, and a
+deployed model-driven warm-session Script turn.
+
+**Next recommended step:** implement and independently review the Roles-style
+Admin Scripts UI and thin MCP authoring tools. Do not deploy until that block
+and the final repository gate are accepted.
+
+## 2026-07-16 — ADR-151 Scenario + Runtime block implemented locally
+
+Status: **Accepted / Open — Scenario + Runtime block implemented locally on
+top of the audited Domain + Admin API checkpoint.** Branch
+`adr-151-reusable-scripts`, starting checkpoint `cbeaccb4` (the audited
+Domain + Admin API baseline). No commit, push, deployment, or live
+acceptance. Independent runtime/security audit still pending.
+
+- **Materialization:** `script-ref-materialization.ts` resolves an authored
+  `{scriptKey, inputMapping}` Scenario-step reference through the owning
+  Skill's live `SkillScript` link to `Script.currentPublishedVersion` and
+  pins the exact `{scriptKey, scriptId, scriptVersionId, versionNumber,
+contentHash, inputMapping}` plus the bounded input schema needed for
+  projection — one lookup per distinct `scriptKey`, never per step. An
+  already-admitted bundle keeps its exact old pin after a later republish;
+  authored null remains null; archived/unlinked/draft-only/hashless authored
+  references now fail bundle materialization closed with a stable typed error.
+- **Internal artifact API:** `internal-runtime-script-artifact.service.ts` +
+  controller give the runtime a read boundary onto the exact pinned
+  `ScriptVersion` with live re-authorization (assistant → effective Skill →
+  version-published → hash/key match → Script-not-archived →
+  SkillScript-still-linked), each failure a stable typed `runtime_script_*`
+  conflict/validation code. Older published pins remain valid after a newer
+  publish; code is never returned to the runtime (only
+  runtime/entryCommand/manifest/schemas/limits — the sandbox reloads code
+  directly by id).
+- **Provider tool + dispatch:** `native-tool-projection.ts` projects a
+  `script` tool (`{action:"execute", input:object}`) only when
+  `NativeToolProjectionOptions.activeScriptRef` is set;
+  `build-active-scenario-block.service.ts` exports one shared
+  `resolveActiveScenarioStep` resolver reused by both the model-facing block
+  and tool projection. `turn-execution.service.ts` re-resolves the active
+  step from live decision state + chat-plan todos immediately before
+  dispatch (projection is not authorization) and recomputes
+  `activeScriptRef` inside `refreshVolatilePrefix` so tool availability
+  tracks scenario-step advancement mid-turn.
+- **Runtime execution:** new `RuntimeScriptToolService` maps inputs from
+  exactly `literal` / `current_user_message` / `tool_input` sources, builds
+  the mapped object, validates it (and later the Script's result) against
+  the exact published input/output JSON Schemas with a strict Ajv 8.18
+  Draft 2020-12 instance, derives a server-only `scriptInvocationKey`
+  (bounded SHA-256 of `requestId:toolCallId:scriptVersionId`), and dispatches
+  through the existing `SandboxClientService.waitForCompletion` path with
+  `toolCode: "script.execute"`. Distinguishes `blocked` (policy preflight)
+  from `skipped` (validation/execution/output failures) outcomes.
+- **Sandbox admission + execution:** `RuntimeSandboxJobRequest` gained
+  `scriptVersionId`/`scriptInvocationKey`. `SandboxService.submitJob` routes
+  `script.execute` through `submitScriptExecuteJob`, which creates the
+  `SandboxJob` atomically by `(assistantId, scriptInvocationKey)` **before**
+  ordinary preflight/backlog consumption; a `P2002` race refetches the
+  winner's row and replays its queued/running/terminal state, while a
+  same-key call pinned to a different `scriptVersionId` or a different
+  canonical input hash fails closed with `idempotency_conflict` — only the
+  winner's admission ever reaches preflight/execution. `executeScriptRun`
+  reloads the immutable `code`/`entryCommand` server-side by
+  `scriptVersionId`, stages `entry`/`input.json` under a transient
+  `/tmp/persai-script/<jobId>` directory (never scanned as a produced/visible
+  workspace file), runs the published `entryCommand` through the exact
+  existing warm session pod with reserved
+  `PERSAI_SCRIPT_ENTRY_PATH`/`_INPUT_PATH`/`_OUTPUT_PATH`/`_INVOCATION_KEY`
+  env vars (authoring rejects reserved collisions and sandbox values still win
+  defensively), and installs an exit/signal cleanup trap. Bound-pod
+  control-plane cleanup proves `/tmp` removal and retires the pod if proof
+  fails. The Script's structured result is split by a per-invocation final marker and parsed as
+  bounded JSON (`script-execution-support.ts`); no `ScriptRun`, no new pod,
+  image, NetworkPolicy, mount, or package restriction.
+- **Shared correctness repair:** `LimitedCollector` in `ExecPodBridgeService`
+  kept appending stdout/stderr chunks after its byte limit was already
+  crossed (unbounded retained memory on a runaway process). Fixed to retain
+  at most the exact configured byte limit while continuing to drain.
+  retaining additional chunks once `limitError` is set while continuing to
+  drain the exec WebSocket safely; regression test added.
+- **Tests:** `script-ref-materialization.test.ts`,
+  `internal-runtime-script-artifact.service.test.ts` (apps/api);
+  `runtime-script-tool.service.test.ts` (apps/runtime);
+  `script-execute-idempotency.test.ts`, `script-execution-support.test.ts`,
+  and two new `LimitedCollector` cases in `exec-pod-bridge.service.test.ts`
+  (apps/sandbox) — materialization pin/staleness/archived-unlinked
+  rejection, artifact live-authorization (including older-pin-stays-valid),
+  active-step projection+reauthorization, all three mapping sources,
+  input/output schema validation failures, deterministic invocation keys,
+  the full atomic admission matrix (winner/loser/terminal replay/conflict,
+  only-winner real execution), the sandbox execution-support pure helpers,
+  and the `LimitedCollector` retained-bytes bound.
+- **Verification:** full `@persai/api`, `@persai/runtime`, `@persai/sandbox`
+  local test suites green; lint clean for api/runtime/sandbox; `tsc --noEmit`
+  clean for api and web; repo-wide `format:check` clean; `git diff --check`
+  clean. No Helm/image change.
+
+**Next recommended step:** independent audit of the Scenario + Runtime block
+(runtime/security review of the `script` tool dispatch, sandbox admission,
+and artifact-API authorization), then Admin UI + MCP authoring, then
+deployment/live acceptance. Do not claim deploy/live/closure until those
+later gates pass.
+
+---
+
 ## 2026-07-16 — ADR-151 Domain + Admin API implemented locally
 
 Status: **Accepted / Open — Domain + Admin API block implemented and

@@ -896,6 +896,123 @@ export class PersaiInternalApiClientService {
     return usedBytes;
   }
 
+  /**
+   * ADR-151 — internal read boundary the runtime calls immediately before
+   * `script.execute` to re-derive live authorization for an already-pinned
+   * `scriptVersionId`. Never returns the Script's `code`; this exists only
+   * for the runtime's dynamic tool-schema input/output validation and the
+   * pre-execution authorization gate.
+   */
+  async fetchScriptVersionArtifact(input: {
+    assistantId: string;
+    skillId: string;
+    scriptKey: string;
+    scriptVersionId: string;
+    contentHash: string;
+  }): Promise<
+    | {
+        ok: true;
+        scriptId: string;
+        scriptKey: string;
+        scriptVersionId: string;
+        versionNumber: number;
+        contentHash: string;
+        runtime: string;
+        entryCommand: string;
+        manifest: {
+          schemaVersion: 1;
+          workingDirectory: string | null;
+          environment: Record<string, string>;
+        };
+        inputSchema: Record<string, unknown>;
+        outputSchema: Record<string, unknown>;
+        limits: {
+          timeoutMs: number;
+          maxMemoryMb: number;
+          maxCpuMillicores: number;
+          maxOutputBytes: number;
+        };
+      }
+    | { ok: false; code: string; message: string }
+  > {
+    if (!this.isConfigured()) {
+      throw new ServiceUnavailableException("PersAI internal API base URL is not configured.");
+    }
+    const response = await this.fetchJson("/api/v1/internal/runtime/scripts/version", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${this.config.PERSAI_INTERNAL_API_TOKEN}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(input)
+    });
+    const payload = this.asObject(response.body);
+    if (response.ok) {
+      if (
+        payload?.ok === true &&
+        typeof payload.scriptId === "string" &&
+        typeof payload.scriptKey === "string" &&
+        typeof payload.scriptVersionId === "string" &&
+        typeof payload.versionNumber === "number" &&
+        typeof payload.contentHash === "string" &&
+        typeof payload.runtime === "string" &&
+        typeof payload.entryCommand === "string" &&
+        payload.manifest !== null &&
+        typeof payload.manifest === "object" &&
+        payload.inputSchema !== null &&
+        typeof payload.inputSchema === "object" &&
+        payload.outputSchema !== null &&
+        typeof payload.outputSchema === "object" &&
+        payload.limits !== null &&
+        typeof payload.limits === "object"
+      ) {
+        return {
+          ok: true,
+          scriptId: payload.scriptId,
+          scriptKey: payload.scriptKey,
+          scriptVersionId: payload.scriptVersionId,
+          versionNumber: payload.versionNumber,
+          contentHash: payload.contentHash,
+          runtime: payload.runtime,
+          entryCommand: payload.entryCommand,
+          manifest: payload.manifest as {
+            schemaVersion: 1;
+            workingDirectory: string | null;
+            environment: Record<string, string>;
+          },
+          inputSchema: payload.inputSchema as Record<string, unknown>,
+          outputSchema: payload.outputSchema as Record<string, unknown>,
+          limits: payload.limits as {
+            timeoutMs: number;
+            maxMemoryMb: number;
+            maxCpuMillicores: number;
+            maxOutputBytes: number;
+          }
+        };
+      }
+      throw new BadGatewayException(
+        "PersAI internal API returned an invalid script version artifact response."
+      );
+    }
+    const error = this.extractError(response.body);
+    if (response.status === 409 || response.status === 400 || response.status === 404) {
+      return {
+        ok: false,
+        code: error.code ?? "script_artifact_rejected",
+        message:
+          error.message ?? "PersAI internal API rejected the script version artifact request."
+      };
+    }
+    if (response.status >= 500) {
+      throw new ServiceUnavailableException(
+        error.message ?? "PersAI internal API script version artifact request failed."
+      );
+    }
+    throw new BadRequestException(
+      error.message ?? "PersAI internal API rejected the script version artifact request."
+    );
+  }
+
   async getWorkspaceFileMetadata(input: { workspaceId: string; path: string }): Promise<{
     path: string;
     mimeType: string;

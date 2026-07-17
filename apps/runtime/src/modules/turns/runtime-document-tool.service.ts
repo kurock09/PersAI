@@ -1820,7 +1820,11 @@ export class RuntimeDocumentToolService {
         sourceMounts: [],
         textSidecars: [],
         inputPaths: []
-      }
+      },
+      scriptVersionId: null,
+      scriptSkillId: null,
+      scriptContentHash: null,
+      scriptInvocationKey: null
     } satisfies RuntimeSandboxJobRequest);
   }
 

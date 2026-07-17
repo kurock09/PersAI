@@ -135,7 +135,11 @@ export class RuntimeSandboxToolService {
             sandboxJobsPerDay: null,
             maxArtifactSendCountPerTurn: 0
           },
-          args: this.asObject(params.toolCall.arguments)
+          args: this.asObject(params.toolCall.arguments),
+          scriptVersionId: null,
+          scriptSkillId: null,
+          scriptContentHash: null,
+          scriptInvocationKey: null
         } satisfies RuntimeSandboxJobRequest,
         {
           ...(params.abortSignal === undefined ? {} : { signal: params.abortSignal }),

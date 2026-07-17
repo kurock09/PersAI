@@ -34,6 +34,7 @@ import { RuntimeMediaJobCompletionService } from "./runtime-media-job-completion
 import { RuntimeMediaJobRunService } from "./runtime-media-job-run.service";
 import { RuntimeScheduledActionToolService } from "./runtime-scheduled-action-tool.service";
 import { RuntimeSandboxToolService } from "./runtime-sandbox-tool.service";
+import { RuntimeScriptToolService } from "./runtime-script-tool.service";
 import { RuntimeGrepGlobToolService } from "./runtime-grep-glob-tool.service";
 import { RuntimeTtsToolService } from "./runtime-tts-tool.service";
 import { RuntimeVideoGenerateToolService } from "./runtime-video-generate-tool.service";
@@ -89,6 +90,7 @@ import { TurnRoutingService } from "./turn-routing.service";
     RuntimeBundleAutoRefreshService,
     RuntimeScheduledActionToolService,
     RuntimeSandboxToolService,
+    RuntimeScriptToolService,
     RuntimeGrepGlobToolService,
     RuntimeTtsToolService,
     SandboxClientService,
@@ -134,6 +136,7 @@ import { TurnRoutingService } from "./turn-routing.service";
     RuntimeBundleAutoRefreshService,
     RuntimeScheduledActionToolService,
     RuntimeSandboxToolService,
+    RuntimeScriptToolService,
     RuntimeGrepGlobToolService,
     RuntimeTtsToolService,
     SandboxClientService,

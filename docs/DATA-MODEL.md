@@ -221,22 +221,43 @@ Assistant-private uploaded knowledge-source rows now also expose the persisted e
 
 Enabled Skill prompt materialization is runtime-bundle state, not a separate persisted Skill prompt table. **ADR-147 closed truth**: the materializer reads `Assistant.roleId -> AssistantRoleSkill -> active Skill` and writes both the bounded `Enabled Skills` block and the `<assistant_role><mission>...</mission></assistant_role>` cache-prefix block into the materialized runtime bundle. The bundle also carries non-model `effectiveRoleId` so runtime Skill-state persistence can reject stale role snapshots honestly. Setup/recreate publish supplies exact `{assistantId, expectedRoleKey, roleKey}` and reuses the same transactional Role assignment primitive inside publish itself; expected Role drift returns stable 409 before any published-version/apply mutation. Removed direct assignment rows do not exist in deployed schema truth.
 
-**ADR-151 accepted/open (Domain + Admin API implemented locally):**
-platform-global `Script` records have immutable stable keys, localized metadata,
-lifecycle, and audit; immutable published `ScriptVersion` records carry code, strict
-manifest, validated input/output schemas, runtime/entry command, limits, and
-content hash. Ordered `SkillScript` links will be full-replace many-to-many
-availability only; they do not change the closed Role-only effective Skill
-derivation above. A `SkillScenarioStep` JSON value may carry structured
-`scriptRef` plus bounded input mapping.
+**ADR-151 accepted/open (Domain + Admin API + Scenario/Runtime block
+implemented locally):** platform-global `Script` records have immutable
+stable keys, localized metadata, lifecycle, and audit; immutable published
+`ScriptVersion` records carry code, strict manifest, validated input/output
+schemas, runtime/entry command, limits, and content hash. Ordered
+`SkillScript` links are full-replace many-to-many availability only; they do
+not change the closed Role-only effective Skill derivation above. A
+`SkillScenarioStep` JSON value carries only the authored
+`{scriptKey, inputMapping}` — never a version. Bundle materialization is the
+only place that resolves `scriptKey` into an exact pin: it reads the owning
+Skill's live `SkillScript` link and `Script.currentPublishedVersion`, and
+writes `{scriptKey, scriptId, scriptVersionId, versionNumber, contentHash,
+inputMapping, inputSchema}` onto the runtime-bundle `scriptRef` (this pinned
+shape does not exist on the persisted `SkillScenarioStep` row itself — it is
+runtime-bundle-only derived state, analogous to other bundle materializations
+above). The bundle field is required nullable: authored null remains null, but
+materialization failure for an authored non-null ref (unlinked/archived/
+draft-only/hashless or schema-incompatible) throws a stable typed error and
+fails the bundle closed. An already-materialized bundle
+is never retroactively rewritten by a later publish/archive/unlink — the next
+bundle materialization sees the new live state.
 
 There is **no `ScriptRun` model**. `SandboxJob` has nullable exact
-`scriptVersionId` and nullable
-`scriptInvocationKey`, validated request/result and policy snapshot, plus the
-existing pod/resource/timestamp/cancel fields. A nullable
-`@@unique([assistantId, scriptInvocationKey])` will make same-key running polls
-and terminal replay idempotent; version/input mismatch is
-`idempotency_conflict`. It does not promise exactly-once external side effects.
+`scriptVersionId` and nullable `scriptInvocationKey`, validated
+request/result and policy snapshot (which additionally carries the exact
+`scriptInputHash`/`scriptContentHash`/`scriptRuntime`/`scriptLimits` and the
+effective structured-output cap for
+script jobs), plus the existing pod/resource/timestamp/cancel fields. A
+nullable `@@unique([assistantId, scriptInvocationKey])` makes same-key
+admission atomic and idempotent: `SandboxService.submitScriptExecuteJob`
+creates the row by that compound key **before** ordinary preflight/backlog
+consumption; a `P2002` collision refetches the existing row and replays its
+queued/running state via ordinary polling or its terminal state verbatim,
+while a version/input mismatch on the same key is a stable
+`idempotency_conflict` and never a second execution. It does not promise
+exactly-once external side effects — only the platform admission/replay is
+idempotent.
 
 Runtime router Skill planning is also bundle-derived state. The materialized runtime bundle carries compact enabled Skill summaries (`id`, localized name, short description, category, up to two tags, and up to two instruction-card examples as semantic routing hints) for classifier input. The runtime `retrievalPlan` is per-turn transient output and is not persisted as a separate planning table; durable retrieval telemetry remains the later observability path.
 

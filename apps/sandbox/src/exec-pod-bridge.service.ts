@@ -221,7 +221,7 @@ function extractExitCode(status: V1Status): number {
   return 1;
 }
 
-class LimitedCollector extends Writable {
+export class LimitedCollector extends Writable {
   private readonly chunks: Buffer[] = [];
   private totalBytes = 0;
   limitError: BridgeError | null = null;
@@ -235,9 +235,20 @@ class LimitedCollector extends Writable {
   }
 
   override _write(chunk: Buffer, _encoding: string, callback: (error?: Error | null) => void) {
-    this.totalBytes += chunk.length;
-    this.chunks.push(chunk);
-    if (this.totalBytes > this.limitBytes && this.limitError === null) {
+    if (this.limitError !== null) {
+      // Already over the limit: keep draining the exec WebSocket without
+      // retaining further bytes, so retained memory stays bounded regardless
+      // of how much output the remote process still produces.
+      callback();
+      return;
+    }
+    const remainingBytes = Math.max(0, this.limitBytes - this.totalBytes);
+    if (remainingBytes > 0) {
+      const retained = chunk.length <= remainingBytes ? chunk : chunk.subarray(0, remainingBytes);
+      this.chunks.push(Buffer.from(retained));
+      this.totalBytes += retained.length;
+    }
+    if (chunk.length > remainingBytes) {
       // Stdout/stderr byte limit exceeded: terminal policy block, not retryable.
       this.limitError = createBridgeError(this.limitCode, this.limitMessage, true);
     }
@@ -4147,6 +4158,31 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
         `exec_job_pod_clean job=${input.binding.jobId} assistant=${input.binding.assistantId} pod=${input.binding.podName} uid=${input.binding.podUid}`
       );
       return { podName: input.binding.podName, podUid: input.binding.podUid };
+    });
+  }
+
+  /**
+   * ADR-151 control-plane proof that transient Script protocol files are gone.
+   * Uses the exact already-bound pod generation; failure is fatal so the caller
+   * can retire that warm pod through the ordinary fail-closed retirement path.
+   */
+  async cleanupBoundScriptTransientDirectory(input: { binding: ExecPodJobBinding }): Promise<void> {
+    await this.jobBindingContext.run({ ...input.binding }, async () => {
+      await this.assertActiveWorkspaceLease(input.binding);
+      const scriptDir = `/tmp/persai-script/${input.binding.jobId}`;
+      const cleanupResult = await this.execCommand(input.binding.podName, input.binding.namespace, {
+        command: "/bin/sh",
+        args: ["-c", 'rm -rf -- "$1" && test ! -e "$1"', "persai-script-cleanup", scriptDir],
+        podCwd: "/",
+        policy: BOOTSTRAP_HYDRATE_POLICY
+      });
+      if (cleanupResult.exitCode !== 0) {
+        throw createBridgeError(
+          "sandbox_script_transient_cleanup_failed",
+          "Script transient directory cleanup could not be proven.",
+          true
+        );
+      }
     });
   }
 

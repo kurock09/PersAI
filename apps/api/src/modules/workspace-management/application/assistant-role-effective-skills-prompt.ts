@@ -9,10 +9,11 @@ import {
   type EnabledSkillScenarioCandidate
 } from "./enabled-skills-prompt-materialization";
 import { normalizeSkillScenarioSteps } from "./skill-scenario-runtime-normalization";
+import { materializeScenarioStepScriptRefs } from "./script-ref-materialization";
 
 type PromptPrismaClient = Pick<
   Prisma.TransactionClient,
-  "assistantRoleSkill" | "skill" | "skillScenario"
+  "assistantRoleSkill" | "skill" | "skillScenario" | "skillScript"
 >;
 
 export type AssistantRoleEffectiveSkillsPrompt = {
@@ -59,18 +60,27 @@ export async function resolveAssistantRoleEffectiveSkillsPrompt(params: {
             { id: "asc" }
           ]
         });
-  const scenarioCandidates: EnabledSkillScenarioCandidate[] = scenarioRows.map((row) => ({
-    skillId: row.skillId,
-    key: row.key,
-    displayName: normalizeStringRecord(row.displayName),
-    description: normalizeStringRecord(row.description),
-    iconEmoji: row.iconEmoji,
-    intentExamples: normalizeStringArray(row.intentExamples),
-    steps: normalizeSkillScenarioSteps(row.steps),
-    recommendedTools: normalizeStringArray(row.recommendedTools),
-    exitCondition: row.exitCondition,
-    firstStepPreview: typeof row.firstStepPreview === "string" ? row.firstStepPreview : null
-  }));
+  const scenarioCandidates: EnabledSkillScenarioCandidate[] = await Promise.all(
+    scenarioRows.map(async (row) => ({
+      skillId: row.skillId,
+      key: row.key,
+      displayName: normalizeStringRecord(row.displayName),
+      description: normalizeStringRecord(row.description),
+      iconEmoji: row.iconEmoji,
+      intentExamples: normalizeStringArray(row.intentExamples),
+      // ADR-151 — pins each step's raw {scriptKey, inputMapping} to the exact
+      // owning-Skill SkillScript link + Script.currentPublishedVersion, or
+      // null when that chain no longer resolves live.
+      steps: await materializeScenarioStepScriptRefs({
+        prisma: params.prisma,
+        skillId: row.skillId,
+        steps: normalizeSkillScenarioSteps(row.steps)
+      }),
+      recommendedTools: normalizeStringArray(row.recommendedTools),
+      exitCondition: row.exitCondition,
+      firstStepPreview: typeof row.firstStepPreview === "string" ? row.firstStepPreview : null
+    }))
+  );
   const scenariosBySkillId = resolveEnabledSkillScenariosForBundle({
     candidates: scenarioCandidates,
     locale: params.locale

@@ -38,8 +38,17 @@ Primary public API surface:
   owns platform-global Script catalog/version lifecycle, validation, publish,
   and archive; `GET`/`PUT /api/v1/admin/skills/{skillId}/scripts` read and
   full-replace ordered Skill links; Scenario authoring accepts bounded structured
-  `scriptRef` input mapping. There is no execution endpoint. MCP Script wrappers,
-  Admin UI, and runtime `script.execute` remain pending.
+  `scriptRef` input mapping (`{scriptKey, inputMapping}` only — no version is
+  authored). There is still no public execute endpoint. A new internal-only
+  read boundary, `POST /api/v1/internal/runtime/scripts/version`, lets the
+  runtime re-fetch the exact pinned `ScriptVersion` artifact
+  (`runtime`/`entryCommand`/`manifest`/`inputSchema`/`outputSchema`/`limits` —
+  never `code`) with live authorization
+  (assistant → effective Skill → version-published → hash/key match →
+  Script-not-archived → SkillScript-still-linked); this is not published in
+  the public OpenAPI surface and is bearer-guarded by the same internal
+  runtime-to-API token as other `internal/runtime/*` boundaries. MCP Script
+  wrappers and Admin UI remain pending.
 - future ADR-080 admin authoring routes for Skill knowledge cards, Skill draft enrichment, and Product KB text entries stay under `/api/v1/admin/skills*` and `/api/v1/admin/knowledge-sources*`
 - admin document-processing provider settings under `/api/v1/admin/tools/document-processing*`
 - admin billing-provider credential settings under `/api/v1/admin/tools/billing`
@@ -151,11 +160,27 @@ retired fail-closed on cleanup-proof failure. Sessionless jobs still retire.
 mirror, hydrate, runtime manifest upsert, Files gallery, `files.list`, and
 `files.search`. Ordinary work-artifact persistence is unchanged.
 
-**ADR-151 (Accepted / Open; Domain + Admin API implemented locally):** the planned runtime
-boundary is one synchronous model-mediated `script.execute` only when the
-referencing Scenario step is active. It will resolve an exact immutable published
-version, validate the bounded mapped input/result, and use the existing
-`SandboxJob` lifecycle with stable idempotency/replay semantics. It creates no
+**ADR-151 (Accepted / Open; Domain + Admin API + Scenario/Runtime block
+implemented and independently audited CLEAN locally):** the runtime
+boundary is one synchronous model-mediated `script.execute`, projected to the
+model as the tool name `script` (`{action:"execute", input:object}`) only
+when the exact current active Scenario step carries a materialized
+`scriptRef`; projection is re-verified (not trusted) immediately before
+dispatch by re-resolving the live Skill/Scenario/step and re-fetching the
+pinned artifact through the internal read boundary above. It resolves the
+exact immutable published version, validates the bounded mapped
+input/result against the published input/output JSON Schemas, derives a
+server-only `scriptInvocationKey`, and uses the existing `SandboxJob`
+lifecycle (`RuntimeSandboxJobRequest.scriptVersionId` /
+`.scriptSkillId` / `.scriptContentHash` / `.scriptInvocationKey`) with atomic
+create-by-`(assistantId,
+scriptInvocationKey)` admission and stable idempotency/conflict/replay
+semantics. The sandbox independently rechecks assistant Role/effective Skill,
+SkillScript link, Script/ScriptVersion publish state, and complete canonical
+content hash before admission and immediately before execution; request code
+is never trusted. Input is validated before persistence and output before
+terminal success. The internal artifact request parser accepts exact bounded
+keys only. There is no new `ScriptRun` table or endpoint. It creates no
 direct MCP execution boundary, no browser/Tool SDK/async `jobRef`/`wait`/
 `notify` boundary, and no managed-secret API. Those remain ADR-152/153 scope.
 Until ADR-153, code/input credentials are unmanaged values with no promised

@@ -3,3 +3,5 @@ import "./exec-pod-bridge.service.test";
 import "./exec-image-dockerfile.test";
 import "./workspace-file-bridge.service.test";
 import "./shared-outbound-basename.test";
+import "./script-execute-idempotency.test";
+import "./script-execution-support.test";

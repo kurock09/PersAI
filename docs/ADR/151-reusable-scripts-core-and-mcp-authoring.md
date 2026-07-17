@@ -2,17 +2,71 @@
 
 ## Status
 
-**Accepted / Open — Domain + Admin API implemented and independently audited
-locally; runtime, Admin UI, MCP, deploy, and live acceptance pending.**
+**Accepted / Open — Domain + Admin API and Scenario + Runtime blocks
+implemented and independently audited locally (Admin UI, MCP, deploy, and live
+acceptance pending).**
 Founder-approved architecture checkpoint started 2026-07-16 on baseline
 `36947f7544918c0fddadae6ec17f75883b1b1365` (`adr-151-reusable-scripts`).
-The local Domain + Admin API block now includes schema/migration, lifecycle,
+The local Domain + Admin API block includes schema/migration, lifecycle,
 ordered Skill links, bounded Scenario references, explicit auth routes,
 OpenAPI/generated contracts, and focused tests. Its independent audit exercised
 the full 189-migration history and Script constraints against an isolated
-PostgreSQL 16 database with zero target-schema drift. Do not claim a runtime
-path, Admin page, MCP Script tool, deployment, or live acceptance until those
-later blocks pass their independent audits and gates.
+PostgreSQL 16 database with zero target-schema drift.
+
+The Scenario + Runtime block, implemented locally in the same session on top
+of that audited checkpoint, adds: async materialization of the authored
+`{scriptKey, inputMapping}` Scenario-step reference into the exact immutable
+`{scriptId, scriptVersionId, versionNumber, contentHash}` pin;
+`apps/api`'s internal `ScriptVersion` artifact read boundary with live
+Script/SkillScript re-authorization; the provider-facing `script`
+(`{action:"execute", input:object}`) tool, dynamically projected only when
+the sandbox is enabled and the active Scenario step carries a materialized
+`scriptRef`, then re-resolved (not just re-projected) immediately before
+dispatch; runtime-side input
+mapping/Ajv 8.18 Draft-2020-12 validation and server-derived
+`scriptInvocationKey`; `SandboxService.submitJob`'s atomic
+create-by-`(assistantId, scriptInvocationKey)` admission with `P2002`
+winner/loser resolution and `idempotency_conflict` on a version/input
+mismatch; and sandbox-side `executeScriptRun` over the exact existing warm
+session pod, with transient `/tmp` staging that is never mirrored to
+workspace GCS/Files/snapshots. A pre-existing `LimitedCollector` retention bug
+in `ExecPodBridgeService` (stdout/stderr byte-limit chunks kept accumulating
+after the limit was already crossed) was also repaired as shared correctness,
+not new policy. Focused tests cover materialization/pin/staleness,
+projection+reauthorization, all three mapping sources, schema
+validation failures, deterministic invocation keys, the full atomic
+admission/idempotency matrix (winner/loser/terminal-replay/conflict,
+only-winner execution), the sandbox execution-support pure helpers, and the
+`LimitedCollector` bound.
+
+The 2026-07-17 parent/independent-audit repair pass is now landed locally and
+the real `@persai/api`, `@persai/runtime`, and `@persai/sandbox` package suites
+are green. Authored non-null Script references fail materialization closed
+instead of degrading to `null`; `scriptRef` is required-nullable in the runtime
+contract. The sandbox independently re-authorizes the exact assistant/Role/
+Skill/SkillScript/ScriptVersion capability before atomic admission and again
+before execution, recomputes the complete executable-contract hash, validates
+input before persistence and output before terminal success, and persists
+invalid output as typed failure. Transient files use an in-wrapper trap plus
+bound-pod control-plane cleanup; cleanup uncertainty retires the pod. Result
+framing uses a per-invocation final marker and the effective minimum of Script,
+stdout, and single-file limits. The wrapper redirects ordinary entry-command
+stdout to diagnostic stderr so stdout is reserved for framing; a direct
+`/dev/stdout` bypass that exhausts the collector budget persists the precise
+`stdout_limit_exceeded` terminal diagnostic rather than
+`script_output_missing`. `manifest.workingDirectory` uses the existing
+safe shell/exec cwd resolver. Reserved environment names, prototype-pollution
+mapping names, extra tool-call fields, and incompatible schema projection are
+rejected. `LimitedCollector` now retains exactly at most its byte limit. The
+runtime gate includes production-dispatch coverage proving live todo/Skill
+re-authorization and `refreshVolatilePrefix` add/remove behavior, plus the
+ADR-149 tool-abort suite. An independent allowed-model runtime/security
+re-audit returned CLEAN after exercising those package gates and focused
+runtime/sandbox assertions. Remaining live-only probes are real Kubernetes
+policy/cleanup behavior, true concurrent PostgreSQL idempotency races, and a
+deployed model-driven warm-session `script.execute` turn. Do not claim an
+Admin page, MCP Script tool, deployment, or live acceptance until those later
+blocks pass their own gates.
 
 ## Context
 

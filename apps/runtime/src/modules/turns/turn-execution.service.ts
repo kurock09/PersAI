@@ -51,6 +51,7 @@ import {
   type RuntimeFileVisibilityTier,
   type RuntimeOutputArtifact,
   type RuntimeSandboxToolResult,
+  type RuntimeScriptToolResult,
   type RuntimeScheduledActionToolResult,
   type RuntimeBackgroundTaskToolResult,
   type RuntimeSkillDecisionState,
@@ -118,11 +119,15 @@ import { RuntimeImageGenerateToolService } from "./runtime-image-generate-tool.s
 import { RuntimeKnowledgeToolService } from "./runtime-knowledge-tool.service";
 import { RuntimeMemoryWriteToolService } from "./runtime-memory-write-tool.service";
 import { RuntimeTodoWriteToolService } from "./runtime-todo-write-tool.service";
-import { BuildActiveScenarioBlockService } from "./build-active-scenario-block.service";
+import {
+  BuildActiveScenarioBlockService,
+  resolveActiveScenarioStep
+} from "./build-active-scenario-block.service";
 import { BuildSystemReminderBlocksService } from "./build-system-reminder-blocks.service";
 import { RuntimeSkillToolService, type RuntimeSkillToolResult } from "./runtime-skill-tool.service";
 import { RuntimeQuotaStatusToolService } from "./runtime-quota-status-tool.service";
 import { RuntimeSandboxToolService } from "./runtime-sandbox-tool.service";
+import { RuntimeScriptToolService } from "./runtime-script-tool.service";
 import { createTurnToolProgressSink, type TurnToolProgressSink } from "./tool-progress-sink";
 import { RuntimeGrepGlobToolService } from "./runtime-grep-glob-tool.service";
 import { RuntimeBackgroundTaskToolService } from "./runtime-background-task-tool.service";
@@ -333,6 +338,7 @@ type ToolExecutionOutcome = {
     | RuntimeImageEditToolResult
     | RuntimeImageGenerateToolResult
     | RuntimeSandboxToolResult
+    | RuntimeScriptToolResult
     | RuntimeScheduledActionToolResult
     | RuntimeBackgroundTaskToolResult
     | RuntimeTtsToolResult
@@ -429,6 +435,7 @@ const GREP_TOOL_CODE = "grep";
 const GLOB_TOOL_CODE = "glob";
 const EXEC_TOOL_CODE = "exec";
 const SHELL_TOOL_CODE = "shell";
+const SCRIPT_TOOL_CODE = "script";
 const SAFE_PARALLEL_TOOL_CODES = new Set<string>([
   WEB_SEARCH_TOOL_CODE,
   WEB_FETCH_TOOL_CODE,
@@ -539,6 +546,7 @@ export class TurnExecutionService {
     private readonly runtimeTodoWriteToolService: RuntimeTodoWriteToolService,
     private readonly runtimeQuotaStatusToolService: RuntimeQuotaStatusToolService,
     private readonly runtimeSandboxToolService: RuntimeSandboxToolService,
+    private readonly runtimeScriptToolService: RuntimeScriptToolService,
     private readonly runtimeGrepGlobToolService: RuntimeGrepGlobToolService,
     private readonly runtimeBackgroundTaskToolService: RuntimeBackgroundTaskToolService,
     private readonly runtimeScheduledActionToolService: RuntimeScheduledActionToolService,
@@ -764,6 +772,14 @@ export class TurnExecutionService {
       skillDecisionState: input.skillStateContext?.decision ?? null,
       chatPlanTodos: chatPlan?.todos ?? null
     });
+    // ADR-151 — the exact same resolver `buildBlock` renders from, so the
+    // `script` tool's projection gate can never disagree with what the
+    // volatile `<persai_active_scenario>` block shows the model this turn.
+    const activeScenarioStep = resolveActiveScenarioStep({
+      bundle: bundleEntry.parsedBundle,
+      skillDecisionState: input.skillStateContext?.decision ?? null,
+      chatPlanTodos: chatPlan?.todos ?? null
+    });
     // ADR-119 Slice 5 + ADR-125 follow-up: build system-reminder blocks using
     // an initial empty tool budget snapshot. The snapshot is empty at
     // turn-prep time (no tools used yet); budget-warning reminders fire only
@@ -819,7 +835,8 @@ export class TurnExecutionService {
     const nativeToolProjectionOptions: NativeToolProjectionOptions = {
       allowModelToolExposure: options?.allowModelToolExposure ?? true,
       allowedKnowledgeSearchSources: knowledgeSourcePolicy.searchSources,
-      allowedKnowledgeFetchSources: knowledgeSourcePolicy.fetchSources
+      allowedKnowledgeFetchSources: knowledgeSourcePolicy.fetchSources,
+      activeScriptRef: activeScenarioStep?.step.scriptRef ?? null
     };
     const projectedTools = this.applyExcludedToolNames(
       projectRuntimeNativeTools(bundleEntry.parsedBundle, nativeToolProjectionOptions),
@@ -1422,7 +1439,8 @@ export class TurnExecutionService {
                   await this.refreshVolatilePrefix(
                     execution,
                     input,
-                    toolBudgetPolicy.getSnapshot()
+                    toolBudgetPolicy.getSnapshot(),
+                    turnState
                   );
                   const refreshElapsedMs = Date.now() - refreshStartedAtMs;
                   trace?.stage(`iter${String(iteration)}.provider_request_refreshed`);
@@ -1435,7 +1453,8 @@ export class TurnExecutionService {
                   await this.refreshVolatilePrefix(
                     execution,
                     input,
-                    toolBudgetPolicy.getSnapshot()
+                    toolBudgetPolicy.getSnapshot(),
+                    turnState
                   );
                   trace?.stage(`iter${String(iteration)}.volatile_prefix_refreshed`);
                 }
@@ -3082,9 +3101,19 @@ export class TurnExecutionService {
         // so the next iteration still carries the scenario block, chat plan,
         // and `<system-reminder>` blocks with up-to-date state.
         execution.volatilePrefixLength = 0;
-        await this.refreshVolatilePrefix(execution, input, toolBudgetPolicy.getSnapshot());
+        await this.refreshVolatilePrefix(
+          execution,
+          input,
+          toolBudgetPolicy.getSnapshot(),
+          turnState
+        );
       } else if (volatileRefreshNeeded) {
-        await this.refreshVolatilePrefix(execution, input, toolBudgetPolicy.getSnapshot());
+        await this.refreshVolatilePrefix(
+          execution,
+          input,
+          toolBudgetPolicy.getSnapshot(),
+          turnState
+        );
       }
       previewFollowUpExtraIterations = this.reservePreviewFollowUpIterationIfNeeded({
         turnState,
@@ -3530,6 +3559,29 @@ export class TurnExecutionService {
           chatId: currentChatId,
           sourceUserMessageText: input.message.text,
           sourceUserMessageCreatedAt: new Date().toISOString(),
+          ...(abortSignal === undefined ? {} : { abortSignal }),
+          ...(toolProgressSink === undefined ? {} : { toolProgressSink })
+        });
+        return this.createToolExecutionOutcome(toolCall, result.payload, result.isError);
+      }
+      case SCRIPT_TOOL_CODE: {
+        // ADR-151 — projection is not authorization: re-resolve the exact
+        // current active Scenario step from live decision state + the
+        // live chat plan immediately before execution, never trusting the
+        // step that was true when this turn's tools were first projected.
+        const chatPlan = await this.turnContextHydrationService.buildChatPlanBlock(input);
+        const activeScenarioStep = resolveActiveScenarioStep({
+          bundle: execution.bundle,
+          skillDecisionState: execution.currentSkillDecisionState,
+          chatPlanTodos: chatPlan?.todos ?? null
+        });
+        const result = await this.runtimeScriptToolService.executeToolCall({
+          bundle: execution.bundle,
+          toolCall,
+          activeScenarioStep,
+          sessionId: acceptedTurn.session.sessionId,
+          requestId: acceptedTurn.receipt.requestId,
+          currentUserMessageText: input.message.text,
           ...(abortSignal === undefined ? {} : { abortSignal }),
           ...(toolProgressSink === undefined ? {} : { toolProgressSink })
         });
@@ -4258,6 +4310,7 @@ export class TurnExecutionService {
       | RuntimeImageEditToolResult
       | RuntimeImageGenerateToolResult
       | RuntimeSandboxToolResult
+      | RuntimeScriptToolResult
       | RuntimeScheduledActionToolResult
       | RuntimeBackgroundTaskToolResult
       | RuntimeTtsToolResult
@@ -6316,7 +6369,8 @@ export class TurnExecutionService {
   private async refreshVolatilePrefix(
     execution: PreparedTurnExecution,
     input: RuntimeTurnRequest,
-    toolBudgetSnapshot: ToolBudgetSnapshot
+    toolBudgetSnapshot: ToolBudgetSnapshot,
+    turnState: TurnExecutionState
   ): Promise<void> {
     const chatPlan = await this.turnContextHydrationService.buildChatPlanBlock(input);
     // ADR-130 D5: derive the current scenario step from the same windowed plan.
@@ -6342,6 +6396,32 @@ export class TurnExecutionService {
       messages: [...newPrefix, ...base]
     };
     execution.volatilePrefixLength = newPrefix.length;
+    // ADR-151 — the active Scenario step (and therefore its scriptRef) can
+    // change from exactly the same tools that trigger this refresh
+    // (todo_write advancing the plan, skill.engage/release). Re-derive the
+    // projection gate from the identical resolver + re-project the `script`
+    // tool in lockstep with the volatile block so they never disagree.
+    const activeScenarioStep = resolveActiveScenarioStep({
+      bundle: execution.bundle,
+      skillDecisionState: execution.currentSkillDecisionState,
+      chatPlanTodos: chatPlan?.todos ?? null
+    });
+    execution.nativeToolProjectionOptions = {
+      ...execution.nativeToolProjectionOptions,
+      activeScriptRef: activeScenarioStep?.step.scriptRef ?? null
+    };
+    const projectedTools = this.applyExcludedToolNames(
+      projectRuntimeNativeTools(execution.bundle, {
+        ...execution.nativeToolProjectionOptions,
+        wireExpandedCatalogToolCodes: turnState.wireExpandedCatalogToolCodes
+      }),
+      execution.excludedToolNames
+    );
+    execution.projectedTools = projectedTools;
+    execution.providerRequest = {
+      ...execution.providerRequest,
+      tools: projectedTools.tools
+    };
   }
 
   /**

@@ -33,21 +33,24 @@ const CAROUSEL_SCENARIO: RuntimeBundleSkillScenario = {
       directive: "Collect brief from user.",
       recommendedToolCall: null,
       mayBeSkippedIf: null,
-      negativeGuards: ["skip brief collection"]
+      negativeGuards: ["skip brief collection"],
+      scriptRef: null
     },
     {
       number: 2,
       directive: "Generate carousel images.",
       recommendedToolCall: "image_generate",
       mayBeSkippedIf: null,
-      negativeGuards: []
+      negativeGuards: [],
+      scriptRef: null
     },
     {
       number: 3,
       directive: "Release scenario.",
       recommendedToolCall: null,
       mayBeSkippedIf: null,
-      negativeGuards: []
+      negativeGuards: [],
+      scriptRef: null
     }
   ],
   recommendedTools: ["image_generate"],
@@ -813,7 +816,8 @@ export async function runBuildSystemReminderBlocksServiceTest(): Promise<void> {
           directive: `${"verbose ".repeat(40)}finally`.trim(), // ~320+ chars, no early sentence terminator
           recommendedToolCall: null,
           mayBeSkippedIf: null,
-          negativeGuards: []
+          negativeGuards: [],
+          scriptRef: null
         }
       ],
       recommendedTools: [],
@@ -859,7 +863,8 @@ export async function runBuildSystemReminderBlocksServiceTest(): Promise<void> {
         directive: `Step ${String(i + 1)} directive.`,
         recommendedToolCall: null,
         mayBeSkippedIf: null,
-        negativeGuards: []
+        negativeGuards: [],
+        scriptRef: null
       })),
       recommendedTools: [],
       exitCondition: "done"

@@ -113,30 +113,73 @@ ephemeral only — not mirrored to GCS, not hydrated, not shown in Files /
 ADR-146 stays closed; ADR-148 supersedes only the over-broad per-job retirement
 behavior and must not be reopened for new scope.
 
-**ADR-151 accepted/open (Domain + Admin API implemented locally; runtime
-pending):** platform-global reusable Scripts are immutable-versioned ordinary
-code, not nested PersAI agents. The local control plane now owns Script,
-immutable published ScriptVersion, ordered SkillScript, bounded Scenario
-`scriptRef`, and nullable SandboxJob invocation identity schema. A later
-synchronous `script.execute` resolves an exact published
-ScriptVersion and delegates to this same warm session sandbox path: Assistant
-workspace, `/opt/venv`, system/Python/Node/Bash tools, existing warm install
-layer, Assistant `restricted | full_public` egress choice, and existing
-Stop/deadline/resource/cleanup semantics. It adds no Script-specific pod,
-NetworkPolicy, image, package allowlist, stdlib-only contour, or staging
-filesystem. ADR-150 remains authoritative: session-installed packages do not
-survive cold pod recycle or GCS/Files/snapshot/hydrate.
+**ADR-151 accepted/open (Domain + Admin API + Scenario/Runtime block
+implemented locally; audit/deploy/live pending):** platform-global reusable
+Scripts are immutable-versioned ordinary code, not nested PersAI agents. The
+local control plane owns Script, immutable published ScriptVersion, ordered
+SkillScript, bounded Scenario `scriptRef`, and nullable SandboxJob invocation
+identity schema. `RuntimeBundleSkillScenarioStep.scriptRef` is required
+nullable (no legacy optional dual-read). Bundle materialization resolves an authored
+`{scriptKey, inputMapping}` Scenario-step reference through the owning Skill's
+live `SkillScript` link to `Script.currentPublishedVersion` and pins the exact
+`{scriptKey, scriptId, scriptVersionId, versionNumber, contentHash,
+inputMapping}` plus the bounded input schema needed for dynamic projection;
+an authored non-null reference that cannot resolve fails bundle materialization
+closed, while an authored null stays null. An already-admitted bundle keeps its
+exact old pin even after a later republish. A dedicated
+internal read boundary (`apps/api`) lets the runtime re-fetch that exact pinned
+`ScriptVersion` artifact immediately before execution, live-checking the
+assistant's current Role/effective active Skill, `Script.status`, and the
+`SkillScript` link on every admission (older published
+pins remain valid; archived/unlinked/key/hash mismatch fails closed with
+stable typed errors) without ever leaking code to prompts/logs. The
+provider-facing tool name is `script` (`{action:"execute", input:object}`,
+internal operation/`SandboxJob.toolCode` exactly `script.execute`), projected
+only when the exact current active Scenario step carries a materialized
+`scriptRef`; projection is not authorization, so the runtime re-resolves the
+live Skill/Scenario/step immediately before dispatch. Runtime input mapping
+supports exactly `literal` / `current_user_message` / `tool_input` sources,
+validates the mapped object and the Script's result against the exact
+published input/output JSON Schemas with Ajv 8.18 strict Draft 2020-12, and
+derives a server-only `scriptInvocationKey` (bounded SHA-256 of turn/request
+identity + provider tool-call id + pinned version) that the sandbox threads to
+the Script through a reserved platform environment variable.
+
+`SandboxService.submitJob` admits `script.execute` atomically by
+`(assistantId, scriptInvocationKey)` before ordinary preflight/quota
+consumption: on a `P2002` race the loser refetches the winner's row and
+replays queued/running/terminal state, while a same-key call pinned to a
+different version or a different canonical input hash fails closed with a
+stable `idempotency_conflict` — only the winner ever executes. Execution
+delegates to this exact same warm session sandbox path: Assistant workspace,
+`/opt/venv`, system/Python/Node/Bash tools, existing warm install layer,
+Assistant `restricted | full_public` egress choice, and existing
+Stop/deadline/resource/cleanup semantics. The immutable `code`/`entryCommand`
+are reloaded server-side by `scriptVersionId` (never trusted from the model).
+The sandbox repeats the complete authorization check immediately before
+execution, recomputes the canonical executable-contract hash, and validates
+input/output before durable success. Code/input/output stage transiently under
+`/tmp`; an in-wrapper trap plus bound-pod control-plane cleanup removes them,
+and cleanup uncertainty retires the pod fail closed, so protocol files never
+enter workspace GCS/Files/snapshots. Script `workingDirectory` reuses the safe
+shell/exec workspace-bounded cwd resolver. Per-invocation result framing and
+the effective minimum of Script/stdout/single-file limits bound structured
+output. It adds no Script-specific pod, NetworkPolicy, image,
+package allowlist, stdlib-only contour, or persistent staging filesystem.
+ADR-150 remains authoritative: session-installed packages do not survive cold
+pod recycle or GCS/Files/snapshot/hydrate.
 
 Scripts may be ordered full-replace links of existing Skills; they do not alter
 ADR-147's Role-only effective Skills derivation. An active Scenario step may
 carry a bounded structured Script reference/input mapping and model-mediate one
-synchronous execution, but no automatic workflow engine. Invocation truth will
-be existing `SandboxJob`, not `ScriptRun`, with exact nullable
-`scriptVersionId`, stable invocation key, policy snapshot, and idempotent
-admission/replay. Tool SDK, browser executor, async/jobRef/wait/notify, and
-managed secrets are explicitly outside ADR-151 (ADRs 152/153); before ADR-153,
-credentials placed in code/input are unmanaged and receive no redaction, TTL,
-revoke, or log-history promise.
+synchronous execution, but no automatic workflow engine. Invocation truth is
+the existing `SandboxJob`, not `ScriptRun`, with exact nullable
+`scriptVersionId`, stable invocation key, policy snapshot (exact
+version/input-hash/runtime/limits), and idempotent admission/replay. Tool SDK,
+browser executor, async/jobRef/wait/notify, and managed secrets are explicitly
+outside ADR-151 (ADRs 152/153); before ADR-153, credentials placed in
+code/input are unmanaged and receive no redaction, TTL, revoke, or log-history
+promise. Independent audit and deploy/live acceptance remain pending.
 
 Model-facing `files.*`, `grep`, and `glob` are **storage-plane** tools: runtime writes/reads committed bytes via GCS + `workspace_file_metadata` + internal API (`apps/api`), not sandbox `toolCode: "files"`.
 

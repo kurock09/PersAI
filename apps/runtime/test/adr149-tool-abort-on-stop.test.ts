@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { describe, test } from "node:test";
+import test from "node:test";
 import type { RuntimeConfig } from "@persai/config";
 import type { RuntimeSandboxJobRequest } from "@persai/runtime-contract";
 import { LocalBrowserBridgeClient } from "../src/modules/turns/local-browser-bridge.client.service";
@@ -15,8 +15,8 @@ function createConfig(): RuntimeConfig {
   } as RuntimeConfig;
 }
 
-describe("ADR-149 tool abort on stop", () => {
-  test("SandboxClientService waitForCompletion aborts when signal is already aborted", async () => {
+export async function runAdr149ToolAbortOnStopTest(): Promise<void> {
+  await test("SandboxClientService waitForCompletion aborts when signal is already aborted", async () => {
     const requests: Array<{ path: string; method: string }> = [];
     const originalFetch = global.fetch;
     global.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -96,7 +96,11 @@ describe("ADR-149 tool abort on stop", () => {
                 sandboxJobsPerDay: null,
                 maxArtifactSendCountPerTurn: 1
               },
-              args: { command: "sleep 30" }
+              args: { command: "sleep 30" },
+              scriptVersionId: null,
+              scriptSkillId: null,
+              scriptContentHash: null,
+              scriptInvocationKey: null
             } satisfies RuntimeSandboxJobRequest,
             { signal: AbortSignal.abort() }
           ),
@@ -108,7 +112,7 @@ describe("ADR-149 tool abort on stop", () => {
     }
   });
 
-  test("RuntimeSandboxToolService maps abort to user_stopped skip", async () => {
+  await test("RuntimeSandboxToolService maps abort to user_stopped skip", async () => {
     const sandboxClient = {
       isConfigured: () => true,
       waitForCompletion: async () => {
@@ -154,7 +158,7 @@ describe("ADR-149 tool abort on stop", () => {
     assert.equal(result.isError, true);
   });
 
-  test("LocalBrowserBridgeClient stops polling when abort signal fires", async () => {
+  await test("LocalBrowserBridgeClient stops polling when abort signal fires", async () => {
     const persaiInternalApiClientService = {
       dispatchLocalBrowserCommand: async () => ({
         accepted: true,
@@ -183,7 +187,7 @@ describe("ADR-149 tool abort on stop", () => {
     }
   });
 
-  test("ProviderGatewayClientService.webFetch aborts when signal is already aborted", async () => {
+  await test("ProviderGatewayClientService.webFetch aborts when signal is already aborted", async () => {
     const originalFetch = global.fetch;
     global.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
       if (init?.signal?.aborted) {
@@ -220,4 +224,4 @@ describe("ADR-149 tool abort on stop", () => {
       global.fetch = originalFetch;
     }
   });
-});
+}

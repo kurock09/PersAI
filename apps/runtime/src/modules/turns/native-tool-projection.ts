@@ -40,6 +40,7 @@ import {
   type PersaiRuntimeKnowledgeSource,
   type PersaiRuntimeBrowserProviderId,
   type PersaiRuntimeImageEditProviderId,
+  type RuntimeBundleSkillScenarioScriptRef,
   type RuntimeKnowledgeAccessSourceConfig,
   type RuntimeToolPolicy
 } from "@persai/runtime-contract";
@@ -50,6 +51,14 @@ export type NativeToolProjectionOptions = {
   allowedKnowledgeFetchSources?: readonly PersaiRuntimeKnowledgeSource[];
   /** ADR-135 S3 — catalog tools described this turn project as full on wire. */
   wireExpandedCatalogToolCodes?: ReadonlySet<string>;
+  /**
+   * ADR-151 — the pinned Script reference for the exact current active
+   * Scenario step, or `null`/absent when the current step has no Script.
+   * The `script` tool is projected only when this is present; projection
+   * is not authorization — execution re-resolves and re-authorizes from
+   * live decision state immediately before `script.execute`.
+   */
+  activeScriptRef?: RuntimeBundleSkillScenarioScriptRef | null;
 };
 
 /** ADR-135 — catalog-tier tools may expose read-only family actions on the stub wire. */
@@ -404,6 +413,13 @@ export function projectRuntimeNativeTools(
   const enabledSkills = bundle.skills?.enabled ?? [];
   if (skillToolPolicy !== null && enabledSkills.length > 0) {
     projectedTools.push(createSkillToolDefinition(skillToolPolicy));
+  }
+  // ADR-151 — script tool is projected only when the exact current active
+  // Scenario step carries a materialized scriptRef and this bundle has the
+  // sandbox enabled. No policy/catalog row: Scripts are a Skill/Scenario
+  // capability, not an operator plan toggle.
+  if (bundle.runtime.sandbox?.enabled === true && options?.activeScriptRef) {
+    projectedTools.push(createScriptToolDefinition(options.activeScriptRef));
   }
 
   const projection: RuntimeNativeToolProjection = {
@@ -1908,6 +1924,115 @@ function createSkillToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayTo
       }
     }
   });
+}
+
+/**
+ * ADR-151 — bounded read of the published input JSON Schema's `properties`
+ * map. Falls back to `{}` for any non-object shape rather than throwing;
+ * publication already validated the schema is Draft 2020-12 object-typed
+ * and compatible with the authored `inputMapping`.
+ */
+function readScriptInputSchemaProperties(
+  inputSchema: Record<string, unknown>
+): Record<string, unknown> {
+  const properties = inputSchema.properties;
+  return properties !== null && typeof properties === "object" && !Array.isArray(properties)
+    ? (properties as Record<string, unknown>)
+    : {};
+}
+
+function readScriptInputSchemaRequired(inputSchema: Record<string, unknown>): ReadonlySet<string> {
+  const required = inputSchema.required;
+  return Array.isArray(required)
+    ? new Set(required.filter((entry): entry is string => typeof entry === "string"))
+    : new Set();
+}
+
+/**
+ * ADR-151 — the model-facing `input` object exposes exactly the fields the
+ * authored `inputMapping` sources from `tool_input`, keyed by the tool-input
+ * name the model must supply (not the mapped Script field name, which may
+ * differ). Literal and current_user_message sources are never exposed —
+ * the model cannot choose or override them.
+ */
+export function buildScriptToolInputSchema(
+  scriptRef: RuntimeBundleSkillScenarioScriptRef
+): Record<string, unknown> {
+  const schemaProperties = readScriptInputSchemaProperties(scriptRef.inputSchema);
+  const schemaRequired = readScriptInputSchemaRequired(scriptRef.inputSchema);
+  const toolInputFields = new Map<string, { required: boolean; propertySchemas: unknown[] }>();
+  for (const [mappedKey, source] of Object.entries(scriptRef.inputMapping)) {
+    if (source.source !== "tool_input") {
+      continue;
+    }
+    const required = schemaRequired.has(mappedKey);
+    const propertySchema = schemaProperties[mappedKey] ?? null;
+    const existing = toolInputFields.get(source.name);
+    if (existing === undefined) {
+      toolInputFields.set(source.name, {
+        required,
+        propertySchemas: propertySchema === null ? [] : [propertySchema]
+      });
+    } else {
+      existing.required ||= required;
+      if (propertySchema !== null) {
+        existing.propertySchemas.push(propertySchema);
+      }
+    }
+  }
+  const properties: Record<string, unknown> = {};
+  const required: string[] = [];
+  for (const [name, field] of toolInputFields) {
+    properties[name] =
+      field.propertySchemas.length === 0
+        ? { description: `Value for "${name}".` }
+        : field.propertySchemas.length === 1
+          ? field.propertySchemas[0]
+          : { allOf: field.propertySchemas };
+    if (field.required) {
+      required.push(name);
+    }
+  }
+  return {
+    type: "object",
+    additionalProperties: false,
+    ...(required.length > 0 ? { required } : {}),
+    properties,
+    ...(isJsonObject(scriptRef.inputSchema.$defs) ? { $defs: scriptRef.inputSchema.$defs } : {})
+  };
+}
+
+function isJsonObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+/**
+ * ADR-151 — provider-facing tool name is `script` for cross-provider name
+ * compatibility; the exact Script identity/version stays server-side and is
+ * never exposed here. No modelExposure/catalog projection: dynamic
+ * per-active-step projection already keeps this tool absent whenever it is
+ * not relevant, which the catalog tier exists to approximate for other tools.
+ */
+function createScriptToolDefinition(
+  scriptRef: RuntimeBundleSkillScenarioScriptRef
+): ProviderGatewayToolDefinition {
+  return {
+    name: "script",
+    description: `Run the "${scriptRef.scriptKey}" Script for the current Skill workflow step. Call with action="execute" and an input object containing only the fields listed in its schema — other Script inputs are already supplied by the workflow itself.`,
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["action", "input"],
+      properties: {
+        action: {
+          type: "string",
+          enum: ["execute"],
+          description: 'Must be "execute".'
+        },
+        input: buildScriptToolInputSchema(scriptRef)
+      }
+    }
+  };
 }
 
 function resolveAllowedModelVisibleToolPolicy(

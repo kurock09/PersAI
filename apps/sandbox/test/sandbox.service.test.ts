@@ -245,7 +245,11 @@ async function run(): Promise<void> {
       action: "write",
       path: "outputs/report.txt",
       content: "daily quota should block this job"
-    }
+    },
+    scriptVersionId: null,
+    scriptSkillId: null,
+    scriptContentHash: null,
+    scriptInvocationKey: null
   });
 
   assert.equal(blockedJob.status, "blocked");
@@ -309,7 +313,11 @@ async function run(): Promise<void> {
       action: "write",
       path: "outputs/report.txt",
       content: "backlog should block this job"
-    }
+    },
+    scriptVersionId: null,
+    scriptSkillId: null,
+    scriptContentHash: null,
+    scriptInvocationKey: null
   });
   assert.equal(backlogJob.status, "blocked");
   assert.equal(backlogJob.reason, "sandbox_backlog_full");

@@ -22,7 +22,8 @@ const INSTAGRAM_CAROUSEL_SCENARIO: RuntimeBundleSkillScenario = {
       directive: "CALL image_generate with outputMode=series, count=8",
       recommendedToolCall: "image_generate",
       mayBeSkippedIf: null,
-      negativeGuards: ["Do not collapse into one call"]
+      negativeGuards: ["Do not collapse into one call"],
+      scriptRef: null
     }
   ],
   recommendedTools: ["image_generate"],
