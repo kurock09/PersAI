@@ -56,13 +56,15 @@ additionally covers:
   `RuntimeScriptToolResult` passes through the real produced-file extraction
   seam without being mistaken for an `exec`/`shell` sandbox job, throws no
   `job.files` error, and produces no file handles, while ordinary sandbox-job
-  file extraction remains unchanged. ADR-143 compact projection retains exact
-  small structured Script output plus action/reason/warning and Script identity;
-  oversized output becomes deterministic valid marked JSON under the explicit
-  2,000-character serialized output cap. Masked Script projection retains only
-  the stable tool/action/reason-or-warning gist and never leaks structured
-  output. Canonical stored exchanges remain full, and existing generic/browser/
-  shell/files compact behavior remains unchanged.
+  file extraction remains unchanged. ADR-156 globally assigns in-turn
+  observations as newest 3 full / next 3 compact / older masked and retains the
+  ADR-143 cross-turn newest 1 full / next 4 compact / older masked policy, with
+  errors never bare-mask. Seven-exchange boundary tests prove both exact
+  windows and error upgrade. A live-shaped `script → todo_write → skill`
+  sequence is naturally all full in-turn and `compact/compact/full` cross-turn
+  without any Script-specific projection logic. Tests assert effective metrics,
+  canonical stored exchanges remain full/non-mutated, and existing generic/
+  browser/shell/files compact behavior remains unchanged.
 - **Sandbox admission/idempotency**
   (`apps/sandbox/test/script-execute-idempotency.test.ts`): atomic
   create-by-`(assistantId, scriptInvocationKey)` runs before ordinary

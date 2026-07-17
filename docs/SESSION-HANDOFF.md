@@ -1,47 +1,48 @@
 # SESSION-HANDOFF
 
-## 2026-07-17 — ADR-151 second live repair: compact Script output retention
+## 2026-07-17 — ADR-156 global mode-aware observation windows
 
-Status: **Accepted / Open — the first runtime receipt repair is deployed and
-the second bounded live seam repair is implemented and independently audited
-CLEAN locally from baseline `c654d02f`; redeploy and live re-test remain
-pending.**
+Status: **Accepted / Open — founder-approved ADR-156 implemented and
+independently audited CLEAN locally from baseline `80d1fc9a`; deploy and live
+re-test remain pending. No commit, push, or deploy was made. ADR-151 remains
+open for its live acceptance; closed ADR-143 was not reopened.**
 
 Live evidence and exact root cause:
 
-- After the first repair deployed, the model-driven Script turn completed and
-  canonical `RuntimeTurnReceipt.toolExchanges` stored the exact structured
-  Script output. The model saw that full output on the immediate post-Script
-  iteration, then called `todo_write` and `skill`; its final answer fabricated
-  fields.
-- ADR-143's later-iteration projection resolved payload
-  `toolCode: "script.execute"` through `compactGeneric`. That reducer replaces
-  object-valued fields with presence metadata, so `output` became
-  `outputPresent: true` once the Script exchange moved from `full` to `compact`.
-  Canonical storage remained correct; only the model-facing compact projection
-  lost the values.
+- After the first receipt repair deployed, the model-driven Script turn
+  completed and canonical `RuntimeTurnReceipt.toolExchanges` stored the exact
+  structured output. The immediate post-Script iteration saw it, but after
+  `todo_write` and `skill` the Script exchange aged from `full` to `compact`;
+  generic ADR-143 compaction replaced object-valued `output` with
+  `outputPresent:true`, and the final answer fabricated fields.
 
-Bounded repair:
+Decision and implementation:
 
-- `tool-observation-compactors.ts` now routes `script.execute` through a
-  dedicated compact reducer. It retains `executionMode`, `action`, `reason`,
-  `warning`, `scriptKey`, `versionNumber`, and `jobId`, and preserves a small
-  structured `output` exactly.
-- Script output has an explicit 2,000-character serialized compact-output cap.
-  Oversized output becomes deterministic valid JSON:
-  `{__truncated:true, originalSerializedChars, omittedSerializedChars,
-jsonPrefix}`; the complete replacement object's serialization is at most the
-  cap. Mask behavior is unchanged, and error observations remain compact with
-  their diagnostic action/reason/warning and Script identity.
-- Existing projection coverage now proves exact small structured output
-  retention, deterministic bounded oversized output, useful Script error
-  diagnostics, explicit masked-tier action/reason-or-warning gist behavior
-  without structured-output leakage, unchanged generic/browser/shell/files
-  behavior, and non-mutation of the canonical full Script exchange.
-  `docs/TEST-PLAN.md` now records both live seam regressions. The existing
-  `runProjectToolExchangesForModelTest` is already wired into
-  `apps/runtime/test/run-suite-isolated.ts`; the turn-execution focused export
-  still proves stored exchanges remain canonical full.
+- The dedicated Script compact reducer, 2,000-character cap, and truncated-JSON
+  representation introduced in `41fa0a69` are removed.
+- `tool-observation-policy.ts` now owns one global mode-aware policy with no
+  tool-name/type exceptions: `in_turn` keeps newest 3 full and next 3 compact;
+  `cross_turn` preserves newest 1 full and next 4 compact; older exchanges are
+  masked, with masked errors upgraded to compact.
+- `projectToolExchangesForModel*` consumes that policy directly, and metrics
+  count the effective emitted tiers. Script uses the same global policy and
+  ordinary generic compact/mask behavior as every other tool.
+- Canonical stored exchanges remain full and untouched. The earlier structural
+  `job` + `paths` produced-file discriminator repair is unchanged.
+- Dynamic/token-threshold windows are explicitly out of scope.
+
+Focused coverage:
+
+- Seven-exchange boundary fixtures prove exact in-turn
+  `masked, compact×3, full×3` and unchanged cross-turn
+  `masked×2, compact×4, full`, plus masked-error upgrade in both modes.
+- The live-shaped `script → todo_write → skill` list is naturally all full
+  in-turn without Script-specific logic and remains `compact/compact/full`
+  cross-turn. Existing browser/shell/files/generic reducer behavior and
+  canonical non-mutation remain covered; metrics assert effective tiers.
+- The real turn-execution integration fixture now expects six in-turn
+  exchanges as `compact×3, full×3`; a parallel three-`web_fetch` batch remains
+  declaration-ordered and all three exact results stay full.
 
 Checks passed:
 
@@ -50,26 +51,18 @@ Checks passed:
 - `corepack pnpm --filter @persai/runtime run typecheck`
 - `corepack pnpm --filter @persai/runtime run lint`
 - full `corepack pnpm --filter @persai/runtime run test`
+- complete `corepack pnpm run typecheck`
 - `corepack pnpm run format:check`
 - `git diff --check`
-- final independent allowed-model audit: CLEAN, no P0/P1/P2 findings.
-
-GitHub correction note:
-
-- The first projection-repair push `41fa0a69` built/pinned its runtime image,
-  but full CI caught two test-only TypeScript errors in the newly added masked
-  assertions (`maskedResult.output` on an inferred no-output object). The
-  assertions now use the structural `"output" in maskedResult` check. The
-  complete repo `corepack pnpm run typecheck`, focused projection test, and
-  runtime lint pass after that correction; no production source behavior
-  changed in the correction.
+- independent allowed-model audit: CLEAN, no P0/P1/P2 findings.
 
 Residuals / next step:
 
-- Redeploy runtime and repeat the same model-driven Script → `todo_write` →
-  `skill` smoke, verifying the final answer uses the exact Script fields.
-  Complete approved-account Admin UI acceptance afterward. ADR-151 remains
-  Accepted/Open until founder-visible acceptance succeeds.
+- Deploy runtime and repeat the same model-driven Script → `todo_write` →
+  `skill` smoke, verifying the global three-full in-turn window preserves the
+  exact Script fields through the final answer. Complete approved-account Admin
+  UI acceptance afterward. ADR-151 and ADR-156 remain Accepted/Open until their
+  founder-visible acceptance succeeds.
 
 ## 2026-07-17 — ADR-151 live P1 repair: Script result file-extraction discriminator
 

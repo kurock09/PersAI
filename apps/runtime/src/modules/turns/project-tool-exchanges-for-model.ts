@@ -1,5 +1,6 @@
 /**
- * ADR-143 — single owner for model-facing tool observation projection.
+ * ADR-143 / ADR-156 — single owner for model-facing tool observation
+ * projection with global mode-aware tier windows.
  *
  * Canonical `toolExchanges` stay full. Provider-facing history (in-turn and
  * cross-turn) must go through `projectToolExchangesForModel` only. Fresh
@@ -179,20 +180,23 @@ function projectOneExchange(
  * Project a turn's tool exchanges for the model and return size/tier metrics.
  * Does not mutate `exchanges`. Single-owner path for in-turn observability.
  *
- * Tier windows (in-turn and cross-turn are identical within one list):
- * newest = full; next 4 older = compact; rest = masked. Errors never mask.
+ * ADR-156 applies one global policy with no tool-specific exceptions:
+ * in-turn keeps the newest 3 full and next 3 compact; cross-turn retains the
+ * ADR-143 newest 1 full and next 4 compact. Older exchanges are masked, while
+ * errors never become a bare mask.
  */
 export function projectToolExchangesForModelWithMetrics(
   exchanges: readonly ProviderGatewayToolExchange[],
   options?: ProjectToolExchangesForModelOptions
 ): ProjectToolExchangesForModelResult {
-  void options?.mode;
+  const mode = options?.mode ?? "cross_turn";
   const exchangeCount = exchanges.length;
   const projected = exchanges.map((exchange, index) => {
     const tier = assignToolObservationTier({
       index,
       exchangeCount,
-      isError: exchange.toolResult.isError === true
+      isError: exchange.toolResult.isError === true,
+      mode
     });
     return projectOneExchange(exchange, tier);
   });

@@ -5,30 +5,26 @@
 
 ## 2026-07-17
 
-- **ADR (ADR-151 second live repair: retain bounded structured Script output
-  in compact model observations).** After the first receipt repair deployed,
-  a live Script turn completed and canonical `RuntimeTurnReceipt.toolExchanges`
-  stored the exact output, but the final model answer fabricated fields after
-  later `todo_write` and `skill` calls. The immediate post-Script iteration had
-  the full result; later ADR-143 projection sent `toolCode: "script.execute"`
-  through `compactGeneric`, which replaced object-valued `output` with only
-  `outputPresent: true`. Added a dedicated Script compact reducer retaining
-  action/reason/warning, Script/version/job identity, and exact small structured
-  output. Oversized output is deterministically represented as valid marked
-  JSON under an explicit 2,000-character serialized output cap; mask behavior
-  is unchanged and errors keep diagnostics. Focused projection tests cover
-  exact small output, deterministic bounded truncation, Script errors, explicit
-  masked-tier action/reason-or-warning gist semantics with no structured-output
-  leak, unchanged generic/browser/shell/files behavior, and canonical exchange
-  non-mutation; the existing turn test confirms stored exchanges remain full.
-  `docs/TEST-PLAN.md` now records both ADR-151 live seam regressions.
-  Focused tests, full runtime suite, runtime typecheck/lint, repo format check,
-  and diff check passed; final independent allowed-model audit returned CLEAN
-  with no P0/P1/P2 findings. ADR-151 remains Accepted/Open pending redeploy and
-  founder re-smoke. The first push's full CI then caught two test-only
-  TypeScript property-access errors in the new masked assertions; they now use
-  structural no-output checks, and the complete repo typecheck, focused test,
-  and runtime lint pass after correction.
+- **ADR (ADR-156 founder-approved global mode-aware tool observation
+  windows).** Added a concise follow-through ADR without reopening closed
+  ADR-143. `tool-observation-policy.ts` now assigns all tools by mode with no
+  name/type exceptions: in-turn newest 3 full / next 3 compact; cross-turn
+  unchanged newest 1 full / next 4 compact; older masked; errors never
+  bare-mask. Projection metrics count effective tiers. Removed the abandoned
+  `41fa0a69` Script-specific compact reducer, 2,000-character cap, truncated-JSON
+  representation, and obsolete tests; Script now follows the same global
+  windows and ordinary generic reducers as every tool. Seven-exchange boundary
+  tests prove in-turn `masked, compact×3, full×3`, cross-turn
+  `masked×2, compact×4, full`, and error upgrade. The live-shaped
+  `script → todo_write → skill` list is naturally all full in-turn and remains
+  `compact/compact/full` cross-turn without special casing. Existing compactors,
+  canonical non-mutation, the earlier `job` + `paths` discriminator, and
+  cross-turn policy remain unchanged. Dynamic/token-threshold compaction is out
+  of scope. Updated real turn-execution fixtures for six-exchange and parallel
+  three-tool in-turn windows. Focused tests, full runtime suite, complete repo
+  typecheck, repo/runtime lint, format, and diff checks passed; independent
+  allowed-model audit returned CLEAN with no P0/P1/P2 findings. No commit, push,
+  or deploy; ADR-151/156 remain open pending deploy/live.
 
 - **ADR (ADR-151 live P1 repair: Script result file-extraction
   discriminator).** Fixed the post-tool receipt seam where

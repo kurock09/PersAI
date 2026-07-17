@@ -7732,7 +7732,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     assert.equal(
       projectedToolHistory.length,
       6,
-      "ADR-143 S2: follow-up provider request must include all six in-turn exchanges."
+      "ADR-156: follow-up provider request must include all six in-turn exchanges."
     );
     const projectedTiers = projectedToolHistory.map((exchange) => {
       const parsed = JSON.parse(exchange.toolResult.content) as {
@@ -7742,8 +7742,8 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     });
     assert.deepEqual(
       projectedTiers,
-      ["masked", "compact", "compact", "compact", "compact", "full"],
-      "ADR-143 S2: older toolHistory entries must be compact/masked; newest must stay full."
+      ["compact", "compact", "compact", "full", "full", "full"],
+      "ADR-156: in-turn history must keep newest three full and next three compact."
     );
     const newestProjected = JSON.parse(projectedToolHistory[5]?.toolResult.content ?? "{}") as {
       action?: string;
@@ -8064,9 +8064,8 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     ["r2-par-1", "r2-par-2", "r2-par-3"],
     "ADR-074 R2 regression: toolHistory must remain in model-declared order even when safe calls finish out of order."
   );
-  // ADR-143 S2: provider-facing toolHistory is projected. Argument order stays
-  // declaration-stable for all tiers; full `document.url` is only guaranteed on
-  // the newest (full) exchange.
+  // ADR-156: provider-facing in-turn history keeps the newest three exchanges
+  // full. Argument order remains declaration-stable.
   assert.deepEqual(
     (providerGatewayClient.calls.at(-1)?.toolHistory ?? []).map(
       (entry) => entry.toolCall.arguments.url ?? null
@@ -8087,8 +8086,8 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     }
   );
   assert.deepEqual(parallelSafeHistoryTiers, [
-    { tier: "compact", documentUrl: null },
-    { tier: "compact", documentUrl: null },
+    { tier: "full", documentUrl: "https://example.com/a" },
+    { tier: "full", documentUrl: "https://example.com/b" },
     { tier: "full", documentUrl: "https://example.com/c" }
   ]);
   providerGatewayClient.webFetchDelayQueueMs = [];
