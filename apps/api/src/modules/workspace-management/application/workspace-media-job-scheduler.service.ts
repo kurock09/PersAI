@@ -32,6 +32,7 @@ import { LEASE_HEARTBEAT_INTERVAL_MS } from "./scheduler-lease.constants";
 import { SchedulerLeaseService } from "./scheduler-lease.service";
 import { RecordModelCostLedgerService } from "./record-model-cost-ledger.service";
 import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
+import { AssistantAsyncJobHandleStateService } from "./assistant-async-job-handle-state.service";
 
 type FailJobContext = {
   sourceUserMessageText: string;
@@ -144,7 +145,18 @@ export class AssistantMediaJobSchedulerService implements OnModuleInit, OnModule
     private readonly schedulerLeaseService: SchedulerLeaseService,
     private readonly backgroundSchedulerMetricsService: BackgroundSchedulerMetricsService,
     private readonly recordModelCostLedgerService: RecordModelCostLedgerService,
-    private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService
+    private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService,
+    @Inject(AssistantAsyncJobHandleStateService)
+    private readonly asyncJobHandleState: Pick<
+      AssistantAsyncJobHandleStateService,
+      "prepareDelivery" | "recordCanonicalCompletion"
+    > = {
+      prepareDelivery: async () => "legacy_frame",
+      recordCanonicalCompletion: async () => ({
+        decision: "legacy_frame",
+        state: "failed"
+      })
+    }
   ) {}
 
   onModuleInit(): void {
@@ -810,8 +822,12 @@ export class AssistantMediaJobSchedulerService implements OnModuleInit, OnModule
     locale: "ru" | "en",
     context?: FailJobContext
   ): Promise<void> {
+    const narrationDecision = await this.asyncJobHandleState.prepareDelivery({
+      kind: "media",
+      canonicalJobId: job.id
+    });
     const llmAuthored =
-      context === undefined
+      context === undefined || narrationDecision !== "legacy_frame"
         ? null
         : await this.tryLlmAuthoredFailureCopy(job, retryable, code, message, context);
     const failureMessage =
@@ -872,7 +888,7 @@ export class AssistantMediaJobSchedulerService implements OnModuleInit, OnModule
       return;
     }
 
-    await this.prisma.assistantMediaJob.updateMany({
+    const terminal = await this.prisma.assistantMediaJob.updateMany({
       where: { id: job.id, schedulerClaimToken: job.claimToken },
       data: {
         status: "failed",
@@ -885,6 +901,18 @@ export class AssistantMediaJobSchedulerService implements OnModuleInit, OnModule
         ...(completionAssistantMessageId === null ? {} : { completionAssistantMessageId })
       }
     });
+    if (terminal.count > 0) {
+      await this.asyncJobHandleState.recordCanonicalCompletion({
+        kind: "media",
+        canonicalJobId: job.id,
+        terminalStatus: "failed",
+        terminalSnapshot: {
+          status: "failed",
+          errorCode: code,
+          message: "Job failed."
+        }
+      });
+    }
   }
 
   /**

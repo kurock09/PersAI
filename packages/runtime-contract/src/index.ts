@@ -368,7 +368,16 @@ export interface RuntimeScriptToolResult {
 export interface RuntimeAwaitToolResult {
   toolCode: "await";
   executionMode: "inline";
-  action: "status" | "waited" | "skipped";
+  action:
+    | "status"
+    | "waited"
+    | "notified"
+    | "terminal_inline"
+    | "already_owned"
+    | "depth_exhausted"
+    | "skipped";
+  turnControl: "continue" | "terminal_static";
+  staticAssistantText: string | null;
   reason: string | null;
   warning: string | null;
   jobRef: string;
@@ -3314,7 +3323,23 @@ export interface RuntimeTurnRequest {
   providerOverride?: "openai" | "anthropic" | "deepseek";
   modelOverride?: string;
   skillStateContext?: RuntimeSkillStateContext;
+  continuation?: {
+    depth: number;
+    sourceUserMessageId: string;
+    sourceClientTurnId: string;
+    facts: {
+      kind: "media" | "document";
+      status: "completed" | "failed" | "cancelled";
+      errorCode: string | null;
+      message: string;
+    };
+  };
 }
+
+export type RuntimeAsyncContinuationResult =
+  | { outcome: "completed"; result: RuntimeTurnResult; duplicate: boolean }
+  | { outcome: "busy" | "duplicate" }
+  | { outcome: "failed"; code: string };
 
 export interface RuntimeOpenMediaJobContext {
   jobId: string;

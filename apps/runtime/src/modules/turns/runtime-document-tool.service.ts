@@ -79,6 +79,7 @@ export class RuntimeDocumentToolService {
       | undefined;
     deferToAsyncDocumentJob: {
       sourceUserMessageId: string;
+      sourceClientTurnId?: string;
       sourceUserMessageText: string;
       sourceUserMessageCreatedAt?: string | null;
       currentAttachments: RuntimeAttachmentRef[];
@@ -144,6 +145,7 @@ export class RuntimeDocumentToolService {
     sessionId: string;
     deferToAsyncDocumentJob: {
       sourceUserMessageId: string;
+      sourceClientTurnId?: string;
       sourceUserMessageText: string;
       sourceUserMessageCreatedAt?: string | null;
       currentAttachments: RuntimeAttachmentRef[];
@@ -188,6 +190,9 @@ export class RuntimeDocumentToolService {
       descriptorMode: parsed.descriptorMode,
       request: parsed.request,
       sourceUserMessageId: params.deferToAsyncDocumentJob.sourceUserMessageId,
+      sourceClientTurnId:
+        params.deferToAsyncDocumentJob.sourceClientTurnId ??
+        params.deferToAsyncDocumentJob.sourceUserMessageId,
       sourceUserMessageText: params.deferToAsyncDocumentJob.sourceUserMessageText,
       runtimeSessionId: params.sessionId,
       currentAttachments: params.deferToAsyncDocumentJob.currentAttachments,
@@ -238,6 +243,7 @@ export class RuntimeDocumentToolService {
       metadata?: Record<string, unknown> | null;
     };
     sourceUserMessageId: string;
+    sourceClientTurnId?: string;
     sourceUserMessageText: string;
     runtimeSessionId: string;
     currentAttachments: RuntimeAttachmentRef[];
@@ -260,6 +266,7 @@ export class RuntimeDocumentToolService {
       const enqueueOutcome = await this.persaiInternalApiClientService.enqueueDeferredDocumentJob({
         assistantId: params.bundle.metadata.assistantId,
         sourceUserMessageId: params.sourceUserMessageId,
+        sourceClientTurnId: params.sourceClientTurnId ?? params.sourceUserMessageId,
         sourceUserMessageText: params.sourceUserMessageText,
         runtimeSessionId: params.runtimeSessionId,
         attachments: sourceAttachments,

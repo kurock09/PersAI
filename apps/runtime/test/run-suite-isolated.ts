@@ -161,6 +161,10 @@ const TESTS: Array<{ modulePath: string; exportName: string }> = [
   },
   {
     modulePath: "./turn-execution.service.test.ts",
+    exportName: "runAsyncContinuationAcceptanceTest"
+  },
+  {
+    modulePath: "./turn-execution.service.test.ts",
     exportName: "runAdr151TurnDispatchIntegrationTest"
   },
   { modulePath: "./turn-execution.service.test.ts", exportName: "runRecentPdfsHintTests" },

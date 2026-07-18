@@ -47,6 +47,7 @@ export type AssistantDocumentSourcePayload = {
 };
 
 export type AssistantDocumentRequestPayload = {
+  sourceClientTurnId?: string;
   sourceUserMessageText: string;
   sourceUserMessageCreatedAt: string;
   runtimeSessionId: string;
@@ -201,6 +202,7 @@ export class AssistantDocumentJobService {
           outputFormat: input.outputFormat,
           status: "queued",
           sourceUserMessageId: input.sourceUserMessageId,
+          sourceClientTurnId: input.request.sourceClientTurnId ?? input.sourceUserMessageId,
           requestJson: input.request as never
         },
         select: { id: true }
@@ -435,6 +437,7 @@ export class AssistantDocumentJobService {
               outputFormat: input.outputFormat,
               status: "queued",
               sourceUserMessageId: input.sourceUserMessageId,
+              sourceClientTurnId: input.request.sourceClientTurnId ?? input.sourceUserMessageId,
               requestJson: {
                 ...input.request,
                 sourceJson: mergedSourceJson
@@ -706,6 +709,7 @@ export class AssistantDocumentJobService {
           outputFormat: input.outputFormat,
           status: "queued",
           sourceUserMessageId: input.sourceUserMessageId,
+          sourceClientTurnId: input.request.sourceClientTurnId ?? input.sourceUserMessageId,
           requestJson: {
             ...input.request,
             sourceJson
@@ -758,6 +762,7 @@ export class AssistantDocumentJobService {
         outputFormat: input.outputFormat,
         status: "ready_for_delivery",
         sourceUserMessageId: input.sourceUserMessageId,
+        sourceClientTurnId: input.request.sourceClientTurnId ?? input.sourceUserMessageId,
         requestJson: input.request as never,
         providerStatusJson: {
           artifacts: [artifact],

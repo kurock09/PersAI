@@ -1,5 +1,80 @@
 # SESSION-HANDOFF
 
+## 2026-07-18 — ADR-152 checkpoint 2 implemented locally
+
+Status: **Durable wait/notify ownership and serialized same-chat continuation
+are locally complete and uncommitted. After the repair rounds, the final
+independent Sonnet re-audit returned CLEAN with no P0/P1/P2 findings. This is
+not deploy or live acceptance, and ADR-152 remains open for the browser
+checkpoint.**
+
+- Baseline: `968972e6795a12e2baea9ef88c85ff8c2a6cdeda`.
+- One additive migration extends only `assistant_async_job_handles` and adds
+  `source_client_turn_id` to canonical document jobs; no second durable
+  table/runtime was added.
+- API now re-reads canonical status under the locked handle row for both
+  terminal observation and subscription; runtime cannot supply terminal facts
+  or user identity. It owns idempotent pending subscription, source-turn
+  finalization, canonical terminal promotion,
+  claim/dispatched/requeue/completion state, depth-4 exhaustion, and
+  conservative ambiguous-dispatch refusal.
+- Media and document delivery paths now arbitrate both success and failure
+  framing: owned narration skips isolated `maybeFrame`; finalized legacy uses
+  the existing path; unresolved source decisions defer; attachment delivery
+  remains the existing sole file owner.
+- Bearer-protected observe/subscribe seams now back `await wait|notify`;
+  source-turn finalization is in-process at authoritative API persistence
+  owners and the unused HTTP seam is removed.
+  Pending notify and depth exhaustion terminate the provider loop with static
+  output; terminal-before-notify stays inline. API persistence owners now prove
+  the durable assistant message before preserving current-turn narration;
+  failed/Stopped turns release it to legacy, and reconciliation repairs lost
+  finalization calls from receipt/message truth.
+- A bearer-protected same-chat continuation entry reuses ordinary turn
+  acceptance, session lease, receipt replay, full hydration, and volatile
+  bounded completion facts. It returns typed completed/busy/duplicate/failed
+  outcomes and does not use `system:media-job:*`.
+- A SchedulerLease-backed worker claims ready handle rows with `SKIP LOCKED`,
+  revalidates canonical/assistant/chat/binding/entitlement/session truth,
+  dispatches with deterministic continuation identity, persists one Assistant
+  message, delivers Telegram through the existing outbound owner, and completes
+  only afterward. Busy-before-acceptance has a dedicated exact CAS. Dispatch
+  expiry covers the full turn wall clock plus grace; timeout/connection loss
+  remains dispatched. Requeue requires exact runtime receipt/in-flight absence
+  proof, and late claim tokens cannot persist or deliver anything.
+- The scheduler carries the original persisted user-message UUID separately
+  from the current continuation client-turn id. Child media/document jobs
+  persist both identities so the existing trigger inherits exact depth. Handle
+  depth is the creating-turn depth: user jobs `0`, scheduler request
+  `rowDepth + 1`, and depth `4` cannot subscribe.
+- Persisted continuation output finalizes only children keyed by that
+  continuation client-turn id. Failed/interrupted receipts release unresolved
+  child narration, and lost-finalization repair matches
+  `asyncContinuationClientTurnId` metadata without a fake user message.
+- Runtime continuation client responses are strict discriminated unions:
+  exact busy/duplicate, safe failed code, and completed results with essential
+  fields. Malformed 2xx remains dispatched for conservative reconciliation.
+- Canonical persisted Assistant output is idempotent. Telegram and
+  continuation-artifact delivery separately claim same-row at-most-once attempt
+  ownership before the external call. Ambiguous external responses are recorded
+  and never retried automatically, deliberately preferring possible ambiguous
+  loss over duplicate sends.
+- Continuation facts are a dedicated volatile developer block; the internal
+  sentinel is removed from model-facing user messages. The legitimate ADR-119
+  prompt golden now includes universal await guidance.
+- Focused ownership/scheduler/prompt tests pass. Parent reran the complete API
+  suite (exit `0`, about 431 seconds), complete runtime isolated suite (exit
+  `0`), API/runtime typecheck and lint, Prisma format/validate/generate, root
+  format, and diff checks. A clean disposable pgvector database applied all 192
+  migrations, exposed both canonical mint triggers and the final same-row
+  continuation columns, and was removed. Disposable SQL also proved one winner
+  across concurrent artifact-attempt contenders, wrong dispatch identity and
+  old claim tokens update zero rows, depth `5` is rejected, and media/document
+  child jobs preserve the original UUID while inheriting continuation depth.
+
+Next recommended step: commit checkpoint 2, then implement the Browser Script
+SDK checkpoint without an intermediate deploy.
+
 ## 2026-07-17 — ADR-152 checkpoint 1 implemented locally
 
 Status: **Opaque canonical media/document handles, owned resolver, and bounded

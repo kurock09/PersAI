@@ -145,6 +145,8 @@ describe("AssistantDocumentJobDeliveryService", () => {
 
   test("writes presentation document metadata onto delivered chat attachments", async () => {
     const attachmentMetadataUpdates: Array<Record<string, unknown>> = [];
+    let framingCalls = 0;
+    let handleCompletionCalls = 0;
 
     const service = new AssistantDocumentJobDeliveryService(
       {
@@ -232,10 +234,20 @@ describe("AssistantDocumentJobDeliveryService", () => {
       } as never,
       {
         async maybeFrame() {
+          framingCalls += 1;
           return null;
         }
       } as never,
-      noopRecordModelCostLedgerService
+      noopRecordModelCostLedgerService,
+      {
+        async prepareDelivery() {
+          return "skip_legacy_frame";
+        },
+        async recordCanonicalCompletion() {
+          handleCompletionCalls += 1;
+          return { decision: "skip_legacy_frame", state: "ready" };
+        }
+      } as never
     );
 
     await service.deliverReadyJob({
@@ -286,6 +298,8 @@ describe("AssistantDocumentJobDeliveryService", () => {
       inspectionSummary: null,
       isCurrentOutput: true
     });
+    assert.equal(framingCalls, 0);
+    assert.equal(handleCompletionCalls, 1);
   });
 
   test("writes presentation document metadata from nested providerStatus fallback", async () => {

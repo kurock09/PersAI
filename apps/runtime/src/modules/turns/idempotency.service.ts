@@ -140,6 +140,29 @@ export class IdempotencyService {
     return this.createAcceptedTurn(input);
   }
 
+  async inspectExactReceipt(input: {
+    requestId: string;
+    idempotencyKey: string;
+    conversation: RuntimeTurnRequest["conversation"];
+    sessionId: string;
+  }): Promise<RuntimeTurnReceiptSummary | null> {
+    const conversationKey = this.runtimeStateKeyspaceService.createConversationKey(
+      input.conversation
+    );
+    const receipt = await this.runtimeStatePostgresService.findTurnReceiptByRequestId(
+      input.requestId
+    );
+    if (
+      receipt === null ||
+      receipt.conversationKey !== conversationKey ||
+      receipt.idempotencyKey !== input.idempotencyKey ||
+      receipt.runtimeSessionId !== input.sessionId
+    ) {
+      return null;
+    }
+    return this.toReceiptSummary(receipt);
+  }
+
   private async resolveFromMarker(
     input: ClaimRuntimeTurnInput,
     conversationKey: string

@@ -40,6 +40,7 @@ import { BackgroundCompactionQueueService } from "./background-compaction-queue.
 import { RecordModelCostLedgerService } from "./record-model-cost-ledger.service";
 import { RecordToolPathLedgerFromToolInvocationsService } from "./record-tool-path-ledger-from-tool-invocations.service";
 import { persistAssistantMessage } from "./persist-assistant-message";
+import { AssistantAsyncJobHandleStateService } from "./assistant-async-job-handle-state.service";
 import { stripToolInvocationsForClient } from "./strip-tool-invocations-for-client";
 import { resolvePendingBrowserLoginFromRuntimeTurn } from "./resolve-pending-browser-login-for-web-chat";
 import type { PendingBrowserLoginState } from "@persai/runtime-contract";
@@ -113,7 +114,19 @@ export class HandleInternalTelegramTurnService {
     @Optional()
     private readonly compactionAdvisoryFollowUpService?: CompactionAdvisoryFollowUpService,
     @Optional()
-    private readonly backgroundCompactionQueueService?: BackgroundCompactionQueueService
+    private readonly backgroundCompactionQueueService?: BackgroundCompactionQueueService,
+    @Inject(AssistantAsyncJobHandleStateService)
+    private readonly asyncJobHandleState: Pick<
+      AssistantAsyncJobHandleStateService,
+      "finalizeSourceTurn"
+    > = {
+      finalizeSourceTurn: async () => ({
+        finalized: 0,
+        legacyChosen: 0,
+        currentTurnPreserved: 0,
+        currentTurnReleased: 0
+      })
+    }
   ) {}
 
   async execute(input: TelegramAdapterTurnRequest): Promise<InternalTelegramTurnResult> {
@@ -182,6 +195,7 @@ export class HandleInternalTelegramTurnService {
     }
     const claimedUpdateId = updateClaim;
     input.onProcessingStarted?.();
+    let sourceFinalizationContext: { chatId: string; sourceClientTurnId: string } | null = null;
 
     try {
       await this.enforceInboundSafetyGateService.enforceActiveSafetyRestriction(
@@ -266,6 +280,10 @@ export class HandleInternalTelegramTurnService {
         content: input.message,
         ...(input.messageMetadata === undefined ? {} : { metadata: input.messageMetadata })
       });
+      sourceFinalizationContext = {
+        chatId: chat.id,
+        sourceClientTurnId: userMessage.id
+      };
       trace.stage("user_message_saved");
 
       let enrichedMessage = input.message;
@@ -425,6 +443,12 @@ export class HandleInternalTelegramTurnService {
         assistantMessageId = assistantChatMessage.id;
         trace.stage("assistant_message_saved");
       } catch (error) {
+        await this.asyncJobHandleState.finalizeSourceTurn({
+          assistantId: resolved.assistantId,
+          chatId: chat.id,
+          sourceClientTurnId: userMessage.id,
+          outcome: "failed"
+        });
         this.logger.error(
           `[telegram-turn] Completed runtime turn could not persist assistant message for ${resolved.assistantId}: ${
             error instanceof Error ? error.message : String(error)
@@ -457,6 +481,13 @@ export class HandleInternalTelegramTurnService {
           pendingBrowserLogin
         };
       }
+      await this.asyncJobHandleState.finalizeSourceTurn({
+        assistantId: resolved.assistantId,
+        chatId: chat.id,
+        sourceClientTurnId: userMessage.id,
+        outcome: "persisted",
+        assistantMessageId
+      });
 
       await Promise.all([
         this.trackWorkspaceQuotaUsageService
@@ -548,6 +579,14 @@ export class HandleInternalTelegramTurnService {
         pendingBrowserLogin
       };
     } catch (error) {
+      if (sourceFinalizationContext !== null) {
+        await this.asyncJobHandleState.finalizeSourceTurn({
+          assistantId: resolved.assistantId,
+          chatId: sourceFinalizationContext.chatId,
+          sourceClientTurnId: sourceFinalizationContext.sourceClientTurnId,
+          outcome: error instanceof Error && error.name === "AbortError" ? "stopped" : "failed"
+        });
+      }
       if (claimedUpdateId !== null) {
         await this.releaseTelegramUpdateClaimBestEffort(resolved.assistantId, claimedUpdateId);
       }

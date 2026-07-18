@@ -25,6 +25,8 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
     const txUpdates: Array<Record<string, unknown>> = [];
     const finalUpdates: Array<Record<string, unknown>> = [];
     const messageUpdates: Array<Record<string, unknown>> = [];
+    let framingCalls = 0;
+    let handleCompletionCalls = 0;
     const service = new AssistantMediaJobCompletionDeliveryService(
       {
         $transaction: async <T>(callback: (tx: Record<string, unknown>) => Promise<T>) =>
@@ -110,12 +112,22 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
       } as never,
       {
         async maybeFrame() {
+          framingCalls += 1;
           return { text: "Fresh current-context framing.", usage: null };
         }
       } as never,
       noopRecordModelCostLedgerService,
       noopAssistantRepository,
-      noopTrackWorkspaceQuotaUsageService
+      noopTrackWorkspaceQuotaUsageService,
+      {
+        async prepareDelivery() {
+          return "skip_legacy_frame";
+        },
+        async recordCanonicalCompletion() {
+          handleCompletionCalls += 1;
+          return { decision: "skip_legacy_frame", state: "ready" };
+        }
+      } as never
     );
 
     const processed = await service.processPendingBatch();
@@ -125,6 +137,8 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
     assert.equal(finalUpdates.at(-1)?.data?.status, "delivered");
     assert.equal(finalUpdates.at(-1)?.data?.completionAssistantMessageId, undefined);
     assert.deepEqual(messageUpdates, []);
+    assert.equal(framingCalls, 0);
+    assert.equal(handleCompletionCalls, 1);
   });
 
   test("delivers completion_pending telegram jobs asynchronously and marks them delivered", async () => {

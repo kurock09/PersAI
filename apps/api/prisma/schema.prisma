@@ -2438,36 +2438,61 @@ model AssistantMediaJob {
 /// ADR-152: one durable opaque mapping and future continuation state row for
 /// canonical asynchronous jobs. Canonical media/document rows remain status truth.
 model AssistantAsyncJobHandle {
-  id                       String                       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  jobRef                   String                       @unique @map("job_ref") @db.VarChar(96)
-  kind                     AssistantAsyncJobHandleKind
-  canonicalJobId           String                       @map("canonical_job_id") @db.Uuid
-  assistantId              String                       @map("assistant_id") @db.Uuid
-  workspaceId              String                       @map("workspace_id") @db.Uuid
-  userId                   String                       @map("user_id") @db.Uuid
-  chatId                   String                       @map("chat_id") @db.Uuid
-  channel                  AssistantChatSurface
-  threadKey                String?                      @map("thread_key") @db.VarChar(255)
-  sourceClientTurnId       String?                      @map("source_client_turn_id") @db.VarChar(128)
-  sourceUserMessageId      String?                      @map("source_user_message_id") @db.Uuid
-  state                    AssistantAsyncJobHandleState @default(none)
-  terminalSnapshotJson     Json?                        @map("terminal_snapshot_json") @db.JsonB
-  narrationOwner           String?                      @map("narration_owner") @db.VarChar(32)
-  narrationDecision        String?                      @map("narration_decision") @db.VarChar(64)
-  continuationClientTurnId String?                      @map("continuation_client_turn_id") @db.VarChar(128)
-  claimToken               String?                      @map("claim_token") @db.VarChar(64)
-  claimExpiresAt           DateTime?                    @map("claim_expires_at") @db.Timestamptz(6)
-  retryCount               Int                          @default(0) @map("retry_count")
-  nextRetryAt              DateTime?                    @map("next_retry_at") @db.Timestamptz(6)
-  createdAt                DateTime                     @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt                DateTime                     @updatedAt @map("updated_at") @db.Timestamptz(6)
-  assistant                Assistant                    @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  workspace                Workspace                    @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  chat                     AssistantChat                @relation(fields: [chatId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  id                               String                       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  jobRef                           String                       @unique @map("job_ref") @db.VarChar(96)
+  kind                             AssistantAsyncJobHandleKind
+  canonicalJobId                   String                       @map("canonical_job_id") @db.Uuid
+  assistantId                      String                       @map("assistant_id") @db.Uuid
+  workspaceId                      String                       @map("workspace_id") @db.Uuid
+  userId                           String                       @map("user_id") @db.Uuid
+  chatId                           String                       @map("chat_id") @db.Uuid
+  channel                          AssistantChatSurface
+  threadKey                        String?                      @map("thread_key") @db.VarChar(255)
+  sourceClientTurnId               String?                      @map("source_client_turn_id") @db.VarChar(128)
+  sourceUserMessageId              String?                      @map("source_user_message_id") @db.Uuid
+  state                            AssistantAsyncJobHandleState @default(none)
+  terminalSnapshotJson             Json?                        @map("terminal_snapshot_json") @db.JsonB
+  narrationOwner                   String?                      @map("narration_owner") @db.VarChar(32)
+  narrationDecision                String?                      @map("narration_decision") @db.VarChar(64)
+  sourceFinalizedAt                DateTime?                    @map("source_finalized_at") @db.Timestamptz(6)
+  narrationDecisionAt              DateTime?                    @map("narration_decision_at") @db.Timestamptz(6)
+  terminalObservedAt               DateTime?                    @map("terminal_observed_at") @db.Timestamptz(6)
+  continuationDepth                Int                          @default(0) @map("continuation_depth")
+  continuationClientTurnId         String?                      @unique @map("continuation_client_turn_id") @db.VarChar(128)
+  claimToken                       String?                      @map("claim_token") @db.VarChar(64)
+  claimedAt                        DateTime?                    @map("claimed_at") @db.Timestamptz(6)
+  claimExpiresAt                   DateTime?                    @map("claim_expires_at") @db.Timestamptz(6)
+  readyAt                          DateTime?                    @map("ready_at") @db.Timestamptz(6)
+  dispatchedAt                     DateTime?                    @map("dispatched_at") @db.Timestamptz(6)
+  dispatchReceiptRequestId         String?                      @map("dispatch_receipt_request_id") @db.VarChar(128)
+  continuationAssistantMessageId   String?                      @map("continuation_assistant_message_id") @db.Uuid
+  continuationArtifactsAttemptedAt DateTime?                    @map("continuation_artifacts_attempted_at") @db.Timestamptz(6)
+  continuationArtifactsDeliveredAt DateTime?                    @map("continuation_artifacts_delivered_at") @db.Timestamptz(6)
+  continuationArtifactsResult      String?                      @map("continuation_artifacts_result") @db.VarChar(32)
+  continuationArtifactsError       String?                      @map("continuation_artifacts_error") @db.VarChar(1000)
+  continuationExternalAttemptedAt  DateTime?                    @map("continuation_external_attempted_at") @db.Timestamptz(6)
+  continuationExternalResult       String?                      @map("continuation_external_result") @db.VarChar(32)
+  continuationExternalError        String?                      @map("continuation_external_error") @db.VarChar(1000)
+  completedAt                      DateTime?                    @map("completed_at") @db.Timestamptz(6)
+  failedAt                         DateTime?                    @map("failed_at") @db.Timestamptz(6)
+  cancelledAt                      DateTime?                    @map("cancelled_at") @db.Timestamptz(6)
+  retryCount                       Int                          @default(0) @map("retry_count")
+  maxRetries                       Int                          @default(8) @map("max_retries")
+  nextRetryAt                      DateTime?                    @map("next_retry_at") @db.Timestamptz(6)
+  lastErrorCode                    String?                      @map("last_error_code") @db.VarChar(64)
+  lastErrorMessage                 String?                      @map("last_error_message") @db.VarChar(1000)
+  createdAt                        DateTime                     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                        DateTime                     @updatedAt @map("updated_at") @db.Timestamptz(6)
+  assistant                        Assistant                    @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  workspace                        Workspace                    @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  chat                             AssistantChat                @relation(fields: [chatId], references: [id], onDelete: Cascade, onUpdate: Cascade)
 
   @@unique([kind, canonicalJobId])
   @@index([assistantId, workspaceId, userId, chatId])
+  @@index([chatId, sourceClientTurnId])
   @@index([state, nextRetryAt])
+  @@index([state, claimExpiresAt])
+  @@index([sourceFinalizedAt, updatedAt])
   @@map("assistant_async_job_handles")
 }
 
@@ -2570,6 +2595,7 @@ model AssistantDocumentRenderJob {
   outputFormat            AssistantDocumentOutputFormat    @map("output_format")
   status                  AssistantDocumentRenderJobStatus
   sourceUserMessageId     String?                          @map("source_user_message_id") @db.Uuid
+  sourceClientTurnId      String?                          @map("source_client_turn_id") @db.VarChar(128)
   requestJson             Json?                            @map("request_json") @db.JsonB
   providerStatusJson      Json?                            @map("provider_status_json") @db.JsonB
   completionUsageJson     Json?                            @map("completion_usage_json") @db.JsonB

@@ -5,6 +5,56 @@
 
 ## 2026-07-17
 
+- **ADR-152 checkpoint 2 locally complete and final independent Sonnet re-audit
+  CLEAN with no P0/P1/P2 findings (uncommitted; not deployed/live-accepted).** Extended only
+  `assistant_async_job_handles` with constrained same-row source-finalization,
+  narration, depth, claim/dispatch/receipt, retry, and terminal state. Added
+  atomic API ownership/subscribe/finalize/completion/claim/requeue transitions,
+  conservative ambiguous-dispatch handling and in-process source-turn finalization,
+  and media/document success/failure delivery arbitration. It removes
+  caller-supplied terminal/user authority by re-reading canonical truth under
+  the handle lock; adds authenticated observe/subscribe/finalize operations;
+  projects exact `await wait|notify`; uses explicit static terminal turn control
+  for pending notify/depth exhaustion; finalizes source turns across terminal
+  exits; and adds a typed same-chat continuation runtime entry using ordinary
+  session lease, receipt replay, full hydration, and volatile completion facts.
+  API persistence owners now prove durable Assistant output before preserving
+  current-turn narration; failed/Stopped turns release ownership to legacy.
+  Audit repairs add exact busy-before-acceptance CAS, a turn-wall-clock dispatch
+  deadline with abort-aware ambiguous timeout, exact runtime receipt/in-flight
+  proof before stale dispatched requeue, and late-token side-effect suppression.
+  The original user-message UUID and current continuation client-turn id now
+  travel separately through child media/document enqueues and document jobs
+  persist `source_client_turn_id` for depth inheritance. A SchedulerLease-backed
+  worker validates canonical, ownership, chat, binding,
+  entitlement, and original-session truth before deterministic same-chat
+  dispatch, persists one Assistant output, uses existing Telegram outbound
+  delivery, and conservatively reconciles stale claims/receipts and all old
+  unfinalized source handles. Canonical persisted Assistant output is
+  idempotent. Telegram and continuation-artifact sends separately claim a
+  durable same-row at-most-once attempt before the external call and never
+  automatically retry recorded ambiguous responses, preventing duplicates at
+  the documented cost of possible ambiguous loss. The dead finalization HTTP seam is removed. The internal
+  sentinel and ownership identifiers are excluded from model-facing history.
+  Follow-up re-audit repairs define row depth as the originating turn depth:
+  user jobs are `0`, scheduler dispatch is `rowDepth + 1`, child jobs inherit
+  their creating continuation depth, and depth `4` cannot subscribe. Durable
+  continuation output now immediately finalizes only child handles keyed by its
+  continuation client-turn id; failed/interrupted receipts release unresolved
+  children, while reconciliation matches persisted continuation metadata.
+  Runtime continuation HTTP responses are now validated as an exact discriminated
+  union with essential result fields; malformed 2xx remains ambiguous/dispatched.
+  Existing
+  attachment-first delivery remains the file owner; owned completion skips
+  legacy model framing, finalized legacy behavior is retained, and unresolved
+  source decisions defer. The ADR-119 prompt golden was legitimately refreshed
+  for universal await guidance. Parent reran the complete API suite (exit `0`,
+  about 431 seconds), complete runtime isolated suite (exit `0`), API/runtime
+  typecheck+lint, Prisma format/validate/generate, root format, and diff check.
+  The clean disposable pgvector proof had already applied all 192 migrations and
+  passed trigger/CAS/depth checks. Deploy/live acceptance remain pending;
+  Browser Script SDK is the next checkpoint, and ADR-152 remains open.
+
 - **ADR-152 checkpoint 1 implemented locally and independently audited CLEAN
   (not deployed/live-accepted).**
   Added one additive `assistant_async_job_handles` table and transactional

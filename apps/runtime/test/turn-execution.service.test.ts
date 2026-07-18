@@ -78,7 +78,11 @@ import type { RuntimeBundleAutoRefreshService } from "../src/modules/turns/runti
 import { BuildActiveScenarioBlockService } from "../src/modules/turns/build-active-scenario-block.service";
 import { BuildSystemReminderBlocksService } from "../src/modules/turns/build-system-reminder-blocks.service";
 import { ToolBudgetPolicy } from "../src/modules/turns/tool-budget-policy";
-import { TurnExecutionService } from "../src/modules/turns/turn-execution.service";
+import {
+  resolveAsyncJobSourceContext,
+  stripAsyncContinuationSyntheticMessage,
+  TurnExecutionService
+} from "../src/modules/turns/turn-execution.service";
 import { OUTPUT_BUDGET_FALLBACK } from "../src/modules/turns/model-output-budget";
 import type {
   FinalizedRuntimeTurn,
@@ -9091,11 +9095,15 @@ export async function runTurnExecutionAwaitDispatchTest(): Promise<void> {
   const awaitService = {
     async executeToolCall(input: Record<string, unknown>) {
       calls.push(input);
+      const toolCallInput = input.toolCall as ProviderGatewayToolCall;
+      const notify = toolCallInput.arguments.action === "notify";
       return {
         payload: {
           toolCode: "await",
           executionMode: "inline",
-          action: "status",
+          action: notify ? "notified" : "status",
+          turnControl: notify ? "terminal_static" : "continue",
+          staticAssistantText: notify ? "I’ll let you know here when the job finishes." : null,
           reason: null,
           warning: null,
           jobRef: `jr1.media.${"A".repeat(32)}`,
@@ -9111,7 +9119,7 @@ export async function runTurnExecutionAwaitDispatchTest(): Promise<void> {
   };
   const service = buildMinimalTurnExecutionService(awaitService);
   const accessor = service as unknown as {
-    createTurnExecutionState(): {
+    createTurnExecutionState(input: { idempotencyKey: string }): {
       currentChatId: string | null;
       blockingWaitedJobRefs: Set<string>;
     };
@@ -9125,7 +9133,10 @@ export async function runTurnExecutionAwaitDispatchTest(): Promise<void> {
       currentFileHandles: unknown[],
       availableWorkingFileHandles: unknown[],
       turnState: unknown
-    ): Promise<{ payload: Record<string, unknown> }>;
+    ): Promise<{
+      payload: Record<string, unknown>;
+      terminalControl?: { assistantText: string };
+    }>;
   };
   const bundle = buildAdr135PowerConfigBundle("platform_default");
   const execution = {
@@ -9146,11 +9157,11 @@ export async function runTurnExecutionAwaitDispatchTest(): Promise<void> {
     name: "await",
     arguments: { action: "wait", jobRef: `jr1.media.${"A".repeat(32)}`, timeoutMs: 0 }
   };
-  const turnState = accessor.createTurnExecutionState();
+  const turnState = accessor.createTurnExecutionState({ idempotencyKey: "turn-1" });
   const missingChat = await accessor.executeProjectedToolCall(
     execution,
     acceptedTurn,
-    {} as never,
+    { message: { locale: "en" } } as never,
     toolCall,
     null,
     [],
@@ -9165,7 +9176,7 @@ export async function runTurnExecutionAwaitDispatchTest(): Promise<void> {
   const dispatched = await accessor.executeProjectedToolCall(
     execution,
     acceptedTurn,
-    {} as never,
+    { message: { locale: "en" } } as never,
     toolCall,
     null,
     [],
@@ -9179,6 +9190,118 @@ export async function runTurnExecutionAwaitDispatchTest(): Promise<void> {
   assert.equal(calls[0]?.channel, "web");
   assert.equal(calls[0]?.threadKey, "thread-1");
   assert.equal(calls[0]?.blockingWaitedJobRefs, turnState.blockingWaitedJobRefs);
+  const notified = await accessor.executeProjectedToolCall(
+    execution,
+    acceptedTurn,
+    { message: { locale: "en" } } as never,
+    { ...toolCall, arguments: { action: "notify", jobRef: toolCall.arguments.jobRef } },
+    null,
+    [],
+    [],
+    [],
+    turnState
+  );
+  assert.deepEqual(notified.terminalControl, {
+    assistantText: "I’ll let you know here when the job finishes."
+  });
+}
+
+export async function runAsyncContinuationAcceptanceTest(): Promise<void> {
+  const request = {
+    requestId: "async-cont:request-1",
+    idempotencyKey: "async-cont:turn-1",
+    runtimeTier: "paid_shared_restricted" as const,
+    bundle: {
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      bundleId: "bundle-1",
+      publishedVersionId: "version-1",
+      bundleHash: "hash-1",
+      compiledAt: new Date().toISOString()
+    },
+    conversation: {
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      channel: "web" as const,
+      externalThreadKey: "exact-original-thread",
+      externalUserKey: "user-1",
+      mode: "direct" as const
+    },
+    message: {
+      text: "Continue from the completed asynchronous job.",
+      attachments: [],
+      locale: "en",
+      timezone: "UTC",
+      receivedAt: new Date().toISOString()
+    },
+    continuation: {
+      depth: 1,
+      sourceUserMessageId: "00000000-0000-4000-8000-000000000123",
+      sourceClientTurnId: "async-cont:turn-1",
+      facts: {
+        kind: "media" as const,
+        status: "completed" as const,
+        errorCode: null,
+        message: "Job completed and was delivered."
+      }
+    }
+  };
+  const service = buildMinimalTurnExecutionService();
+  const sections = (
+    service as unknown as {
+      buildBaseDeveloperInstructionSections(input: Record<string, unknown>): Array<{
+        key: string;
+        content: string;
+      }>;
+    }
+  ).buildBaseDeveloperInstructionSections({
+    request,
+    currentChatId: "chat-1",
+    projectedTools: { tools: [] },
+    availableWorkingFileHandles: [],
+    deepModeEnabled: false,
+    routeDecision: undefined,
+    openLoopRefsBlock: null,
+    presenceBlock: null,
+    openMediaJobs: undefined,
+    openDocumentJobs: undefined,
+    jobDeliveryUpdates: undefined
+  });
+  const completionBlock = sections.find((section) => section.key === "async_completion");
+  assert.ok(completionBlock?.content.includes('"status":"completed"'));
+  assert.equal(completionBlock?.content.includes("async-cont:turn-1"), false);
+  assert.equal(completionBlock?.content.includes("00000000-0000-4000-8000-000000000123"), false);
+  assert.deepEqual(
+    stripAsyncContinuationSyntheticMessage(
+      [
+        { role: "assistant", content: "Earlier reply." },
+        { role: "user", content: "[internal async completion]" }
+      ],
+      request.continuation
+    ),
+    [{ role: "assistant", content: "Earlier reply." }]
+  );
+  let acceptedInput: unknown;
+  (service as unknown as { turnAcceptanceService: unknown }).turnAcceptanceService = {
+    async acceptTurn(input: unknown) {
+      acceptedInput = input;
+      return { outcome: "busy" };
+    }
+  };
+  assert.deepEqual(await service.createAsyncContinuation(request), { outcome: "busy" });
+  assert.equal(acceptedInput, request);
+  assert.equal(request.conversation.externalThreadKey, "exact-original-thread");
+  assert.deepEqual(resolveAsyncJobSourceContext(request, null), {
+    sourceUserMessageId: "00000000-0000-4000-8000-000000000123",
+    sourceClientTurnId: "async-cont:turn-1"
+  });
+
+  (service as unknown as { turnAcceptanceService: unknown }).turnAcceptanceService = {
+    async acceptTurn() {
+      return { outcome: "in_flight" };
+    }
+  };
+  assert.deepEqual(await service.createAsyncContinuation(request), { outcome: "duplicate" });
 }
 
 function buildMinimalTurnExecutionService(runtimeAwaitToolService?: unknown): TurnExecutionService {

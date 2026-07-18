@@ -4,7 +4,7 @@ This document defines the current verification baseline for the active PersAI-na
 
 ADR-072 is closed as the historical native migration ADR. Current continuation work should be checked against `docs/ADR/078-consolidated-follow-through-program.md`. `Step 15a` is cancelled and is not an active verification track. ADR-087 defines the unified quota-advisory and paid light-mode target state. ADR-088 defines the unified notification platform target state.
 
-## ADR-152 Browser Script SDK and Durable Job Wait/Notify (checkpoint 1 local)
+## ADR-152 Browser Script SDK and Durable Job Wait/Notify (checkpoint 2 local)
 
 Before one coordinated deploy, implementation must prove all 18 approved
 founder gates enumerated in
@@ -22,12 +22,56 @@ Deterministic clock coverage also proves slow initial and final status RPCs
 cannot extend a positive wait beyond its overall deadline, while caller Stop
 remains distinguishable from internal deadline expiry. Universal-tool fixture
 coverage is 25 projected tools (24 plan-visible plus `await`).
-An isolated `pgvector/pgvector:pg16` proof applied all 191 migrations and
+An isolated `pgvector/pgvector:pg16` proof applied the checkpoint-1 migration set and
 reported current, then inserted a minimal owned graph plus one media and one
 document canonical job. Both triggers produced exactly one correctly shaped,
 owned `jr1` handle; duplicate `(kind, canonicalJobId)` insertion failed unique.
 The disposable container was removed.
-Deployment/live acceptance and every `notify`/browser gate remain pending.
+Deployment/live acceptance and every browser gate remain pending.
+
+Checkpoint 2 Pass A adds executable API state tests for idempotent subscription,
+terminal current-turn ownership, source-finalization preservation, depth-4
+exhaustion, subscribed completion promotion to `ready`, and conservative
+dispatched reconciliation. Existing complete media/document delivery suites
+also exercise that continuation/current-turn ownership skips legacy
+`maybeFrame` while attachment delivery and terminal recording continue. This is
+uncommitted local work.
+
+Pass B adds canonical re-read/interleaving and depth-exhausted duplicate tests;
+wait current-turn ownership/pending timeout tests; notify pending static terminal
+control and terminal-before-notify inline tests; and turn-execution dispatch
+coverage proving terminal control is explicit. Runtime/API typechecks and focused
+tests are part of this pass. Pass C adds persisted-output proof/release tests,
+SchedulerLease claim/dispatch/backoff, canonical ownership/binding/entitlement
+validation, deterministic receipt replay, one-message persistence, exact
+Telegram outbound delivery, and conservative claimed/dispatched/source-turn
+reconciliation. The continuation prompt must prove volatile facts are present
+and the internal sentinel is absent from user history. The legitimate ADR-119
+golden fixture includes universal await guidance. Deploy/live acceptance remain
+pending.
+
+The first independent checkpoint-2 audits returned DIRTY. Repair regressions now
+cover typed busy CAS without fabricated proof, abort-aware ambiguous dispatch,
+late-token output suppression, single-winner artifact attempts, separate
+continuation source UUID/client-turn identity, and all-old-source finalization
+selection. After the repair rounds, the final independent Sonnet re-audit
+returned CLEAN with no P0/P1/P2 findings.
+
+Follow-up re-audit regressions execute the corrected depth ladder (`0 -> 1`,
+`1 -> 2`, `3 -> 4`, and depth-4 subscription rejection), immediate child
+source finalization after durable continuation output, interrupted-receipt child
+release, and lost-finalization recovery through
+`asyncContinuationClientTurnId`. HTTP-client fixtures accept only exact
+busy/duplicate, safe failed, and essential completed-result shapes; malformed
+2xx is asserted as ambiguous so scheduler state remains dispatched.
+
+Parent final verification reran the complete API suite (exit `0`, about 431
+seconds), complete runtime isolated suite (exit `0`), API/runtime
+typecheck+lint, Prisma format/validate/generate, root format, and diff check.
+The clean disposable pgvector proof had already applied all 192 migrations and
+passed trigger, CAS, and depth checks. Checkpoint 2 is locally complete but not
+deployed or live-accepted. Browser Script SDK is the next checkpoint; ADR-152
+is not closed.
 
 1. `await wait` returns already-terminal facts without blocking, clamps to 60s,
    allows only one blocking wait/job/turn, returns pending on timeout without

@@ -25,7 +25,9 @@ export async function runRuntimeAwaitToolServiceTest(): Promise<void> {
     status: "completed" as const,
     terminal: true,
     errorCode: null,
-    message: "Job completed and was delivered."
+    message: "Job completed and was delivered.",
+    narrationOutcome: "claimed_current_turn" as const,
+    narrationOwner: "current_turn" as const
   };
   const pending = {
     found: true as const,
@@ -34,8 +36,44 @@ export async function runRuntimeAwaitToolServiceTest(): Promise<void> {
     status: "pending" as const,
     terminal: false,
     errorCode: null,
-    message: null
+    message: null,
+    narrationOutcome: null,
+    narrationOwner: null
   };
+  {
+    const { service } = makeService(
+      async () => pending,
+      undefined,
+      async () => ({
+        outcome: "subscribed",
+        continuationClientTurnId: "async-cont:1",
+        duplicate: false
+      })
+    );
+    const result = await executeArguments(service, { action: "notify", jobRef: ref });
+    assert.equal(result.payload.action, "notified");
+    assert.equal(result.payload.turnControl, "terminal_static");
+    assert.equal(
+      result.payload.staticAssistantText,
+      "I’ll let you know here when the job finishes."
+    );
+  }
+  {
+    const { service } = makeService(
+      async () => pending,
+      undefined,
+      async () => ({
+        outcome: "terminal_inline",
+        kind: "media",
+        status: "completed",
+        errorCode: null,
+        message: "Job completed and was delivered."
+      })
+    );
+    const result = await executeArguments(service, { action: "notify", jobRef: ref });
+    assert.equal(result.payload.action, "terminal_inline");
+    assert.equal(result.payload.turnControl, "continue");
+  }
   {
     const { service } = makeService(async () => terminal);
     for (const argumentsValue of [
@@ -174,11 +212,14 @@ export async function runRuntimeAwaitToolServiceTest(): Promise<void> {
 
 function makeService(
   resolveAsyncJobStatus: PersaiInternalApiClientService["resolveAsyncJobStatus"],
-  clock = createClock()
+  clock = createClock(),
+  subscribeAsyncJob: PersaiInternalApiClientService["subscribeAsyncJob"] = async () => ({
+    outcome: "not_found"
+  })
 ) {
   return {
     service: new RuntimeAwaitToolService(
-      { resolveAsyncJobStatus } as PersaiInternalApiClientService,
+      { resolveAsyncJobStatus, subscribeAsyncJob } as PersaiInternalApiClientService,
       clock
     ),
     clock

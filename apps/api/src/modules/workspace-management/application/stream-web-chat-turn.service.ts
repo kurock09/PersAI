@@ -72,6 +72,7 @@ import { BackgroundCompactionQueueService } from "./background-compaction-queue.
 import { NotificationDeliveryWorkerService } from "./notifications/notification-delivery-worker.service";
 import { PlatformHttpMetricsService } from "../../platform-core/application/platform-http-metrics.service";
 import { persistAssistantMessage } from "./persist-assistant-message";
+import { AssistantAsyncJobHandleStateService } from "./assistant-async-job-handle-state.service";
 import {
   extractToolInvocationsFromMetadata,
   extractWorkingNotesFromMetadata
@@ -262,7 +263,19 @@ export class StreamWebChatTurnService {
     @Optional()
     private readonly compactionAdvisoryFollowUpService?: CompactionAdvisoryFollowUpService,
     @Optional()
-    private readonly backgroundCompactionQueueService?: BackgroundCompactionQueueService
+    private readonly backgroundCompactionQueueService?: BackgroundCompactionQueueService,
+    @Inject(AssistantAsyncJobHandleStateService)
+    private readonly asyncJobHandleState: Pick<
+      AssistantAsyncJobHandleStateService,
+      "finalizeSourceTurn"
+    > = {
+      finalizeSourceTurn: async () => ({
+        finalized: 0,
+        legacyChosen: 0,
+        currentTurnPreserved: 0,
+        currentTurnReleased: 0
+      })
+    }
   ) {}
 
   async prepare(
@@ -391,6 +404,7 @@ export class StreamWebChatTurnService {
     let accumulated = "";
     let respondedAt: string | null = null;
     let mainAssistantReplyPersisted = false;
+    let persistedAssistantMessageId: string | null = null;
     let usageAccounting: AssistantRuntimeWebChatTurnStreamChunk["usageAccounting"] = undefined;
     let turnRouting: AssistantRuntimeWebChatTurnStreamChunk["turnRouting"] = null;
     let deferredMediaJobs: AssistantRuntimeWebChatTurnStreamChunk["deferredMediaJobs"] = undefined;
@@ -638,6 +652,12 @@ export class StreamWebChatTurnService {
       }
 
       if (callbacks.isClientAborted() || lastAttemptStatus === "client-aborted") {
+        await this.asyncJobHandleState.finalizeSourceTurn({
+          assistantId: prepared.assistantId,
+          chatId: prepared.chat.id,
+          sourceClientTurnId: prepared.userMessage.id,
+          outcome: callbacks.isUserStopped?.() === true ? "stopped" : "failed"
+        });
         if (prepared.clientTurnId !== undefined) {
           await this.bindingRepository.releaseWebTurnProcessing(
             prepared.assistantId,
@@ -712,6 +732,12 @@ export class StreamWebChatTurnService {
         ? (runtimeFinalAnswer as string).trim()
         : cleanedAccumulated;
       if (contentToPersist.length === 0 && collectedMedia.length === 0) {
+        await this.asyncJobHandleState.finalizeSourceTurn({
+          assistantId: prepared.assistantId,
+          chatId: prepared.chat.id,
+          sourceClientTurnId: prepared.userMessage.id,
+          outcome: "failed"
+        });
         if (prepared.clientTurnId !== undefined) {
           if (this.webChatTurnAttemptService) {
             await this.webChatTurnAttemptService.markFailed({
@@ -765,6 +791,14 @@ export class StreamWebChatTurnService {
         truncatedStatus: isCompletedNormally && runtimeTruncated ? "truncated" : undefined
       });
       mainAssistantReplyPersisted = true;
+      persistedAssistantMessageId = assistantMessage.id;
+      await this.asyncJobHandleState.finalizeSourceTurn({
+        assistantId: prepared.assistantId,
+        chatId: prepared.chat.id,
+        sourceClientTurnId: prepared.userMessage.id,
+        outcome: "persisted",
+        assistantMessageId: assistantMessage.id
+      });
       trace.stage("assistant_message_saved");
       const postRuntime = await finalizePersistedWebTurn({
         logger: this.logger,
@@ -937,6 +971,17 @@ export class StreamWebChatTurnService {
         }
       };
     } catch (error) {
+      await this.asyncJobHandleState.finalizeSourceTurn({
+        assistantId: prepared.assistantId,
+        chatId: prepared.chat.id,
+        sourceClientTurnId: prepared.userMessage.id,
+        ...(persistedAssistantMessageId !== null
+          ? {
+              outcome: "persisted" as const,
+              assistantMessageId: persistedAssistantMessageId
+            }
+          : { outcome: "failed" as const })
+      });
       if (prepared.clientTurnId !== undefined) {
         await this.bindingRepository.releaseWebTurnProcessing(
           prepared.assistantId,

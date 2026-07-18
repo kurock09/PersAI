@@ -435,13 +435,17 @@ function createAwaitToolDefinition(): ProviderGatewayToolDefinition {
   return {
     name: "await",
     description:
-      "Read or briefly wait for an owned asynchronous media/document job by its opaque jobRef. One call observes server-side; timeout never cancels the job.",
+      "Read, briefly wait for, or subscribe to an owned asynchronous media/document job by its opaque jobRef. notify ends this turn and resumes once when the job finishes.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
       required: ["action", "jobRef"],
       properties: {
-        action: { type: "string", enum: ["wait"], description: 'Must be "wait".' },
+        action: {
+          type: "string",
+          enum: ["wait", "notify"],
+          description: 'Use "wait" for one bounded observation or "notify" for durable follow-up.'
+        },
         jobRef: { type: "string", description: "Exact opaque jobRef from a pending tool receipt." },
         timeoutMs: {
           type: "integer",

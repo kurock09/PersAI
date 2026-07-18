@@ -115,9 +115,32 @@ internal `POST /api/v1/internal/runtime/async-jobs/status` seam with current
 assistant/workspace/chat/channel/thread ownership. It returns only opaque
 `jobRef`, canonical kind, normalized status, and bounded safe terminal facts;
 malformed, tampered, and foreign handles all return the same not-found result.
-The model-visible `await` tool currently projects only `action="wait"` (zero is
-status-only, positive timeout is capped at 60 seconds). `notify` is not yet
-projected or executable.
+The model-visible `await` tool projects exactly `action="wait"|"notify"` (zero
+wait is status-only, positive timeout is capped at 60 seconds).
+
+Checkpoint 2 adds the bearer-protected
+`POST /api/v1/internal/runtime/async-jobs/subscribe` seam and API-owned
+same-row state operations. Source finalization has no HTTP seam: authoritative
+API message-persistence owners call the in-process owner after persistence or
+failure. Status/subscribe re-read canonical truth
+under the locked handle and derive user ownership from the chat. Terminal status
+observation claims current-turn narration before returning facts. Media/document delivery consults
+the durable narration decision before invoking legacy completion framing:
+continuation/current-turn owners skip it, finalized legacy owners preserve it,
+and unresolved source turns defer. API message-persistence owners finalize with
+proof of persisted output; failed/Stopped turns release current-turn ownership.
+The runtime additionally exposes bearer-protected
+`POST /api/v1/internal/runtime/async-continuations`, which uses ordinary
+same-chat turn acceptance/session lease/receipt replay and returns typed
+completed/busy/duplicate/failed. Only the internal SchedulerLease-backed
+continuation worker calls it after canonical ownership/binding/entitlement
+revalidation; it persists output without a fake user message, then finalizes
+children keyed by that continuation client-turn id through the same in-process
+owner. The API client accepts only exact busy/duplicate, safe failed, or
+essential completed-result response shapes; malformed 2xx is ambiguous and
+remains dispatched. Its authenticated
+`/status` subroute proves the exact receipt and accepted-turn marker before an
+ambiguous dispatched handle may be requeued.
 
 ### Native Tool Runtime instruction ownership
 

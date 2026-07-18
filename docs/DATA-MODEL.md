@@ -66,6 +66,35 @@ function attached to both canonical job tables. The handle row has ordinary
 Assistant/Workspace/Chat foreign keys, while polymorphic `canonicalJobId`
 deliberately has no FK; the owned resolver rechecks the selected canonical row.
 
+Checkpoint 2 extends that same row additively with source-finalization,
+narration-decision/terminal-observation timestamps, exact continuation depth
+(`0..4`), ready/claimed/dispatched/completed/failed/cancelled timestamps,
+dispatch receipt request id, bounded retry/exhaustion errors, and claim-expiry
+indexes. The same row stores the one continuation Assistant message id plus
+separate attempted/result/error fields for continuation artifacts and external
+channel delivery. Each non-idempotent side effect is CAS-owned before the
+external call; ambiguous responses are recorded and never automatically
+retried. This prevents duplicate Telegram/artifact sends at the explicit cost
+of possible ambiguous delivery loss. A unique nullable
+continuation `clientTurnId` lets the canonical insert
+trigger inherit `parentDepth + 1`; canonical media and document rows separately
+store the real source user-message UUID and current source client-turn id.
+Ordinary user-authored jobs use the same UUID for both and reset to depth `0`.
+The row depth is the depth of the turn that created the job, not the next turn:
+the scheduler accepts subscribed rows at depths `0..3` and dispatches depth
+`rowDepth + 1`; depth `4` cannot subscribe.
+SQL checks constrain depth, retries, narration
+owners, and decisions. No companion subscription, claim, or continuation table
+exists.
+
+Checkpoint 2 makes the handle lock the serialization point for observe/subscribe and
+re-reads its canonical media/document row in the same transaction; caller facts
+cannot move a terminal handle back to `subscribed`. Trigger source identity uses
+canonical `source_client_turn_id` when present and otherwise the canonical
+source user-message id (the runtime turn idempotency key), so both media and
+document handles participate in exact source-turn finalization without a second
+table.
+
 ## Runtime-plane ownership
 
 The native runtime path uses PersAI-owned runtime state models for:

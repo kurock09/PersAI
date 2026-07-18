@@ -16,7 +16,8 @@ export const SCHEDULER_KEYS = [
   "assistant_file_cleanup_reaper",
   "assistant_file_media_derivative",
   "browser_profile_expiry",
-  "orphan_web_turn_attempt"
+  "orphan_web_turn_attempt",
+  "assistant_async_job_continuation"
 ] as const;
 
 export type SchedulerKey = (typeof SCHEDULER_KEYS)[number];

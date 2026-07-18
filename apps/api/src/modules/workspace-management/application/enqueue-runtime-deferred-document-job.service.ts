@@ -30,6 +30,7 @@ type DocumentDirectToolExecutionPayload = {
 export type EnqueueRuntimeDeferredDocumentJobInput = {
   assistantId: string;
   sourceUserMessageId: string;
+  sourceClientTurnId?: string;
   sourceUserMessageText: string;
   runtimeSessionId: string;
   // Attachments captured from the triggering user message. The runtime
@@ -91,9 +92,14 @@ export class EnqueueRuntimeDeferredDocumentJobService {
   parseInput(payload: unknown): EnqueueRuntimeDeferredDocumentJobInput {
     const row = this.objectValue(payload, "payload");
     const attachments = this.parseOptionalAttachments(row.attachments);
+    const sourceUserMessageId = this.requiredString(row.sourceUserMessageId, "sourceUserMessageId");
     return {
       assistantId: this.requiredString(row.assistantId, "assistantId"),
-      sourceUserMessageId: this.requiredString(row.sourceUserMessageId, "sourceUserMessageId"),
+      sourceUserMessageId,
+      sourceClientTurnId:
+        row.sourceClientTurnId === undefined
+          ? sourceUserMessageId
+          : this.requiredString(row.sourceClientTurnId, "sourceClientTurnId"),
       sourceUserMessageText: this.requiredString(
         row.sourceUserMessageText,
         "sourceUserMessageText"
@@ -255,6 +261,7 @@ export class EnqueueRuntimeDeferredDocumentJobService {
           surface: chat.surface,
           sourceUserMessageId: sourceMessage.id,
           request: {
+            sourceClientTurnId: input.sourceClientTurnId ?? sourceMessage.id,
             sourceUserMessageText: input.sourceUserMessageText,
             sourceUserMessageCreatedAt: sourceMessage.createdAt.toISOString(),
             runtimeSessionId: input.runtimeSessionId,
@@ -274,6 +281,7 @@ export class EnqueueRuntimeDeferredDocumentJobService {
         surface: chat.surface,
         sourceUserMessageId: sourceMessage.id,
         request: {
+          sourceClientTurnId: input.sourceClientTurnId ?? sourceMessage.id,
           sourceUserMessageText: input.sourceUserMessageText,
           sourceUserMessageCreatedAt: sourceMessage.createdAt.toISOString(),
           runtimeSessionId: input.runtimeSessionId,
@@ -294,6 +302,7 @@ export class EnqueueRuntimeDeferredDocumentJobService {
         surface: chat.surface,
         sourceUserMessageId: sourceMessage.id,
         request: {
+          sourceClientTurnId: input.sourceClientTurnId ?? sourceMessage.id,
           sourceUserMessageText: input.sourceUserMessageText,
           sourceUserMessageCreatedAt: sourceMessage.createdAt.toISOString(),
           runtimeSessionId: input.runtimeSessionId,
@@ -330,6 +339,7 @@ export class EnqueueRuntimeDeferredDocumentJobService {
       provider: resolvedShape.provider,
       outputFormat: resolvedShape.outputFormat,
       request: {
+        sourceClientTurnId: input.sourceClientTurnId ?? sourceMessage.id,
         sourceUserMessageText: input.sourceUserMessageText,
         sourceUserMessageCreatedAt: sourceMessage.createdAt.toISOString(),
         runtimeSessionId: input.runtimeSessionId,
@@ -475,6 +485,7 @@ export class EnqueueRuntimeDeferredDocumentJobService {
     surface: "web" | "telegram";
     sourceUserMessageId: string;
     request: {
+      sourceClientTurnId?: string;
       sourceUserMessageText: string;
       sourceUserMessageCreatedAt: string;
       runtimeSessionId: string;
@@ -609,6 +620,7 @@ export class EnqueueRuntimeDeferredDocumentJobService {
     surface: "web" | "telegram";
     sourceUserMessageId: string;
     request: {
+      sourceClientTurnId?: string;
       sourceUserMessageText: string;
       sourceUserMessageCreatedAt: string;
       runtimeSessionId: string;
@@ -695,6 +707,7 @@ export class EnqueueRuntimeDeferredDocumentJobService {
     surface: "web" | "telegram";
     sourceUserMessageId: string;
     request: {
+      sourceClientTurnId?: string;
       sourceUserMessageText: string;
       sourceUserMessageCreatedAt: string;
       runtimeSessionId: string;

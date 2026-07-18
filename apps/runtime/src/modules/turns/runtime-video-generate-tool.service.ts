@@ -236,6 +236,7 @@ export class RuntimeVideoGenerateToolService {
     sourceUserMessageCreatedAt?: string | null;
     deferToAsyncMediaJob?: {
       sourceUserMessageId: string;
+      sourceClientTurnId?: string;
       sourceUserMessageText: string;
     };
     abortSignal?: AbortSignal;
@@ -460,6 +461,9 @@ export class RuntimeVideoGenerateToolService {
           const enqueueOutcome = await this.persaiInternalApiClientService.enqueueDeferredMediaJob({
             assistantId: params.bundle.metadata.assistantId,
             sourceUserMessageId: params.deferToAsyncMediaJob.sourceUserMessageId,
+            sourceClientTurnId:
+              params.deferToAsyncMediaJob.sourceClientTurnId ??
+              params.deferToAsyncMediaJob.sourceUserMessageId,
             sourceUserMessageText: params.deferToAsyncMediaJob.sourceUserMessageText,
             runtimeSessionId: params.sessionId,
             attachments: params.availableAttachments,
@@ -769,6 +773,9 @@ export class RuntimeVideoGenerateToolService {
         const enqueueOutcome = await this.persaiInternalApiClientService.enqueueDeferredMediaJob({
           assistantId: params.bundle.metadata.assistantId,
           sourceUserMessageId: params.deferToAsyncMediaJob.sourceUserMessageId,
+          sourceClientTurnId:
+            params.deferToAsyncMediaJob.sourceClientTurnId ??
+            params.deferToAsyncMediaJob.sourceUserMessageId,
           sourceUserMessageText: params.deferToAsyncMediaJob.sourceUserMessageText,
           runtimeSessionId: params.sessionId,
           attachments: params.availableAttachments,

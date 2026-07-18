@@ -66,6 +66,7 @@ import {
   type RuntimeInterruptedEvent,
   type RuntimeTextDeltaSource,
   type RuntimeTurnRequest,
+  type RuntimeAsyncContinuationResult,
   type RuntimeTurnResult,
   type RuntimeTurnRoutingSnapshot,
   type RuntimeTurnToolInvocation,
@@ -366,6 +367,9 @@ type ToolExecutionOutcome = {
     durableStatePersisted: boolean;
   };
   pendingFilePreviewBlocks?: ProviderGatewayMessageContentBlock[];
+  terminalControl?: {
+    assistantText: string;
+  };
 };
 
 type PlannedToolExecution = {
@@ -465,6 +469,7 @@ type DeveloperInstructionSectionKey =
   | "open_media_jobs"
   | "open_document_jobs"
   | "job_delivery_updates"
+  | "async_completion"
   | "presence"
   | "delivery_contract"
   | "tool_follow_up"
@@ -475,6 +480,28 @@ type DeveloperInstructionSection = {
   key: DeveloperInstructionSectionKey;
   content: string;
 };
+
+export function stripAsyncContinuationSyntheticMessage(
+  messages: ProviderGatewayTextMessage[],
+  continuation: RuntimeTurnRequest["continuation"]
+): ProviderGatewayTextMessage[] {
+  if (continuation === undefined) return messages;
+  return messages.filter(
+    (message, index) => !(index === messages.length - 1 && message.role === "user")
+  );
+}
+
+export function resolveAsyncJobSourceContext(
+  input: RuntimeTurnRequest,
+  currentUserMessageId: string | null
+): { sourceUserMessageId: string; sourceClientTurnId: string } {
+  const sourceUserMessageId =
+    input.continuation?.sourceUserMessageId ?? currentUserMessageId ?? input.idempotencyKey;
+  return {
+    sourceUserMessageId,
+    sourceClientTurnId: input.continuation?.sourceClientTurnId ?? sourceUserMessageId
+  };
+}
 
 const BACKGROUND_TASK_SYNTHETIC_TURN_EXCLUDED_TOOLS = new Set([
   BACKGROUND_TASK_TOOL_CODE,
@@ -601,6 +628,60 @@ export class TurnExecutionService {
           });
         });
       }
+    }
+  }
+
+  async createAsyncContinuation(
+    input: RuntimeTurnRequest
+  ): Promise<RuntimeAsyncContinuationResult> {
+    if (
+      input.continuation === undefined ||
+      !Number.isInteger(input.continuation.depth) ||
+      input.continuation.depth < 1 ||
+      input.continuation.depth > 4 ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+        input.continuation.sourceUserMessageId
+      ) ||
+      input.continuation.sourceClientTurnId !== input.idempotencyKey
+    ) {
+      return { outcome: "failed", code: "invalid_continuation" };
+    }
+    this.assertSupportedTurnRequest(input, "createAsyncContinuation");
+    const acceptedTurn = await this.turnAcceptanceService.acceptTurn(input);
+    if (acceptedTurn.outcome === "busy") return { outcome: "busy" };
+    if (acceptedTurn.outcome === "in_flight") return { outcome: "duplicate" };
+    if (acceptedTurn.outcome === "replayed") {
+      return {
+        outcome: "completed",
+        result: this.resolveReplayResult(acceptedTurn.receipt),
+        duplicate: true
+      };
+    }
+    const turnState = this.createTurnExecutionState();
+    try {
+      const execution = await this.prepareTurnExecution(input, {
+        allowModelToolExposure: true
+      });
+      await this.initializeTurnDeliveryContext(turnState, input);
+      this.applyPreparedTurnExecutionState(turnState, execution);
+      const result = await this.runtimeExecutionAdmissionService.runWithAdmission(
+        this.classifyInteractiveExecutionClass(input, execution),
+        () => this.executeAcceptedTurn(acceptedTurn, execution, input, turnState)
+      );
+      return {
+        outcome: "completed",
+        result: await this.finalizeAcceptedTurnWithPostTurnEffects({
+          acceptedTurn,
+          result,
+          input,
+          bundle: execution.bundle,
+          turnState
+        }),
+        duplicate: false
+      };
+    } catch (error) {
+      const failed = await this.failAcceptedTurnQuietly(acceptedTurn, error, undefined, turnState);
+      return { outcome: "failed", code: failed.code };
     }
   }
 
@@ -759,9 +840,13 @@ export class TurnExecutionService {
     }
     options?.trace?.stage("prepare.bundle_ready");
 
-    const hydratedMessagesBase = await this.turnContextHydrationService.buildMessages(
+    const hydratedMessagesWithInbound = await this.turnContextHydrationService.buildMessages(
       input,
       bundleEntry.parsedBundle
+    );
+    const hydratedMessagesBase = stripAsyncContinuationSyntheticMessage(
+      hydratedMessagesWithInbound,
+      input.continuation
     );
     // ADR-125 Slice 1: chat plan volatile block. Surfaces the current
     // windowed plan even when the most recent tool call did not touch it.
@@ -1202,7 +1287,8 @@ export class TurnExecutionService {
                     null,
                     trace?.build("interrupted"),
                     turnState
-                  )
+                  ),
+                  turnState
                 });
                 return;
               }
@@ -1287,6 +1373,7 @@ export class TurnExecutionService {
 
                 let durableCompactionExecuted = false;
                 let volatileRefreshNeeded = false;
+                let terminalStaticAssistantText: string | null = null;
                 const plannedToolExecutions = this.planToolExecutions(
                   this.reorderToolCallsCatalogContractBeforeExecution(
                     this.reorderToolCallsDocumentFirst(event.result.toolCalls),
@@ -1430,7 +1517,56 @@ export class TurnExecutionService {
                         yield this.createArtifactStreamEvent(acceptedTurn, artifact);
                       }
                     }
+                    if (outcome.terminalControl !== undefined) {
+                      terminalStaticAssistantText = outcome.terminalControl.assistantText;
+                      break;
+                    }
                   }
+                  if (terminalStaticAssistantText !== null) break;
+                }
+                if (terminalStaticAssistantText !== null) {
+                  const terminalProviderResult: ProviderGatewayTextGenerateResult = {
+                    ...event.result,
+                    text: terminalStaticAssistantText,
+                    stopReason: "completed",
+                    toolCalls: []
+                  };
+                  const staticDeltaEvent = this.createVisibleTextDeltaStreamEvent({
+                    acceptedTurn,
+                    previousDeliveredText: deliveredText,
+                    nextVisibleText: this.mergeAssistantTurnText(
+                      deliveredText,
+                      terminalStaticAssistantText
+                    ),
+                    source: "provider_tool_calls_result_text"
+                  });
+                  if (staticDeltaEvent !== null) {
+                    yield staticDeltaEvent;
+                  }
+                  await this.autoAttachUndeliveredProducedPaths({
+                    acceptedTurn,
+                    execution,
+                    input,
+                    turnState
+                  });
+                  const result = this.buildTurnResult(
+                    acceptedTurn,
+                    terminalProviderResult,
+                    turnState,
+                    execution.routeDecision,
+                    trace?.build("ok"),
+                    { workingNotes: [], answerText: terminalStaticAssistantText }
+                  );
+                  completionFinalizationAttempted = true;
+                  const finalizedResult = await this.finalizeAcceptedTurnWithPostTurnEffects({
+                    acceptedTurn,
+                    result,
+                    input,
+                    bundle: execution.bundle,
+                    turnState
+                  });
+                  yield { type: "completed", result: finalizedResult };
+                  return;
                 }
                 if (durableCompactionExecuted) {
                   const refreshStartedAtMs = Date.now();
@@ -1659,7 +1795,8 @@ export class TurnExecutionService {
                   );
                   await this.interruptAcceptedTurnQuietly({
                     acceptedTurn,
-                    event: interrupted
+                    event: interrupted,
+                    turnState
                   });
                   yield interrupted;
                   return;
@@ -1703,7 +1840,8 @@ export class TurnExecutionService {
             );
             await this.interruptAcceptedTurnQuietly({
               acceptedTurn,
-              event: interrupted
+              event: interrupted,
+              turnState
             });
             yield interrupted;
             return;
@@ -1763,7 +1901,8 @@ export class TurnExecutionService {
               null,
               trace?.build("interrupted"),
               turnState
-            )
+            ),
+            turnState
           });
           return;
         }
@@ -1781,7 +1920,8 @@ export class TurnExecutionService {
           );
           await this.interruptAcceptedTurnQuietly({
             acceptedTurn,
-            event: interrupted
+            event: interrupted,
+            turnState
           });
           yield interrupted;
           return;
@@ -2173,6 +2313,15 @@ export class TurnExecutionService {
         ? PROJECT_EXECUTION_DEVELOPER_CONTRACT
         : null;
     const channelContextSection = this.buildChannelContextDeveloperSection(input.request);
+    const asyncCompletionSection =
+      input.request?.continuation === undefined
+        ? null
+        : [
+            "## Async completion continuation",
+            "This is a same-chat continuation after an asynchronous job reached a terminal state.",
+            "Use these volatile facts to answer naturally. Do not expose internal identifiers or claim that files are being delivered again.",
+            JSON.stringify(input.request.continuation.facts)
+          ].join("\n");
     return this.createDeveloperInstructionSections([
       { key: "project_execution_contract", content: projectExecutionSection },
       { key: "visible_working_notes", content: VISIBLE_WORKING_NOTES_DEVELOPER_CONTRACT },
@@ -2183,6 +2332,7 @@ export class TurnExecutionService {
       { key: "open_media_jobs", content: openMediaJobsSection },
       { key: "open_document_jobs", content: openDocumentJobsSection },
       { key: "job_delivery_updates", content: jobDeliveryUpdatesSection },
+      { key: "async_completion", content: asyncCompletionSection },
       { key: "presence", content: presenceSection },
       { key: "delivery_contract", content: DELIVERY_HONESTY_CONTRACT }
     ]);
@@ -2843,7 +2993,11 @@ export class TurnExecutionService {
 
   private assertSupportedTurnRequest(
     input: RuntimeTurnRequest,
-    operation: "createTurn" | "streamTurn" | "createBackgroundTaskToolRun"
+    operation:
+      | "createTurn"
+      | "streamTurn"
+      | "createBackgroundTaskToolRun"
+      | "createAsyncContinuation"
   ): void {
     if (input.message.text.trim().length === 0) {
       throw new BadRequestException(
@@ -3099,6 +3253,14 @@ export class TurnExecutionService {
           }
           durableCompactionExecuted =
             durableCompactionExecuted || outcome.sharedCompaction?.durableStatePersisted === true;
+          if (outcome.terminalControl !== undefined) {
+            return {
+              ...providerResult,
+              text: outcome.terminalControl.assistantText,
+              stopReason: "completed",
+              toolCalls: []
+            };
+          }
         }
       }
       if (durableCompactionExecuted) {
@@ -3371,6 +3533,10 @@ export class TurnExecutionService {
     abortSignal?: AbortSignal,
     toolProgressSink?: TurnToolProgressSink
   ): Promise<ToolExecutionOutcome> {
+    const { sourceUserMessageId, sourceClientTurnId } = resolveAsyncJobSourceContext(
+      input,
+      currentUserMessageId
+    );
     const allowedToolNames = new Set(
       execution.projectedTools.tools.map((toolDefinition) => toolDefinition.name)
     );
@@ -3601,6 +3767,8 @@ export class TurnExecutionService {
               toolCode: "await",
               executionMode: "inline",
               action: "skipped",
+              turnControl: "continue",
+              staticAssistantText: null,
               reason: "job_not_found",
               warning: "Job was not found.",
               jobRef: "",
@@ -3620,10 +3788,18 @@ export class TurnExecutionService {
           chatId: currentChatId,
           channel: acceptedTurn.session.conversation.channel,
           threadKey: acceptedTurn.session.conversation.externalThreadKey,
+          locale: input.message.locale ?? execution.bundle.userContext.locale ?? null,
           blockingWaitedJobRefs: turnState.blockingWaitedJobRefs,
           ...(abortSignal === undefined ? {} : { abortSignal })
         });
-        return this.createToolExecutionOutcome(toolCall, result.payload, result.isError);
+        const outcome = this.createToolExecutionOutcome(toolCall, result.payload, result.isError);
+        if (
+          result.payload.turnControl === "terminal_static" &&
+          result.payload.staticAssistantText !== null
+        ) {
+          outcome.terminalControl = { assistantText: result.payload.staticAssistantText };
+        }
+        return outcome;
       }
       case GREP_TOOL_CODE: {
         const result = await this.runtimeGrepGlobToolService.executeGrepToolCall({
@@ -3693,7 +3869,8 @@ export class TurnExecutionService {
                 }
               : undefined,
           deferToAsyncDocumentJob: {
-            sourceUserMessageId: input.idempotencyKey,
+            sourceUserMessageId,
+            sourceClientTurnId,
             sourceUserMessageText: input.message.text,
             sourceUserMessageCreatedAt: new Date().toISOString(),
             currentAttachments: execution.currentMessageAttachments,
@@ -3721,7 +3898,8 @@ export class TurnExecutionService {
           toolCall,
           sessionId: acceptedTurn.session.sessionId,
           deferToAsyncDocumentJob: {
-            sourceUserMessageId: input.idempotencyKey,
+            sourceUserMessageId,
+            sourceClientTurnId,
             sourceUserMessageText: input.message.text,
             sourceUserMessageCreatedAt: new Date().toISOString(),
             currentAttachments: execution.currentMessageAttachments,
@@ -3758,7 +3936,8 @@ export class TurnExecutionService {
           ...(this.shouldDeferMediaToolExecution(input)
             ? {
                 deferToAsyncMediaJob: {
-                  sourceUserMessageId: input.idempotencyKey,
+                  sourceUserMessageId,
+                  sourceClientTurnId,
                   sourceUserMessageText: input.message.text
                 }
               }
@@ -3794,7 +3973,8 @@ export class TurnExecutionService {
           ...(this.shouldDeferMediaToolExecution(input)
             ? {
                 deferToAsyncMediaJob: {
-                  sourceUserMessageId: input.idempotencyKey,
+                  sourceUserMessageId,
+                  sourceClientTurnId,
                   sourceUserMessageText: input.message.text
                 }
               }
@@ -3840,7 +4020,8 @@ export class TurnExecutionService {
               ...(this.shouldDeferMediaToolExecution(input)
                 ? {
                     deferToAsyncMediaJob: {
-                      sourceUserMessageId: input.idempotencyKey,
+                      sourceUserMessageId,
+                      sourceClientTurnId,
                       sourceUserMessageText: input.message.text
                     }
                   }
@@ -7160,6 +7341,7 @@ export class TurnExecutionService {
     acceptedTurn: AcceptedRuntimeTurn;
     event: RuntimeInterruptedEvent;
     usage?: RuntimeUsageSnapshot | null;
+    turnState?: TurnExecutionState;
   }): Promise<void> {
     if (input.event.trace !== undefined) {
       this.runtimeObservabilityService.recordStreamTurn(input.event.trace);

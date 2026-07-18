@@ -26,6 +26,7 @@ import {
   buildAssistantMediaJobFailureMessage,
   inferAssistantMediaJobFailureLocale
 } from "./workspace-media-job-failure-copy.service";
+import { AssistantAsyncJobHandleStateService } from "./assistant-async-job-handle-state.service";
 
 const COMPLETION_DELIVERY_BATCH_SIZE = 4;
 const COMPLETION_DELIVERY_CLAIM_TTL_MS = 5 * 60 * 1000;
@@ -94,7 +95,18 @@ export class AssistantMediaJobCompletionDeliveryService {
     private readonly recordModelCostLedgerService: RecordModelCostLedgerService,
     @Inject(ASSISTANT_REPOSITORY)
     private readonly assistantRepository: AssistantRepository,
-    private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService
+    private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService,
+    @Inject(AssistantAsyncJobHandleStateService)
+    private readonly asyncJobHandleState: Pick<
+      AssistantAsyncJobHandleStateService,
+      "prepareDelivery" | "recordCanonicalCompletion"
+    > = {
+      prepareDelivery: async () => "legacy_frame",
+      recordCanonicalCompletion: async () => ({
+        decision: "legacy_frame",
+        state: "completed"
+      })
+    }
   ) {}
 
   private async persistCompletionFramingLedger(input: {
@@ -313,11 +325,30 @@ export class AssistantMediaJobCompletionDeliveryService {
     const deliveryState = { loopResolved: false };
 
     try {
+      const narrationDecision = await this.asyncJobHandleState.prepareDelivery({
+        kind: "media",
+        canonicalJobId: job.id
+      });
+      if (narrationDecision === "defer") {
+        await this.prisma.assistantMediaJob.updateMany({
+          where: { id: job.id, schedulerClaimToken: job.claimToken },
+          data: {
+            nextRetryAt: new Date(Date.now() + COMPLETION_DELIVERY_RETRY_BASE_DELAY_MS),
+            schedulerClaimToken: null,
+            schedulerClaimedAt: null,
+            schedulerClaimExpiresAt: null,
+            lastErrorCode: "async_narration_decision_pending",
+            lastErrorMessage: "Waiting for the source turn narration decision."
+          }
+        });
+        return;
+      }
       const completionAssistantText = await this.resolveCompletionAssistantText({
         job,
         sourceUserMessageText: requestPayload.sourceUserMessageText,
         sourceUserMessageCreatedAt: requestPayload.sourceUserMessageCreatedAt,
-        artifacts
+        artifacts,
+        allowLegacyFrame: narrationDecision === "legacy_frame"
       });
       const messageId = await this.ensureCompletionMessage(job, completionAssistantText);
       if (completionAssistantText.shouldUpdateExistingMessage) {
@@ -426,6 +457,7 @@ export class AssistantMediaJobCompletionDeliveryService {
     sourceUserMessageText: string;
     sourceUserMessageCreatedAt: string;
     artifacts: RuntimeOutputArtifact[];
+    allowLegacyFrame: boolean;
   }): Promise<CompletionAssistantTextResolution> {
     const rawAssistantText = input.job.resultText?.trim() ?? "";
     let existingContent = "";
@@ -442,20 +474,22 @@ export class AssistantMediaJobCompletionDeliveryService {
       usage: null
     };
     try {
-      framed = await this.assistantMediaJobCompletionTurnService.maybeFrame({
-        id: input.job.id,
-        assistantId: input.job.assistantId,
-        workspaceId: input.job.workspaceId,
-        chatId: input.job.chatId,
-        surface: input.job.surface,
-        kind: input.job.kind,
-        sourceUserMessageId: input.job.sourceUserMessageId,
-        sourceUserMessageText: input.sourceUserMessageText,
-        sourceUserMessageCreatedAt: input.sourceUserMessageCreatedAt,
-        resultText: rawAssistantText,
-        artifacts: input.artifacts,
-        requestJson: input.job.requestJson
-      });
+      framed = input.allowLegacyFrame
+        ? await this.assistantMediaJobCompletionTurnService.maybeFrame({
+            id: input.job.id,
+            assistantId: input.job.assistantId,
+            workspaceId: input.job.workspaceId,
+            chatId: input.job.chatId,
+            surface: input.job.surface,
+            kind: input.job.kind,
+            sourceUserMessageId: input.job.sourceUserMessageId,
+            sourceUserMessageText: input.sourceUserMessageText,
+            sourceUserMessageCreatedAt: input.sourceUserMessageCreatedAt,
+            resultText: rawAssistantText,
+            artifacts: input.artifacts,
+            requestJson: input.job.requestJson
+          })
+        : framed;
     } catch (error) {
       this.logger.warn(
         `Media completion framing failed for job ${input.job.id}; falling back to stored text: ${
@@ -506,8 +540,12 @@ export class AssistantMediaJobCompletionDeliveryService {
       await this.reconcileEnqueueReservationBestEffort(job);
     }
 
+    const narrationDecision = await this.asyncJobHandleState.prepareDelivery({
+      kind: "media",
+      canonicalJobId: job.id
+    });
     const llmAuthored =
-      context === undefined
+      context === undefined || narrationDecision !== "legacy_frame"
         ? null
         : await this.tryLlmAuthoredDeliveryFailureCopy(job, code, message, context);
     const failureMessage =
@@ -558,7 +596,7 @@ export class AssistantMediaJobCompletionDeliveryService {
       deliveredAt = new Date();
     }
 
-    await this.prisma.assistantMediaJob.updateMany({
+    const terminal = await this.prisma.assistantMediaJob.updateMany({
       where: { id: job.id, schedulerClaimToken: job.claimToken },
       data: {
         status: "failed",
@@ -572,6 +610,18 @@ export class AssistantMediaJobCompletionDeliveryService {
         ...(completionAssistantMessageId === null ? {} : { completionAssistantMessageId })
       }
     });
+    if (terminal.count > 0) {
+      await this.asyncJobHandleState.recordCanonicalCompletion({
+        kind: "media",
+        canonicalJobId: job.id,
+        terminalStatus: "failed",
+        terminalSnapshot: {
+          status: "failed",
+          errorCode: code,
+          message: "Job failed."
+        }
+      });
+    }
   }
 
   /**
@@ -870,7 +920,7 @@ export class AssistantMediaJobCompletionDeliveryService {
       message: string | null;
     }
   ): Promise<void> {
-    await this.prisma.assistantMediaJob.updateMany({
+    const terminal = await this.prisma.assistantMediaJob.updateMany({
       where: { id: job.id, schedulerClaimToken: job.claimToken },
       data: {
         status: input.status,
@@ -884,6 +934,18 @@ export class AssistantMediaJobCompletionDeliveryService {
         lastErrorMessage: input.message === null ? null : truncateLastError(input.message)
       }
     });
+    if (terminal.count > 0) {
+      await this.asyncJobHandleState.recordCanonicalCompletion({
+        kind: "media",
+        canonicalJobId: job.id,
+        terminalStatus: input.status === "delivered" ? "completed" : "failed",
+        terminalSnapshot: {
+          status: input.status === "delivered" ? "completed" : "failed",
+          errorCode: input.code,
+          message: input.status === "delivered" ? "Job completed and was delivered." : "Job failed."
+        }
+      });
+    }
   }
 
   private parseArtifacts(value: unknown): RuntimeOutputArtifact[] | null {

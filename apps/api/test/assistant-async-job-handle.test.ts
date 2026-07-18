@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import type { AssistantAsyncJobHandleStateService } from "../src/modules/workspace-management/application/assistant-async-job-handle-state.service";
 import { ResolveAssistantAsyncJobService } from "../src/modules/workspace-management/application/resolve-assistant-async-job.service";
-import type { WorkspaceManagementPrismaService } from "../src/modules/workspace-management/infrastructure/persistence/workspace-management-prisma.service";
 import { parseInternalAsyncJobChannel } from "../src/modules/workspace-management/interface/http/internal-runtime-async-jobs.controller";
 
 const ref = `jr1.media.${"A".repeat(32)}`;
@@ -45,7 +45,7 @@ export async function runAssistantAsyncJobHandleTest(): Promise<void> {
     { kind: "document" as const, canonicalStatus: "delivered", expected: "completed" }
   ]) {
     const resolver = new ResolveAssistantAsyncJobService(
-      fakePrisma(fixture.kind, fixture.canonicalStatus)
+      fakeState(fixture.kind, fixture.canonicalStatus)
     );
     const result = await resolver.execute(owned);
     assert.equal(result.found, true);
@@ -53,11 +53,11 @@ export async function runAssistantAsyncJobHandleTest(): Promise<void> {
   }
 
   const malformed = await new ResolveAssistantAsyncJobService(
-    fakePrisma("media", "delivered")
+    fakeState("media", "delivered")
   ).execute({ ...owned, jobRef: "bad" });
   assert.deepEqual(malformed, { found: false, code: "job_not_found" });
   const foreign = await new ResolveAssistantAsyncJobService(
-    fakePrisma("media", "delivered", true)
+    fakeState("media", "delivered", true)
   ).execute(owned);
   assert.deepEqual(foreign, malformed, "foreign and malformed handles must be indistinguishable");
   for (const changed of [
@@ -67,7 +67,7 @@ export async function runAssistantAsyncJobHandleTest(): Promise<void> {
     { threadKey: "other" }
   ]) {
     const result = await new ResolveAssistantAsyncJobService(
-      fakePrisma("media", "delivered")
+      fakeState("media", "delivered")
     ).execute({
       ...owned,
       ...changed
@@ -76,30 +76,43 @@ export async function runAssistantAsyncJobHandleTest(): Promise<void> {
   }
 }
 
-function fakePrisma(
+function fakeState(
   kind: "media" | "document",
   status: string,
   foreign = false
-): WorkspaceManagementPrismaService {
+): AssistantAsyncJobHandleStateService {
   return {
-    assistantChat: {
-      findFirst: async ({ where }: { where: Record<string, unknown> }) =>
+    observeForCurrentTurn: async (input) => {
+      if (
         foreign ||
-        where.assistantId !== "a" ||
-        where.workspaceId !== "w" ||
-        where.id !== "c" ||
-        where.surfaceThreadKey !== "t"
-          ? null
-          : { userId: "u" }
-    },
-    assistantAsyncJobHandle: { findFirst: async () => ({ kind, canonicalJobId: "id" }) },
-    assistantMediaJob: {
-      findFirst: async () => ({ status, lastErrorCode: status === "failed" ? "failed" : null })
-    },
-    assistantDocumentRenderJob: {
-      findFirst: async () => ({ status, lastErrorCode: status === "failed" ? "failed" : null })
+        input.assistantId !== "a" ||
+        input.workspaceId !== "w" ||
+        input.chatId !== "c" ||
+        input.threadKey !== "t"
+      ) {
+        return { outcome: "not_found" as const };
+      }
+      const normalized =
+        status === "delivered"
+          ? "completed"
+          : status === "failed" || status === "expired"
+            ? "failed"
+            : status === "canceled"
+              ? "cancelled"
+              : null;
+      return normalized === null
+        ? { outcome: "pending" as const, jobRef: input.jobRef, kind }
+        : {
+            outcome: "claimed_current_turn" as const,
+            owner: "current_turn" as const,
+            jobRef: input.jobRef,
+            kind,
+            status: normalized,
+            errorCode: normalized === "failed" ? "failed" : null,
+            message: normalized === "completed" ? "Job completed and was delivered." : "Job failed."
+          };
     }
-  } as unknown as WorkspaceManagementPrismaService;
+  } as AssistantAsyncJobHandleStateService;
 }
 
 void runAssistantAsyncJobHandleTest().catch((error) => {

@@ -44,6 +44,7 @@ export class RuntimeAwaitToolService {
     chatId: string;
     channel: "web" | "telegram" | "max_ru";
     threadKey: string;
+    locale?: string | null;
     blockingWaitedJobRefs: Set<string>;
     abortSignal?: AbortSignal;
   }): Promise<{ payload: RuntimeAwaitToolResult; isError: boolean }> {
@@ -52,9 +53,13 @@ export class RuntimeAwaitToolService {
         ? input.toolCall.arguments.jobRef.trim()
         : "";
     const action = input.toolCall.arguments.action;
-    if (action !== "wait") {
+    if (action !== "wait" && action !== "notify") {
       return {
-        payload: this.skipped(jobRef, "invalid_arguments", 'await.action must be "wait".'),
+        payload: this.skipped(
+          jobRef,
+          "invalid_arguments",
+          'await.action must be "wait" or "notify".'
+        ),
         isError: true
       };
     }
@@ -65,6 +70,19 @@ export class RuntimeAwaitToolService {
       };
     }
     const rawTimeout = input.toolCall.arguments.timeoutMs;
+    if (action === "notify") {
+      if (rawTimeout !== undefined) {
+        return {
+          payload: this.skipped(
+            jobRef,
+            "invalid_arguments",
+            "await.timeoutMs is valid only for wait."
+          ),
+          isError: true
+        };
+      }
+      return this.notify(input, jobRef);
+    }
     if (
       rawTimeout !== undefined &&
       (typeof rawTimeout !== "number" ||
@@ -167,6 +185,99 @@ export class RuntimeAwaitToolService {
     return { payload: this.receipt(status, "waited"), isError: false };
   }
 
+  private async notify(
+    input: {
+      assistantId: string;
+      workspaceId: string;
+      chatId: string;
+      channel: "web" | "telegram" | "max_ru";
+      threadKey: string;
+      locale?: string | null;
+      abortSignal?: AbortSignal;
+    },
+    jobRef: string
+  ): Promise<{ payload: RuntimeAwaitToolResult; isError: boolean }> {
+    const result = await this.api.subscribeAsyncJob({
+      jobRef,
+      assistantId: input.assistantId,
+      workspaceId: input.workspaceId,
+      chatId: input.chatId,
+      channel: input.channel,
+      threadKey: input.threadKey,
+      ...(input.abortSignal === undefined ? {} : { abortSignal: input.abortSignal })
+    });
+    if (result.outcome === "not_found") {
+      return {
+        payload: this.skipped(jobRef, "job_not_found", "Job was not found."),
+        isError: true
+      };
+    }
+    if (result.outcome === "terminal_inline") {
+      return {
+        payload: {
+          toolCode: "await",
+          executionMode: "inline",
+          action: "terminal_inline",
+          turnControl: "continue",
+          staticAssistantText: null,
+          reason: null,
+          warning: null,
+          jobRef,
+          kind: result.kind,
+          status: result.status,
+          terminal: true,
+          errorCode: result.errorCode,
+          message: result.message
+        },
+        isError: false
+      };
+    }
+    if (result.outcome === "depth_exhausted") {
+      return {
+        payload: this.terminalStatic(
+          jobRef,
+          "depth_exhausted",
+          "continuation_depth_exhausted",
+          input.locale
+        ),
+        isError: false
+      };
+    }
+    if (result.outcome === "already_owned") {
+      return {
+        payload: this.terminalStatic(
+          jobRef,
+          "already_owned",
+          `narration_already_owned:${result.owner}`,
+          input.locale
+        ),
+        isError: false
+      };
+    }
+    return {
+      payload: {
+        toolCode: "await",
+        executionMode: "inline",
+        action: "notified",
+        turnControl: "terminal_static",
+        staticAssistantText: this.localized(
+          input.locale,
+          "Я сообщу здесь, когда задача завершится.",
+          "I’ll let you know here when the job finishes."
+        ),
+        reason: result.duplicate ? "already_subscribed" : null,
+        warning: null,
+        jobRef,
+        kind: null,
+        status: "pending",
+        terminal: false,
+        errorCode: null,
+        message: null
+      },
+      isError: false
+    };
+  }
+
   private receipt(
     status: Extract<
       Awaited<ReturnType<PersaiInternalApiClientService["resolveAsyncJobStatus"]>>,
@@ -178,6 +289,18 @@ export class RuntimeAwaitToolService {
       toolCode: "await",
       executionMode: "inline",
       action,
+      turnControl:
+        status.terminal &&
+        status.narrationOutcome === "already_owned" &&
+        status.narrationOwner !== "current_turn"
+          ? "terminal_static"
+          : "continue",
+      staticAssistantText:
+        status.terminal &&
+        status.narrationOutcome === "already_owned" &&
+        status.narrationOwner !== "current_turn"
+          ? "This job completion is already being handled in this conversation."
+          : null,
       reason: null,
       warning: null,
       ...status
@@ -189,6 +312,8 @@ export class RuntimeAwaitToolService {
       toolCode: "await",
       executionMode: "inline",
       action: "skipped",
+      turnControl: "continue",
+      staticAssistantText: null,
       reason,
       warning,
       jobRef,
@@ -198,5 +323,43 @@ export class RuntimeAwaitToolService {
       errorCode: null,
       message: null
     };
+  }
+
+  private terminalStatic(
+    jobRef: string,
+    action: "already_owned" | "depth_exhausted",
+    reason: string,
+    locale?: string | null
+  ): RuntimeAwaitToolResult {
+    return {
+      toolCode: "await",
+      executionMode: "inline",
+      action,
+      turnControl: "terminal_static",
+      staticAssistantText:
+        action === "depth_exhausted"
+          ? this.localized(
+              locale,
+              "Цепочка автоматических продолжений завершена. Напишите новое сообщение, если нужно продолжить.",
+              "The automatic continuation chain has ended. Send a new message if you want to continue."
+            )
+          : this.localized(
+              locale,
+              "Завершение этой задачи уже обрабатывается в этом чате.",
+              "This job completion is already being handled in this chat."
+            ),
+      reason,
+      warning: null,
+      jobRef,
+      kind: null,
+      status: null,
+      terminal: action === "depth_exhausted",
+      errorCode: null,
+      message: null
+    };
+  }
+
+  private localized(locale: string | null | undefined, ru: string, en: string): string {
+    return locale?.toLowerCase().startsWith("ru") ? ru : en;
   }
 }

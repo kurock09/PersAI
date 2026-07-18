@@ -5,8 +5,24 @@
 **Approved architecture checkpoint, open for staged implementation.** Checkpoint
 1 (opaque media/document handles, owned canonical resolver, and bounded
 `await.wait`) is implemented locally and independently audited CLEAN; it is not
-deployed or live-accepted. Durable `notify`, continuation scheduling, and the
-browser Script SDK/broker remain unimplemented.
+deployed or live-accepted. Checkpoint 2 is now implemented locally and
+uncommitted. After the repair rounds, the final independent Sonnet re-audit
+returned **CLEAN with no P0/P1/P2 findings**. Same-row narration/continuation state,
+canonical-under-lock observe/subscribe operations, delivery arbitration,
+`await wait|notify` terminal control, source-turn finalization, and a same-chat
+continuation runtime entry seam are implemented. API persistence proves
+current-turn narration, and the SchedulerLease-backed worker performs validated,
+idempotent dispatch/persistence/delivery plus conservative stale reconciliation.
+Canonical persisted Assistant output is idempotent. Telegram and non-idempotent
+artifact delivery attempts are separately durable at-most-once: an attempt is
+CAS-owned before the external call and an ambiguous response is recorded but
+not retried automatically, trading possible ambiguous loss for duplicate-send
+prevention. Parent verification reran the complete API suite (exit `0`, about
+431 seconds), complete runtime isolated suite (exit `0`), API/runtime
+typecheck+lint, Prisma format/validate/generate, and root format/diff checks.
+The clean disposable pgvector proof had already applied all 192 migrations and
+passed trigger/CAS/depth checks. Checkpoint 2 is not deployed or live-accepted;
+the Browser Script SDK checkpoint remains next. ADR-152 remains open.
 
 ## Decision
 
@@ -41,9 +57,11 @@ The model-facing tool name is `await`:
 
 If the job became terminal before the call, `notify` returns terminal facts
 inline and creates no continuation. The continuation chain has a hard maximum
-depth of **4** unattended continuations per originating user turn; the
-implementation must prove and name its exact enforcement constant before
-release.
+depth of **4** unattended continuations per originating user turn. The handle
+row stores the originating turn depth. An ordinary user-created job is depth
+`0`; its scheduler continuation is depth `1`. A job created inside continuation
+depth `d` stores depth `d`, and its next scheduler continuation is `d + 1`.
+Rows at depth `4` cannot subscribe, so no fifth unattended continuation can run.
 
 ## Durable handle and ownership model
 
@@ -101,6 +119,15 @@ only to the original chat; archived, deleted, or foreign targets fail closed.
 Passive SSE disconnect remains a soft detach. The continuation receives
 volatile structured completion facts, persists only assistant output, and does
 not manufacture a persisted user message or re-deliver files.
+
+After continuation output is durably persisted, the scheduler finalizes only
+child handles whose `sourceClientTurnId` equals that continuation's
+deterministic client-turn id. Persisted output assigns unresolved children to
+legacy while preserving children already owned by `notify` or the current turn.
+Failed or interrupted continuation receipts finalize those children
+failed/stopped. Lost-finalization repair identifies continuation output by
+`asyncContinuationClientTurnId`; ordinary source turns continue using
+`sourceUserMessageId`.
 
 ## Browser Script SDK
 

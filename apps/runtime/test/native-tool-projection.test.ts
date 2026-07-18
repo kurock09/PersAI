@@ -573,13 +573,13 @@ export async function runNativeToolProjectionTest(): Promise<void> {
   assert.deepEqual(
     (awaitTool.inputSchema as { properties: { action: { enum: string[] } } }).properties.action
       .enum,
-    ["wait"]
+    ["wait", "notify"]
   );
   assert.equal(
     projected.tools.some((tool) => tool.name === "wait_job"),
     false
   );
-  assert.equal(JSON.stringify(awaitTool.inputSchema).includes("notify"), false);
+  assert.equal(JSON.stringify(awaitTool.inputSchema).includes("notify"), true);
   const activeScriptRef = {
     scriptKey: "projection_script",
     scriptId: "script-projection",

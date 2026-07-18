@@ -1,0 +1,595 @@
+import assert from "node:assert/strict";
+import { describe, test } from "node:test";
+import { AssistantAsyncJobContinuationSchedulerService } from "../src/modules/workspace-management/application/assistant-async-job-continuation-scheduler.service";
+import { AsyncContinuationDispatchAmbiguousError } from "../src/modules/workspace-management/application/internal-runtime-async-continuation.client.service";
+
+const ORIGINAL_ENV = process.env;
+
+function dispatchHarness(input: {
+  execute: () => Promise<Record<string, unknown>>;
+  handleState?: Record<string, unknown>;
+  telegramOutbound?: Record<string, unknown>;
+  prisma?: Record<string, unknown>;
+}) {
+  const service = new AssistantAsyncJobContinuationSchedulerService(
+    (input.prisma ?? {}) as never,
+    (input.handleState ?? {}) as never,
+    { execute: input.execute } as never,
+    {} as never,
+    {} as never,
+    (input.telegramOutbound ?? {}) as never,
+    {} as never,
+    {} as never,
+    {} as never,
+    {} as never,
+    {} as never
+  );
+  const internal = service as unknown as {
+    loadAndValidateContext: () => Promise<Record<string, unknown>>;
+    buildRequest: () => Promise<{ request: Record<string, unknown>; timeoutMs: number }>;
+    processClaim: (claim: { id: string; claimToken: string }) => Promise<void>;
+  };
+  internal.loadAndValidateContext = async () => ({
+    handle: { retryCount: 0, channel: "web" }
+  });
+  internal.buildRequest = async () => ({
+    request: { requestId: "dispatch-1" },
+    timeoutMs: 50
+  });
+  return { service, internal };
+}
+
+describe("AssistantAsyncJobContinuationSchedulerService", () => {
+  for (const [handleDepth, requestDepth] of [
+    [0, 1],
+    [1, 2],
+    [3, 4]
+  ] as const) {
+    test(`builds scheduler continuation depth ${requestDepth} from handle depth ${handleDepth}`, async () => {
+      process.env = {
+        ...ORIGINAL_ENV,
+        APP_ENV: "local",
+        DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/persai_v2?schema=public",
+        CLERK_SECRET_KEY: "clerk-secret",
+        PERSAI_INTERNAL_API_TOKEN: "persai-internal-token",
+        PERSAI_RUNTIME_BASE_URL: "http://runtime.local",
+        PERSAI_RUNTIME_TURN_WALL_CLOCK_MS: "1800000",
+        PERSAI_RUNTIME_TURN_IDLE_STALL_MS: "300000"
+      };
+      try {
+        const service = new AssistantAsyncJobContinuationSchedulerService(
+          {} as never,
+          {} as never,
+          {} as never,
+          { resolveByAssistantId: async () => "paid_shared_restricted" } as never,
+          {} as never,
+          {} as never,
+          {} as never,
+          {} as never,
+          {} as never,
+          {} as never,
+          {
+            findByPublishedVersionId: async () => ({
+              id: "spec-1",
+              assistantId: "assistant-1",
+              createdAt: new Date("2026-07-18T00:00:00.000Z"),
+              runtimeBundle: {},
+              runtimeBundleDocument: "{}"
+            })
+          } as never
+        );
+        const built = await (
+          service as unknown as {
+            buildRequest: (context: Record<string, unknown>) => Promise<{
+              request: { continuation?: { depth: number } };
+            }>;
+          }
+        ).buildRequest({
+          handle: {
+            assistantId: "assistant-1",
+            workspaceId: "workspace-1",
+            channel: "web",
+            threadKey: "thread-1",
+            continuationClientTurnId: `async-cont:depth-${handleDepth}`,
+            continuationDepth: handleDepth,
+            assistant: { applyAppliedVersionId: "version-1" },
+            chat: {
+              chatMode: "normal",
+              deepModeEnabled: false,
+              skillDecisionState: null
+            }
+          },
+          session: { externalUserKey: "user-1", mode: "direct" },
+          sourceUserMessage: { id: "00000000-0000-4000-8000-000000000001" },
+          facts: {
+            kind: "media",
+            status: "completed",
+            errorCode: null,
+            message: "Completed."
+          }
+        });
+        assert.equal(built.request.continuation?.depth, requestDepth);
+      } finally {
+        process.env = ORIGINAL_ENV;
+      }
+    });
+  }
+
+  test("reconciler scans bounded old unfinalized handles without requiring terminal observation", async () => {
+    let sourceWhere: Record<string, unknown> | null = null;
+    const service = new AssistantAsyncJobContinuationSchedulerService(
+      {
+        assistantAsyncJobHandle: {
+          findMany: async (input: { where: Record<string, unknown> }) => {
+            if ("sourceFinalizedAt" in input.where) sourceWhere = input.where;
+            return [];
+          }
+        }
+      } as never,
+      { claimReady: async () => [] } as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never
+    );
+    await service.processDueBatch(4);
+    assert.ok(sourceWhere !== null);
+    assert.equal("terminalObservedAt" in sourceWhere, false);
+    assert.equal("updatedAt" in sourceWhere, true);
+  });
+
+  test("lost child finalization is repaired from continuation message metadata", async () => {
+    let queryValues: unknown[] = [];
+    const finalized: Array<Record<string, unknown>> = [];
+    const service = new AssistantAsyncJobContinuationSchedulerService(
+      {
+        assistantAsyncJobHandle: {
+          findMany: async (input: { where: Record<string, unknown> }) =>
+            "sourceFinalizedAt" in input.where
+              ? [
+                  {
+                    assistantId: "assistant-1",
+                    chatId: "chat-1",
+                    sourceClientTurnId: "async-cont:parent-3",
+                    sourceUserMessageId: "00000000-0000-4000-8000-000000000001",
+                    createdAt: new Date(0)
+                  }
+                ]
+              : []
+        },
+        $queryRaw: async (_strings: TemplateStringsArray, ...values: unknown[]) => {
+          queryValues = values;
+          return [{ id: "assistant-message-3" }];
+        }
+      } as never,
+      {
+        claimReady: async () => [],
+        finalizeSourceTurn: async (input: Record<string, unknown>) => {
+          finalized.push(input);
+        }
+      } as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never
+    );
+    await service.processDueBatch(4);
+    assert.equal(queryValues.includes("asyncContinuationClientTurnId"), true);
+    assert.equal(queryValues.includes("async-cont:parent-3"), true);
+    assert.equal(finalized[0]?.outcome, "persisted");
+    assert.equal(finalized[0]?.assistantMessageId, "assistant-message-3");
+  });
+
+  test("requeues an expired claimed row before claiming ready work", async () => {
+    const calls: string[] = [];
+    const requeues: Array<Record<string, unknown>> = [];
+    const prisma = {
+      assistantAsyncJobHandle: {
+        async findMany(input: { where: Record<string, unknown> }) {
+          if ("sourceFinalizedAt" in input.where) return [];
+          return [
+            {
+              id: "handle-1",
+              state: "claimed",
+              claimToken: "claim-1",
+              retryCount: 1,
+              dispatchReceiptRequestId: null,
+              continuationAssistantMessageId: null
+            }
+          ];
+        },
+        async findUnique() {
+          return { retryCount: 1, state: "claimed" };
+        }
+      }
+    };
+    const handleState = {
+      async requeueClaim(input: Record<string, unknown>) {
+        calls.push("requeue");
+        requeues.push(input);
+        return "requeued";
+      },
+      async claimReady() {
+        calls.push("claim");
+        return [];
+      }
+    };
+    const service = new AssistantAsyncJobContinuationSchedulerService(
+      prisma as never,
+      handleState as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never
+    );
+
+    assert.equal(await service.processDueBatch(4), 0);
+    assert.deepEqual(calls, ["requeue", "claim"]);
+    assert.equal(requeues[0]?.errorCode, "continuation_claim_expired");
+    assert.equal("dispatchedProof" in (requeues[0] ?? {}), false);
+  });
+
+  test("leaves an expired dispatched row ambiguous while a receipt exists", async () => {
+    let requeued = false;
+    const prisma = {
+      assistantAsyncJobHandle: {
+        async findMany(input: { where: Record<string, unknown> }) {
+          if ("sourceFinalizedAt" in input.where) return [];
+          return [
+            {
+              id: "handle-2",
+              assistantId: "assistant-1",
+              workspaceId: "workspace-1",
+              chatId: "chat-1",
+              channel: "web",
+              state: "dispatched",
+              claimToken: "claim-2",
+              retryCount: 1,
+              dispatchReceiptRequestId: "receipt-2",
+              continuationAssistantMessageId: null
+            }
+          ];
+        }
+      },
+      runtimeTurnReceipt: {
+        async findUnique() {
+          return { status: "accepted" };
+        }
+      }
+    };
+    const handleState = {
+      async requeueClaim() {
+        requeued = true;
+        return "requeued";
+      },
+      async claimReady() {
+        return [];
+      }
+    };
+    const service = new AssistantAsyncJobContinuationSchedulerService(
+      prisma as never,
+      handleState as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never
+    );
+
+    await service.processDueBatch(4);
+    assert.equal(requeued, false);
+  });
+
+  test("leaves an expired dispatch while the exact runtime turn is in flight", async () => {
+    let requeued = false;
+    const service = new AssistantAsyncJobContinuationSchedulerService(
+      {
+        assistantAsyncJobHandle: {
+          findMany: async (input: { where: Record<string, unknown> }) =>
+            "sourceFinalizedAt" in input.where
+              ? []
+              : [
+                  {
+                    id: "handle-live",
+                    channel: "web",
+                    state: "dispatched",
+                    claimToken: "claim-live",
+                    retryCount: 1,
+                    dispatchReceiptRequestId: "dispatch-live",
+                    continuationAssistantMessageId: null,
+                    continuationArtifactsResult: null,
+                    continuationExternalResult: null
+                  }
+                ]
+        },
+        runtimeTurnReceipt: { findUnique: async () => null }
+      } as never,
+      {
+        claimReady: async () => [],
+        requeueClaim: async () => {
+          requeued = true;
+        }
+      } as never,
+      {
+        inspect: async () => ({
+          proof: "proven",
+          receiptStatus: "absent",
+          exactInFlight: true
+        })
+      } as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never
+    );
+    const internal = service as unknown as {
+      loadAndValidateContext: () => Promise<Record<string, unknown>>;
+      buildRequest: () => Promise<{ request: Record<string, unknown>; timeoutMs: number }>;
+    };
+    internal.loadAndValidateContext = async () => ({ session: { id: "session-1" } });
+    internal.buildRequest = async () => ({
+      request: { requestId: "new", idempotencyKey: "async-cont:live" },
+      timeoutMs: 100
+    });
+    await service.processDueBatch(4);
+    assert.equal(requeued, false);
+  });
+
+  test("typed busy uses the exact pre-acceptance CAS and never fabricates dispatched proof", async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    const { internal } = dispatchHarness({
+      execute: async () => ({ outcome: "busy" }),
+      handleState: {
+        markDispatched: async () => true,
+        requeueBusyNotStarted: async (value: Record<string, unknown>) => {
+          calls.push(value);
+          return "requeued";
+        }
+      }
+    });
+    await internal.processClaim({ id: "handle-1", claimToken: "claim-1" });
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0]?.receiptRequestId, "dispatch-1");
+    assert.equal("dispatchedProof" in (calls[0] ?? {}), false);
+  });
+
+  test("timed-out dispatch remains dispatched for reconciliation", async () => {
+    let requeued = false;
+    const { internal } = dispatchHarness({
+      execute: async () => {
+        throw new AsyncContinuationDispatchAmbiguousError("timed out");
+      },
+      handleState: {
+        markDispatched: async () => true,
+        requeueClaim: async () => {
+          requeued = true;
+        },
+        failClaim: async () => {
+          requeued = true;
+        }
+      }
+    });
+    await internal.processClaim({ id: "handle-2", claimToken: "claim-2" });
+    assert.equal(requeued, false);
+  });
+
+  test("durable continuation output immediately finalizes only its child source turn", async () => {
+    const calls: string[] = [];
+    const finalized: Array<Record<string, unknown>> = [];
+    const { internal } = dispatchHarness({
+      execute: async () => ({
+        outcome: "completed",
+        duplicate: false,
+        result: {
+          requestId: "runtime-1",
+          sessionId: "session-1",
+          assistantText: "Done.",
+          answerText: "Done.",
+          artifacts: [],
+          respondedAt: "2026-07-18T00:00:00.000Z",
+          usage: null
+        }
+      }),
+      prisma: {
+        $transaction: async (callback: (tx: unknown) => Promise<unknown>) =>
+          callback({
+            $queryRaw: async () => [{ messageId: null }],
+            assistantChatMessage: {
+              create: async () => {
+                calls.push("persist");
+                return { id: "assistant-message-1" };
+              }
+            },
+            assistantAsyncJobHandle: { updateMany: async () => ({ count: 1 }) }
+          }),
+        assistantAsyncJobHandle: {
+          findFirst: async () => ({
+            continuationArtifactsResult: "not_needed",
+            continuationExternalResult: null
+          })
+        }
+      },
+      handleState: {
+        markDispatched: async () => true,
+        finalizeSourceTurn: async (input: Record<string, unknown>) => {
+          calls.push("finalize");
+          finalized.push(input);
+        },
+        claimDeliveryAttempt: async () => "claimed",
+        recordDeliveryAttemptResult: async () => true,
+        completeClaim: async () => true
+      }
+    });
+    internal.loadAndValidateContext = async () => ({
+      handle: {
+        retryCount: 0,
+        channel: "web",
+        assistantId: "assistant-1",
+        chatId: "chat-1",
+        continuationClientTurnId: "async-cont:parent-1"
+      }
+    });
+    await internal.processClaim({ id: "handle-1", claimToken: "claim-1" });
+    assert.deepEqual(calls.slice(0, 2), ["persist", "finalize"]);
+    assert.deepEqual(finalized, [
+      {
+        assistantId: "assistant-1",
+        chatId: "chat-1",
+        sourceClientTurnId: "async-cont:parent-1",
+        outcome: "persisted",
+        assistantMessageId: "assistant-message-1"
+      }
+    ]);
+  });
+
+  test("interrupted continuation receipt releases child source turns as stopped", async () => {
+    const finalized: Array<Record<string, unknown>> = [];
+    let failed = false;
+    const service = new AssistantAsyncJobContinuationSchedulerService(
+      {
+        assistantAsyncJobHandle: {
+          findMany: async (input: { where: Record<string, unknown> }) =>
+            "sourceFinalizedAt" in input.where
+              ? []
+              : [
+                  {
+                    id: "handle-interrupted",
+                    state: "dispatched",
+                    claimToken: "claim-interrupted",
+                    dispatchReceiptRequestId: "dispatch-interrupted",
+                    continuationArtifactsResult: null,
+                    continuationExternalResult: null
+                  }
+                ]
+        },
+        runtimeTurnReceipt: {
+          findUnique: async () => ({ status: "interrupted" })
+        }
+      } as never,
+      {
+        claimReady: async () => [],
+        finalizeSourceTurn: async (input: Record<string, unknown>) => {
+          finalized.push(input);
+        },
+        failClaim: async () => {
+          failed = true;
+        }
+      } as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never
+    );
+    (
+      service as unknown as {
+        loadAndValidateContext: () => Promise<Record<string, unknown>>;
+      }
+    ).loadAndValidateContext = async () => ({
+      handle: {
+        assistantId: "assistant-1",
+        chatId: "chat-1",
+        continuationClientTurnId: "async-cont:parent-2"
+      }
+    });
+    await service.processDueBatch(4);
+    assert.equal(failed, true);
+    assert.equal(finalized[0]?.outcome, "stopped");
+    assert.equal(finalized[0]?.sourceClientTurnId, "async-cont:parent-2");
+  });
+
+  test("late old token cannot persist a message", async () => {
+    let created = false;
+    const { service } = dispatchHarness({
+      execute: async () => ({ outcome: "completed" }),
+      prisma: {
+        $transaction: async (callback: (tx: unknown) => Promise<unknown>) =>
+          callback({
+            $queryRaw: async () => [],
+            assistantChatMessage: {
+              create: async () => {
+                created = true;
+              }
+            }
+          })
+      }
+    });
+    const result = await (
+      service as unknown as {
+        persistOutputOnce: (
+          claim: Record<string, unknown>,
+          context: Record<string, unknown>,
+          result: Record<string, unknown>
+        ) => Promise<Record<string, unknown>>;
+      }
+    ).persistOutputOnce({ id: "handle-3", claimToken: "old-token" }, {}, {});
+    assert.deepEqual(result, { outcome: "lost" });
+    assert.equal(created, false);
+  });
+
+  test("Telegram external delivery is claimed once before the outbound call", async () => {
+    let attemptCount = 0;
+    let outboundCount = 0;
+    const { service } = dispatchHarness({
+      execute: async () => ({ outcome: "completed" }),
+      handleState: {
+        claimDeliveryAttempt: async () => (attemptCount++ === 0 ? "claimed" : "already_attempted"),
+        recordDeliveryAttemptResult: async () => true
+      },
+      telegramOutbound: {
+        deliverPersistedAssistantMessageBestEffort: async () => {
+          outboundCount += 1;
+          return { status: "delivered" };
+        }
+      }
+    });
+    const deliver = (
+      service as unknown as {
+        deliverTelegramOnce: (
+          claim: Record<string, unknown>,
+          context: Record<string, unknown>,
+          messageId: string,
+          result: Record<string, unknown>
+        ) => Promise<void>;
+      }
+    ).deliverTelegramOnce.bind(service);
+    const context = {
+      handle: {
+        assistantId: "assistant-1",
+        workspaceId: "workspace-1",
+        chatId: "chat-1"
+      }
+    };
+    const result = { assistantText: "Done.", artifacts: [] };
+    await deliver({ id: "handle-4", claimToken: "claim-4" }, context, "message-1", result);
+    await deliver({ id: "handle-4", claimToken: "claim-4" }, context, "message-1", result);
+    assert.equal(outboundCount, 1);
+  });
+});

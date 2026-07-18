@@ -57,6 +57,7 @@ import { CompactionAdvisoryFollowUpService } from "./compaction-advisory-follow-
 import { BackgroundCompactionQueueService } from "./background-compaction-queue.service";
 import { NotificationDeliveryWorkerService } from "./notifications/notification-delivery-worker.service";
 import { persistAssistantMessage } from "./persist-assistant-message";
+import { AssistantAsyncJobHandleStateService } from "./assistant-async-job-handle-state.service";
 import { extractToolInvocationsFromMetadata } from "./web-chat-message-state.mapper";
 import { stripToolInvocationsForClient } from "./strip-tool-invocations-for-client";
 import { resolvePendingBrowserLoginFromRuntimeTurn } from "./resolve-pending-browser-login-for-web-chat";
@@ -198,7 +199,19 @@ export class SendWebChatTurnService {
     @Optional()
     private readonly compactionAdvisoryFollowUpService?: CompactionAdvisoryFollowUpService,
     @Optional()
-    private readonly backgroundCompactionQueueService?: BackgroundCompactionQueueService
+    private readonly backgroundCompactionQueueService?: BackgroundCompactionQueueService,
+    @Inject(AssistantAsyncJobHandleStateService)
+    private readonly asyncJobHandleState: Pick<
+      AssistantAsyncJobHandleStateService,
+      "finalizeSourceTurn"
+    > = {
+      finalizeSourceTurn: async () => ({
+        finalized: 0,
+        legacyChosen: 0,
+        currentTurnPreserved: 0,
+        currentTurnReleased: 0
+      })
+    }
   ) {}
 
   parseInput(payload: unknown): SendWebChatTurnRequest {
@@ -286,6 +299,13 @@ export class SendWebChatTurnService {
   ): Promise<AssistantWebChatTurnState> {
     const replayTransport = await this.claimOrReplayWebTurn(userId, request);
     if (replayTransport !== null) {
+      await this.asyncJobHandleState.finalizeSourceTurn({
+        assistantId: replayTransport.chat.assistantId,
+        chatId: replayTransport.chat.id,
+        sourceClientTurnId: replayTransport.userMessage.id,
+        outcome: "persisted",
+        assistantMessageId: replayTransport.assistantMessage.id
+      });
       this.overviewLatencyTraceService
         .start({
           traceId: randomUUID(),
@@ -299,6 +319,9 @@ export class SendWebChatTurnService {
       return replayTransport;
     }
     let preparedAssistantId: string | null = null;
+    let preparedChatId: string | null = null;
+    let sourceUserMessageId: string | null = null;
+    let persistedAssistantMessageId: string | null = null;
     let pendingMediaForReconciliation: MediaArtifact[] = [];
     let mediaDeliveryCompleted = false;
     const trace = this.overviewLatencyTraceService.start({
@@ -320,6 +343,8 @@ export class SendWebChatTurnService {
         ...(request.clientTurnId === undefined ? {} : { clientTurnId: request.clientTurnId })
       });
       preparedAssistantId = prepared.assistantId;
+      preparedChatId = prepared.chat.id;
+      sourceUserMessageId = prepared.userMessage.id;
       if (request.clientTurnId !== undefined && this.webChatTurnAttemptService) {
         await this.webChatTurnAttemptService.markRunning({
           assistantId: prepared.assistantId,
@@ -479,6 +504,14 @@ export class SendWebChatTurnService {
             ? stripToolInvocationsForClient(runtimeResponse.toolInvocations)
             : undefined
       });
+      persistedAssistantMessageId = assistantMessage.id;
+      await this.asyncJobHandleState.finalizeSourceTurn({
+        assistantId: prepared.assistantId,
+        chatId: prepared.chat.id,
+        sourceClientTurnId: prepared.userMessage.id,
+        outcome: "persisted",
+        assistantMessageId: assistantMessage.id
+      });
       trace.stage("assistant_message_saved");
       const postRuntime = await finalizePersistedWebTurn({
         logger: this.logger,
@@ -623,6 +656,19 @@ export class SendWebChatTurnService {
         }
       };
     } catch (error) {
+      if (preparedAssistantId !== null && preparedChatId !== null && sourceUserMessageId !== null) {
+        await this.asyncJobHandleState.finalizeSourceTurn({
+          assistantId: preparedAssistantId,
+          chatId: preparedChatId,
+          sourceClientTurnId: sourceUserMessageId,
+          ...(persistedAssistantMessageId === null
+            ? { outcome: "failed" as const }
+            : {
+                outcome: "persisted" as const,
+                assistantMessageId: persistedAssistantMessageId
+              })
+        });
+      }
       if (
         preparedAssistantId !== null &&
         pendingMediaForReconciliation.length > 0 &&

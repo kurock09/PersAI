@@ -115,6 +115,14 @@ export class SessionLeaseService {
     });
   }
 
+  async readAcceptedTurnInFlight(input: {
+    conversation: RuntimeConversationAddress;
+    idempotencyKey: string;
+  }): Promise<string | null> {
+    this.assertNonEmpty(input.idempotencyKey, "idempotencyKey");
+    return this.runtimeStateRedisService.readTurnInFlightMarker(input);
+  }
+
   private assertNonEmpty(value: unknown, field: string): asserts value is string {
     if (typeof value !== "string" || value.trim().length === 0) {
       throw new BadRequestException(`${field} must be a non-empty string`);

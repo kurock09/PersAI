@@ -29,6 +29,7 @@ import {
   buildAssistantDocumentLinkMetadata,
   normalizeDocumentWorkspaceFacts
 } from "./assistant-document-link-metadata";
+import { AssistantAsyncJobHandleStateService } from "./assistant-async-job-handle-state.service";
 
 const DOCUMENT_DELIVERY_LAST_ERROR_MAX_CHARS = 1_000;
 const DOCUMENT_JOB_CLAIM_TTL_MS = 10 * 60 * 1000;
@@ -117,7 +118,18 @@ export class AssistantDocumentJobDeliveryService {
     private readonly resolveTelegramChannelRuntimeConfigService: ResolveTelegramChannelRuntimeConfigService,
     private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService,
     private readonly assistantDocumentJobCompletionTurnService: AssistantDocumentJobCompletionTurnService,
-    private readonly recordModelCostLedgerService: RecordModelCostLedgerService
+    private readonly recordModelCostLedgerService: RecordModelCostLedgerService,
+    @Inject(AssistantAsyncJobHandleStateService)
+    private readonly asyncJobHandleState: Pick<
+      AssistantAsyncJobHandleStateService,
+      "prepareDelivery" | "recordCanonicalCompletion"
+    > = {
+      prepareDelivery: async () => "legacy_frame",
+      recordCanonicalCompletion: async () => ({
+        decision: "legacy_frame",
+        state: "completed"
+      })
+    }
   ) {}
 
   private async persistDocumentRenderBillingFacts(input: {
@@ -179,6 +191,19 @@ export class AssistantDocumentJobDeliveryService {
   async createTerminalExecutionFailureMessage(
     input: TerminalExecutionFailureInput
   ): Promise<string | null> {
+    const ownership = await this.asyncJobHandleState.recordCanonicalCompletion({
+      kind: "document",
+      canonicalJobId: input.job.id,
+      terminalStatus: "failed",
+      terminalSnapshot: {
+        status: "failed",
+        errorCode: input.failure.code,
+        message: "Job failed."
+      }
+    });
+    if (ownership.decision !== "legacy_frame") {
+      return null;
+    }
     const locale = inferAssistantDocumentJobLocale({
       preferredLocale: null,
       sourceText: input.sourceUserMessageText
@@ -242,6 +267,20 @@ export class AssistantDocumentJobDeliveryService {
         artifacts: currentPayload.artifacts
       });
 
+      const narrationDecision = await this.asyncJobHandleState.prepareDelivery({
+        kind: "document",
+        canonicalJobId: job.id
+      });
+      if (narrationDecision === "defer") {
+        await this.deferRetry(
+          job,
+          currentPayload,
+          "async_narration_decision_pending",
+          "Waiting for the source turn narration decision."
+        );
+        return;
+      }
+
       let completionAssistantMessageId = currentPayload.completionAssistantMessageId ?? null;
       if (
         currentPayload.externalDeliveryCommitted !== true &&
@@ -277,7 +316,8 @@ export class AssistantDocumentJobDeliveryService {
 
       const framingOutcome = await this.resolveCompletionAssistantText({
         job,
-        payload: currentPayload
+        payload: currentPayload,
+        allowLegacyFrame: narrationDecision === "legacy_frame"
       });
       const completionAssistantText = framingOutcome.text;
       currentPayload = framingOutcome.payload;
@@ -603,6 +643,7 @@ export class AssistantDocumentJobDeliveryService {
   private async resolveCompletionAssistantText(input: {
     job: ClaimedReadyDocumentJob;
     payload: PersistedDeliveryPayload;
+    allowLegacyFrame: boolean;
   }): Promise<{ text: string; payload: PersistedDeliveryPayload }> {
     const rawAssistantText = input.payload.assistantText?.trim() ?? "";
     const cached =
@@ -618,22 +659,24 @@ export class AssistantDocumentJobDeliveryService {
     const completionService = this.assistantDocumentJobCompletionTurnService as
       | AssistantDocumentJobCompletionTurnService
       | undefined;
-    const framedResult = await completionService?.maybeFrame({
-      id: input.job.id,
-      docId: input.job.docId,
-      versionId: input.job.versionId,
-      assistantId: input.job.assistantId,
-      workspaceId: input.job.workspaceId,
-      chatId: input.job.chatId,
-      surface: input.job.surface,
-      outputFormat: this.readOutputFormat(input.payload),
-      descriptorMode: this.readDescriptorMode(input.payload),
-      sourceUserMessageId: this.readSourceUserMessageId(input.payload),
-      sourceUserMessageText: this.readSourceUserMessageText(input.payload),
-      sourceUserMessageCreatedAt: this.readSourceUserMessageCreatedAt(input.payload),
-      resultText: rawAssistantText,
-      artifacts: input.payload.artifacts
-    });
+    const framedResult = input.allowLegacyFrame
+      ? await completionService?.maybeFrame({
+          id: input.job.id,
+          docId: input.job.docId,
+          versionId: input.job.versionId,
+          assistantId: input.job.assistantId,
+          workspaceId: input.job.workspaceId,
+          chatId: input.job.chatId,
+          surface: input.job.surface,
+          outputFormat: this.readOutputFormat(input.payload),
+          descriptorMode: this.readDescriptorMode(input.payload),
+          sourceUserMessageId: this.readSourceUserMessageId(input.payload),
+          sourceUserMessageText: this.readSourceUserMessageText(input.payload),
+          sourceUserMessageCreatedAt: this.readSourceUserMessageCreatedAt(input.payload),
+          resultText: rawAssistantText,
+          artifacts: input.payload.artifacts
+        })
+      : undefined;
     const framedText = framedResult?.text?.trim() ?? "";
     if (framedResult?.usage) {
       const assistant = await this.assistantRepository.findById(input.job.assistantId);
@@ -847,7 +890,7 @@ export class AssistantDocumentJobDeliveryService {
     job: ClaimedReadyDocumentJob,
     payload: PersistedDeliveryPayload
   ): Promise<boolean> {
-    return this.prisma.$transaction(async (tx) => {
+    const finalized = await this.prisma.$transaction(async (tx) => {
       const claimed = await tx.assistantDocumentRenderJob.updateMany({
         where: {
           id: job.id,
@@ -907,6 +950,19 @@ export class AssistantDocumentJobDeliveryService {
       });
       return true;
     });
+    if (finalized) {
+      await this.asyncJobHandleState.recordCanonicalCompletion({
+        kind: "document",
+        canonicalJobId: job.id,
+        terminalStatus: "completed",
+        terminalSnapshot: {
+          status: "completed",
+          errorCode: null,
+          message: "Job completed and was delivered."
+        }
+      });
+    }
+    return finalized;
   }
 
   private async tryLlmAuthoredFailureCopy(input: {
@@ -1064,12 +1120,19 @@ export class AssistantDocumentJobDeliveryService {
       preferredLocale: null,
       sourceText: payload?.sourceUserMessageText ?? null
     });
-    const llmAuthored = await this.tryLlmAuthoredFailureCopy({
-      job,
-      payload,
-      code,
-      message
+    const narrationDecision = await this.asyncJobHandleState.prepareDelivery({
+      kind: "document",
+      canonicalJobId: job.id
     });
+    const llmAuthored =
+      narrationDecision === "legacy_frame"
+        ? await this.tryLlmAuthoredFailureCopy({
+            job,
+            payload,
+            code,
+            message
+          })
+        : null;
     const failureMessage =
       llmAuthored ??
       buildAssistantDocumentJobFailureMessage({
@@ -1102,6 +1165,7 @@ export class AssistantDocumentJobDeliveryService {
     message: string,
     payload?: PersistedDeliveryPayload | Partial<PersistedDeliveryPayload> | null
   ): Promise<void> {
+    let failed = false;
     await this.prisma.$transaction(async (tx) => {
       const claimed = await tx.assistantDocumentRenderJob.updateMany({
         where: {
@@ -1128,6 +1192,7 @@ export class AssistantDocumentJobDeliveryService {
       if (claimed.count === 0) {
         return;
       }
+      failed = true;
       await tx.assistantDocumentVersion.update({
         where: { id: job.versionId },
         data: {
@@ -1145,6 +1210,18 @@ export class AssistantDocumentJobDeliveryService {
         }
       });
     });
+    if (failed) {
+      await this.asyncJobHandleState.recordCanonicalCompletion({
+        kind: "document",
+        canonicalJobId: job.id,
+        terminalStatus: "failed",
+        terminalSnapshot: {
+          status: "failed",
+          errorCode: code,
+          message: "Job failed."
+        }
+      });
+    }
     this.logger.warn(`Document delivery failed for ${job.id}: ${message}`);
   }
 

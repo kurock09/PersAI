@@ -45,6 +45,7 @@ type DirectToolExecutionPayload =
 export type EnqueueRuntimeDeferredMediaJobInput = {
   assistantId: string;
   sourceUserMessageId: string;
+  sourceClientTurnId?: string;
   sourceUserMessageText: string;
   runtimeSessionId: string;
   attachments: RuntimeAttachmentRef[];
@@ -95,9 +96,14 @@ export class EnqueueRuntimeDeferredMediaJobService {
 
   parseInput(payload: unknown): EnqueueRuntimeDeferredMediaJobInput {
     const row = this.objectValue(payload, "payload");
+    const sourceUserMessageId = this.requiredString(row.sourceUserMessageId, "sourceUserMessageId");
     return {
       assistantId: this.requiredString(row.assistantId, "assistantId"),
-      sourceUserMessageId: this.requiredString(row.sourceUserMessageId, "sourceUserMessageId"),
+      sourceUserMessageId,
+      sourceClientTurnId:
+        row.sourceClientTurnId === undefined
+          ? sourceUserMessageId
+          : this.requiredString(row.sourceClientTurnId, "sourceClientTurnId"),
       sourceUserMessageText: this.requiredString(
         row.sourceUserMessageText,
         "sourceUserMessageText"
@@ -254,6 +260,7 @@ export class EnqueueRuntimeDeferredMediaJobService {
         surface: chat.surface,
         kind,
         sourceUserMessageId: sourceMessage.id,
+        sourceClientTurnId: input.sourceClientTurnId ?? sourceMessage.id,
         request
       });
     } catch (error) {

@@ -45,6 +45,7 @@ async function run(): Promise<void> {
         author: "assistant",
         content: "Done.",
         metadata: {
+          sourceUserMessageId: "user-message-1",
           discoveredFilePaths: [
             "/workspace/assistants/assistant-1/sessions/session-1/file-1.md",
             "/workspace/assistants/assistant-1/sessions/session-1/file-2.md"
@@ -98,7 +99,10 @@ async function run(): Promise<void> {
         chatId: "chat-2",
         assistantId: "assistant-2",
         author: "assistant",
-        content: "No files here."
+        content: "No files here.",
+        metadata: {
+          sourceUserMessageId: "user-message-2"
+        }
       }
     ]);
     assert.equal(ackCalled, false);

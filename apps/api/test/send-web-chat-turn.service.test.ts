@@ -1501,6 +1501,7 @@ describe("SendWebChatTurnService", () => {
     assert.deepEqual(
       (capturedCreateMessageInput as Record<string, unknown>).metadata,
       {
+        sourceUserMessageId: "user-msg-1",
         discoveredFilePaths: [`${SESSION_ROOT}/report-a.pdf`, `${SESSION_ROOT}/report-b.pdf`]
       },
       "metadata.discoveredFilePaths must match the runtime return value in insertion order"

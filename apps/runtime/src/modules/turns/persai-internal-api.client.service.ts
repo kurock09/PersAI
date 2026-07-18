@@ -414,6 +414,7 @@ export type InternalEnqueueBackgroundCompactionInput = {
 export type InternalEnqueueDeferredMediaJobInput = {
   assistantId: string;
   sourceUserMessageId: string;
+  sourceClientTurnId: string;
   sourceUserMessageText: string;
   runtimeSessionId: string;
   attachments: RuntimeAttachmentRef[];
@@ -435,6 +436,7 @@ export type InternalEnqueueDeferredMediaJobInput = {
 export type InternalEnqueueDeferredDocumentJobInput = {
   assistantId: string;
   sourceUserMessageId: string;
+  sourceClientTurnId: string;
   sourceUserMessageText: string;
   runtimeSessionId: string;
   // Attachments from the user turn that triggered this document tool call.
@@ -780,6 +782,8 @@ export class PersaiInternalApiClientService {
         terminal: boolean;
         errorCode: string | null;
         message: string | null;
+        narrationOutcome: "claimed_current_turn" | "already_owned" | null;
+        narrationOwner: "current_turn" | "continuation" | "legacy" | null;
       }
   > {
     const response = await this.fetchJson(
@@ -828,8 +832,103 @@ export class PersaiInternalApiClientService {
       status: row.status as "pending" | "completed" | "failed" | "cancelled",
       terminal: row.terminal,
       errorCode: typeof row.errorCode === "string" ? row.errorCode : null,
-      message: typeof row.message === "string" ? row.message : null
+      message: typeof row.message === "string" ? row.message : null,
+      narrationOutcome:
+        row.narrationOutcome === "claimed_current_turn" || row.narrationOutcome === "already_owned"
+          ? row.narrationOutcome
+          : null,
+      narrationOwner:
+        row.narrationOwner === "current_turn" ||
+        row.narrationOwner === "continuation" ||
+        row.narrationOwner === "legacy"
+          ? row.narrationOwner
+          : null
     };
+  }
+
+  async subscribeAsyncJob(input: {
+    jobRef: string;
+    assistantId: string;
+    workspaceId: string;
+    chatId: string;
+    channel: "web" | "telegram" | "max_ru";
+    threadKey: string;
+    abortSignal?: AbortSignal;
+  }): Promise<
+    | { outcome: "not_found" }
+    | { outcome: "depth_exhausted" }
+    | {
+        outcome: "subscribed";
+        continuationClientTurnId: string;
+        duplicate: boolean;
+      }
+    | {
+        outcome: "terminal_inline";
+        kind: "media" | "document";
+        status: "completed" | "failed" | "cancelled";
+        errorCode: string | null;
+        message: string;
+      }
+    | {
+        outcome: "already_owned";
+        owner: "current_turn" | "continuation" | "legacy";
+      }
+  > {
+    const response = await this.fetchJson("/api/v1/internal/runtime/async-jobs/subscribe", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${this.config.PERSAI_INTERNAL_API_TOKEN}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        jobRef: input.jobRef,
+        assistantId: input.assistantId,
+        workspaceId: input.workspaceId,
+        chatId: input.chatId,
+        channel: input.channel,
+        threadKey: input.threadKey
+      }),
+      ...(input.abortSignal === undefined ? {} : { signal: input.abortSignal })
+    });
+    const row = this.asObject(response.body);
+    if (!response.ok || row === null || typeof row.outcome !== "string") {
+      throw new ServiceUnavailableException("Async job subscription is temporarily unavailable.");
+    }
+    if (row.outcome === "not_found" || row.outcome === "depth_exhausted") {
+      return { outcome: row.outcome };
+    }
+    if (
+      row.outcome === "subscribed" &&
+      typeof row.continuationClientTurnId === "string" &&
+      typeof row.duplicate === "boolean"
+    ) {
+      return {
+        outcome: "subscribed",
+        continuationClientTurnId: row.continuationClientTurnId,
+        duplicate: row.duplicate
+      };
+    }
+    if (
+      row.outcome === "terminal_inline" &&
+      (row.kind === "media" || row.kind === "document") &&
+      ["completed", "failed", "cancelled"].includes(String(row.status)) &&
+      typeof row.message === "string"
+    ) {
+      return {
+        outcome: "terminal_inline",
+        kind: row.kind,
+        status: row.status as "completed" | "failed" | "cancelled",
+        errorCode: typeof row.errorCode === "string" ? row.errorCode : null,
+        message: row.message
+      };
+    }
+    if (
+      row.outcome === "already_owned" &&
+      (row.owner === "current_turn" || row.owner === "continuation" || row.owner === "legacy")
+    ) {
+      return { outcome: "already_owned", owner: row.owner };
+    }
+    throw new BadGatewayException("PersAI internal API returned an invalid subscription result.");
   }
 
   async registerChatAttachment(

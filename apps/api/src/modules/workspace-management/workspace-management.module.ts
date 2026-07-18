@@ -309,6 +309,9 @@ import { WORKSPACE_VIDEO_CLONED_VOICE_REPOSITORY } from "./domain/workspace-vide
 import { PrismaWorkspaceVideoClonedVoiceRepository } from "./infrastructure/persistence/prisma-workspace-video-cloned-voice.repository";
 import { EnqueueRuntimeDeferredMediaJobService } from "./application/enqueue-runtime-deferred-media-job.service";
 import { ResolveAssistantAsyncJobService } from "./application/resolve-assistant-async-job.service";
+import { AssistantAsyncJobHandleStateService } from "./application/assistant-async-job-handle-state.service";
+import { AssistantAsyncJobContinuationSchedulerService } from "./application/assistant-async-job-continuation-scheduler.service";
+import { InternalRuntimeAsyncContinuationClientService } from "./application/internal-runtime-async-continuation.client.service";
 import { CheckpointMediaJobAcceptedProviderTaskService } from "./application/checkpoint-media-job-accepted-provider-task.service";
 import { InternalRuntimeDocumentJobClientService } from "./application/internal-runtime-document-job.client.service";
 import { InternalRuntimeMediaJobClientService } from "./application/internal-runtime-media-job.client.service";
@@ -674,6 +677,9 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     HeyGenVoiceCatalogService,
     EnqueueRuntimeDeferredMediaJobService,
     ResolveAssistantAsyncJobService,
+    AssistantAsyncJobHandleStateService,
+    InternalRuntimeAsyncContinuationClientService,
+    AssistantAsyncJobContinuationSchedulerService,
     CheckpointMediaJobAcceptedProviderTaskService,
     InternalRuntimeCompactionClientService,
     InternalRuntimeBackgroundTaskClientService,

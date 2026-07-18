@@ -187,7 +187,26 @@ promise. Release `f0944d31` / GitOps pin `95c7d68d`, the deployed `5fb61f3c`
 allowed-model audit, strict model-driven Script smoke, and approved-account
 Admin Scripts UI founder acceptance. ADR-151 is closed.
 
-**ADR-152 (approved, not implemented):** the next bounded architecture adds
+**ADR-152 (checkpoint 2 locally implemented):** checkpoint 1, the
+API/data/delivery ownership core, exact `wait|notify` terminal control,
+source-turn finalization, and serialized same-chat continuation are implemented
+locally. A SchedulerLease-backed API worker now validates and claims ready
+handle rows, dispatches through the ordinary runtime session lease/receipt seam,
+persists one Assistant output, and conservatively reconciles stale work. The
+same `assistant_async_job_handles` row now owns source-finalization, narration,
+depth, claim/dispatch/receipt/retry, and terminal state. Both media and document
+delivery paths consult that decision before legacy framing while preserving
+their existing attachment-first file ownership. Audit repairs distinguish
+typed busy-before-acceptance from ambiguous dispatch, use a full-turn dispatch
+deadline, require runtime receipt/in-flight absence proof before requeue, and
+CAS-own Telegram/artifact attempts before external calls. Original
+user-message UUID and continuation client-turn identity remain separate through
+child-job enqueue/depth inheritance. Row depth names the creating turn;
+scheduler depth is `rowDepth + 1`. Persisted continuation output finalizes only
+children keyed by its client-turn id, with receipt/message reconciliation for
+lost completion. Internal runtime responses are strictly validated before
+scheduler dereference. Checkpoint-2 audits were DIRTY; repairs await confirming
+independent re-audit and make no CLEAN claim. The bounded architecture adds
 only a Script browser SDK and durable canonical-job observation. Script browser
 capability is exactly `{browser:{actions:["snapshot","act"]}}`: a required
 structured profile input reaches the existing `RuntimeBrowserToolService`, API

@@ -33,11 +33,14 @@ export async function persistAssistantMessage(
   const hasWorkingNotes = Array.isArray(input.workingNotes) && input.workingNotes.length > 0;
   const hasToolInvocations =
     Array.isArray(input.toolInvocations) && input.toolInvocations.length > 0;
+  const hasSourceUserMessageId =
+    typeof input.sourceUserMessageId === "string" && input.sourceUserMessageId.length > 0;
   const resolvedStatus = input.truncatedStatus ?? input.partialStatus;
   const hasStatus = resolvedStatus !== undefined;
   const metadata: Record<string, unknown> | undefined =
-    hasFileRefs || hasWorkingNotes || hasToolInvocations || hasStatus
+    hasFileRefs || hasWorkingNotes || hasToolInvocations || hasStatus || hasSourceUserMessageId
       ? {
+          ...(hasSourceUserMessageId ? { sourceUserMessageId: input.sourceUserMessageId } : {}),
           ...(hasFileRefs ? { discoveredFilePaths: input.discoveredFilePaths } : {}),
           ...(hasWorkingNotes ? { workingNotes: input.workingNotes } : {}),
           ...(hasToolInvocations

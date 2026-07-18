@@ -373,9 +373,7 @@ export class AssistantMediaJobService {
           kind: input.kind,
           status: "queued",
           sourceUserMessageId: input.sourceUserMessageId,
-          ...(input.sourceClientTurnId === undefined
-            ? {}
-            : { sourceClientTurnId: input.sourceClientTurnId }),
+          sourceClientTurnId: input.sourceClientTurnId ?? input.sourceUserMessageId,
           ...(input.assistantAcknowledgementMessageId === undefined
             ? {}
             : { assistantAcknowledgementMessageId: input.assistantAcknowledgementMessageId }),

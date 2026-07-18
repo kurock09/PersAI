@@ -8,6 +8,7 @@ import { InternalRuntimeSessionsController } from "./interface/http/internal-run
 import { InternalRuntimeBackgroundTasksController } from "./interface/http/internal-runtime-background-tasks.controller";
 import { InternalRuntimeDocumentJobsController } from "./interface/http/internal-runtime-document-jobs.controller";
 import { InternalRuntimeMediaJobsController } from "./interface/http/internal-runtime-media-jobs.controller";
+import { InternalRuntimeAsyncContinuationsController } from "./interface/http/internal-runtime-async-continuations.controller";
 import { AutoExtractToMemoryService } from "./auto-extract-to-memory.service";
 import { IdempotencyService } from "./idempotency.service";
 import { LocalBrowserBridgeClient } from "./local-browser-bridge.client.service";
@@ -65,7 +66,8 @@ import { TurnRoutingService } from "./turn-routing.service";
     InternalRuntimeSessionsController,
     InternalRuntimeBackgroundTasksController,
     InternalRuntimeDocumentJobsController,
-    InternalRuntimeMediaJobsController
+    InternalRuntimeMediaJobsController,
+    InternalRuntimeAsyncContinuationsController
   ],
   providers: [
     PersaiInternalApiClientService,
