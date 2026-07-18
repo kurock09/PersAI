@@ -8,7 +8,8 @@ repairs landed; final status re-check returned CLEAN. Authoring code was PASS
 throughout. Not deployed or live-accepted. ADR-152 remains open; checkpoint 5
 (full gate / one push / deploy / live acceptance) is next.**
 
-- Baseline before commit: `a0d9d368` on branch `adr-152-browser-sdk-job-await`.
+- Committed: `3def3fe2` on branch `adr-152-browser-sdk-job-await`
+  (baseline `a0d9d368`).
 - Admin Scripts UI: toggle emits only the exact capability object or omits
   `capabilities`; load restores the toggle from an exact match; save does
   not strip capabilities; client validation requires
