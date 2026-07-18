@@ -5,8 +5,8 @@
 
 ## 2026-07-19
 
-- **Fix: stale sandbox Working / await pending + late chat bubbles +
-  self-check crash (push SHA in handoff).** Detached `SandboxJob` rows stayed
+- **Fix pushed to `main` (`90b29346`): stale sandbox Working / await pending +
+  late chat bubbles + self-check crash.** Detached `SandboxJob` rows stayed
   `pending` in await/Working until a rare scheduler inspect. `await
   wait|notify`, snapshot, and Working list now refresh detached jobs via
   sandbox control-plane poll before reading canonical truth; reconciler logs

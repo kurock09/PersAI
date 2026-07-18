@@ -2,7 +2,7 @@
 
 ## 2026-07-19 — Stale sandbox Working/await + late chat bubbles + self-check crash
 
-Status: **Gate green locally; push SHA recorded after push. Deploy still open.**
+Status: **Pushed `main` `90b29346`. Deploy still open.**
 
 Founder live near «все по пизде пошло» (~23:06–23:09 UTC 2026-07-18):
 - `Router classifier failed … Provider gateway rejected … status 400`
