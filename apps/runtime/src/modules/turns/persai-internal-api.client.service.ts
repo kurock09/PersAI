@@ -635,7 +635,7 @@ export class PersaiInternalApiClientService {
     if (!this.isConfigured()) {
       throw new ServiceUnavailableException("PersAI internal API base URL is not configured.");
     }
-    const response = await this.fetchJson("/api/v1/internal/runtime/media-jobs/enqueue", {
+    const response = await this.fetchJson("/api/v1/internal/runtime/media-jobs/v1/enqueue", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${this.config.PERSAI_INTERNAL_API_TOKEN}`,
@@ -706,7 +706,7 @@ export class PersaiInternalApiClientService {
     if (!this.isConfigured()) {
       throw new ServiceUnavailableException("PersAI internal API base URL is not configured.");
     }
-    const response = await this.fetchJson("/api/v1/internal/runtime/document-jobs/enqueue", {
+    const response = await this.fetchJson("/api/v1/internal/runtime/document-jobs/v1/enqueue", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${this.config.PERSAI_INTERNAL_API_TOKEN}`,
@@ -787,7 +787,7 @@ export class PersaiInternalApiClientService {
       }
   > {
     const response = await this.fetchJson(
-      "/api/v1/internal/runtime/async-jobs/status",
+      "/api/v1/internal/runtime/async-jobs/v1/status",
       {
         method: "POST",
         headers: {
@@ -874,7 +874,7 @@ export class PersaiInternalApiClientService {
         owner: "current_turn" | "continuation" | "legacy";
       }
   > {
-    const response = await this.fetchJson("/api/v1/internal/runtime/async-jobs/subscribe", {
+    const response = await this.fetchJson("/api/v1/internal/runtime/async-jobs/v1/subscribe", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${this.config.PERSAI_INTERNAL_API_TOKEN}`,

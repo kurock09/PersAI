@@ -5,6 +5,87 @@
 
 ## 2026-07-18
 
+- **ADR-152 checkpoint 5 local implementation and full gate CLEAN (uncommitted;
+  not pushed, deployed, or live-accepted).** Independent frozen-tree GPT Terra
+  and Sonnet re-audits returned CLEAN with no P0/P1/P2. Final repairs add
+  enforced migration/API/compatibility-gate/runtime Argo ordering, fail-closed
+  Helm contract declarations and mismatch tests, and a rollback-safe `/v1`
+  runtime-to-API protocol barrier with no legacy fallback. A real ephemeral
+  Nest HTTP test proves legacy/v1 route binding, bearer denial, and `/v2` 404
+  before handler effects. The final OS-FD proof is contract-valid; ordinary
+  Script `NODE_PATH`/`PYTHONPATH` compatibility is restored while browser SDK
+  paths remain reserved; continuation depth uses the shared constant; all
+  previously unformatted ADR-152 files are clean. Parent full repository lint,
+  format, typecheck, tests, build, Prisma validation/generation, contract
+  regeneration, Helm lint/template, rollout/affected-CI tests, and diff
+  integrity pass. One initial concurrent workspace-test run hit a transient
+  Windows sandbox-temp `EPERM`; isolated sandbox and the subsequent complete
+  workspace rerun passed. ADR-152 remains open only for parent commit, one
+  founder-authorized push, exact-image deploy, and founder live acceptance.
+
+- **ADR-152 Sonnet final adversarial audit: DIRTY (2 P1, 2 P2); repairs
+  landed locally, pending independent re-audit (do not claim CLEAN).**
+  P1: `apps/sandbox/test/script-browser-os-fd-roundtrip.test.ts` failed
+  sandbox typecheck — the proof test built envelope/result literals that did
+  not satisfy `RuntimeScriptBrowserBrokerResponseEnvelope`/
+  `RuntimeBrowserToolResult`. Fixed with contract-valid literals (exact
+  `brokerId`/`authToken`/`sandboxJobId`; the >64KiB payload embedded in the
+  `RuntimeBrowserToolResult.reason` field) with no unsafe casts, no type
+  weakening, and the same POSIX-only round-trip proof and Windows typecheck
+  coverage as before. P1: repository `format:check` failed on five committed
+  ADR-152 files (`apps/runtime/test/runtime-script-browser-broker.service.test.ts`,
+  `apps/sandbox/test/script-browser-os-fd-roundtrip.test.ts`,
+  `apps/sandbox/test/script-execute-idempotency.test.ts`,
+  `apps/sandbox/test/script-execution-support.test.ts`,
+  `packages/persai-admin-mcp/src/server.ts`) — reformatted with the exact
+  repository Prettier config; root `format:check` now passes clean. P2:
+  `NODE_PATH`/`PYTHONPATH` were globally reserved in
+  `PERSAI_SCRIPT_RESERVED_ENV_KEYS` even though the platform only exports
+  them for browser-capable Scripts, silently dropping ordinary Script
+  manifest env values with the same names. Split into a new
+  `PERSAI_SCRIPT_BROWSER_ONLY_RESERVED_ENV_KEYS`, reserved only when
+  `browserEnabled` is true; every other reserved-key semantic is unchanged.
+  New focused sandbox tests prove an ordinary Script can author its own
+  `NODE_PATH`/`PYTHONPATH` while a browser-capable Script still cannot
+  override the platform SDK paths. P2: the async continuation scheduler's
+  admission check hardcoded `continuationDepth >= 4` instead of the already
+  shared, already-exported `MAX_ASYNC_CONTINUATION_DEPTH` constant — now
+  imports and compares against that one constant (no circular dependency, no
+  behavior change), with a new focused test proving the constant, not a
+  literal, gates rejection. Sandbox typecheck/full test suite, API
+  typecheck/focused scheduler test, admin-mcp typecheck/test, runtime
+  typecheck/isolated suite, root `format:check`, `git diff --check`, and
+  affected-package lint all pass green after the repair. ADR-152 remains
+  open, not deployed, not live-accepted; independent re-audit is required
+  before any CLEAN claim.
+
+- **ADR-152 checkpoint-5 second audit repair (local; pending independent
+  re-audit).** The first Terra integration audit was **DIRTY (P1)** on absent
+  migration → API → runtime enforcement; its first repair added Argo waves,
+  ready-capability hook, and render gate. Re-audit remained **DIRTY (P1/P2)**:
+  API-first/chart-rollback overlap could still route a new runtime through old
+  unversioned API endpoints, and mismatch render coverage was incomplete. New
+  runtime now uses a `v1` internal route family for media/document enqueue and
+  async-handle status/subscribe, while API retains unversioned routes only for
+  old runtime clients. An old API has no `v1` route, returning 404 before
+  parsing or canonical side effects; new runtime has no fallback. Helm tests
+  now independently reject API and runtime contract-version mismatches. No
+  deploy or live acceptance occurred; ADR-152 remains open and DIRTY pending
+  independent re-audit.
+
+- **Test (ADR-152 checkpoint-5 route-binding rigor; local, pending independent
+  re-audit).** Replaces decorator-source-only confidence for the internal
+  versioned protocol barrier with an ephemeral Nest HTTP boot test using the
+  real media enqueue, document enqueue, and async-handle controllers plus
+  mock-only service dependencies. Both legacy and `/v1` endpoints are invoked
+  under the real internal bearer check and verified to reach the shared
+  handlers with their expected `202`/`200` contracts; unauthorized `/v1`
+  requests and unrelated `/v2` paths prove no handler side effect (`401` and
+  `404`, respectively). Focused test, API typecheck/lint, root
+  `format:check`, and `git diff --check` pass. No production routing or
+  authorization behavior changed. ADR-152 remains open and no overall CLEAN
+  claim is made.
+
 - **ADR-152 checkpoint 4 committed (not deployed or live-accepted).** Admin
   Scripts UI authors the exact optional immutable-manifest browser capability
   `{browser:{actions:["snapshot","act"]}}` (toggle on) or omits `capabilities`

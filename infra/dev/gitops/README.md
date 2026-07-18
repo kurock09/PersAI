@@ -85,6 +85,16 @@ Current secret split:
 - Argo CD auto-sync is enabled for `persai-dev`
 - `api-migrate` runs as a `PreSync` hook before API rollout
 - failed migrations block rollout
+- ADR-152 runtime releases are additionally fail-closed: migration is
+  `PreSync` wave `-1`, API rollout/readiness is wave `0`, and the wave-`1`
+  `api-async-job-contract-gate` must observe
+  `/ready.capabilities.asyncJobHandles === "v1"` before runtime wave `2`.
+  A missing/old/malformed capability fails the Sync hook and leaves runtime
+  unadvanced; do not bypass or manually apply runtime first. The protocol
+  barrier also survives absent chart ordering: new runtime calls only versioned
+  ADR-152 internal enqueue/status/subscribe routes, which a rolled-back API
+  does not implement; it fails before controller side effects with no
+  unversioned fallback.
 - GitHub Actions do not mutate the cluster directly
 
 ## Affected deploy policy

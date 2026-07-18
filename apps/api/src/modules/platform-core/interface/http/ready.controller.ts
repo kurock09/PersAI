@@ -10,6 +10,9 @@ type ReadyResponseBody = {
   status: "ready" | "not_ready";
   requestId: string | null;
   checkedAt: string;
+  capabilities: {
+    asyncJobHandles: "v1";
+  };
   dependencies: Array<{
     name: string;
     status: "up" | "down";
@@ -36,6 +39,9 @@ export class ReadyController {
       status: snapshot.ready ? "ready" : "not_ready",
       requestId: this.requestContextStore.get()?.requestId ?? null,
       checkedAt: snapshot.checkedAt,
+      capabilities: {
+        asyncJobHandles: "v1"
+      },
       dependencies: snapshot.dependencies.map((dependency) => ({
         name: dependency.name,
         status: dependency.ready ? "up" : "down",

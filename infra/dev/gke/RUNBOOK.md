@@ -808,6 +808,31 @@ kubectl -n persai-dev get jobs -l app.kubernetes.io/name=api-migrate
 kubectl -n persai-dev logs job/api-migrate --tail=120
 ```
 
+### ADR-152 async-job runtime rollout
+
+For any release that enables the ADR-152 `jobRef`-requiring runtime, do not
+manually advance the runtime Deployment. Argo enforces migration `PreSync` wave
+`-1` → API rollout/readiness wave `0` → `api-async-job-contract-gate` Sync hook
+wave `1` → runtime wave `2`. The hook calls the ready API Service and requires
+`capabilities.asyncJobHandles === "v1"`; an old, absent, or malformed API
+response fails closed and blocks runtime.
+
+After the normal Argo sync, inspect the gate alongside the migration:
+
+```bash
+kubectl -n persai-dev get job api-migrate api-async-job-contract-gate
+kubectl -n persai-dev logs job/api-async-job-contract-gate --tail=120
+kubectl -n persai-dev get deploy api runtime
+```
+
+Do not delete, skip, or manually mark the gate successful. Roll back runtime
+first, then API, while retaining the additive migration and handle rows. If an
+API-first rollback or missing chart waves occur anyway, new runtime requests
+only the versioned ADR-152 internal enqueue/status/subscribe routes. A rolled
+back API has no such routes, so it returns 404 before any canonical job or
+handle side effect; do not add an unversioned fallback or retry. The retained
+unversioned routes are for old runtime replicas only.
+
 ## Pod env verification
 
 Check the active API deployment wiring:

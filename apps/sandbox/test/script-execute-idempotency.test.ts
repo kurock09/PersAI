@@ -553,7 +553,10 @@ void test("findTerminalScriptReplay is invisible across assistants: a different 
     completedAt: new Date(),
     toolCode: "script.execute"
   });
-  jobsByKey.set(`${assistantId}:invocation-key-shared-across-assistants`, "job-owned-by-assistant-one");
+  jobsByKey.set(
+    `${assistantId}:invocation-key-shared-across-assistants`,
+    "job-owned-by-assistant-one"
+  );
 
   // A different assistant reusing the exact same invocation key, version,
   // content hash, and input hash must not see the first assistant's row: the

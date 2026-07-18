@@ -52,6 +52,10 @@ api:
     backoffLimit: 1
     ttlSecondsAfterFinished: 120
     activeDeadlineSeconds: 900
+  asyncJobContract:
+    # ADR-152 rollout gate: the API /ready response declares this exact
+    # jobRef/status seam before runtime replicas that require it are admitted.
+    version: "v1"
   serviceAccount:
     create: true
     name: api-sa
@@ -336,6 +340,12 @@ runtime:
     create: true
     name: runtime-sa
     gcpServiceAccountEmail: ""
+  asyncJobContract:
+    requiredVersion: "v1"
+    gate:
+      image: "curlimages/curl:8.17.0"
+      backoffLimit: 1
+      activeDeadlineSeconds: 120
   image:
     name: runtime
     tag: ""

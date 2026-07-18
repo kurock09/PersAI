@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import {
   AsyncJobStatusDeadlineExceededError,
   PersaiInternalApiClientService
@@ -14,6 +16,31 @@ const input = {
 };
 
 export async function runPersaiInternalApiAsyncJobStatusTest(): Promise<void> {
+  const clientSource = readFileSync(
+    path.resolve(__dirname, "../src/modules/turns/persai-internal-api.client.service.ts"),
+    "utf8"
+  );
+  for (const route of [
+    "/api/v1/internal/runtime/media-jobs/v1/enqueue",
+    "/api/v1/internal/runtime/document-jobs/v1/enqueue",
+    "/api/v1/internal/runtime/async-jobs/v1/status",
+    "/api/v1/internal/runtime/async-jobs/v1/subscribe"
+  ]) {
+    assert.match(clientSource, new RegExp(`"${route}"`), `new runtime must use ${route}`);
+  }
+  for (const unversionedRoute of [
+    "/api/v1/internal/runtime/media-jobs/enqueue",
+    "/api/v1/internal/runtime/document-jobs/enqueue",
+    "/api/v1/internal/runtime/async-jobs/status",
+    "/api/v1/internal/runtime/async-jobs/subscribe"
+  ]) {
+    assert.doesNotMatch(
+      clientSource,
+      new RegExp(`"${unversionedRoute}"`),
+      `new runtime must not fall back to ${unversionedRoute}`
+    );
+  }
+
   const originalFetch = globalThis.fetch;
   try {
     globalThis.fetch = abortAwarePendingFetch;

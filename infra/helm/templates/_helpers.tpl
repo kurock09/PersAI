@@ -14,6 +14,29 @@
 {{- end -}}
 
 {{/*
+ADR-152 requires migration -> API -> runtime. Runtime is admitted only after a
+Sync hook proves the currently serving API /ready response advertises the
+jobRef/status contract. Keep this exact-version gate narrow: a future contract
+version requires an explicit ADR/chart update rather than silently weakening
+the rollout prerequisite.
+*/}}
+{{- define "persai.adr152.assertAsyncJobRolloutContract" -}}
+{{- if .Values.runtime.enabled -}}
+{{- if not .Values.api.enabled -}}
+{{- fail "ADR-152: runtime requires api.enabled so the async-job contract can be verified before rollout" -}}
+{{- end -}}
+{{- if not .Values.api.migrations.enabled -}}
+{{- fail "ADR-152: runtime requires api.migrations.enabled so the additive async-job migration runs before API and runtime" -}}
+{{- end -}}
+{{- $apiVersion := .Values.api.asyncJobContract.version | default "" -}}
+{{- $runtimeVersion := .Values.runtime.asyncJobContract.requiredVersion | default "" -}}
+{{- if or (ne $apiVersion "v1") (ne $runtimeVersion "v1") -}}
+{{- fail "ADR-152: api.asyncJobContract.version and runtime.asyncJobContract.requiredVersion must both be v1" -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
 Exact sandbox-egress-proxy squid.conf body (byte-stable). Used both for the
 ConfigMap data and the Deployment pod-template checksum annotation so ConfigMap
 content changes force a Pod recreate despite subPath mounts.

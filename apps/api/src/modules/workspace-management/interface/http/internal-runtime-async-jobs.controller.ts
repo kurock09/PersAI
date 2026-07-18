@@ -18,7 +18,7 @@ export class InternalRuntimeAsyncJobsController {
   ) {}
 
   @HttpCode(200)
-  @Post("status")
+  @Post(["status", "v1/status"])
   async status(
     @Req() req: { headers: Record<string, string | string[] | undefined> },
     @Body() body: Record<string, unknown>
@@ -39,7 +39,7 @@ export class InternalRuntimeAsyncJobsController {
   }
 
   @HttpCode(200)
-  @Post("subscribe")
+  @Post(["subscribe", "v1/subscribe"])
   async subscribe(
     @Req() req: { headers: Record<string, string | string[] | undefined> },
     @Body() body: Record<string, unknown>

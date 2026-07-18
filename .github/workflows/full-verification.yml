@@ -48,6 +48,7 @@ jobs:
         run: |
           helm lint infra/helm -f infra/helm/values-dev.yaml
           helm template persai-dev infra/helm -f infra/helm/values-dev.yaml > /dev/null
+          node --test scripts/ci/adr152-rollout-order.test.mjs
 
       - name: Lint
         run: pnpm run lint

@@ -9,7 +9,10 @@ import {
 } from "../domain/assistant-materialized-spec.repository";
 import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
-import { AssistantAsyncJobHandleStateService } from "./assistant-async-job-handle-state.service";
+import {
+  AssistantAsyncJobHandleStateService,
+  MAX_ASYNC_CONTINUATION_DEPTH
+} from "./assistant-async-job-handle-state.service";
 import { runtimeOutputArtifactsToMediaArtifacts } from "./assistant-runtime.facade";
 import { BackgroundSchedulerMetricsService } from "./background-scheduler-metrics.service";
 import { EnforceAssistantCapabilityAndQuotaService } from "./enforce-assistant-capability-and-quota.service";
@@ -173,7 +176,7 @@ export class AssistantAsyncJobContinuationSchedulerService
       handle.continuationClientTurnId === null ||
       handle.sourceUserMessageId === null ||
       handle.continuationDepth < 0 ||
-      handle.continuationDepth >= 4 ||
+      handle.continuationDepth >= MAX_ASYNC_CONTINUATION_DEPTH ||
       handle.chat.archivedAt !== null ||
       handle.chat.assistantId !== handle.assistantId ||
       handle.chat.workspaceId !== handle.workspaceId ||

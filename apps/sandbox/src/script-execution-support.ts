@@ -48,7 +48,8 @@ export type SandboxScriptVersionArtifact = {
  * entry/input/output files and invocation key. Admin-authored
  * `manifest.environment` entries that collide with these names are silently
  * dropped when building the execution shell — the reserved platform values
- * always win.
+ * always win. These are reserved for every Script regardless of browser
+ * capability, since the wrapper always exports them.
  */
 export const PERSAI_SCRIPT_RESERVED_ENV_KEYS = [
   "PERSAI_SCRIPT_ENTRY_PATH",
@@ -56,10 +57,19 @@ export const PERSAI_SCRIPT_RESERVED_ENV_KEYS = [
   "PERSAI_SCRIPT_OUTPUT_PATH",
   "PERSAI_SCRIPT_INVOCATION_KEY",
   "PERSAI_SCRIPT_BROWSER_CLI",
-  "PERSAI_SCRIPT_BROWSER_ENABLED",
-  "NODE_PATH",
-  "PYTHONPATH"
+  "PERSAI_SCRIPT_BROWSER_ENABLED"
 ] as const;
+
+/**
+ * ADR-152 P2 repair — `NODE_PATH`/`PYTHONPATH` are only exported by the
+ * wrapper for browser-enabled Scripts (see the `browserEnabled` branch
+ * below), so they must only be reserved (i.e. block a colliding
+ * manifest-authored value) for those Scripts. An ordinary Script without
+ * browser capability never gets a platform `NODE_PATH`/`PYTHONPATH` export,
+ * so silently dropping its own manifest-authored value for these generic,
+ * widely-used names would be an unjustified compatibility regression.
+ */
+export const PERSAI_SCRIPT_BROWSER_ONLY_RESERVED_ENV_KEYS = ["NODE_PATH", "PYTHONPATH"] as const;
 
 /**
  * ADR-151 — a low-collision-probability text marker written to stdout after the
@@ -165,6 +175,11 @@ export function buildScriptExecutionShellCommand(input: {
   browserEnabled?: boolean;
 }): string {
   const reserved = new Set<string>(PERSAI_SCRIPT_RESERVED_ENV_KEYS);
+  if (input.browserEnabled === true) {
+    for (const key of PERSAI_SCRIPT_BROWSER_ONLY_RESERVED_ENV_KEYS) {
+      reserved.add(key);
+    }
+  }
   const lines: string[] = [
     "set -o pipefail",
     `script_dir=${scriptShellSingleQuote(input.scriptDir)}`,

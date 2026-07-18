@@ -123,6 +123,7 @@ async function run(): Promise<void> {
   assert.equal(readyStatusCode, 503);
   assert.equal(readyPayload.status, "not_ready");
   assert.equal(readyPayload.requestId, "req-not-ready");
+  assert.equal(readyPayload.capabilities.asyncJobHandles, "v1");
   assert.equal(readyPayload.dependencies[0]?.status, "down");
   assert.equal(readyPayload.dependencies[0]?.error, "dependency_unavailable");
 

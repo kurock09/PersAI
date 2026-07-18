@@ -4,6 +4,20 @@ This document defines the current verification baseline for the active PersAI-na
 
 ADR-072 is closed as the historical native migration ADR. Current continuation work should be checked against `docs/ADR/078-consolidated-follow-through-program.md`. `Step 15a` is cancelled and is not an active verification track. ADR-087 defines the unified quota-advisory and paid light-mode target state. ADR-088 defines the unified notification platform target state.
 
+## ADR-152 checkpoint 5 local final gate
+
+Final frozen-tree independent GPT Terra and Sonnet re-audits returned CLEAN
+with no P0/P1/P2. Parent verification passed repository lint/format, full
+workspace typecheck/tests/build, Prisma format/validate/generate, contract
+regeneration with no generated drift, Helm lint/template, ADR-152 rollout
+tests, affected-CI tests, and `git diff --check`. One initial concurrent
+workspace-test run hit a transient Windows sandbox-temp `EPERM`; the isolated
+sandbox suite and a subsequent complete workspace rerun passed.
+
+Local code gates 0–17 are ready. Gate 14 remains the approved N/A/no-Document-
+SDK proof. Exact-image deploy and founder live acceptance (gate 18) remain
+pending; no push or deploy has occurred.
+
 ## ADR-152 Browser Script SDK and Durable Job Wait/Notify (checkpoint 4 local)
 
 Checkpoint-4 local coverage proves Admin Scripts UI and MCP
@@ -19,6 +33,63 @@ typecheck/lint/format are required. A first independent Cursor Grok audit
 returned DIRTY (3 P2 docs only; authoring code PASS); docs repairs landed and
 the final status re-check returned CLEAN. Deploy and live acceptance remain
 pending under checkpoint 5. ADR-152 is not closed.
+
+Checkpoint-5 rollout coverage must render and verify migration `PreSync` wave
+`-1`, API wave `0`, the wave-`1` API readiness-contract hook, and runtime wave
+`2`. The hook must require `asyncJobHandles: "v1"` from the serving `/ready`
+response, and Helm rendering must fail if runtime is enabled without API,
+migrations, or the exact v1 contract declaration. The first final integration
+audit was DIRTY on this P1. The first repair’s re-audit remained DIRTY: P1
+proves an API-first or chart-rollback overlap cannot let new runtime mutate
+through old unversioned endpoints, and P2 requires deterministic Helm render
+failures for both API-version and runtime-version mismatch. Focused API/runtime
+tests prove new runtime uses only the four `v1` ADR-152 enqueue/status/
+subscribe routes, no unversioned fallback exists, and API retains legacy routes
+only for old runtimes. Final Terra/Sonnet re-audits closed the repair CLEAN.
+
+A final audit P2 identified that the API route inventory was source-regex only.
+`apps/api/test/assistant-async-job-handle.test.ts` now boots an ephemeral Nest
+HTTP app with the three real internal-route controllers and mock-only
+service/auth dependencies. It sends authorized requests through both legacy and
+`v1` media/document enqueue and async status/subscribe paths, verifies each
+pair reaches its shared controller handler and preserves its HTTP contract,
+checks an unauthorized `v1` enqueue has no handler effect, and proves all four
+`v2` paths are `404` before handler effects. Final independent re-audits
+accepted this proof CLEAN.
+
+A Sonnet final adversarial audit of committed HEAD `439b89f2` returned **DIRTY
+(2 P1, 2 P2)** and repairs landed (pending independent re-audit; do not claim
+CLEAN). P1: the sandbox OS-FD round-trip proof
+(`apps/sandbox/test/script-browser-os-fd-roundtrip.test.ts`) now builds a
+contract-valid `RuntimeScriptBrowserBrokerResponseEnvelope` (exact
+`brokerId`/`authToken`/`sandboxJobId`) and a contract-valid
+`RuntimeBrowserToolResult` (embedding the >64KiB fragmented payload in the
+existing `reason` string field) instead of an ad hoc literal, while still
+proving the fragmented byte-for-byte round-trip and result-marker separation
+on Windows typecheck and POSIX-only runtime skip. P1: `format:check` failures
+across five committed ADR-152 files (`apps/runtime/test/runtime-script-browser-broker.service.test.ts`,
+`apps/sandbox/test/script-browser-os-fd-roundtrip.test.ts`,
+`apps/sandbox/test/script-execute-idempotency.test.ts`,
+`apps/sandbox/test/script-execution-support.test.ts`,
+`packages/persai-admin-mcp/src/server.ts`) are corrected by running the
+repository Prettier formatter on exactly those files; root `format:check`
+passes. P2: `NODE_PATH`/`PYTHONPATH` are moved out of the always-reserved
+`PERSAI_SCRIPT_RESERVED_ENV_KEYS` into a new
+`PERSAI_SCRIPT_BROWSER_ONLY_RESERVED_ENV_KEYS`, reserved only when
+`browserEnabled` is true, so an ordinary (non-browser) Script can author its
+own `NODE_PATH`/`PYTHONPATH` manifest env values while a browser-capable
+Script still cannot override the platform SDK paths. Two new focused sandbox
+tests cover both directions. P2: the async continuation scheduler's
+`loadAndValidateContext` now imports and compares against the existing
+exported `MAX_ASYNC_CONTINUATION_DEPTH` constant
+(`apps/api/.../assistant-async-job-handle-state.service.ts`) instead of a
+private hardcoded `>= 4` literal; a new focused API test proves the shared
+constant, not a literal, gates rejection. Sandbox typecheck/tests, API
+typecheck/focused scheduler tests, admin-mcp typecheck/tests, root
+`format:check`, `git diff --check`, and affected-package lint were all run
+green after the repair. Final Terra/Sonnet re-audits found no P0/P1/P2, and
+the parent full repository gate passed. ADR-152 remains open only for commit,
+push, exact-image deploy, and founder live acceptance.
 
 ## ADR-152 Browser Script SDK and Durable Job Wait/Notify (checkpoint 3 local)
 

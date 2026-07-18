@@ -182,7 +182,9 @@ export async function runRuntimeScriptBrowserBrokerServiceTest(): Promise<void> 
         browserService as never
       );
       const internal = service as unknown as {
-        current: { publisher: { publish(channel: string, message: string): Promise<number> } } | null;
+        current: {
+          publisher: { publish(channel: string, message: string): Promise<number> };
+        } | null;
         brokers: Map<string, Record<string, unknown>>;
         handleMessageSafely(message: string): Promise<void>;
       };
@@ -317,7 +319,11 @@ export async function runRuntimeScriptBrowserBrokerServiceTest(): Promise<void> 
     );
 
     const registered = await service.register(registerInput() as never);
-    assert.equal(calls, 2, "the second register() call must actually re-invoke connect(), not reuse the failed attempt");
+    assert.equal(
+      calls,
+      2,
+      "the second register() call must actually re-invoke connect(), not reuse the failed attempt"
+    );
     registered.close();
   });
 

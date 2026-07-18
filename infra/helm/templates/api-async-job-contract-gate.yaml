@@ -1,0 +1,37 @@
+{{- if .Values.runtime.enabled }}
+{{- include "persai.adr152.assertAsyncJobRolloutContract" . }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: api-async-job-contract-gate
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: api-async-job-contract-gate
+    app.kubernetes.io/component: api-runtime-compatibility-gate
+  annotations:
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  backoffLimit: {{ .Values.runtime.asyncJobContract.gate.backoffLimit }}
+  activeDeadlineSeconds: {{ .Values.runtime.asyncJobContract.gate.activeDeadlineSeconds }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: api-async-job-contract-gate
+        app.kubernetes.io/component: api-runtime-compatibility-gate
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: verify-api-async-job-contract
+          image: {{ .Values.runtime.asyncJobContract.gate.image | quote }}
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -ec
+            - |
+              curl --fail --silent --show-error --retry 12 --retry-all-errors --retry-connrefused --retry-delay 5 \
+                --connect-timeout 5 --max-time 10 \
+                http://api:{{ .Values.api.service.port }}/ready |
+                grep -F '"asyncJobHandles":"{{ .Values.runtime.asyncJobContract.requiredVersion }}"'
+{{- end }}

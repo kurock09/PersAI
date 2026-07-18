@@ -95,6 +95,7 @@ jobs:
         run: |
           helm lint infra/helm -f infra/helm/values-dev.yaml
           helm template persai-dev infra/helm -f infra/helm/values-dev.yaml > /dev/null
+          node --test scripts/ci/adr152-rollout-order.test.mjs
 
       - name: Lint
         run: pnpm run lint
@@ -133,6 +134,7 @@ jobs:
         run: |
           helm lint infra/helm -f infra/helm/values-dev.yaml
           helm template persai-dev infra/helm -f infra/helm/values-dev.yaml > /dev/null
+          node --test scripts/ci/adr152-rollout-order.test.mjs
 
   affected-quality:
     if: ${{ github.event_name == 'pull_request' && needs.detect-affected.outputs.requires_full_ci != 'true' && needs.detect-affected.outputs.docs_only != 'true' && needs.detect-affected.outputs.affected_projects_json != '[]' }}

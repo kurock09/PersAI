@@ -110,16 +110,16 @@ All volatile-context blocks are marked `cacheRole: "volatile_context"` on the me
 
 ## Runtime-related boundaries
 
-ADR-152 checkpoint 1 adds no public endpoint. Runtime uses the bearer-protected
-internal `POST /api/v1/internal/runtime/async-jobs/status` seam with current
-assistant/workspace/chat/channel/thread ownership. It returns only opaque
+ADR-152 checkpoint 1 adds no public endpoint. New runtime uses the
+bearer-protected internal `POST /api/v1/internal/runtime/async-jobs/v1/status`
+seam with current assistant/workspace/chat/channel/thread ownership. It returns only opaque
 `jobRef`, canonical kind, normalized status, and bounded safe terminal facts;
 malformed, tampered, and foreign handles all return the same not-found result.
 The model-visible `await` tool projects exactly `action="wait"|"notify"` (zero
 wait is status-only, positive timeout is capped at 60 seconds).
 
 Checkpoint 2 adds the bearer-protected
-`POST /api/v1/internal/runtime/async-jobs/subscribe` seam and API-owned
+`POST /api/v1/internal/runtime/async-jobs/v1/subscribe` seam and API-owned
 same-row state operations. Source finalization has no HTTP seam: authoritative
 API message-persistence owners call the in-process owner after persistence or
 failure. Status/subscribe re-read canonical truth
@@ -265,8 +265,8 @@ canonical input hash, and terminal state all match. This seam cannot create or
 admit work. Broker transport payloads are not automatically persisted/logged,
 but a Script can deliberately include SDK-derived data in ordinary authored
 output, which remains persisted `SandboxJob` output.
-Checkpoint 4 Admin/MCP manifest authoring is implemented locally
-(uncommitted): Admin Scripts UI and MCP `script_version_upsert` may set or omit
+Checkpoint 4 Admin/MCP manifest authoring is committed at `3def3fe2`:
+Admin Scripts UI and MCP `script_version_upsert` may set or omit
 the exact optional `manifest.capabilities` object
 `{browser:{actions:["snapshot","act"]}}`; when present, authoring clients
 require `inputSchema` to include a string `profile` property in `required`
@@ -274,6 +274,19 @@ require `inputSchema` to include a string `profile` property in `required`
 shapes are rejected at the MCP Zod boundary. A first independent audit returned
 DIRTY (3 P2 docs only); repairs landed and the final status re-check returned
 CLEAN. Checkpoint 3/4 are not deployed or live-accepted.
+
+**Checkpoint-5 rollout/rollback boundary (final local audits CLEAN):** new
+runtime uses only
+`POST /api/v1/internal/runtime/media-jobs/v1/enqueue` and
+`POST /api/v1/internal/runtime/document-jobs/v1/enqueue`. API retains each
+unversioned enqueue/status/subscribe route only for old runtime clients. The
+new runtime has no unversioned fallback; a pre-repair API does not route `v1`
+and rejects before controller work or canonical media/document enqueue side
+effects. This protocol barrier survives absent Helm waves/hooks and covers all
+ADR-152 runtime→API enqueue/handle seams. A real Nest HTTP test proves
+legacy/v1 route binding, internal bearer denial, and v2 404 before handler
+effects. Independent Terra/Sonnet final re-audits and the parent full
+repository gate are CLEAN; push, deploy, and live acceptance remain pending.
 
 - The web client performs a best-effort latest-history refresh on `focus`, `visibilitychange` back to visible, and `pageshow`, so a passive disconnect that already committed server-side is reconciled without requiring a manual page reload.
 - the hard-stop route is idempotent with explicit outcomes. Terminal attempt `errorCode: "user_stopped"` on successful Stop; next-turn hydration includes explicit user-stop fact.

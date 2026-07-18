@@ -31,9 +31,18 @@ wording residual only. Checkpoint 3 is not deployed or live-accepted.
 Checkpoint 4 Admin/MCP manifest authoring is implemented. A first independent
 Cursor Grok audit returned **DIRTY (3 P2 docs only, no P0/P1)** with authoring
 code PASS; docs repairs landed and the final status re-check returned
-**CLEAN**. Checkpoint 4 is not deployed or live-accepted. Checkpoint 5
-(independent final audits, full gate, one push, deploy, live acceptance)
-remains pending. ADR-152 remains open.
+**CLEAN**. Checkpoint 4 is not deployed or live-accepted. Checkpoint 5 began
+with DIRTY Terra/Sonnet audits covering rollout/rollback enforcement, missing
+Helm mismatch and live route-binding proof, a type-invalid OS-FD test,
+formatting drift, ordinary-Script env compatibility, and a duplicated depth
+literal. All findings were repaired. Final frozen-tree independent GPT Terra
+and Sonnet re-audits returned **CLEAN with no P0/P1/P2 findings**, and the
+parent full repository gate passed lint, format, typecheck, tests, build,
+Prisma validation/generation, deterministic contracts, Helm deploy truth,
+rollout/affected-CI tests, and diff integrity. Checkpoint 5 remains local and
+uncommitted on baseline `439b89f2`; no push, deploy, or live acceptance has
+occurred. ADR-152 remains open only for parent commit, one founder-authorized
+push, exact-image deploy, and founder live acceptance.
 
 ## Decision
 
@@ -252,6 +261,25 @@ owned status seam, and only then roll runtime replicas that require `jobRef` and
 project `await`. Old runtime safely ignores the additive receipt field; new
 runtime must never run against old API. Rollback reverses application order
 (runtime first, then API) and retains the additive table/mapping rows.
+
+The chart enforces this order with Argo waves: the existing migration Job is
+`PreSync` wave `-1`, API is wave `0`, and runtime is wave `2`. A wave-`1` Sync
+hook reaches the ready API Service and requires the exact public readiness
+capability `asyncJobHandles: "v1"` before Argo admits runtime. The chart fails
+rendering when runtime is enabled without API, enabled migrations, or the exact
+v1 API/runtime contract declaration. The hook's own NetworkPolicy-only label is
+explicitly allowed to the public readiness port. A missing/old/malformed API
+capability fails the hook and blocks runtime; there is no handleless fallback.
+
+This ordering is defense in depth, not the rollback safety boundary. New
+runtime uses only `v1` internal media enqueue, document enqueue, handle status,
+and handle subscribe routes. API retains the unversioned routes only for old
+runtimes, while an old API has no `v1` routes and returns 404 before controller
+authorization, parsing, enqueue, or any canonical-job/handle mutation. Thus,
+if chart annotations disappear or rollback advances API first, the remaining
+new runtime fails closed without accepting an ADR-152 request; it has no
+unversioned retry or fallback. Operational rollback remains runtime first, then
+API, while retaining the additive migration and handle rows.
 
 ## Production exit gates
 

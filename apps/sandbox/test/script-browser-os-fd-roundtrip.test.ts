@@ -5,7 +5,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Writable } from "node:stream";
 import test from "node:test";
-import type { RuntimeScriptBrowserSdkRequest } from "@persai/runtime-contract";
+import type {
+  RuntimeBrowserToolResult,
+  RuntimeScriptBrowserSdkRequest
+} from "@persai/runtime-contract";
 import { buildScriptBrowserResponseFrame } from "../src/script-browser-broker.service";
 import { ScriptBrowserFrameDecoder } from "../src/script-browser-frame";
 import { ScriptBrowserResponseLifecycle } from "../src/script-browser-response-lifecycle";
@@ -25,14 +28,33 @@ import {
  * POSIX-only: Windows lacks bash + the inherited FD 3/4 dup model used by the
  * production wrapper.
  */
+const BROKER_ID = "b".repeat(32);
+const AUTH_TOKEN = "t".repeat(43);
+const SANDBOX_JOB_ID = "11111111-1111-4111-8111-111111111111";
+
 test(
   "POSIX OS-FD round-trip: fragmented >64KiB response through real wrapper/CLI pipes with result-marker separation",
   { skip: process.platform === "win32" ? "requires POSIX bash and inherited FDs 3/4" : false },
   async () => {
     const scriptDir = await mkdtemp(join(tmpdir(), "persai-script-browser-osfd-"));
-    const cliPath = join(process.cwd(), "exec-image", "script-browser-sdk", "persai-browser-cli.js");
+    const cliPath = join(
+      process.cwd(),
+      "exec-image",
+      "script-browser-sdk",
+      "persai-browser-cli.js"
+    );
     const resultMarker = buildScriptResultMarker("osfd-roundtrip");
     const largePayload = "x".repeat(200 * 1024);
+    const hugeResult: RuntimeBrowserToolResult = {
+      toolCode: "browser",
+      executionMode: "sandbox",
+      provider: null,
+      requestedAction: "snapshot",
+      page: null,
+      action: "snapshot",
+      reason: largePayload,
+      warning: null
+    };
     const entryPath = join(scriptDir, "entry.js");
     await writeFile(
       entryPath,
@@ -81,13 +103,19 @@ test(
         requestResponse: async () =>
           buildScriptBrowserResponseFrame({
             version: 1,
+            brokerId: BROKER_ID,
+            authToken: AUTH_TOKEN,
+            sandboxJobId: SANDBOX_JOB_ID,
             requestId: request.requestId,
             ok: true,
-            result: { huge: largePayload }
+            result: hugeResult
           }),
         failureResponse: (error) =>
           buildScriptBrowserResponseFrame({
             version: 1,
+            brokerId: BROKER_ID,
+            authToken: AUTH_TOKEN,
+            sandboxJobId: SANDBOX_JOB_ID,
             requestId: request.requestId,
             ok: false,
             error: {
@@ -112,12 +140,19 @@ test(
     decoder.flushRemainder();
 
     try {
-      assert.equal(exitCode, 0, `wrapper/CLI failed: ${Buffer.concat(stderrChunks).toString("utf8")}`);
-      const { resultText } = splitScriptExecutionStdout(ordinary, resultMarker);
-      assert.ok(resultText, "result marker must separate structured Script output on ordinary stdout");
-      const parsed = JSON.parse(resultText) as { huge?: string };
       assert.equal(
-        parsed.huge,
+        exitCode,
+        0,
+        `wrapper/CLI failed: ${Buffer.concat(stderrChunks).toString("utf8")}`
+      );
+      const { resultText } = splitScriptExecutionStdout(ordinary, resultMarker);
+      assert.ok(
+        resultText,
+        "result marker must separate structured Script output on ordinary stdout"
+      );
+      const parsed = JSON.parse(resultText) as { reason?: string };
+      assert.equal(
+        parsed.reason,
         largePayload,
         "fragmented >64KiB response must round-trip byte-for-byte through real OS FDs"
       );

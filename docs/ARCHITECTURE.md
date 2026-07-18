@@ -238,7 +238,17 @@ is not deployed or live-accepted. Checkpoint 4 adds Admin Scripts UI and MCP
 `inputSchema` must declare required string `profile` (the model supplies the
 value at `script.execute`). Checkpoint 4 authoring passed a final CLEAN status
 re-check after a first DIRTY docs-only audit and repairs. It is not deployed
-or live-accepted; checkpoint 5 remains pending.
+or live-accepted. Checkpoint 5 repairs enforce Helm/Argo migration `PreSync`
+wave `-1` → API wave `0` → API readiness-contract Sync hook wave `1` →
+runtime wave `2`, plus a rollback-surviving protocol barrier: new runtime
+calls only versioned `v1` internal media/document enqueue and async-handle
+status/subscribe routes. Old API has no `v1` routes, so API-first rollback
+rejects before controller side effects; new runtime has no unversioned
+fallback. The retained unversioned API routes serve old runtimes only. Real
+Nest HTTP tests prove legacy/v1 binding, bearer denial, and v2 no-effect
+failure. Final independent Terra and Sonnet re-audits and the parent full
+repository gate are CLEAN. Push, deploy, and founder live acceptance remain
+pending.
 
 The universal model-visible `await` tool will observe only owned canonical
 media/document jobs through opaque server-minted `jr1` handles mapped by one

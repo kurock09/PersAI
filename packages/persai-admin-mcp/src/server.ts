@@ -1072,7 +1072,7 @@ export function createPersaiAdminMcpServer(
     "script_version_upsert",
     {
       description:
-        "Author a Script's draft ScriptVersion (code/manifest/inputSchema/outputSchema/runtime/entryCommand/limits) by scriptKey. Optional manifest.capabilities may be omitted (no browser) or set exactly to {browser:{actions:[\"snapshot\",\"act\"]}}; when present, inputSchema must require a string profile property (model supplies the value at execute time). Creates the first draft if none exists, or updates the existing draft with an auto-resolved expectedRevision. Published versions are immutable — this never touches them.",
+        'Author a Script\'s draft ScriptVersion (code/manifest/inputSchema/outputSchema/runtime/entryCommand/limits) by scriptKey. Optional manifest.capabilities may be omitted (no browser) or set exactly to {browser:{actions:["snapshot","act"]}}; when present, inputSchema must require a string profile property (model supplies the value at execute time). Creates the first draft if none exists, or updates the existing draft with an auto-resolved expectedRevision. Published versions are immutable — this never touches them.',
       inputSchema: adminScriptMcpInputSchemas.scriptVersionUpsert
     },
     async ({ scriptKey, body }) => {

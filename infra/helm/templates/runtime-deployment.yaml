@@ -1,4 +1,5 @@
 {{- if .Values.runtime.enabled }}
+{{- include "persai.adr152.assertAsyncJobRolloutContract" . }}
 {{- $runtimeTag := default .Values.global.images.tag .Values.runtime.image.tag }}
 apiVersion: apps/v1
 kind: Deployment
@@ -7,6 +8,8 @@ metadata:
   namespace: {{ .Values.global.namespace }}
   labels:
     app.kubernetes.io/name: runtime
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
 spec:
   revisionHistoryLimit: {{ default 2 .Values.runtime.revisionHistoryLimit }}
   minReadySeconds: {{ default 0 .Values.runtime.minReadySeconds }}

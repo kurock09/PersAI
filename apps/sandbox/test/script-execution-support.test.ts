@@ -134,6 +134,41 @@ test("buildScriptExecutionShellCommand exports the reserved platform env vars an
   assert.match(script, /exit "\$entry_exit"/);
 });
 
+test("buildScriptExecutionShellCommand lets an ordinary (non-browser) Script author its own NODE_PATH/PYTHONPATH manifest env values, since the platform never exports them for that Script", () => {
+  const script = buildScriptExecutionShellCommand({
+    scriptDir: "/tmp/persai-script/job-ordinary-node-path",
+    entryCommand: "node entry.js",
+    invocationKey: "key-ordinary",
+    manifestEnvironment: {
+      NODE_PATH: "/opt/script/node_modules",
+      PYTHONPATH: "/opt/script/site-packages"
+    },
+    resultMarker: RESULT_MARKER,
+    maxOutputBytes: 1_024
+  });
+  assert.match(script, /export NODE_PATH='\/opt\/script\/node_modules'/);
+  assert.match(script, /export PYTHONPATH='\/opt\/script\/site-packages'/);
+});
+
+test("buildScriptExecutionShellCommand still reserves NODE_PATH/PYTHONPATH for a browser-capable Script, keeping the platform SDK paths and dropping the manifest override", () => {
+  const script = buildScriptExecutionShellCommand({
+    scriptDir: "/tmp/persai-script/job-browser-node-path",
+    entryCommand: "node entry.js",
+    invocationKey: "key-browser",
+    manifestEnvironment: {
+      NODE_PATH: "/opt/script/node_modules",
+      PYTHONPATH: "/opt/script/site-packages"
+    },
+    resultMarker: RESULT_MARKER,
+    maxOutputBytes: 1_024,
+    browserEnabled: true
+  });
+  assert.ok(!script.includes("/opt/script/node_modules"));
+  assert.ok(!script.includes("/opt/script/site-packages"));
+  assert.match(script, /export NODE_PATH=\/usr\/local\/lib\/node_modules/);
+  assert.match(script, /export PYTHONPATH=\/usr\/local\/lib\/python3\.11\/site-packages/);
+});
+
 test("buildScriptExecutionShellCommand exports admin-authored manifest environment entries", () => {
   const script = buildScriptExecutionShellCommand({
     scriptDir: "/tmp/persai-script/job-2",
@@ -244,7 +279,9 @@ test("buildScriptExecutionShellCommand keeps the FD 3/4 dup lines and browser en
     "export NODE_PATH=/usr/local/lib/node_modules",
     "export PYTHONPATH=/usr/local/lib/python3.11/site-packages"
   ]);
-  const browserScriptLines = browserScript.split("\n").filter((line) => !browserOnlyLines.has(line));
+  const browserScriptLines = browserScript
+    .split("\n")
+    .filter((line) => !browserOnlyLines.has(line));
   assert.deepEqual(browserScriptLines, ordinary.split("\n"));
 });
 

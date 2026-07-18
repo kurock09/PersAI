@@ -18,6 +18,9 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: web
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: api-runtime-compatibility-gate
         {{- range $apiPublicCidrs }}
         - ipBlock:
             cidr: {{ . | quote }}

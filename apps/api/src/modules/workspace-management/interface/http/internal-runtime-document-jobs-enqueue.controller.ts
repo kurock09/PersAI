@@ -13,7 +13,7 @@ export class InternalRuntimeDocumentJobsEnqueueController {
   ) {}
 
   @HttpCode(202)
-  @Post("enqueue")
+  @Post(["enqueue", "v1/enqueue"])
   async enqueue(
     @Req() req: InternalRequestLike,
     @Body() body: unknown

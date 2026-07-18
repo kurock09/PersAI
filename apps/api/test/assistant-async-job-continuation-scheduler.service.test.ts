@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { AssistantAsyncJobContinuationSchedulerService } from "../src/modules/workspace-management/application/assistant-async-job-continuation-scheduler.service";
+import { MAX_ASYNC_CONTINUATION_DEPTH } from "../src/modules/workspace-management/application/assistant-async-job-handle-state.service";
 import { AsyncContinuationDispatchAmbiguousError } from "../src/modules/workspace-management/application/internal-runtime-async-continuation.client.service";
 
 const ORIGINAL_ENV = process.env;
@@ -114,6 +115,58 @@ describe("AssistantAsyncJobContinuationSchedulerService", () => {
       }
     });
   }
+
+  test("loadAndValidateContext rejects a handle at the shared MAX_ASYNC_CONTINUATION_DEPTH constant, not a private hardcoded literal", async () => {
+    const prisma = {
+      assistantAsyncJobHandle: {
+        findUnique: async () => ({
+          state: "claimed",
+          threadKey: "thread-1",
+          continuationClientTurnId: "async-cont:depth-max",
+          sourceUserMessageId: "00000000-0000-4000-8000-000000000001",
+          continuationDepth: MAX_ASYNC_CONTINUATION_DEPTH,
+          assistantId: "assistant-1",
+          workspaceId: "workspace-1",
+          userId: "user-1",
+          channel: "web",
+          chat: {
+            archivedAt: null,
+            assistantId: "assistant-1",
+            workspaceId: "workspace-1",
+            userId: "user-1",
+            surface: "web",
+            surfaceThreadKey: "thread-1"
+          },
+          assistant: {
+            workspaceId: "workspace-1",
+            userId: "user-1",
+            applyAppliedVersionId: "version-1"
+          }
+        })
+      }
+    };
+    const service = new AssistantAsyncJobContinuationSchedulerService(
+      prisma as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never
+    );
+    const result = await (
+      service as unknown as { loadAndValidateContext: (id: string) => Promise<unknown> }
+    ).loadAndValidateContext("handle-depth-max");
+    assert.equal(
+      result,
+      null,
+      "a handle at the shared max continuation depth must be rejected before dispatch"
+    );
+  });
 
   test("reconciler scans bounded old unfinalized handles without requiring terminal observation", async () => {
     let sourceWhere: Record<string, unknown> | null = null;
