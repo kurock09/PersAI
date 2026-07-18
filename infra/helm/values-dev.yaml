@@ -148,7 +148,7 @@ api:
     gcpServiceAccountEmail: api-runtime@project-44786b14-b7d7-4554-a8a.iam.gserviceaccount.com
   image:
     name: api
-    tag: f0944d31a052c7a340e1f5ec0e7f544189ec3b16
+    tag: 8170f23869eed89eaf1edffabd48ee886fb2bfd2
     pullPolicy: IfNotPresent
   cloudSqlProxy:
     enabled: true
@@ -476,7 +476,7 @@ runtime:
     name: api-sa
   image:
     name: runtime
-    tag: 43f653b49bd5938a79af82cf635176475f472531
+    tag: 8170f23869eed89eaf1edffabd48ee886fb2bfd2
     pullPolicy: IfNotPresent
   cloudSqlProxy:
     enabled: true
@@ -564,7 +564,7 @@ sandbox:
       name: sandbox-exec-egress-mode-contract
   image:
     name: sandbox
-    tag: 9a284c74d9238f9af8214aae5e06d317af794e5c
+    tag: 8170f23869eed89eaf1edffabd48ee886fb2bfd2
     pullPolicy: IfNotPresent
   cloudSqlProxy:
     enabled: true
@@ -684,7 +684,7 @@ sandboxExec:
     # Exec image name in GAR (matches the service name in detect-affected + pin script).
     name: sandbox-exec
     # Initial tag; CI pins this to the SHA of the most recent successful build.
-    tag: 314ee37ada27b3b7c853b049b6d1898862f187c0
+    tag: 8170f23869eed89eaf1edffabd48ee886fb2bfd2
   # ADR-123 Slice 3 warm-pool follow-up: a DaemonSet that keeps the exec image pulled on
   # every sandbox node so cold-start exec pods skip the multi-GB image pull. Pairs with a
   # >=1 minimum node on the sandbox pool (set via node-pool autoscaling — see RUNBOOK).
