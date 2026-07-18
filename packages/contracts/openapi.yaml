@@ -13956,6 +13956,10 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AssistantWebChatActiveDocumentJobState"
+        activeSandboxJobs:
+          type: array
+          items:
+            $ref: "#/components/schemas/AssistantWebChatActiveSandboxJobState"
         pendingBrowserLogin:
           nullable: true
           allOf:
@@ -14150,6 +14154,51 @@ components:
         updatedAt:
           type: string
           format: date-time
+    AssistantWebChatActiveSandboxJobState:
+      type: object
+      required:
+        - jobRef
+        - toolCode
+        - status
+        - notifyState
+        - createdAt
+        - startedAt
+        - updatedAt
+      properties:
+        jobRef:
+          type: string
+          description: Opaque ADR-152 async job handle; never a raw SandboxJob id.
+        toolCode:
+          type: string
+          enum:
+            - shell
+            - exec
+        status:
+          type: string
+          enum:
+            - queued
+            - running
+            - detached
+        notifyState:
+          type: string
+          enum:
+            - none
+            - subscribed
+            - ready
+            - claimed
+            - dispatched
+            - failed
+            - cancelled
+        createdAt:
+          type: string
+          format: date-time
+        startedAt:
+          type: string
+          format: date-time
+          nullable: true
+        updatedAt:
+          type: string
+          format: date-time
     AssistantWebChatTurnStatusState:
       type: object
       required:
@@ -14325,6 +14374,10 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AssistantWebChatActiveDocumentJobState"
+        activeSandboxJobs:
+          type: array
+          items:
+            $ref: "#/components/schemas/AssistantWebChatActiveSandboxJobState"
         pendingBrowserLogin:
           nullable: true
           allOf:
@@ -14700,6 +14753,10 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AssistantWebChatActiveDocumentJobState"
+        activeSandboxJobs:
+          type: array
+          items:
+            $ref: "#/components/schemas/AssistantWebChatActiveSandboxJobState"
         pendingBrowserLogin:
           nullable: true
           allOf:

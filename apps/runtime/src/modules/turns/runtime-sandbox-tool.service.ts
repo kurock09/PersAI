@@ -36,6 +36,10 @@ export class RuntimeSandboxToolService {
     sessionId: string;
     requestId: string;
     chatId?: string | null;
+    channel?: "web" | "telegram" | "max_ru";
+    threadKey?: string;
+    sourceClientTurnId?: string;
+    sourceUserMessageId?: string;
     sourceUserMessageText?: string | null;
     sourceUserMessageCreatedAt?: string | null;
     abortSignal?: AbortSignal;
@@ -107,7 +111,29 @@ export class RuntimeSandboxToolService {
         };
       }
 
-      const job = await this.sandboxClientService.waitForCompletion(
+      // Unified 8-cap at admission (before Process-timeout wait), not only at
+      // post-detach register. Fail closed when chatId is present and at limit.
+      if (typeof params.chatId === "string" && params.chatId.trim().length > 0) {
+        const cap = await this.persaiInternalApiClientService.assertBackgroundJobCap({
+          chatId: params.chatId.trim()
+        });
+        if (!cap.allowed) {
+          return {
+            payload: {
+              toolCode: params.toolCall.name,
+              executionMode: "sandbox",
+              action: "skipped",
+              reason: cap.code,
+              warning: "This chat already has the maximum number of active background jobs.",
+              job: null,
+              paths: []
+            },
+            isError: false
+          };
+        }
+      }
+
+      const execution = await this.sandboxClientService.waitForForegroundThreshold(
         {
           assistantId: params.bundle.metadata.assistantId,
           assistantHandle: params.bundle.metadata.assistantHandle,
@@ -156,6 +182,116 @@ export class RuntimeSandboxToolService {
               })
         }
       );
+      const job = execution.job;
+      if (execution.yielded) {
+        if (job.status !== "detached") {
+          await this.sandboxClientService.cancelJob(job.jobId).catch(() => undefined);
+          return {
+            payload: {
+              toolCode: params.toolCall.name,
+              executionMode: "sandbox",
+              action: "skipped",
+              reason: "async_detach_incomplete",
+              warning: "The sandbox job did not reach a durable detached state.",
+              job: null,
+              paths: []
+            },
+            isError: true
+          };
+        }
+        if (
+          params.chatId === null ||
+          params.chatId === undefined ||
+          params.channel === undefined ||
+          params.channel === "max_ru" ||
+          params.threadKey === undefined ||
+          params.sourceClientTurnId === undefined ||
+          params.sourceUserMessageId === undefined
+        ) {
+          await this.sandboxClientService
+            .cancelJob(job.jobId, { forceDetachedOrphan: true })
+            .catch(() => undefined);
+          return {
+            payload: {
+              toolCode: params.toolCall.name,
+              executionMode: "sandbox",
+              action: "skipped",
+              reason: "async_context_unavailable",
+              warning: "The sandbox job could not be detached safely in this conversation.",
+              job: null,
+              paths: []
+            },
+            isError: true
+          };
+        }
+        // Re-admit after Process-timeout wait: peers may have filled the 8-cap
+        // while this job held the lease. Fail closed + orphan-cancel rather
+        // than register under a raced over-cap window.
+        const postWaitCap = await this.persaiInternalApiClientService.assertBackgroundJobCap({
+          chatId: params.chatId,
+          excludeSandboxJobId: job.jobId
+        });
+        if (!postWaitCap.allowed) {
+          await this.sandboxClientService
+            .cancelJob(job.jobId, { forceDetachedOrphan: true })
+            .catch(() => undefined);
+          return {
+            payload: {
+              toolCode: params.toolCall.name,
+              executionMode: "sandbox",
+              action: "skipped",
+              reason: postWaitCap.code,
+              warning: "This chat already has the maximum number of active background jobs.",
+              job: null,
+              paths: []
+            },
+            isError: false
+          };
+        }
+        const registration = await this.persaiInternalApiClientService.registerSandboxAsyncJob({
+          canonicalJobId: job.jobId,
+          assistantId: params.bundle.metadata.assistantId,
+          workspaceId: params.bundle.metadata.workspaceId,
+          chatId: params.chatId,
+          channel: params.channel,
+          threadKey: params.threadKey,
+          sourceClientTurnId: params.sourceClientTurnId,
+          sourceUserMessageId: params.sourceUserMessageId,
+          runtimeRequestId: params.requestId,
+          runtimeSessionId: params.sessionId,
+          toolCode: params.toolCall.name as "shell" | "exec"
+        });
+        if (!registration.registered) {
+          await this.sandboxClientService
+            .cancelJob(job.jobId, { forceDetachedOrphan: true })
+            .catch(() => undefined);
+          return {
+            payload: {
+              toolCode: params.toolCall.name,
+              executionMode: "sandbox",
+              action: "skipped",
+              reason: "async_registration_failed",
+              warning: "The sandbox job could not be registered for safe observation.",
+              job: null,
+              paths: []
+            },
+            isError: true
+          };
+        }
+        return {
+          payload: {
+            toolCode: params.toolCall.name,
+            executionMode: "sandbox",
+            action: "background",
+            reason: "foreground_threshold_reached",
+            warning: null,
+            jobRef: registration.jobRef,
+            job: null,
+            paths: []
+          },
+          isError: false
+        };
+      }
 
       if (job.status !== "completed") {
         return {

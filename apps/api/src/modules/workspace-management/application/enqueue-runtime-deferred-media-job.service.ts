@@ -26,7 +26,7 @@ import {
   type WorkspaceVcoinBalanceRepository
 } from "../domain/workspace-vcoin-balance.repository";
 
-const MAX_OPEN_MEDIA_JOBS_PER_CHAT = 2;
+const MAX_OPEN_MEDIA_JOBS_PER_CHAT = 8;
 
 type DirectToolExecutionPayload =
   | {

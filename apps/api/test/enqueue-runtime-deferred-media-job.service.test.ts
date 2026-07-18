@@ -252,10 +252,10 @@ async function run(): Promise<void> {
     assert.equal(enqueueCalls.count, 0, "no enqueue when quota rejected");
   }
 
-  // ── Test 3: 3rd job (2 open) → concurrency structured rejection ──────────
+  // ── Test 3: 9th job (8 open) → concurrency structured rejection ──────────
   {
     const { service, reserveCalls, releaseCalls, enqueueCalls } = buildService({
-      openJobCount: 2
+      openJobCount: 8
     });
     const result = await service.execute(imageGenerateInput(2, "message-3"));
 
@@ -263,8 +263,8 @@ async function run(): Promise<void> {
     if (!result.accepted) {
       assert.equal(result.code, "media_job_concurrency_limit");
       assert.equal(result.limitKind, "media_job_concurrency");
-      assert.equal(result.activeJobs, 2);
-      assert.equal(result.maxActiveJobs, 2);
+      assert.equal(result.activeJobs, 8);
+      assert.equal(result.maxActiveJobs, 8);
       assert.equal(result.requestedUnits, 2);
     }
     assert.equal(reserveCalls.length, 0, "concurrency rejection must NOT reserve quota");

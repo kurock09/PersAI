@@ -267,14 +267,15 @@ export class StreamWebChatTurnService {
     @Inject(AssistantAsyncJobHandleStateService)
     private readonly asyncJobHandleState: Pick<
       AssistantAsyncJobHandleStateService,
-      "finalizeSourceTurn"
+      "finalizeSourceTurn" | "listOpenSandboxJobsForWebChat"
     > = {
       finalizeSourceTurn: async () => ({
         finalized: 0,
         legacyChosen: 0,
         currentTurnPreserved: 0,
         currentTurnReleased: 0
-      })
+      }),
+      listOpenSandboxJobsForWebChat: async () => []
     }
   ) {}
 
@@ -366,6 +367,13 @@ export class StreamWebChatTurnService {
         line?: string;
         step?: string;
         seq: number;
+      }) => void;
+      onAsyncJobAccepted?: (payload: {
+        kind: "media" | "document" | "sandbox";
+        jobRef: string;
+        mediaJob?: AssistantRuntimeWebChatTurnStreamChunk["asyncJobAcceptedMediaJob"];
+        documentJob?: AssistantRuntimeWebChatTurnStreamChunk["asyncJobAcceptedDocumentJob"];
+        sandboxJob?: AssistantRuntimeWebChatTurnStreamChunk["asyncJobAcceptedSandboxJob"];
       }) => void;
       onActivity?: (payload: {
         source: "skill" | "user" | "product" | "web";
@@ -806,6 +814,7 @@ export class StreamWebChatTurnService {
         attachmentRepository: this.attachmentRepository,
         assistantMediaJobService: this.assistantMediaJobService,
         assistantDocumentJobReadService: this.assistantDocumentJobReadService,
+        asyncJobHandleState: this.asyncJobHandleState,
         mediaDeliveryService: this.mediaDeliveryService,
         trackWorkspaceQuotaUsageService: this.trackWorkspaceQuotaUsageService,
         notificationDeliveryWorkerService: this.notificationDeliveryWorkerService,
@@ -959,6 +968,7 @@ export class StreamWebChatTurnService {
             : { followUpAssistantMessage: postRuntime.followUpAssistantMessage }),
           activeMediaJobs: postRuntime.activeMediaJobs,
           activeDocumentJobs: postRuntime.activeDocumentJobs,
+          activeSandboxJobs: postRuntime.activeSandboxJobs,
           engagementSummary: streamEngagementSummary,
           pendingBrowserLogin,
           runtime: {
@@ -1184,6 +1194,13 @@ export class StreamWebChatTurnService {
         line?: string;
         step?: string;
         seq: number;
+      }) => void;
+      onAsyncJobAccepted?: (payload: {
+        kind: "media" | "document" | "sandbox";
+        jobRef: string;
+        mediaJob?: AssistantRuntimeWebChatTurnStreamChunk["asyncJobAcceptedMediaJob"];
+        documentJob?: AssistantRuntimeWebChatTurnStreamChunk["asyncJobAcceptedDocumentJob"];
+        sandboxJob?: AssistantRuntimeWebChatTurnStreamChunk["asyncJobAcceptedSandboxJob"];
       }) => void;
       onActivity?: (payload: {
         source: "skill" | "user" | "product" | "web";
@@ -1421,6 +1438,38 @@ export class StreamWebChatTurnService {
             ...(chunk.toolProgressLine === undefined ? {} : { line: chunk.toolProgressLine }),
             ...(chunk.toolProgressStep === undefined ? {} : { step: chunk.toolProgressStep }),
             seq: chunk.toolProgressSeq
+          });
+        }
+
+        if (
+          chunk.type === "async_job_accepted" &&
+          (chunk.asyncJobAcceptedKind === "media" ||
+            chunk.asyncJobAcceptedKind === "document" ||
+            chunk.asyncJobAcceptedKind === "sandbox") &&
+          typeof chunk.asyncJobAcceptedJobRef === "string" &&
+          chunk.asyncJobAcceptedJobRef.trim().length > 0
+        ) {
+          watchdog.recordActivity();
+          if (input.prepared.clientTurnId !== undefined && this.webChatTurnAttemptService) {
+            await this.webChatTurnAttemptService.touchRunningAttempt({
+              assistantId: input.prepared.assistantId,
+              userId: input.prepared.userId,
+              surfaceThreadKey: input.prepared.chat.surfaceThreadKey,
+              clientTurnId: input.prepared.clientTurnId
+            });
+          }
+          input.callbacks.onAsyncJobAccepted?.({
+            kind: chunk.asyncJobAcceptedKind,
+            jobRef: chunk.asyncJobAcceptedJobRef,
+            ...(chunk.asyncJobAcceptedMediaJob === undefined
+              ? {}
+              : { mediaJob: chunk.asyncJobAcceptedMediaJob }),
+            ...(chunk.asyncJobAcceptedDocumentJob === undefined
+              ? {}
+              : { documentJob: chunk.asyncJobAcceptedDocumentJob }),
+            ...(chunk.asyncJobAcceptedSandboxJob === undefined
+              ? {}
+              : { sandboxJob: chunk.asyncJobAcceptedSandboxJob })
           });
         }
 
@@ -1820,16 +1869,22 @@ export class StreamWebChatTurnService {
         ? Promise.resolve([])
         : this.attachmentRepository.listByMessageId(followUpAssistantMessage.id)
     ]);
-    const activeMediaJobs = await this.assistantMediaJobService.listOpenJobsForWebChat({
-      assistantId,
-      userId: chat.userId,
-      chatId: chat.id
-    });
-    const activeDocumentJobs = await this.assistantDocumentJobReadService.listOpenJobsForWebChat({
-      assistantId,
-      userId: chat.userId,
-      chatId: chat.id
-    });
+    const [activeMediaJobs, activeDocumentJobs, activeSandboxJobs] = await Promise.all([
+      this.assistantMediaJobService.listOpenJobsForWebChat({
+        assistantId,
+        userId: chat.userId,
+        chatId: chat.id
+      }),
+      this.assistantDocumentJobReadService.listOpenJobsForWebChat({
+        assistantId,
+        userId: chat.userId,
+        chatId: chat.id
+      }),
+      this.asyncJobHandleState.listOpenSandboxJobsForWebChat({
+        assistantId,
+        chatId: chat.id
+      })
+    ]);
     const messageToolContext = await this.assistantChatRepository.findMessageToolContextById(
       assistantMessage.id,
       assistantId
@@ -1900,6 +1955,7 @@ export class StreamWebChatTurnService {
           }),
       activeMediaJobs,
       activeDocumentJobs,
+      activeSandboxJobs,
       engagementSummary: deriveEngagementSummary(
         chat.skillDecisionState as Parameters<typeof deriveEngagementSummary>[0]
       ),

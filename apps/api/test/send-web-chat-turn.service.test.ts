@@ -265,6 +265,122 @@ describe("SendWebChatTurnService", () => {
       executionMode: "reasoning",
       source: "precheck"
     });
+    assert.ok(Array.isArray(result.activeSandboxJobs));
+  });
+
+  test("replay projection includes activeSandboxJobs", async () => {
+    const sandboxJobs = [
+      {
+        jobRef: "jr1.sandbox.ffffffffffffffffffffffffffffffff",
+        toolCode: "shell" as const,
+        status: "detached" as const,
+        notifyState: "none" as const,
+        createdAt: "2026-07-18T12:00:00.000Z",
+        startedAt: "2026-07-18T12:00:00.000Z",
+        updatedAt: "2026-07-18T12:00:01.000Z"
+      }
+    ];
+    const completedState = {
+      clientTurnId: "turn-sandbox-replay",
+      chatId: "chat-1",
+      userMessageId: "user-msg-1",
+      assistantMessageId: "assistant-msg-1",
+      respondedAt: "2026-07-18T12:00:01.000Z",
+      degradedByQuotaFallback: false,
+      quotaFallbackReason: null,
+      quotaFallbackModel: null,
+      completedAt: "2026-07-18T12:00:02.000Z"
+    };
+    const service = new SendWebChatTurnService(
+      {
+        findChatById: async () => ({
+          id: "chat-1",
+          assistantId: "assistant-1",
+          userId: "user-1",
+          surface: "web",
+          surfaceThreadKey: "thread-1",
+          title: "Chat",
+          chatMode: "normal",
+          deepModeEnabled: false,
+          skillDecisionState: null,
+          archivedAt: null,
+          lastMessageAt: new Date("2026-07-18T12:00:02.000Z"),
+          createdAt: new Date("2026-07-18T12:00:00.000Z"),
+          updatedAt: new Date("2026-07-18T12:00:02.000Z")
+        }),
+        findMessageByIdForAssistant: async (messageId: string) => ({
+          id: messageId,
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          author: messageId === "user-msg-1" ? "user" : "assistant",
+          content: messageId === "user-msg-1" ? "hello" : "hi back",
+          createdAt: new Date("2026-07-18T12:00:00.000Z")
+        }),
+        findMessageToolContextById: async () => null
+      } as never,
+      {
+        listByMessageId: async () => []
+      } as never,
+      {
+        claimWebTurnProcessing: async () => "duplicate_handled",
+        getCompletedWebTurnProcessing: async () => completedState
+      } as never,
+      {
+        execute: async () => {
+          throw new Error("web runtime turn should not be used for replay");
+        }
+      } as never,
+      {
+        execute: async () => {
+          throw new Error("prepare should not be called for replay");
+        }
+      } as never,
+      {
+        resolveByUserId: async () => ({
+          assistantId: "assistant-1",
+          assistant: {
+            workspaceId: "workspace-1"
+          }
+        })
+      } as never,
+      {} as never,
+      {
+        recordChatMainReplyEvents: async () => 0
+      } as never,
+      noopRecordToolPathLedgerFromToolInvocationsService,
+      {
+        attachAcknowledgementMessageId: async () => 0,
+        listOpenJobsForChatContext: async () => [],
+        listOpenJobsForWebChat: async () => []
+      } as never,
+      createAssistantDocumentJobReadServiceMock() as never,
+      {} as never,
+      createOverviewLatencyTraceServiceMock() as never,
+      createAttachmentObjectAvailabilityServiceMock() as never,
+      createSkillStatePersistenceServiceMock() as never,
+      createNotificationDeliveryWorkerServiceMock() as never,
+      createQuotaAdvisoryFollowUpServiceMock() as never,
+      undefined,
+      undefined,
+      undefined,
+      {
+        finalizeSourceTurn: async () => ({
+          finalized: 0,
+          legacyChosen: 0,
+          currentTurnPreserved: 0,
+          currentTurnReleased: 0
+        }),
+        listOpenSandboxJobsForWebChat: async () => sandboxJobs
+      } as never
+    );
+
+    const result = await service.execute("user-1", {
+      surfaceThreadKey: "thread-1",
+      message: "hello",
+      clientTurnId: "turn-sandbox-replay"
+    });
+
+    assert.deepEqual(result.activeSandboxJobs, sandboxJobs);
   });
 
   test("routes sync web turns through the web runtime client service", async () => {

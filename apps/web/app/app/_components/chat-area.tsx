@@ -1165,6 +1165,37 @@ export function ChatArea({
                 </div>
               </div>
             ) : null}
+            {!chat.isStreaming &&
+              (() => {
+                const notifyCount =
+                  (chat.activeMediaJobs ?? []).filter(
+                    (job) =>
+                      job.notifyState !== undefined &&
+                      job.notifyState !== "none" &&
+                      ["subscribed", "ready", "claimed", "dispatched"].includes(job.notifyState)
+                  ).length +
+                  (chat.activeDocumentJobs ?? []).filter(
+                    (job) =>
+                      job.notifyState !== undefined &&
+                      job.notifyState !== "none" &&
+                      ["subscribed", "ready", "claimed", "dispatched"].includes(job.notifyState)
+                  ).length +
+                  (chat.activeSandboxJobs ?? []).filter((job) =>
+                    ["subscribed", "ready", "claimed", "dispatched"].includes(job.notifyState)
+                  ).length;
+                if (notifyCount === 0) return null;
+                return (
+                  <div
+                    role="status"
+                    aria-live="polite"
+                    className="mb-3 px-2 text-sm text-text-muted"
+                  >
+                    {notifyCount === 1
+                      ? t("waitingForBackgroundJob")
+                      : t("waitingForBackgroundJobs", { count: notifyCount })}
+                  </div>
+                );
+              })()}
             <ChatInput
               ref={chatInputRef}
               onSend={(text, files, options) => {
@@ -1187,6 +1218,7 @@ export function ChatArea({
               pendingSendStatus={chat.pendingSendStatus}
               activeMediaJobs={chat.activeMediaJobs}
               activeDocumentJobs={chat.activeDocumentJobs}
+              activeSandboxJobs={chat.activeSandboxJobs ?? []}
             />
           </div>
         </div>

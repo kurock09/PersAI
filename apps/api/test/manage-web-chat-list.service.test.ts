@@ -396,6 +396,9 @@ function createService(overrides?: {
       listOpenJobsForWebChat: async () => []
     } as never,
     {
+      listOpenSandboxJobsForWebChat: async () => []
+    } as never,
+    {
       getActiveTurnForChat: async () => null
     } as never,
     {
@@ -541,6 +544,9 @@ describe("ManageWebChatListService", () => {
       } as never,
       {
         listOpenJobsForWebChat: async () => []
+      } as never,
+      {
+        listOpenSandboxJobsForWebChat: async () => []
       } as never,
       {
         getActiveTurnForChat: async () => null

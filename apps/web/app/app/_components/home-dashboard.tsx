@@ -12,6 +12,7 @@ import type { AssistantWebChatListItemState } from "@persai/contracts";
 import {
   useHasThreadActiveDocumentJobs,
   useHasThreadActiveMediaJobs,
+  useHasThreadActiveSandboxJobs,
   useIsThreadStreaming
 } from "./streaming-threads";
 
@@ -123,13 +124,19 @@ function RecentChatRow({
     item.chat.surfaceThreadKey,
     assistantId
   );
+  const hasThreadActiveSandboxJobs = useHasThreadActiveSandboxJobs(
+    item.chat.surfaceThreadKey,
+    assistantId
+  );
   const showLiveIndicator =
     isThreadStreaming ||
     hasThreadActiveMediaJobs ||
     hasThreadActiveDocumentJobs ||
+    hasThreadActiveSandboxJobs ||
     item.activeTurn !== null ||
     (item.activeMediaJobs?.length ?? 0) > 0 ||
-    (item.activeDocumentJobs?.length ?? 0) > 0;
+    (item.activeDocumentJobs?.length ?? 0) > 0 ||
+    (item.activeSandboxJobs?.length ?? 0) > 0;
   const modeLabel =
     item.chat.chatMode === "project"
       ? t("projectModeBadge")

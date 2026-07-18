@@ -12,6 +12,7 @@ import type {
   RuntimeMediaArtifact
 } from "./assistant-runtime.facade";
 import type { AssistantDocumentJobReadService } from "./assistant-document-job-read.service";
+import type { AssistantAsyncJobHandleStateService } from "./assistant-async-job-handle-state.service";
 import type { AssistantMediaJobService } from "./workspace-media-job.service";
 import type { AutoSkillRoutingStateService } from "./auto-skill-routing-state.service";
 import type { CompactionAdvisoryFollowUpService } from "./compaction-advisory-follow-up.service";
@@ -228,6 +229,7 @@ export async function finalizePersistedWebTurn(input: {
   attachmentRepository: Pick<AssistantChatMessageAttachmentRepository, "listByMessageId">;
   assistantMediaJobService: Pick<AssistantMediaJobService, "listOpenJobsForWebChat">;
   assistantDocumentJobReadService: Pick<AssistantDocumentJobReadService, "listOpenJobsForWebChat">;
+  asyncJobHandleState: Pick<AssistantAsyncJobHandleStateService, "listOpenSandboxJobsForWebChat">;
   mediaDeliveryService: Pick<MediaDeliveryService, "deliver">;
   trackWorkspaceQuotaUsageService: Pick<TrackWorkspaceQuotaUsageService, "recordWebChatTurnUsage">;
   notificationDeliveryWorkerService: Pick<NotificationDeliveryWorkerService, "deliverIntentNow">;
@@ -265,10 +267,13 @@ export async function finalizePersistedWebTurn(input: {
   activeDocumentJobs: Awaited<
     ReturnType<AssistantDocumentJobReadService["listOpenJobsForWebChat"]>
   >;
+  activeSandboxJobs: Awaited<
+    ReturnType<AssistantAsyncJobHandleStateService["listOpenSandboxJobsForWebChat"]>
+  >;
   followUpAssistantMessageId: string | null;
   followUpAssistantMessage: AssistantWebChatMessageState | null;
 }> {
-  const [activeMediaJobs, activeDocumentJobs, delivered] = await Promise.all([
+  const [activeMediaJobs, activeDocumentJobs, activeSandboxJobs, delivered] = await Promise.all([
     input.assistantMediaJobService.listOpenJobsForWebChat({
       assistantId: input.assistantId,
       userId: input.userId,
@@ -277,6 +282,10 @@ export async function finalizePersistedWebTurn(input: {
     input.assistantDocumentJobReadService.listOpenJobsForWebChat({
       assistantId: input.assistantId,
       userId: input.userId,
+      chatId: input.chatId
+    }),
+    input.asyncJobHandleState.listOpenSandboxJobsForWebChat({
+      assistantId: input.assistantId,
       chatId: input.chatId
     }),
     input.mediaDeliveryService.deliver({
@@ -340,6 +349,7 @@ export async function finalizePersistedWebTurn(input: {
     finalAssistantContent,
     activeMediaJobs,
     activeDocumentJobs,
+    activeSandboxJobs,
     followUpAssistantMessageId: followUp.followUpAssistantMessageId,
     followUpAssistantMessage: followUp.followUpAssistantMessage
   };

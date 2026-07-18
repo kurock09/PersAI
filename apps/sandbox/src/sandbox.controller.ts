@@ -255,10 +255,13 @@ export class SandboxController {
   @Post("/api/v1/jobs/:jobId/cancel")
   async cancelJob(
     @Headers("authorization") authorization: string | undefined,
-    @Param("jobId") jobId: string
+    @Param("jobId") jobId: string,
+    @Body() body?: { forceDetachedOrphan?: unknown }
   ) {
     this.assertAuthorized(authorization);
-    return this.sandboxService.cancelJob(jobId);
+    return this.sandboxService.cancelJob(jobId, {
+      forceDetachedOrphan: body?.forceDetachedOrphan === true
+    });
   }
 
   @Get("/api/v1/jobs/:jobId")

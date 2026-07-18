@@ -140,9 +140,18 @@ test("broker rejects malformed bindings and non-exclusive response unions", asyn
     }),
     /script_browser_broker_binding_invalid/
   );
+  // Exactly 60s above deadline is allowed (pre-open lease-wait slack).
+  await service
+    .openSession({
+      binding: { ...binding(), expiresAt: new Date(Date.now() + 120_000).toISOString() },
+      sandboxJobId,
+      deadlineAtMs: Date.now() + 60_000
+    })
+    .then((session) => session.close());
+  // More than 60s above deadline still fails (Script-timeout-only mint).
   await assert.rejects(
     service.openSession({
-      binding: { ...binding(), expiresAt: new Date(Date.now() + 120_000).toISOString() },
+      binding: { ...binding(), expiresAt: new Date(Date.now() + 180_000).toISOString() },
       sandboxJobId,
       deadlineAtMs: Date.now() + 60_000
     }),

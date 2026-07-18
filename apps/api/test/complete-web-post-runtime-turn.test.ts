@@ -43,6 +43,9 @@ function createFinalizeBaseInput(overrides?: Record<string, unknown>) {
     assistantDocumentJobReadService: {
       listOpenJobsForWebChat: async () => []
     },
+    asyncJobHandleState: {
+      listOpenSandboxJobsForWebChat: async () => []
+    },
     mediaDeliveryService: {
       deliver: async () => ({ attachments: [] })
     },

@@ -51,6 +51,9 @@ function buildPrismaStub(
           return true;
         });
       }
+    },
+    assistantAsyncJobHandle: {
+      findMany: async () => []
     }
   } as never;
 }

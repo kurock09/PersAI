@@ -52,6 +52,7 @@ import {
 import {
   useHasThreadActiveDocumentJobs,
   useHasThreadActiveMediaJobs,
+  useHasThreadActiveSandboxJobs,
   useIsThreadStreaming
 } from "./streaming-threads";
 import { PullToRefresh } from "./pull-to-refresh";
@@ -1034,11 +1035,18 @@ function ChatListItem({
     item.chat.surfaceThreadKey,
     assistantId
   );
+  const hasThreadActiveSandboxJobs = useHasThreadActiveSandboxJobs(
+    item.chat.surfaceThreadKey,
+    assistantId
+  );
   const showLiveIndicator =
     isThreadStreaming ||
     hasThreadActiveMediaJobs ||
     hasThreadActiveDocumentJobs ||
-    (item.activeDocumentJobs?.length ?? 0) > 0;
+    hasThreadActiveSandboxJobs ||
+    (item.activeMediaJobs?.length ?? 0) > 0 ||
+    (item.activeDocumentJobs?.length ?? 0) > 0 ||
+    (item.activeSandboxJobs?.length ?? 0) > 0;
   const [renaming, setRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);

@@ -138,7 +138,20 @@ export type PodExecResult = {
   durationMs: number;
   execPodName: string;
   execPodBinding?: ExecPodJobBinding;
+  detached?: boolean;
 };
+
+export type DetachedSessionJobObservation =
+  | { status: "running" }
+  | {
+      status: "completed";
+      exitCode: number;
+      stdout: string;
+      stderr: string;
+      durationMs: number;
+    }
+  | { status: "failed" }
+  | { status: "missing" };
 
 export type InteractiveExecStreams = {
   stdin: Readable;
@@ -351,6 +364,12 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
      * retain the existing buffered, stdin-less behavior.
      */
     interactive?: InteractiveExecStreams;
+    /**
+     * ADR-152 — launch warm shell/exec under the durable pod-side supervisor,
+     * wait until short completion or plan Process-timeout yield, then either
+     * pull/mirror synchronously or return detached for opaque jobRef handoff.
+     */
+    supervisedDetach?: boolean;
   }): Promise<PodExecResult> {
     const namespace = this.config.SANDBOX_EXEC_NAMESPACE;
     const startedAt = Date.now();
@@ -378,6 +397,9 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
           return await this.runInSessionPod({
             ...sessionOptions,
             runtimeSessionId,
+            ...(options.supervisedDetach === undefined
+              ? {}
+              : { supervisedDetach: options.supervisedDetach }),
             namespace,
             startedAt
           });
@@ -744,6 +766,7 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
     signal?: AbortSignal;
     onBound?: (binding: ExecPodJobBinding) => void;
     interactive?: InteractiveExecStreams;
+    supervisedDetach?: boolean;
     namespace: string;
     startedAt: number;
   }): Promise<PodExecResult> {
@@ -834,6 +857,74 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
       assistantHandle,
       jobId: options.jobId
     });
+    if (options.supervisedDetach === true) {
+      const admit = await this.launchSupervisedSessionJob(podName, namespace, {
+        jobId: options.jobId,
+        command: options.command,
+        args: options.args,
+        podCwd,
+        policy: options.policy,
+        runtimeEnvironment: buildSessionRuntimeEnvironmentPaths(
+          assistantId,
+          options.runtimeSessionId
+        )
+      });
+      if (admit.exitCode !== 0) {
+        return {
+          ...admit,
+          durationMs: Date.now() - options.startedAt,
+          execPodName: podName,
+          execPodBinding: binding
+        };
+      }
+      const yieldOrCompletion = await this.waitForSupervisedSessionJobUntilYield({
+        podName,
+        namespace,
+        jobId: options.jobId,
+        yieldDeadlineAtMs: Date.now() + Math.max(0, options.policy.maxProcessRuntimeMs),
+        ...(options.signal === undefined ? {} : { signal: options.signal })
+      });
+      if (yieldOrCompletion.status === "completed") {
+        await this.pullWorkspace(podName, namespace, options.workspaceRoot, {
+          assistantId,
+          runtimeSessionId: options.runtimeSessionId
+        });
+        return {
+          exitCode: yieldOrCompletion.exitCode,
+          stdout: yieldOrCompletion.stdout,
+          stderr: yieldOrCompletion.stderr,
+          durationMs: Date.now() - options.startedAt,
+          execPodName: podName,
+          execPodBinding: binding
+        };
+      }
+      if (yieldOrCompletion.status === "failed") {
+        throw createBridgeError(
+          "process_failed",
+          "The supervised sandbox job failed before the yield threshold.",
+          true
+        );
+      }
+      if (yieldOrCompletion.status === "missing") {
+        throw createBridgeError(
+          "sandbox_supervised_job_missing",
+          "The supervised sandbox job disappeared before the yield threshold.",
+          true
+        );
+      }
+      // Still running at plan Process timeout: detach without pull/mirror.
+      // Concurrent retained processes make per-job produced-file attribution unsafe.
+      return {
+        exitCode: null,
+        stdout: "",
+        stderr: "",
+        durationMs: Date.now() - options.startedAt,
+        execPodName: podName,
+        execPodBinding: binding,
+        detached: true
+      };
+    }
+
     const result = await this.execJobCommand(podName, namespace, {
       jobId: options.jobId,
       assistantId,
@@ -1589,6 +1680,32 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
           podUid,
           this.config.SANDBOX_EXEC_POD_PROVISION_BUDGET_MS
         );
+        if (assistantId !== undefined && workspaceId !== undefined) {
+          await this.prisma.sandboxJob.updateMany({
+            where: {
+              assistantId,
+              workspaceId,
+              execPodName: podName,
+              status: "detached",
+              completedAt: null
+            },
+            data: {
+              status: "cancelled",
+              completedAt: new Date(),
+              violationCode: "sandbox_session_idle_expired",
+              violationMessage: "The warm sandbox session reached its idle TTL.",
+              resultPayload: {
+                reason: "sandbox_session_idle_expired",
+                warning: "The warm sandbox session reached its idle TTL.",
+                exitCode: null,
+                stdout: null,
+                stderr: null,
+                content: null,
+                producedFiles: []
+              }
+            }
+          });
+        }
         this.observability?.recordSandboxEgressReaperEvict();
       }
     }
@@ -4158,6 +4275,423 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
+  private async launchSupervisedSessionJob(
+    podName: string,
+    namespace: string,
+    options: {
+      jobId: string;
+      command: string;
+      args: string[];
+      podCwd: string;
+      policy: RuntimeSandboxPolicy;
+      runtimeEnvironment: ReturnType<typeof buildSessionRuntimeEnvironmentPaths>;
+    }
+  ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+    const jobDirectory = `/tmp/persai-detached/${options.jobId}`;
+    const supervisorSource = [
+      "import json, os, subprocess, sys, threading, time",
+      "job_dir, cwd, max_out, max_err, argv_json = sys.argv[1:]",
+      "max_out, max_err = int(max_out), int(max_err)",
+      "argv = json.loads(argv_json)",
+      "os.makedirs(job_dir, exist_ok=True)",
+      "state_path = os.path.join(job_dir, 'state.json')",
+      "def write_state(value):",
+      "  tmp = state_path + '.tmp'",
+      "  with open(tmp, 'w', encoding='utf-8') as handle: json.dump(value, handle, separators=(',', ':'))",
+      "  os.replace(tmp, state_path)",
+      "def drain(stream, path, limit):",
+      "  written = 0",
+      "  with open(path, 'wb') as handle:",
+      "    while True:",
+      "      chunk = stream.read(65536)",
+      "      if not chunk: break",
+      "      if written < limit:",
+      "        part = chunk[:max(0, limit - written)]",
+      "        handle.write(part)",
+      "        written += len(part)",
+      "started = int(time.time() * 1000)",
+      "child = subprocess.Popen(argv, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)",
+      "stat = open(f'/proc/{child.pid}/stat', encoding='utf-8').read().split()",
+      "write_state({'status':'running','pid':child.pid,'pgid':os.getpgid(child.pid),'startTime':stat[21],'startedAtMs':started})",
+      "threads = [threading.Thread(target=drain, args=(child.stdout, os.path.join(job_dir, 'stdout'), max_out)), threading.Thread(target=drain, args=(child.stderr, os.path.join(job_dir, 'stderr'), max_err))]",
+      "[thread.start() for thread in threads]",
+      "exit_code = child.wait()",
+      "[thread.join() for thread in threads]",
+      "write_state({'status':'completed','pid':child.pid,'pgid':child.pid,'startTime':stat[21],'startedAtMs':started,'completedAtMs':int(time.time()*1000),'exitCode':exit_code})"
+    ].join("\n");
+    const launcherSource = [
+      "import base64, os, subprocess, sys",
+      "job_dir, source_b64, *args = sys.argv[1:]",
+      "os.makedirs(job_dir, exist_ok=True)",
+      "for name in ('state.json','state.json.tmp','stdout','stderr'):",
+      "  try: os.unlink(os.path.join(job_dir, name))",
+      "  except FileNotFoundError: pass",
+      "source = base64.b64decode(source_b64).decode('utf-8')",
+      "subprocess.Popen([sys.executable, '-c', source, job_dir, *args], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True, close_fds=True)"
+    ].join("\n");
+    const argv = JSON.stringify([options.command, ...options.args]);
+    const launch = await this.execCommand(podName, namespace, {
+      command: "python3",
+      args: [
+        "-c",
+        launcherSource,
+        jobDirectory,
+        Buffer.from(supervisorSource, "utf8").toString("base64"),
+        options.podCwd,
+        String(options.policy.maxStdoutBytes),
+        String(options.policy.maxStderrBytes),
+        argv
+      ],
+      podCwd: options.podCwd,
+      policy: BOOTSTRAP_HYDRATE_POLICY,
+      shellPreamble: this.buildRuntimeEnvironmentShellPreamble(options.runtimeEnvironment)
+    });
+    if (launch.exitCode !== 0) return { ...launch, exitCode: launch.exitCode ?? 1 };
+    const admitted = await this.execCommand(podName, namespace, {
+      command: "/bin/sh",
+      args: [
+        "-c",
+        'i=0; while [ "$i" -lt 50 ]; do test -s "$1/state.json" && exit 0; i=$((i+1)); sleep 0.1; done; exit 70',
+        "persai-detached-admit",
+        jobDirectory
+      ],
+      podCwd: "/",
+      policy: BOOTSTRAP_HYDRATE_POLICY
+    });
+    return {
+      exitCode: admitted.exitCode ?? 70,
+      stdout: admitted.stdout,
+      stderr: admitted.stderr
+    };
+  }
+
+  /**
+   * After supervised admit, hold the workspace lease until the process completes
+   * (short sync path) or the plan Process-timeout yield threshold elapses
+   * (detach + opaque jobRef). Detach stamp and lease release happen only after
+   * this returns `{ status: "yield" }`.
+   */
+  private async waitForSupervisedSessionJobUntilYield(input: {
+    podName: string;
+    namespace: string;
+    jobId: string;
+    yieldDeadlineAtMs: number;
+    signal?: AbortSignal;
+  }): Promise<
+    | {
+        status: "completed";
+        exitCode: number;
+        stdout: string;
+        stderr: string;
+        durationMs: number;
+      }
+    | { status: "yield" }
+    | { status: "failed" }
+    | { status: "missing" }
+  > {
+    for (;;) {
+      if (input.signal?.aborted === true) {
+        throw createBridgeError(
+          "user_stopped",
+          "Sandbox job cancelled because the turn was stopped.",
+          true
+        );
+      }
+      const observed = await this.readSupervisedSessionJobState(
+        input.podName,
+        input.namespace,
+        input.jobId
+      );
+      if (observed.status === "completed") {
+        return observed;
+      }
+      if (observed.status === "missing" || observed.status === "failed") {
+        // Dead PID / startTime mismatch can race supervisor write_state(completed).
+        // Re-read briefly before treating as true loss (do not yield/detach on failed).
+        const recovered = await this.reobserveSupervisedSessionJobAfterPossibleFinalize(
+          input.podName,
+          input.namespace,
+          input.jobId
+        );
+        if (recovered.status === "completed") {
+          return recovered;
+        }
+        if (recovered.status === "running") {
+          continue;
+        }
+        return { status: recovered.status === "failed" ? "failed" : "missing" };
+      }
+      const remainingMs = input.yieldDeadlineAtMs - Date.now();
+      if (remainingMs <= 0) {
+        return { status: "yield" };
+      }
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(
+          () => {
+            input.signal?.removeEventListener("abort", onAbort);
+            resolve();
+          },
+          Math.min(100, remainingMs)
+        );
+        const onAbort = (): void => {
+          clearTimeout(timer);
+          input.signal?.removeEventListener("abort", onAbort);
+          reject(
+            createBridgeError(
+              "user_stopped",
+              "Sandbox job cancelled because the turn was stopped.",
+              true
+            )
+          );
+        };
+        if (input.signal !== undefined) {
+          input.signal.addEventListener("abort", onAbort, { once: true });
+          if (input.signal.aborted) onAbort();
+        }
+      });
+    }
+  }
+
+  /**
+   * Brief control-plane re-read when observe reports missing/failed. Covers the
+   * window where the child exited but supervisor has not yet written completed.
+   */
+  private async reobserveSupervisedSessionJobAfterPossibleFinalize(
+    podName: string,
+    namespace: string,
+    jobId: string
+  ): Promise<DetachedSessionJobObservation> {
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      const again = await this.readSupervisedSessionJobState(podName, namespace, jobId);
+      if (again.status === "completed" || again.status === "running") {
+        return again;
+      }
+    }
+    return { status: "missing" };
+  }
+
+  private async readSupervisedSessionJobState(
+    podName: string,
+    namespace: string,
+    jobId: string
+  ): Promise<DetachedSessionJobObservation> {
+    const jobDirectory = `/tmp/persai-detached/${jobId}`;
+    // When state says running but PID is dead / startTime mismatches, briefly
+    // re-read state.json for completed before emitting failed (true missing).
+    const source = [
+      "import json, os, sys, time",
+      "job_dir = sys.argv[1]",
+      "state_path = os.path.join(job_dir, 'state.json')",
+      "if not os.path.isfile(state_path): print(json.dumps({'status':'missing'})); raise SystemExit",
+      "def load():",
+      "  return json.load(open(state_path, encoding='utf-8'))",
+      "state = load()",
+      "if state.get('status') == 'running':",
+      "  try:",
+      "    stat = open(f\"/proc/{int(state['pid'])}/stat\", encoding='utf-8').read().split()",
+      "    alive = stat[21] == str(state.get('startTime'))",
+      "  except (FileNotFoundError, ProcessLookupError, ValueError, KeyError): alive = False",
+      "  if alive:",
+      "    print(json.dumps({'status':'running'})); raise SystemExit",
+      "  # Child may have exited while supervisor still writes completed state.",
+      "  for _ in range(20):",
+      "    time.sleep(0.05)",
+      "    try: state = load()",
+      "    except Exception: continue",
+      "    if state.get('status') == 'completed':",
+      "      break",
+      "  else:",
+      "    print(json.dumps({'status':'failed'})); raise SystemExit",
+      "def text(name):",
+      "  try: return open(os.path.join(job_dir, name), 'rb').read().decode('utf-8', errors='replace')",
+      "  except FileNotFoundError: return ''",
+      "if state.get('status') != 'completed':",
+      "  print(json.dumps({'status':'failed'})); raise SystemExit",
+      "print(json.dumps({'status':'completed','exitCode':int(state.get('exitCode',1)),'stdout':text('stdout'),'stderr':text('stderr'),'durationMs':max(0,int(state.get('completedAtMs',0))-int(state.get('startedAtMs',0)))}))"
+    ].join("\n");
+    const result = await this.execCommand(podName, namespace, {
+      command: "python3",
+      args: ["-c", source, jobDirectory],
+      podCwd: "/",
+      policy: BOOTSTRAP_HYDRATE_POLICY
+    });
+    if (result.exitCode !== 0) return { status: "missing" };
+    try {
+      const row = JSON.parse(result.stdout) as Record<string, unknown>;
+      if (row.status === "running") return { status: "running" };
+      if (row.status === "completed") {
+        return {
+          status: "completed",
+          exitCode: typeof row.exitCode === "number" ? row.exitCode : 1,
+          stdout: typeof row.stdout === "string" ? row.stdout : "",
+          stderr: typeof row.stderr === "string" ? row.stderr : "",
+          durationMs: typeof row.durationMs === "number" ? row.durationMs : 0
+        };
+      }
+      if (row.status === "failed") return { status: "failed" };
+      return { status: "missing" };
+    } catch {
+      return { status: "missing" };
+    }
+  }
+
+  async observeDetachedSessionJob(input: {
+    jobId: string;
+    assistantId: string;
+    workspaceId: string;
+    podName: string;
+  }): Promise<DetachedSessionJobObservation> {
+    const namespace = this.config.SANDBOX_EXEC_NAMESPACE;
+    let pod;
+    try {
+      pod = await this.k8sApi.readNamespacedPod({ name: input.podName, namespace });
+    } catch {
+      return { status: "missing" };
+    }
+    const annotations = pod.metadata?.annotations ?? {};
+    const assistantHandle = annotations[ASSISTANT_HANDLE_ANNOTATION];
+    const mode = readPodSandboxEgressMode({
+      labels: pod.metadata?.labels ?? null,
+      annotations
+    });
+    if (
+      annotations[ASSISTANT_ID_ANNOTATION] !== input.assistantId ||
+      annotations[WORKSPACE_ID_ANNOTATION] !== input.workspaceId ||
+      assistantHandle === undefined ||
+      mode === null
+    ) {
+      return { status: "missing" };
+    }
+    const identity: PodExecutionIdentity = {
+      namespace,
+      podName: input.podName,
+      podUid: this.requirePodUid(pod, input.podName),
+      assistantId: input.assistantId,
+      workspaceId: input.workspaceId,
+      assistantHandle,
+      mode
+    };
+    return this.executionIdentityContext.run(identity, async () =>
+      this.readSupervisedSessionJobState(input.podName, namespace, input.jobId)
+    );
+  }
+
+  async terminateBoundSessionJobProcess(input: { binding: ExecPodJobBinding }): Promise<void> {
+    await this.jobBindingContext.run({ ...input.binding }, async () => {
+      await this.assertActiveWorkspaceLease(input.binding);
+      const jobDirectory = `/tmp/persai-detached/${input.binding.jobId}`;
+      const source = [
+        "import json, os, signal, sys, time",
+        "path = os.path.join(sys.argv[1], 'state.json')",
+        "if not os.path.isfile(path): raise SystemExit(0)",
+        "state = json.load(open(path, encoding='utf-8'))",
+        "if state.get('status') != 'running': raise SystemExit(0)",
+        "pid, pgid = int(state['pid']), int(state['pgid'])",
+        "try:",
+        "  stat = open(f'/proc/{pid}/stat', encoding='utf-8').read().split()",
+        "  if stat[21] != str(state.get('startTime')) or int(stat[4]) != pgid: raise SystemExit(70)",
+        "  os.killpg(pgid, signal.SIGTERM)",
+        "except ProcessLookupError: raise SystemExit(0)",
+        "for _ in range(20):",
+        "  try: os.kill(pid, 0); time.sleep(0.1)",
+        "  except ProcessLookupError: raise SystemExit(0)",
+        "try: os.killpg(pgid, signal.SIGKILL)",
+        "except ProcessLookupError: pass"
+      ].join("\n");
+      const result = await this.execCommand(input.binding.podName, input.binding.namespace, {
+        command: "python3",
+        args: ["-c", source, jobDirectory],
+        podCwd: "/",
+        policy: BOOTSTRAP_HYDRATE_POLICY
+      });
+      if (result.exitCode !== 0) {
+        throw createBridgeError(
+          "sandbox_job_process_termination_failed",
+          "The exact supervised job process group could not be verified and terminated.",
+          true
+        );
+      }
+    });
+  }
+
+  async terminateDetachedSessionJob(input: {
+    jobId: string;
+    assistantId: string;
+    workspaceId: string;
+    podName: string;
+  }): Promise<void> {
+    const namespace = this.config.SANDBOX_EXEC_NAMESPACE;
+    const pod = await this.k8sApi.readNamespacedPod({ name: input.podName, namespace });
+    const annotations = pod.metadata?.annotations ?? {};
+    const assistantHandle = annotations[ASSISTANT_HANDLE_ANNOTATION];
+    const mode = readPodSandboxEgressMode({
+      labels: pod.metadata?.labels ?? null,
+      annotations
+    });
+    if (
+      annotations[ASSISTANT_ID_ANNOTATION] !== input.assistantId ||
+      annotations[WORKSPACE_ID_ANNOTATION] !== input.workspaceId ||
+      assistantHandle === undefined ||
+      mode === null
+    ) {
+      throw createBridgeError(
+        "sandbox_pod_generation_mismatch",
+        "Detached sandbox pod ownership changed before cancellation.",
+        true
+      );
+    }
+    const identity: PodExecutionIdentity = {
+      namespace,
+      podName: input.podName,
+      podUid: this.requirePodUid(pod, input.podName),
+      assistantId: input.assistantId,
+      workspaceId: input.workspaceId,
+      assistantHandle,
+      mode
+    };
+    await this.executionIdentityContext.run(identity, async () => {
+      const jobDirectory = `/tmp/persai-detached/${input.jobId}`;
+      const source = [
+        "import json, os, signal, sys, time",
+        "path = os.path.join(sys.argv[1], 'state.json')",
+        "if not os.path.isfile(path): raise SystemExit(0)",
+        "state = json.load(open(path, encoding='utf-8'))",
+        "if state.get('status') != 'running': raise SystemExit(0)",
+        "pid, pgid = int(state['pid']), int(state['pgid'])",
+        "stat = open(f'/proc/{pid}/stat', encoding='utf-8').read().split()",
+        "if stat[21] != str(state.get('startTime')) or int(stat[4]) != pgid: raise SystemExit(70)",
+        "try: os.killpg(pgid, signal.SIGTERM)",
+        "except ProcessLookupError: raise SystemExit(0)",
+        "for _ in range(20):",
+        "  try: os.kill(pid, 0); time.sleep(0.1)",
+        "  except ProcessLookupError: raise SystemExit(0)",
+        "try: os.killpg(pgid, signal.SIGKILL)",
+        "except ProcessLookupError: pass"
+      ].join("\n");
+      const result = await this.execCommand(input.podName, namespace, {
+        command: "python3",
+        args: ["-c", source, jobDirectory],
+        podCwd: "/",
+        policy: BOOTSTRAP_HYDRATE_POLICY
+      });
+      if (result.exitCode !== 0) {
+        throw createBridgeError(
+          "sandbox_job_process_termination_failed",
+          "Detached process identity could not be verified for cancellation.",
+          true
+        );
+      }
+    });
+  }
+
+  async releaseBoundSessionPod(input: { binding: ExecPodJobBinding }): Promise<void> {
+    await this.jobBindingContext.run({ ...input.binding }, async () => {
+      await this.assertActiveWorkspaceLease(input.binding);
+      await this.clearBoundPodGeneration(input.binding);
+    });
+  }
+
   async cleanupBoundSessionPod(input: {
     binding: ExecPodJobBinding;
   }): Promise<{ podName: string; podUid: string }> {
@@ -4238,10 +4772,60 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
     // gVisor /proc/*/status is tab-separated. Never scan /proc from inside
     // command substitution: the subshell PID itself becomes a false leftover
     // (live failure mode: remaining_pids=<subshell> → fail-closed retire every job).
+    //
+    // Retained ADR-152 detached shell/exec supervisors live under
+    // /tmp/persai-detached/*/state.json. Later warm-job cleanup must keep those
+    // PIDs/PGIDs (and the supervisor parent) — baseline alone does not include them.
     return [
       "set -eu",
       `BASELINE_PIDS="${baseline}"`,
       'KEEP_PIDS="$$"',
+      "RETAINED_PIDS=''",
+      "if [ -d /tmp/persai-detached ]; then",
+      "  DETACHED_KEEP=$(python3 - <<'PY'",
+      "import json, os, sys",
+      "keep_pids=set()",
+      "keep_pgids=set()",
+      "root='/tmp/persai-detached'",
+      "if os.path.isdir(root):",
+      "  for name in os.listdir(root):",
+      "    path=os.path.join(root, name, 'state.json')",
+      "    if not os.path.isfile(path):",
+      "      continue",
+      "    try:",
+      "      state=json.load(open(path, encoding='utf-8'))",
+      "    except Exception:",
+      "      continue",
+      "    if state.get('status') != 'running':",
+      "      continue",
+      "    try:",
+      "      pid=int(state['pid']); pgid=int(state['pgid']); start=str(state.get('startTime'))",
+      "    except (KeyError, TypeError, ValueError):",
+      "      continue",
+      "    try:",
+      "      fields=open(f'/proc/{pid}/stat', encoding='utf-8').read().split()",
+      "      if fields[21] != start:",
+      "        continue",
+      "      keep_pids.add(pid); keep_pgids.add(pgid)",
+      "      ppid=int(fields[3])",
+      "      if ppid > 1:",
+      "        keep_pids.add(ppid)",
+      "    except (FileNotFoundError, ProcessLookupError, IndexError, ValueError):",
+      "      continue",
+      "for proc in os.listdir('/proc'):",
+      "  if not proc.isdigit():",
+      "    continue",
+      "  try:",
+      "    fields=open(f'/proc/{proc}/stat', encoding='utf-8').read().split()",
+      "    if int(fields[4]) in keep_pgids:",
+      "      keep_pids.add(int(proc))",
+      "  except (FileNotFoundError, ProcessLookupError, IndexError, ValueError):",
+      "    continue",
+      "sys.stdout.write(' '.join(str(pid) for pid in sorted(keep_pids)))",
+      "PY",
+      ")",
+      '  RETAINED_PIDS="$DETACHED_KEEP"',
+      "fi",
       "TARGET_PIDS=''",
       "cursor=$$",
       'while [ "$cursor" != "1" ]; do',
@@ -4266,7 +4850,7 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
       "done",
       "is_keep_pid() {",
       '  target="$1"',
-      '  case " $BASELINE_PIDS $KEEP_PIDS " in',
+      '  case " $BASELINE_PIDS $KEEP_PIDS $RETAINED_PIDS " in',
       '    *" $target "*) return 0 ;;',
       "  esac",
       "  return 1",

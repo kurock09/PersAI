@@ -359,6 +359,16 @@ type WebChatStreamEvent =
       };
     }
   | {
+      event: "async_job_accepted";
+      data: {
+        kind: "media" | "document" | "sandbox";
+        jobRef: string;
+        mediaJob?: WebChatActiveMediaJobState;
+        documentJob?: WebChatActiveDocumentJobState;
+        sandboxJob?: WebChatActiveSandboxJobState;
+      };
+    }
+  | {
       event: "activity";
       data: {
         source: "skill" | "user" | "product" | "web";
@@ -450,6 +460,13 @@ export interface AssistantWebChatStreamHandlers {
     line?: string;
     step?: string;
     seq: number;
+  }) => void;
+  onAsyncJobAccepted?: (payload: {
+    kind: "media" | "document" | "sandbox";
+    jobRef: string;
+    mediaJob?: WebChatActiveMediaJobState;
+    documentJob?: WebChatActiveDocumentJobState;
+    sandboxJob?: WebChatActiveSandboxJobState;
   }) => void;
   onActivity?: (payload: {
     source: "skill" | "user" | "product" | "web";
@@ -1154,6 +1171,37 @@ function toStreamEvent(eventName: string, payload: unknown): WebChatStreamEvent 
       }
     };
   }
+  if (eventName === "async_job_accepted") {
+    if (
+      (body.kind !== "media" && body.kind !== "document" && body.kind !== "sandbox") ||
+      typeof body.jobRef !== "string" ||
+      body.jobRef.trim().length === 0
+    ) {
+      return null;
+    }
+    return {
+      event: "async_job_accepted",
+      data: {
+        kind: body.kind,
+        jobRef: body.jobRef,
+        ...(body.mediaJob !== undefined &&
+        typeof body.mediaJob === "object" &&
+        body.mediaJob !== null
+          ? { mediaJob: body.mediaJob as WebChatActiveMediaJobState }
+          : {}),
+        ...(body.documentJob !== undefined &&
+        typeof body.documentJob === "object" &&
+        body.documentJob !== null
+          ? { documentJob: body.documentJob as WebChatActiveDocumentJobState }
+          : {}),
+        ...(body.sandboxJob !== undefined &&
+        typeof body.sandboxJob === "object" &&
+        body.sandboxJob !== null
+          ? { sandboxJob: body.sandboxJob as WebChatActiveSandboxJobState }
+          : {})
+      }
+    };
+  }
   if (eventName === "activity") {
     if (
       (body.source !== "skill" &&
@@ -1423,6 +1471,8 @@ export async function streamAssistantWebChatTurn(
       handlers.onTool?.(streamEvent.data);
     } else if (streamEvent.event === "tool_progress") {
       handlers.onToolProgress?.(streamEvent.data);
+    } else if (streamEvent.event === "async_job_accepted") {
+      handlers.onAsyncJobAccepted?.(streamEvent.data);
     } else if (streamEvent.event === "activity") {
       handlers.onActivity?.(streamEvent.data);
     } else if (streamEvent.event === "project_activity") {
@@ -1564,6 +1614,8 @@ export async function reattachAssistantWebChatTurnStream(
     else if (streamEvent.event === "thinking") handlers.onThinking?.(streamEvent.data);
     else if (streamEvent.event === "tool") handlers.onTool?.(streamEvent.data);
     else if (streamEvent.event === "tool_progress") handlers.onToolProgress?.(streamEvent.data);
+    else if (streamEvent.event === "async_job_accepted")
+      handlers.onAsyncJobAccepted?.(streamEvent.data);
     else if (streamEvent.event === "activity") handlers.onActivity?.(streamEvent.data);
     else if (streamEvent.event === "project_activity")
       handlers.onProjectActivity?.(streamEvent.data);
@@ -2774,6 +2826,7 @@ export async function getChatMessages(
   activeTurn?: WebChatActiveTurnState | null;
   activeMediaJobs?: WebChatActiveMediaJobState[];
   activeDocumentJobs?: WebChatActiveDocumentJobState[];
+  activeSandboxJobs?: WebChatActiveSandboxJobState[];
   /**
    * ADR-125 follow-up — chat-level "active skill / scenario" projection so
    * the web header subtitle has a stable source of truth across history
@@ -2796,6 +2849,7 @@ export async function getChatMessages(
     activeTurn?: WebChatActiveTurnState | null;
     activeMediaJobs?: WebChatActiveMediaJobState[];
     activeDocumentJobs?: WebChatActiveDocumentJobState[];
+    activeSandboxJobs?: WebChatActiveSandboxJobState[];
     currentEngagement?: { skillDisplayName: string; scenarioDisplayName: string | null } | null;
     pendingBrowserLogin?: PendingBrowserLoginState | null;
   };
@@ -5103,13 +5157,35 @@ export type WebChatActiveTurnState = {
   canReattach: boolean;
 };
 
-export type WebChatActiveMediaJobState = AssistantWebChatActiveMediaJobState;
+export type WebChatNotifyState =
+  | "none"
+  | "subscribed"
+  | "ready"
+  | "claimed"
+  | "dispatched"
+  | "failed"
+  | "cancelled";
+
+export type WebChatActiveMediaJobState = AssistantWebChatActiveMediaJobState & {
+  notifyState?: WebChatNotifyState;
+};
 
 export type WebChatActiveDocumentJobState = {
   id: string;
   documentType: "presentation";
   descriptorMode: "create_presentation" | "revise_document" | "export_or_redeliver";
   status: "queued" | "running" | "provider_processing" | "fetching_output" | "ready_for_delivery";
+  createdAt: string;
+  startedAt: string | null;
+  updatedAt: string;
+  notifyState?: WebChatNotifyState;
+};
+
+export type WebChatActiveSandboxJobState = {
+  jobRef: string;
+  toolCode: "shell" | "exec";
+  status: "queued" | "running" | "detached";
+  notifyState: WebChatNotifyState;
   createdAt: string;
   startedAt: string | null;
   updatedAt: string;

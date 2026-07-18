@@ -63,7 +63,8 @@ const clerkMocks = vi.hoisted(() => ({
 const liveThreadMocks = vi.hoisted(() => ({
   streamingThreads: new Set<string>(),
   mediaThreads: new Set<string>(),
-  documentThreads: new Set<string>()
+  documentThreads: new Set<string>(),
+  sandboxThreads: new Set<string>()
 }));
 
 vi.mock("@clerk/nextjs", () => ({
@@ -101,7 +102,9 @@ vi.mock("./streaming-threads", () => ({
   useIsThreadStreaming: (threadKey: string) => liveThreadMocks.streamingThreads.has(threadKey),
   useHasThreadActiveMediaJobs: (threadKey: string) => liveThreadMocks.mediaThreads.has(threadKey),
   useHasThreadActiveDocumentJobs: (threadKey: string) =>
-    liveThreadMocks.documentThreads.has(threadKey)
+    liveThreadMocks.documentThreads.has(threadKey),
+  useHasThreadActiveSandboxJobs: (threadKey: string) =>
+    liveThreadMocks.sandboxThreads.has(threadKey)
 }));
 
 beforeEach(() => {
@@ -170,6 +173,7 @@ afterEach(() => {
   liveThreadMocks.streamingThreads.clear();
   liveThreadMocks.mediaThreads.clear();
   liveThreadMocks.documentThreads.clear();
+  liveThreadMocks.sandboxThreads.clear();
 });
 
 function makeAppData(overrides: Partial<AppData>): AppData {
@@ -681,6 +685,44 @@ describe("Sidebar — ADR-076 Slice 5 chat list skeleton", () => {
               createdAt: "2026-05-19T22:00:00.000Z",
               startedAt: null,
               updatedAt: "2026-05-19T22:00:00.000Z"
+            }
+          ]
+        } as AssistantWebChatListItemState
+      ]
+    });
+
+    render(<Sidebar data={data} />);
+
+    const indicator = screen.getByLabelText("streamingIndicator");
+    expect(indicator).toHaveClass("animate-pulse");
+  });
+
+  it("shows the pulsing live indicator for chats with active background sandbox jobs", () => {
+    liveThreadMocks.sandboxThreads.add("thread-a");
+    const data = makeAppData({
+      chats: [makeChat("thread-a")]
+    });
+
+    render(<Sidebar data={data} />);
+
+    const indicator = screen.getByLabelText("streamingIndicator");
+    expect(indicator).toHaveClass("animate-pulse");
+  });
+
+  it("shows the pulsing live indicator for chats with list-projected active sandbox jobs", () => {
+    const data = makeAppData({
+      chats: [
+        {
+          ...makeChat("thread-a"),
+          activeSandboxJobs: [
+            {
+              jobRef: "sandbox-job-ref-1",
+              toolCode: "shell",
+              status: "running",
+              notifyState: "none",
+              createdAt: "2026-05-19T22:00:00.000Z",
+              startedAt: "2026-05-19T22:00:01.000Z",
+              updatedAt: "2026-05-19T22:00:01.000Z"
             }
           ]
         } as AssistantWebChatListItemState

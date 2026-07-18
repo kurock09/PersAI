@@ -390,28 +390,45 @@ function InlineStreamingStatus({
   showShadowRoutingLabel?: boolean | undefined;
 }) {
   const t = useTranslations("chat");
-  const statusParts =
-    preResponseStatus?.kind === "activity" && preResponseStatus.event
-      ? getActivityDisplayParts(preResponseStatus.event, t, showShadowRoutingLabel)
-      : {
-          label: t("preResponseThinking"),
-          detail: undefined,
-          shellCommand: undefined,
-          shellProgressLines: undefined
-        };
+  const activityEvent =
+    preResponseStatus?.kind === "activity" ? preResponseStatus.event : undefined;
+  const awaitDeadlineMatch = activityEvent?.detail?.match(/^await-deadline:(\d+)$/);
+  const awaitDeadlineMs =
+    awaitDeadlineMatch?.[1] === undefined ? null : Number(awaitDeadlineMatch[1]);
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    if (awaitDeadlineMs === null) return;
+    setNowMs(Date.now());
+    const timer = window.setInterval(() => setNowMs(Date.now()), 250);
+    return () => window.clearInterval(timer);
+  }, [awaitDeadlineMs]);
+  const statusParts = activityEvent
+    ? getActivityDisplayParts(activityEvent, t, showShadowRoutingLabel)
+    : {
+        label: t("preResponseThinking"),
+        detail: undefined,
+        shellCommand: undefined,
+        shellProgressLines: undefined
+      };
+  const label =
+    awaitDeadlineMs === null
+      ? statusParts.label
+      : t("awaitCountdown", {
+          seconds: Math.max(0, Math.ceil((awaitDeadlineMs - nowMs) / 1000))
+        });
 
   return (
     <span className="animate-fade-in-inline-status inline-flex max-w-full items-start gap-2 text-sm text-text-muted/78 italic motion-reduce:animate-none">
       <span className="mt-[0.2em] inline-block h-4 w-1.5 shrink-0 animate-pulse rounded-sm bg-accent/65" />
       <span className="inline-flex min-w-0 flex-col items-start gap-0.5">
         <span className="inline-flex max-w-full items-baseline gap-1.5 leading-5">
-          <span className="shrink-0">{statusParts.label}</span>
+          <span className="shrink-0">{label}</span>
           {statusParts.shellCommand ? (
             <>
               <span className="shrink-0 text-text-subtle/45 not-italic">—</span>
               <ActivityCommandPreview command={statusParts.shellCommand} />
             </>
-          ) : statusParts.detail ? (
+          ) : statusParts.detail && awaitDeadlineMs === null ? (
             <span className="text-text-subtle/62 not-italic">{statusParts.detail}</span>
           ) : null}
         </span>

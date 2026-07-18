@@ -15,6 +15,8 @@ import { SANDBOX_CONFIG } from "./sandbox-config";
 type RedisClient = ReturnType<typeof createClient>;
 
 const RESPONSE_TIMEOUT_MAX_MS = 120_000;
+/** Matches sandbox workspace lease wait cap; runtime mints the same slack. */
+const PREOPEN_SLACK_MS = 60_000;
 const BROKER_ID_PATTERN = /^[A-Za-z0-9_-]{32}$/;
 const AUTH_TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 const REQUEST_ID_PATTERN = /^[A-Za-z0-9_-]{8,128}$/;
@@ -65,6 +67,9 @@ export class ScriptBrowserBrokerService implements OnModuleDestroy {
       throw new Error("script_browser_broker_unconfigured");
     }
     this.assertBinding(input);
+    // After open, in-session browser calls follow the process deadline; binding
+    // expiresAt only needs to survive mint → open (pre-open slack).
+    const sessionExpiresAtMs = Math.min(Date.parse(input.binding.expiresAt), input.deadlineAtMs);
     const publisher = await this.publisherClient(redisUrl);
     const subscriber = publisher.duplicate();
     subscriber.on("error", () => undefined);
@@ -105,9 +110,8 @@ export class ScriptBrowserBrokerService implements OnModuleDestroy {
       request: async (request) => {
         if (closed) throw new Error("script_browser_broker_closed");
         if (pending !== undefined) throw new Error("script_browser_request_in_flight");
-        const expiresAtMs = Date.parse(input.binding.expiresAt);
-        const remainingMs = expiresAtMs - Date.now();
-        if (!Number.isFinite(expiresAtMs) || remainingMs <= 0) {
+        const remainingMs = sessionExpiresAtMs - Date.now();
+        if (!Number.isFinite(sessionExpiresAtMs) || remainingMs <= 0) {
           throw new Error("script_browser_broker_expired");
         }
         const envelope: RuntimeScriptBrowserBrokerRequestEnvelope = {
@@ -293,14 +297,22 @@ export class ScriptBrowserBrokerService implements OnModuleDestroy {
     deadlineAtMs: number;
   }): void {
     const expiresAtMs = Date.parse(input.binding.expiresAt);
-    if (
-      !BROKER_ID_PATTERN.test(input.binding.brokerId) ||
-      !AUTH_TOKEN_PATTERN.test(input.binding.authToken) ||
-      !SANDBOX_JOB_ID_PATTERN.test(input.sandboxJobId) ||
-      !Number.isFinite(expiresAtMs) ||
-      expiresAtMs <= Date.now() ||
-      expiresAtMs > input.deadlineAtMs
-    ) {
+    if (!BROKER_ID_PATTERN.test(input.binding.brokerId)) {
+      throw new Error("script_browser_broker_binding_invalid");
+    }
+    if (!AUTH_TOKEN_PATTERN.test(input.binding.authToken)) {
+      throw new Error("script_browser_broker_binding_invalid");
+    }
+    if (!SANDBOX_JOB_ID_PATTERN.test(input.sandboxJobId)) {
+      throw new Error("script_browser_broker_binding_invalid");
+    }
+    if (!Number.isFinite(expiresAtMs) || expiresAtMs <= Date.now()) {
+      throw new Error("script_browser_broker_binding_invalid");
+    }
+    // Runtime mints before workspace lease wait (capped at 60s). Allow that
+    // pre-open slack above deadlineAtMs, but still reject Script-timeout-only
+    // mints that wildly outlive the reconciled process wall.
+    if (expiresAtMs > input.deadlineAtMs + PREOPEN_SLACK_MS) {
       throw new Error("script_browser_broker_binding_invalid");
     }
   }

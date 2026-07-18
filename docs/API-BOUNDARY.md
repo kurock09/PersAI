@@ -110,6 +110,47 @@ All volatile-context blocks are marked `cacheRole: "volatile_context"` on the me
 
 ## Runtime-related boundaries
 
+**ADR-152 founder universal-await implementation (local; verification
+incomplete)** supersedes the former media/document-only F0 contour. The
+model-facing contract is strict
+`await({action:"wait"|"notify", jobRef?:string, timeoutMs?:number})`:
+`jobRef` is optional only for wait, notify requires it, and timeout is
+wait-only `0..60000`. Canonical adapters are media, document, and exact-owned
+warm-session shell/exec SandboxJobs. Registration is an internal bearer-only
+server-derived operation and validates assistant/workspace/user/chat/channel/
+thread/source turn/runtime session plus canonical SandboxJob identity; raw
+SandboxJob ids are not model observation capabilities.
+
+Exact-id wait observes one owned job; no-id wait returns the complete,
+stable-ordered max-32 snapshot of current-server-logical-turn handles plus
+currently-open exact-owned media/document/sandbox jobs in the current
+chat/channel/thread. No relevant row returns an immediate empty snapshot;
+overflow is typed `snapshot_overflow`, never truncation.
+
+Landed observation seams are immediate owned DB reads on
+`POST …/async-jobs/v1/{status,snapshot,subscribe}`; runtime client-polls
+~500ms. Redis subscribe-before-read long-poll wake acceleration is **not
+landed**. Delivery visibility remains terminal authority where implemented for
+media/document. The retained scheduler poll/reconciler is recovery. Additive
+migration adds sandbox handle kind / detached / runtime_session_id.
+Bearer-protected `POST …/async-jobs/v1/assert-cap` admits chat-scoped
+background/foreground work before shell/exec submit so Process-timeout waits
+count against the unified 8-cap (same SQL as media/document/register).
+
+Notify is non-terminal: an owned pending ref durably subscribes/reserves
+continuation narration and returns `turnControl:"continue"`; terminal-before-
+subscribe returns inline. Scheduler dispatch requires `sourceFinalizedAt`,
+revalidates before dispatch, and shares the existing same-chat runtime lease
+with ordinary user turns in both directions. Permanent continuation failure
+must surface one visible observation (contract); that projection may still be
+incomplete locally. `async_job_accepted` SSE for mid-turn Working updates is
+landed: runtime emits it immediately after opaque media/document/sandbox
+`jobRef` acceptance; API relays through the web turn stream; the web client
+upserts `activeMediaJobs` / `activeDocumentJobs` / `activeSandboxJobs` before
+the provider loop closes. Durable/reconnect authority remains the chat
+active-observation projection. Await activity uses `await-deadline:<epochMs>`
+tool-progress preview for live countdown.
+
 ADR-152 checkpoint 1 adds no public endpoint. New runtime uses the
 bearer-protected internal `POST /api/v1/internal/runtime/async-jobs/v1/status`
 seam with current assistant/workspace/chat/channel/thread ownership. It returns only opaque
@@ -223,22 +264,17 @@ direct MCP execution boundary, no browser/Tool SDK/async `jobRef`/`wait`/
 Until ADR-153, code/input credentials are unmanaged values with no promised
 redaction, TTL, revoke, or log-history protection.
 
-**ADR-152 (checkpoint 3 implemented; first audit DIRTY, repairs landed, founder-directed re-audit closed residual docs P2):**
-adds no public execute endpoint. Runtime projects one model tool, `await`, over server-minted opaque
-assistant-owned job refs. `await({action:"wait",jobRef,timeoutMs})` resolves
-terminal state first, caps waits at 60 seconds, permits one blocking wait per
-job/turn, and does not cancel the canonical job. `notify` writes durable
-same-row subscription state and ends the current provider loop; a terminal
-completion later re-enters only the original active chat/channel with fresh
-runtime hydration and no duplicated attachment delivery. The internal
-runtime/API boundary resolves handles against canonical owned
-`assistant_media_jobs` and `assistant_document_render_jobs` only, returning
-foreign/tampered handles as not found. It will revalidate ownership,
-entitlement, active chat, and channel binding before continuation dispatch.
-The adapter boundary is extensible to later canonical long jobs, but current
-`assistant_background_task_runs` has no immutable exposed run identity and is
-therefore deliberately deferred until that prerequisite exists; recurring
-`assistant_background_tasks` rows never qualify as `jobRef`s.
+**ADR-152 (historical CP3 archive + superseding local follow-through):**
+adds no public execute endpoint. Runtime projects one model tool, `await`, over
+server-minted opaque assistant-owned job refs. `wait` resolves terminal state
+first, caps at 60 seconds, admits up to 20 waits per dispatched turn, and does
+not cancel the canonical job. `notify` writes durable same-row subscription
+state and returns non-terminal `turnControl:"continue"`; a terminal completion
+later re-enters only the original active chat/channel with fresh runtime
+hydration and no duplicated attachment delivery. The internal runtime/API
+boundary resolves handles against owned media, document, and sandbox adapters,
+returning foreign/tampered handles as not found. Background-task-run adapters
+remain deferred.
 
 The only Script browser boundary is an immutable-manifest capability-gated
 `{browser:{actions:["snapshot","act"]}}` request through the existing

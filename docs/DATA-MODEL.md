@@ -40,6 +40,27 @@ PersAI is the source of truth for:
 - integration state such as Telegram binding/config, including assistant-scoped Telegram access mode in binding metadata (`owner_only` by default, or `group_members` for linked group member access) and Telegram chat/sender metadata on group user messages
 - ADR-097 document-domain persistence (`assistant_documents`, `assistant_document_versions`, `assistant_document_render_jobs`, `assistant_document_provider_mappings`, `assistant_document_delivered_files`, `assistant_document_revision_logs`) for stable `doc_id`, version graph, render-job lifecycle, provider reconciliation metadata, delivery linkage, and revision history
 
+### ADR-152 universal await and detached SandboxJob persistence boundary
+
+The founder follow-through remains additive and introduces no generic
+Operation/outbox/registry. It extends the existing
+`AssistantAsyncJobHandleKind` with `sandbox`, adds nullable
+`runtime_session_id` to the same handle row, and adds canonical
+`SandboxJobStatus.detached`. Media/document rows and `sandbox_jobs` remain
+canonical status/output authority. A trusted registration transaction validates
+the exact source turn/session and mints the opaque handle; raw SandboxJob ids
+are never model capabilities. The no-id wait snapshot is a transactional,
+bounded projection of exact-owned current-server-logical-turn handles and
+currently-open exact-owned canonical media/document/sandbox jobs in the current chat/channel/thread;
+delivery/attachment visibility is canonical observable truth. Stable ordering,
+max-32 `snapshot_overflow`, current-turn narration CAS ownership, durable
+notify subscription state, source-finalization gate, ready/claim/dispatch
+state, and permanent-failure delivery all reuse existing row/CAS/delivery
+machinery. Detached pod status/output files are restart-safe execution truth
+until canonical DB finalization; the trusted sandbox inspection path plus the
+3-second continuation scheduler poll recovers missed completion. Idle-TTL pod
+deletion CAS-terminalizes remaining detached jobs as cancelled.
+
 ### ADR-152 checkpoint-1 additive job-handle truth
 
 ADR-152 checkpoint 1 is implemented locally. It adds one table,
@@ -52,8 +73,9 @@ cancelled`; terminal snapshot; narration owner/decision; claim token/TTL/retry
 fields; and deterministic continuation `clientTurnId`. `jobRef` is unique, as
 is `(kind, canonicalJobId)`.
 
-The row maps only canonical `assistant_media_jobs` and
-`assistant_document_render_jobs` initially and also records continuation state.
+The row maps canonical `assistant_media_jobs`,
+`assistant_document_render_jobs`, and exact warm-session shell/exec
+`sandbox_jobs`, and also records continuation state.
 Canonical rows remain source of truth: handle resolution always rechecks the
 canonical job and all ownership. `delivered` is the only terminal-success
 adapter state; `completion_pending` and `ready_for_delivery` are pending.

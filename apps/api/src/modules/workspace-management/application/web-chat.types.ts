@@ -175,6 +175,7 @@ export interface AssistantWebChatTurnState {
   followUpAssistantMessage?: AssistantWebChatMessageState;
   activeMediaJobs?: AssistantWebChatActiveMediaJobState[];
   activeDocumentJobs?: AssistantWebChatActiveDocumentJobState[];
+  activeSandboxJobs?: AssistantWebChatActiveSandboxJobState[];
   engagementSummary?: AssistantWebChatEngagementSummary | null;
   pendingBrowserLogin?: PendingBrowserLoginState | null;
   runtime: {
@@ -226,6 +227,29 @@ export type AssistantWebChatActiveMediaJobOperation =
 
 export type AssistantWebChatActiveMediaJobDisplayKind = "cinematic" | "talking_avatar";
 
+export type AssistantWebChatNotifyState =
+  | "none"
+  | "subscribed"
+  | "ready"
+  | "claimed"
+  | "dispatched"
+  | "failed"
+  | "cancelled";
+
+export function toWebNotifyState(state: string | null | undefined): AssistantWebChatNotifyState {
+  switch (state) {
+    case "subscribed":
+    case "ready":
+    case "claimed":
+    case "dispatched":
+    case "failed":
+    case "cancelled":
+      return state;
+    default:
+      return "none";
+  }
+}
+
 export interface AssistantWebChatActiveMediaJobState {
   id: string;
   kind: AssistantWebChatActiveMediaJobKind;
@@ -245,6 +269,7 @@ export interface AssistantWebChatActiveMediaJobState {
   createdAt: string;
   startedAt: string | null;
   updatedAt: string;
+  notifyState?: AssistantWebChatNotifyState;
 }
 
 export type AssistantWebChatActiveDocumentJobStatus =
@@ -259,6 +284,17 @@ export interface AssistantWebChatActiveDocumentJobState {
   documentType: "presentation";
   descriptorMode: "create_presentation" | "revise_document" | "export_or_redeliver";
   status: AssistantWebChatActiveDocumentJobStatus;
+  createdAt: string;
+  startedAt: string | null;
+  updatedAt: string;
+  notifyState?: AssistantWebChatNotifyState;
+}
+
+export interface AssistantWebChatActiveSandboxJobState {
+  jobRef: string;
+  toolCode: "shell" | "exec";
+  status: "queued" | "running" | "detached";
+  notifyState: AssistantWebChatNotifyState;
   createdAt: string;
   startedAt: string | null;
   updatedAt: string;
@@ -295,5 +331,6 @@ export interface AssistantWebChatListItemState {
   activeTurn: AssistantWebChatCompactActiveTurnState | null;
   activeMediaJobs?: AssistantWebChatActiveMediaJobState[];
   activeDocumentJobs?: AssistantWebChatActiveDocumentJobState[];
+  activeSandboxJobs?: AssistantWebChatActiveSandboxJobState[];
   pendingBrowserLogin?: PendingBrowserLoginState | null;
 }

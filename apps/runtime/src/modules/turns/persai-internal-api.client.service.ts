@@ -60,6 +60,25 @@ export class AsyncJobStatusDeadlineExceededError extends Error {
   }
 }
 
+export type RuntimeOwnedAsyncJobStatus = {
+  found: true;
+  jobRef: string;
+  kind: "media" | "document" | "sandbox";
+  status: "pending" | "completed" | "failed" | "cancelled";
+  terminal: boolean;
+  errorCode: string | null;
+  message: string | null;
+  narrationOutcome: "claimed_current_turn" | "already_owned" | null;
+  narrationOwner: "current_turn" | "continuation" | "legacy" | null;
+  sandboxResult?: {
+    toolCode: "shell" | "exec";
+    exitCode: number | null;
+    stdout: string | null;
+    stderr: string | null;
+    paths: string[];
+  } | null;
+};
+
 type JsonResponse = {
   ok: boolean;
   status: number;
@@ -763,6 +782,69 @@ export class PersaiInternalApiClientService {
     );
   }
 
+  async assertBackgroundJobCap(input: {
+    chatId: string;
+    excludeSandboxJobId?: string;
+  }): Promise<{ allowed: true } | { allowed: false; code: "background_job_concurrency_limit" }> {
+    const response = await this.fetchJson("/api/v1/internal/runtime/async-jobs/v1/assert-cap", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${this.config.PERSAI_INTERNAL_API_TOKEN}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        chatId: input.chatId,
+        ...(typeof input.excludeSandboxJobId === "string" &&
+        input.excludeSandboxJobId.trim().length > 0
+          ? { excludeSandboxJobId: input.excludeSandboxJobId.trim() }
+          : {})
+      })
+    });
+    if (response.status === 409) {
+      return { allowed: false, code: "background_job_concurrency_limit" };
+    }
+    if (!response.ok) {
+      throw new ServiceUnavailableException("Background job admission is unavailable.");
+    }
+    return { allowed: true };
+  }
+
+  async registerSandboxAsyncJob(input: {
+    canonicalJobId: string;
+    assistantId: string;
+    workspaceId: string;
+    chatId: string;
+    channel: "web" | "telegram" | "max_ru";
+    threadKey: string;
+    sourceClientTurnId: string;
+    sourceUserMessageId: string;
+    runtimeRequestId: string;
+    runtimeSessionId: string;
+    toolCode: "shell" | "exec";
+  }): Promise<{ registered: true; jobRef: string } | { registered: false }> {
+    const response = await this.fetchJson(
+      "/api/v1/internal/runtime/async-jobs/v1/sandbox/register",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${this.config.PERSAI_INTERNAL_API_TOKEN}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(input)
+      }
+    );
+    const row = this.asObject(response.body);
+    if (response.status === 409) return { registered: false };
+    if (!response.ok || row === null) {
+      throw new ServiceUnavailableException("Sandbox async job registration is unavailable.");
+    }
+    if (row.registered === false) return { registered: false };
+    if (row.registered !== true || typeof row.jobRef !== "string") {
+      throw new BadGatewayException("PersAI internal API returned invalid sandbox registration.");
+    }
+    return { registered: true, jobRef: row.jobRef };
+  }
+
   async resolveAsyncJobStatus(input: {
     jobRef: string;
     assistantId: string;
@@ -772,20 +854,7 @@ export class PersaiInternalApiClientService {
     threadKey: string;
     abortSignal?: AbortSignal;
     timeoutMs?: number;
-  }): Promise<
-    | { found: false; code: "job_not_found" }
-    | {
-        found: true;
-        jobRef: string;
-        kind: "media" | "document";
-        status: "pending" | "completed" | "failed" | "cancelled";
-        terminal: boolean;
-        errorCode: string | null;
-        message: string | null;
-        narrationOutcome: "claimed_current_turn" | "already_owned" | null;
-        narrationOwner: "current_turn" | "continuation" | "legacy" | null;
-      }
-  > {
+  }): Promise<{ found: false; code: "job_not_found" } | RuntimeOwnedAsyncJobStatus> {
     const response = await this.fetchJson(
       "/api/v1/internal/runtime/async-jobs/v1/status",
       {
@@ -819,7 +888,7 @@ export class PersaiInternalApiClientService {
     if (
       row.found !== true ||
       typeof row.jobRef !== "string" ||
-      (row.kind !== "media" && row.kind !== "document") ||
+      (row.kind !== "media" && row.kind !== "document" && row.kind !== "sandbox") ||
       !["pending", "completed", "failed", "cancelled"].includes(String(row.status)) ||
       typeof row.terminal !== "boolean"
     ) {
@@ -842,8 +911,66 @@ export class PersaiInternalApiClientService {
         row.narrationOwner === "continuation" ||
         row.narrationOwner === "legacy"
           ? row.narrationOwner
-          : null
+          : null,
+      sandboxResult: this.parseSandboxAsyncResult(row.sandboxResult)
     };
+  }
+
+  async resolveAsyncJobSnapshot(input: {
+    sourceClientTurnId: string;
+    assistantId: string;
+    workspaceId: string;
+    chatId: string;
+    channel: "web" | "telegram" | "max_ru";
+    threadKey: string;
+    abortSignal?: AbortSignal;
+    timeoutMs?: number;
+  }): Promise<
+    | { outcome: "job_not_found" | "snapshot_overflow"; jobs: [] }
+    | { outcome: "snapshot"; jobs: RuntimeOwnedAsyncJobStatus[] }
+  > {
+    const response = await this.fetchJson(
+      "/api/v1/internal/runtime/async-jobs/v1/snapshot",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${this.config.PERSAI_INTERNAL_API_TOKEN}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          sourceClientTurnId: input.sourceClientTurnId,
+          assistantId: input.assistantId,
+          workspaceId: input.workspaceId,
+          chatId: input.chatId,
+          channel: input.channel,
+          threadKey: input.threadKey
+        }),
+        ...(input.abortSignal === undefined ? {} : { signal: input.abortSignal })
+      },
+      input.timeoutMs === undefined
+        ? undefined
+        : {
+            timeoutMs: input.timeoutMs,
+            timeoutError: () => new AsyncJobStatusDeadlineExceededError()
+          }
+    );
+    const row = this.asObject(response.body);
+    if (!response.ok || row === null || typeof row.outcome !== "string") {
+      throw new ServiceUnavailableException("Async job snapshot is temporarily unavailable.");
+    }
+    if (row.outcome === "job_not_found" || row.outcome === "snapshot_overflow") {
+      return { outcome: row.outcome, jobs: [] };
+    }
+    if (row.outcome !== "snapshot" || !Array.isArray(row.jobs)) {
+      throw new BadGatewayException("PersAI internal API returned an invalid async job snapshot.");
+    }
+    const jobs = row.jobs
+      .map((entry) => this.parseOwnedAsyncJobStatus(entry))
+      .filter((entry): entry is RuntimeOwnedAsyncJobStatus => entry !== null);
+    if (jobs.length !== row.jobs.length) {
+      throw new BadGatewayException("PersAI internal API returned an invalid async job row.");
+    }
+    return { outcome: "snapshot", jobs };
   }
 
   async subscribeAsyncJob(input: {
@@ -864,10 +991,17 @@ export class PersaiInternalApiClientService {
       }
     | {
         outcome: "terminal_inline";
-        kind: "media" | "document";
+        kind: "media" | "document" | "sandbox";
         status: "completed" | "failed" | "cancelled";
         errorCode: string | null;
         message: string;
+        sandboxResult?: {
+          toolCode: "shell" | "exec";
+          exitCode: number | null;
+          stdout: string | null;
+          stderr: string | null;
+          paths: string[];
+        } | null;
       }
     | {
         outcome: "already_owned";
@@ -910,7 +1044,7 @@ export class PersaiInternalApiClientService {
     }
     if (
       row.outcome === "terminal_inline" &&
-      (row.kind === "media" || row.kind === "document") &&
+      (row.kind === "media" || row.kind === "document" || row.kind === "sandbox") &&
       ["completed", "failed", "cancelled"].includes(String(row.status)) &&
       typeof row.message === "string"
     ) {
@@ -919,7 +1053,8 @@ export class PersaiInternalApiClientService {
         kind: row.kind,
         status: row.status as "completed" | "failed" | "cancelled",
         errorCode: typeof row.errorCode === "string" ? row.errorCode : null,
-        message: row.message
+        message: row.message,
+        sandboxResult: this.parseSandboxAsyncResult(row.sandboxResult)
       };
     }
     if (
@@ -2801,6 +2936,68 @@ export class PersaiInternalApiClientService {
     return value !== null && typeof value === "object" && !Array.isArray(value)
       ? (value as Record<string, unknown>)
       : null;
+  }
+
+  private parseSandboxAsyncResult(value: unknown): {
+    toolCode: "shell" | "exec";
+    exitCode: number | null;
+    stdout: string | null;
+    stderr: string | null;
+    paths: string[];
+  } | null {
+    const row = this.asObject(value);
+    if (
+      row === null ||
+      (row.toolCode !== "shell" && row.toolCode !== "exec") ||
+      (row.exitCode !== null && typeof row.exitCode !== "number") ||
+      (row.stdout !== null && typeof row.stdout !== "string") ||
+      (row.stderr !== null && typeof row.stderr !== "string") ||
+      !Array.isArray(row.paths) ||
+      !row.paths.every((path) => typeof path === "string")
+    ) {
+      return null;
+    }
+    return {
+      toolCode: row.toolCode,
+      exitCode: row.exitCode,
+      stdout: row.stdout,
+      stderr: row.stderr,
+      paths: row.paths
+    };
+  }
+
+  private parseOwnedAsyncJobStatus(value: unknown): RuntimeOwnedAsyncJobStatus | null {
+    const row = this.asObject(value);
+    if (
+      row === null ||
+      row.found !== true ||
+      typeof row.jobRef !== "string" ||
+      (row.kind !== "media" && row.kind !== "document" && row.kind !== "sandbox") ||
+      !["pending", "completed", "failed", "cancelled"].includes(String(row.status)) ||
+      typeof row.terminal !== "boolean"
+    ) {
+      return null;
+    }
+    return {
+      found: true,
+      jobRef: row.jobRef,
+      kind: row.kind,
+      status: row.status as RuntimeOwnedAsyncJobStatus["status"],
+      terminal: row.terminal,
+      errorCode: typeof row.errorCode === "string" ? row.errorCode : null,
+      message: typeof row.message === "string" ? row.message : null,
+      narrationOutcome:
+        row.narrationOutcome === "claimed_current_turn" || row.narrationOutcome === "already_owned"
+          ? row.narrationOutcome
+          : null,
+      narrationOwner:
+        row.narrationOwner === "current_turn" ||
+        row.narrationOwner === "continuation" ||
+        row.narrationOwner === "legacy"
+          ? row.narrationOwner
+          : null,
+      sandboxResult: this.parseSandboxAsyncResult(row.sandboxResult)
+    };
   }
 
   private isInternalScheduledActionItem(value: unknown): value is InternalScheduledActionItem {

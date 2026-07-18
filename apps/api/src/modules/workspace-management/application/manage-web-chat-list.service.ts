@@ -35,6 +35,7 @@ import type {
   AssistantWebChatActiveTurnState,
   AssistantWebChatActiveDocumentJobState,
   AssistantWebChatActiveMediaJobState,
+  AssistantWebChatActiveSandboxJobState,
   AssistantWebChatCompactionResult,
   AssistantWebChatCompactionState,
   AssistantWebChatEngagementSummary,
@@ -62,6 +63,7 @@ import {
   type AssistantBrowserProfileRepository
 } from "../domain/assistant-browser-profile.repository";
 import { resolvePendingBrowserLoginForWebChat } from "./resolve-pending-browser-login-for-web-chat";
+import { AssistantAsyncJobHandleStateService } from "./assistant-async-job-handle-state.service";
 
 export interface UpdateWebChatRequest {
   title?: string | null;
@@ -125,6 +127,7 @@ export class ManageWebChatListService {
     private readonly webRuntimeSessionStateClientService: WebRuntimeSessionStateClientService,
     private readonly assistantMediaJobService: AssistantMediaJobService,
     private readonly assistantDocumentJobReadService: AssistantDocumentJobReadService,
+    private readonly asyncJobHandleState: AssistantAsyncJobHandleStateService,
     private readonly webChatTurnAttemptService: WebChatTurnAttemptService,
     private readonly resolveActiveAssistantService: ResolveActiveAssistantService,
     private readonly enforceAssistantCapabilityAndQuotaService: EnforceAssistantCapabilityAndQuotaService,
@@ -232,6 +235,10 @@ export class ManageWebChatListService {
             userId,
             chatId: chat.id
           }),
+          activeSandboxJobs: await this.asyncJobHandleState.listOpenSandboxJobsForWebChat({
+            assistantId: assistant.id,
+            chatId: chat.id
+          }),
           pendingBrowserLogin: await resolvePendingBrowserLoginForWebChat({
             browserProfileRepository: this.assistantBrowserProfileRepository,
             assistantId: assistant.id,
@@ -299,6 +306,10 @@ export class ManageWebChatListService {
         userId,
         chatId
       }),
+      activeSandboxJobs: await this.asyncJobHandleState.listOpenSandboxJobsForWebChat({
+        assistantId: assistant.id,
+        chatId
+      }),
       pendingBrowserLogin: await resolvePendingBrowserLoginForWebChat({
         browserProfileRepository: this.assistantBrowserProfileRepository,
         assistantId: assistant.id,
@@ -337,7 +348,8 @@ export class ManageWebChatListService {
       lastMessagePreview: metadata.lastMessagePreview,
       activeTurn: null,
       activeMediaJobs: [],
-      activeDocumentJobs: []
+      activeDocumentJobs: [],
+      activeSandboxJobs: []
     };
   }
 
@@ -377,7 +389,8 @@ export class ManageWebChatListService {
       lastMessagePreview: metadata.lastMessagePreview,
       activeTurn: null,
       activeMediaJobs: [],
-      activeDocumentJobs: []
+      activeDocumentJobs: [],
+      activeSandboxJobs: []
     };
   }
 
@@ -391,6 +404,7 @@ export class ManageWebChatListService {
     activeTurn: AssistantWebChatActiveTurnState | null;
     activeMediaJobs: AssistantWebChatActiveMediaJobState[];
     activeDocumentJobs: AssistantWebChatActiveDocumentJobState[];
+    activeSandboxJobs: AssistantWebChatActiveSandboxJobState[];
     pendingBrowserLogin: AssistantWebChatListItemState["pendingBrowserLogin"];
     /**
      * ADR-125 follow-up — chat-level "active skill / scenario" projection so
@@ -471,6 +485,10 @@ export class ManageWebChatListService {
       userId,
       chatId
     });
+    const activeSandboxJobs = await this.asyncJobHandleState.listOpenSandboxJobsForWebChat({
+      assistantId: assistant.id,
+      chatId
+    });
 
     const currentEngagement = deriveEngagementSummary(chat.skillDecisionState);
     const pendingBrowserLogin = await resolvePendingBrowserLoginForWebChat({
@@ -485,6 +503,7 @@ export class ManageWebChatListService {
       activeTurn,
       activeMediaJobs,
       activeDocumentJobs,
+      activeSandboxJobs,
       currentEngagement,
       pendingBrowserLogin
     };

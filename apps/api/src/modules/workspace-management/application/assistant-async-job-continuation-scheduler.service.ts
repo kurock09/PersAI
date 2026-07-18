@@ -1,5 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
+import {
+  Inject,
+  Injectable,
+  Logger,
+  OnModuleDestroy,
+  OnModuleInit,
+  Optional
+} from "@nestjs/common";
 import type { Prisma } from "@prisma/client";
 import { loadApiConfig } from "@persai/config";
 import type { RuntimeTurnRequest, RuntimeTurnResult } from "@persai/runtime-contract";
@@ -10,8 +17,10 @@ import {
 import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import {
+  ASYNC_CONTINUATION_PERMANENT_FAILURE_TEXT,
   AssistantAsyncJobHandleStateService,
-  MAX_ASYNC_CONTINUATION_DEPTH
+  MAX_ASYNC_CONTINUATION_DEPTH,
+  type PermanentFailureObservation
 } from "./assistant-async-job-handle-state.service";
 import { runtimeOutputArtifactsToMediaArtifacts } from "./assistant-runtime.facade";
 import { BackgroundSchedulerMetricsService } from "./background-scheduler-metrics.service";
@@ -26,6 +35,7 @@ import { resolveNativeRuntimeTurnTimeoutMs } from "./native-runtime-turn-timeout
 import { ResolveAssistantRuntimeTierService } from "./resolve-assistant-runtime-tier.service";
 import { LEASE_HEARTBEAT_INTERVAL_MS } from "./scheduler-lease.constants";
 import { SchedulerLeaseService } from "./scheduler-lease.service";
+import { SandboxControlPlaneClientService } from "./sandbox-control-plane.client.service";
 import { TelegramAssistantChatOutboundService } from "./telegram-assistant-chat-outbound.service";
 
 const SCHEDULER_KEY = "assistant_async_job_continuation";
@@ -57,7 +67,9 @@ export class AssistantAsyncJobContinuationSchedulerService
     @Inject(ASSISTANT_REPOSITORY)
     private readonly assistants: AssistantRepository,
     @Inject(ASSISTANT_MATERIALIZED_SPEC_REPOSITORY)
-    private readonly materializedSpecs: AssistantMaterializedSpecRepository
+    private readonly materializedSpecs: AssistantMaterializedSpecRepository,
+    @Optional()
+    private readonly sandboxControlPlane?: SandboxControlPlaneClientService
   ) {}
 
   onModuleInit(): void {
@@ -71,6 +83,8 @@ export class AssistantAsyncJobContinuationSchedulerService
   }
 
   async processDueBatch(limit = BATCH_SIZE): Promise<number> {
+    await this.reconcileSubscribedSandboxHandles(limit);
+    await this.reconcileSubscribedDeliveryVisibleHandles(limit);
     await this.reconcileUnfinalizedSourceTurns(limit);
     await this.reconcileExpiredClaims(limit);
     const claims = await this.handleState.claimReady({
@@ -83,12 +97,94 @@ export class AssistantAsyncJobContinuationSchedulerService
     return claims.length;
   }
 
+  private async reconcileSubscribedSandboxHandles(limit: number): Promise<void> {
+    if (this.sandboxControlPlane === undefined) return;
+    if (
+      typeof (this.prisma.assistantAsyncJobHandle as { findMany?: unknown }).findMany !== "function"
+    ) {
+      return;
+    }
+    const rows = await this.prisma.assistantAsyncJobHandle.findMany({
+      // Include state=none so completed unobserved sandbox jobs finalize and
+      // cannot linger as open-handle snapshot candidates.
+      where: { kind: "sandbox", state: { in: ["none", "subscribed"] } },
+      orderBy: { updatedAt: "asc" },
+      take: limit,
+      select: { canonicalJobId: true }
+    });
+    for (const row of rows) {
+      await this.sandboxControlPlane.inspectJob(row.canonicalJobId);
+      const job = await this.prisma.sandboxJob.findUnique({
+        where: { id: row.canonicalJobId },
+        select: { status: true, resultPayload: true }
+      });
+      if (job === null || !["completed", "failed", "blocked", "cancelled"].includes(job.status)) {
+        continue;
+      }
+      const terminalStatus =
+        job.status === "completed"
+          ? ("completed" as const)
+          : job.status === "cancelled"
+            ? ("cancelled" as const)
+            : ("failed" as const);
+      await this.handleState.recordCanonicalCompletion({
+        kind: "sandbox",
+        canonicalJobId: row.canonicalJobId,
+        terminalStatus,
+        terminalSnapshot: {
+          status: terminalStatus,
+          result: job.resultPayload ?? null
+        }
+      });
+    }
+  }
+
+  /**
+   * Promote media/document subscribed|none handles when canonical truth is
+   * already delivery-visible (or terminal failed/canceled), matching observe.
+   * Sandbox reconcile is separate (needs control-plane inspect).
+   */
+  private async reconcileSubscribedDeliveryVisibleHandles(limit: number): Promise<void> {
+    if (
+      typeof (this.prisma.assistantAsyncJobHandle as { findMany?: unknown }).findMany !== "function"
+    ) {
+      return;
+    }
+    const rows = await this.prisma.assistantAsyncJobHandle.findMany({
+      where: {
+        kind: { in: ["media", "document"] },
+        state: { in: ["none", "subscribed"] }
+      },
+      orderBy: { updatedAt: "asc" },
+      take: limit,
+      select: { kind: true, canonicalJobId: true, runtimeSessionId: true }
+    });
+    for (const row of rows) {
+      if (row.kind !== "media" && row.kind !== "document") continue;
+      const terminal = await this.handleState.readCanonicalTerminal({
+        kind: row.kind,
+        canonicalJobId: row.canonicalJobId,
+        runtimeSessionId: row.runtimeSessionId
+      });
+      if (terminal === null || terminal.status === "pending") continue;
+      await this.handleState.recordCanonicalCompletion({
+        kind: row.kind,
+        canonicalJobId: row.canonicalJobId,
+        terminalStatus: terminal.status,
+        terminalSnapshot: {
+          status: terminal.status,
+          errorCode: terminal.errorCode,
+          message: terminal.message
+        }
+      });
+    }
+  }
+
   private async processClaim(claim: { id: string; claimToken: string }): Promise<void> {
     try {
       const context = await this.loadAndValidateContext(claim.id);
       if (context === null) {
-        await this.handleState.failClaim({
-          ...claim,
+        await this.failClaimVisibly(claim, {
           errorCode: "continuation_context_invalid",
           errorMessage:
             "Continuation ownership, binding, entitlement, or canonical truth failed validation."
@@ -129,8 +225,7 @@ export class AssistantAsyncJobContinuationSchedulerService
       }
       if (outcome.outcome === "failed") {
         await this.finalizeContinuationChildren(context, "failed");
-        await this.handleState.failClaim({
-          ...claim,
+        await this.failClaimVisibly(claim, {
           errorCode: outcome.code,
           errorMessage: "Runtime continuation failed."
         });
@@ -189,30 +284,25 @@ export class AssistantAsyncJobContinuationSchedulerService
     ) {
       return null;
     }
-    const binding = await this.prisma.assistantChannelSurfaceBinding.findUnique({
-      where: {
-        assistantId_providerKey_surfaceType: {
-          assistantId: handle.assistantId,
-          providerKey: handle.channel === "web" ? "web_internal" : "telegram",
-          surfaceType: handle.channel === "web" ? "web_chat" : "telegram_bot"
+    if (handle.channel === "telegram") {
+      const binding = await this.prisma.assistantChannelSurfaceBinding.findUnique({
+        where: {
+          assistantId_providerKey_surfaceType: {
+            assistantId: handle.assistantId,
+            providerKey: "telegram",
+            surfaceType: "telegram_bot"
+          }
         }
-      }
+      });
+      if (binding?.bindingState !== "active") return null;
+    }
+    // Same delivery-visible / failure-first predicate as observe/subscribe.
+    const terminal = await this.handleState.readCanonicalTerminal({
+      kind: handle.kind,
+      canonicalJobId: handle.canonicalJobId,
+      runtimeSessionId: handle.runtimeSessionId
     });
-    if (binding?.bindingState !== "active") return null;
-    const canonical =
-      handle.kind === "media"
-        ? await this.prisma.assistantMediaJob.findUnique({
-            where: { id: handle.canonicalJobId },
-            select: { status: true, lastErrorCode: true }
-          })
-        : await this.prisma.assistantDocumentRenderJob.findUnique({
-            where: { id: handle.canonicalJobId },
-            select: { status: true, lastErrorCode: true }
-          });
-    if (
-      canonical === null ||
-      !["delivered", "failed", "expired", "canceled"].includes(canonical.status)
-    ) {
+    if (terminal === null || terminal.status === "pending") {
       return null;
     }
     const assistant = await this.assistants.findById(handle.assistantId);
@@ -246,19 +336,9 @@ export class AssistantAsyncJobContinuationSchedulerService
     if (sourceUserMessage === null) return null;
     const facts = {
       kind: handle.kind,
-      status:
-        canonical.status === "delivered"
-          ? ("completed" as const)
-          : canonical.status === "canceled"
-            ? ("cancelled" as const)
-            : ("failed" as const),
-      errorCode: canonical.lastErrorCode,
-      message:
-        canonical.status === "delivered"
-          ? "Job completed and was delivered."
-          : canonical.status === "canceled"
-            ? "Job was cancelled."
-            : "Job failed."
+      status: terminal.status,
+      errorCode: terminal.errorCode,
+      message: terminal.message
     };
     return { handle, session, sourceUserMessage, facts };
   }
@@ -538,7 +618,17 @@ export class AssistantAsyncJobContinuationSchedulerService
             });
       if (receipt?.status === "completed" && this.isRuntimeTurnResult(receipt.resultPayload)) {
         const context = await this.loadAndValidateContext(row.id);
-        if (context === null) continue;
+        if (context === null) {
+          await this.failClaimVisibly(
+            { id: row.id, claimToken: row.claimToken },
+            {
+              errorCode: "continuation_context_invalid",
+              errorMessage:
+                "Continuation ownership, binding, entitlement, or canonical truth failed validation."
+            }
+          );
+          continue;
+        }
         const persisted = await this.persistOutputOnce(
           { id: row.id, claimToken: row.claimToken },
           context,
@@ -580,23 +670,35 @@ export class AssistantAsyncJobContinuationSchedulerService
       }
       if (receipt?.status === "failed" || receipt?.status === "interrupted") {
         const context = await this.loadAndValidateContext(row.id);
-        if (context === null) continue;
-        await this.finalizeContinuationChildren(
-          context,
-          receipt.status === "interrupted" ? "stopped" : "failed"
+        if (context !== null) {
+          await this.finalizeContinuationChildren(
+            context,
+            receipt.status === "interrupted" ? "stopped" : "failed"
+          );
+        }
+        await this.failClaimVisibly(
+          { id: row.id, claimToken: row.claimToken },
+          {
+            errorCode: `continuation_receipt_${receipt.status}`,
+            errorMessage: `Runtime continuation receipt is ${receipt.status}.`
+          }
         );
-        await this.handleState.failClaim({
-          id: row.id,
-          claimToken: row.claimToken,
-          errorCode: `continuation_receipt_${receipt.status}`,
-          errorMessage: `Runtime continuation receipt is ${receipt.status}.`
-        });
         continue;
       }
       if (receipt !== null) continue;
       if (row.dispatchReceiptRequestId === null) continue;
       const context = await this.loadAndValidateContext(row.id);
-      if (context === null) continue;
+      if (context === null) {
+        await this.failClaimVisibly(
+          { id: row.id, claimToken: row.claimToken },
+          {
+            errorCode: "continuation_context_invalid",
+            errorMessage:
+              "Continuation ownership, binding, entitlement, or canonical truth failed validation."
+          }
+        );
+        continue;
+      }
       const rebuilt = await this.buildRequest(context);
       const runtimeStatus = await this.runtimeClient.inspect({
         ...rebuilt.request,
@@ -610,7 +712,7 @@ export class AssistantAsyncJobContinuationSchedulerService
       ) {
         continue;
       }
-      await this.handleState.requeueClaim({
+      const requeued = await this.handleState.requeueClaim({
         id: row.id,
         claimToken: row.claimToken,
         retryAt: this.retryAt(row.retryCount),
@@ -618,6 +720,11 @@ export class AssistantAsyncJobContinuationSchedulerService
         errorMessage: "No runtime receipt, live accepted turn, or persisted output exists.",
         dispatchedProof: { receiptAbsent: true, leaseAbsent: true, outputAbsent: true }
       });
+      if (requeued === "exhausted") {
+        await this.deliverPermanentFailureTelegramOnce(
+          await this.handleState.getPermanentFailureObservation(row.id)
+        );
+      }
     }
   }
 
@@ -720,6 +827,49 @@ export class AssistantAsyncJobContinuationSchedulerService
     return artifacts.count > 0 || external.count > 0;
   }
 
+  private async failClaimVisibly(
+    claim: { id: string; claimToken: string },
+    error: { errorCode: string; errorMessage: string }
+  ): Promise<void> {
+    const result = await this.handleState.failClaim({
+      ...claim,
+      errorCode: error.errorCode,
+      errorMessage: error.errorMessage
+    });
+    const observation =
+      result.observation ?? (await this.handleState.getPermanentFailureObservation(claim.id));
+    await this.deliverPermanentFailureTelegramOnce(observation);
+  }
+
+  private async deliverPermanentFailureTelegramOnce(
+    observation: PermanentFailureObservation | null
+  ): Promise<void> {
+    if (observation === null || observation.channel !== "telegram") return;
+    const claimed = await this.handleState.claimFailedHandleExternalNotice(observation.handleId);
+    if (!claimed) return;
+    try {
+      const delivery = await this.telegramOutbound.deliverPersistedAssistantMessageBestEffort({
+        assistantId: observation.assistantId,
+        workspaceId: observation.workspaceId,
+        chatId: observation.chatId,
+        assistantMessageId: observation.assistantMessageId,
+        text: ASYNC_CONTINUATION_PERMANENT_FAILURE_TEXT,
+        mediaAlreadyDelivered: true
+      });
+      await this.handleState.recordFailedHandleExternalNoticeResult({
+        id: observation.handleId,
+        result: delivery.status === "delivered" ? "delivered" : "failed",
+        ...(delivery.status === "delivered" ? {} : { error: delivery.reason })
+      });
+    } catch (error) {
+      await this.handleState.recordFailedHandleExternalNoticeResult({
+        id: observation.handleId,
+        result: "ambiguous",
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+
   private async requeue(
     claim: { id: string; claimToken: string },
     code: string,
@@ -729,7 +879,7 @@ export class AssistantAsyncJobContinuationSchedulerService
       where: { id: claim.id },
       select: { retryCount: true, state: true }
     });
-    await this.handleState.requeueClaim({
+    const outcome = await this.handleState.requeueClaim({
       ...claim,
       retryAt: this.retryAt(row?.retryCount ?? 0),
       errorCode: code,
@@ -744,6 +894,11 @@ export class AssistantAsyncJobContinuationSchedulerService
           }
         : {})
     });
+    if (outcome === "exhausted") {
+      await this.deliverPermanentFailureTelegramOnce(
+        await this.handleState.getPermanentFailureObservation(claim.id)
+      );
+    }
   }
 
   private retryAt(retryCount: number): Date {

@@ -66,10 +66,13 @@ ADR-109 and ADR-111 add one bounded HeyGen-backed product seam inside the active
 - ADR-147 Slice S2 local truth: runtime bundles now carry non-model `effectiveRoleId`; `skill.engage` / `skill.release` persistence validates internal UUIDs before raw casts, sends `expectedRoleId`, and returns honest `stale_assistant_role_snapshot` results instead of claiming durable state after a role change or role-skill drift. Skill-related mutations share the absent-link-safe order `Skill -> AssistantRole -> Assistant -> AssistantChat -> AssistantRoleSkill` (sorted ids for every multi-row class). Scenario mutation locks its parent Skill before discovering/revalidating linked Roles and taking its Assistant snapshot; release uses an unlocked Skill candidate only to enter that order, then revalidates locked chat state before writing. Future Role-Skill replacement must lock every involved Skill before any Role. Role PUT touches no Skill/link and remains a valid Role→Assistant subsequence with bounded Assistant revalidation retry.
 - runtime session and turn state
 - native execution health/readiness
-- ADR-152 checkpoint 1 model-visible `await.wait`: one bounded observation call
-  through the API-owned canonical resolver, with status-only zero timeout,
-  60-second cap, one blocking wait per job per turn, and Stop aborting only the
-  wait/turn. No runtime Prisma access or parallel job registry is introduced.
+- ADR-152 local follow-through model-visible `await`: exact-id or no-id bounded
+  observation across canonical media, document, and detached shell/exec
+  SandboxJobs; `timeoutMs` is `0..60000`; each dispatched turn admits 20
+  replay-deduped waits. Stop aborts only the current turn/wait after a job has
+  yielded. Notify is durable and non-terminal, with source-finalization and the
+  same-chat runtime lease gating continuation. No runtime Prisma access or
+  parallel job registry is introduced.
 
 ### Provider plane
 
@@ -98,6 +101,14 @@ ADR-140 closes the persistent Browserless session era. The active browser archit
 - isolated process/document job execution (`shell`, `exec`, `execute_document_code`, `render_html_to_pdf`)
 - assistant-workspace pod materialization and session snapshot cache (not canonical bytes authority — ADR-137)
 - sandbox job health/readiness and job polling surfaces used by `apps/runtime`
+- ADR-152 founder follow-through: warm-session model-facing shell/exec runs
+  under a durable pod-side supervisor. `maxProcessRuntimeMs` is the foreground
+  yield threshold on this path; a yielded canonical job is `detached`, releases
+  the workspace lease, and is observed from bounded pod status/output files
+  after control-plane restart. Successful warm jobs do not run the global
+  baseline-PID cleanup. Sessionless jobs retain hard timeout and exact-pod
+  retirement. Detached processes remain inside the same pod resource/egress
+  contour and idle-TTL pod deletion is final cleanup authority.
 
 **ADR-148 closed (founder live-accepted 2026-07-15):** healthy
 session-scoped exec pods are warm reusable execution containers, not
@@ -187,6 +198,36 @@ promise. Release `f0944d31` / GitOps pin `95c7d68d`, the deployed `5fb61f3c`
 allowed-model audit, strict model-driven Script smoke, and approved-account
 Admin Scripts UI founder acceptance. ADR-151 is closed.
 
+**ADR-152 founder UX revision (F0 documentation-only; independent audit pending):**
+CP1–CP5 landing/deploy history is preserved, but founder rejected the required
+jobRef, one-wait-per-job, terminal-notify, late-banner await UX after live
+acceptance exposed `continuation_context_invalid`. Browser SDK acceptance is
+paused, not rejected. F1 carries the uncommitted valid repair: native
+`web_internal`/`web_chat` has no synthetic binding requirement; Telegram
+continues to require an active binding. Await v2 makes `jobRef` optional only
+for `wait`: `wait()` returns a stable, max-32 exact-owned current-turn/open-
+thread snapshot or fail-closed `snapshot_overflow`; `wait(jobRef)` observes one
+exact owned job. Delivery-visible canonical truth wins immediately. Local
+truth: runtime client-polls immediate internal DB status/snapshot seams
+(~500ms); Redis subscribe-before-read long-poll is **not** landed. Durable
+canonical/handle rows remain authority. A retained API ~3s poll recovers
+missed wakes only. (Aspirational ADR prose about Redis wake/kick must not be
+read as deployed behavior.)
+Twenty admitted waits, including zero-timeout reads, are budgeted per dispatched
+logical runtime turn by provider tool-call id; call 21 returns typed
+`wait_budget_exhausted`. Notify durably subscribes but returns
+`turnControl:"continue"` so the source model may continue; scheduler dispatch
+requires `sourceFinalizedAt`, serializes bidirectionally with ordinary same-chat
+turns through the existing session lease, and emits an exactly-once visible
+failure observation on permanent continuation failure. Runtime/API stream an
+immediate accepted event and absolute-time wait activity; durable active
+observation projection is reconnect authority. Additive migration
+`20260718150000_adr152_sandbox_async_job_handles` lands sandbox handle kind,
+`detached` status, and `runtime_session_id`; no outbox/event bus/generic
+registry or mega-transaction is introduced. F0–F5 run with no intermediate
+deploy; rollout is migration → API → runtime → sandbox → web and reverses on
+rollback.
+
 **ADR-152 (checkpoint 3 committed `a0d9d368`; checkpoint 4 Admin/MCP authoring CLEAN):** checkpoint 1, the
 API/data/delivery ownership core, exact `wait|notify` terminal control,
 source-turn finalization, and serialized same-chat continuation are implemented
@@ -250,24 +291,20 @@ failure. Final independent Terra and Sonnet re-audits and the parent full
 repository gate are CLEAN. Push, deploy, and founder live acceptance remain
 pending.
 
-The universal model-visible `await` tool will observe only owned canonical
-media/document jobs through opaque server-minted `jr1` handles mapped by one
-additive `assistant_async_job_handles` table. `wait` is terminal-before-call,
-capped at 60 seconds, one blocking wait/job/turn, and never cancels canonical
-work; `notify` creates durable subscription and ends the provider loop, later
-dispatching exactly one fresh-hydrated continuation in the original chat/channel
-without re-delivering files. Existing attachment-first delivery remains sole
-file delivery owner. Subscribed completion skips legacy isolated completion
-framing; unsubscribed behavior remains byte-compatible. The continuation chain
-is bounded to four unattended continuations per originating user turn.
-The canonical-job adapter contract is extensible, but background work is
-deliberately deferred: current `assistant_background_task_runs` lacks an
-immutable exposed run identity suitable for handle minting/resolution, and a
-recurring `assistant_background_tasks` row never qualifies as a job reference.
-Document SDK is NO-GO because nested document SandboxJobs contend for the outer
-Script's workspace queue/lease and deterministically time out within a bound.
-This is not a general-purpose SDK, durable Script-execution restart, or
-managed-secret program; ADR-153 owns credential guarantees.
+The universal model-visible `await` tool observes owned canonical
+media/document/**sandbox** jobs through opaque server-minted `jr1` handles
+mapped by `assistant_async_job_handles`. `wait` is capped at 60 seconds, admits
+up to 20 waits per dispatched turn, and never cancels canonical work; `notify`
+creates a durable subscription and returns non-terminal
+`turnControl:"continue"`, later dispatching exactly one fresh-hydrated
+continuation in the original chat/channel without re-delivering files.
+Existing attachment-first delivery remains sole file delivery owner.
+Subscribed completion skips legacy isolated completion framing; unsubscribed
+behavior remains byte-compatible. The continuation chain is bounded to four
+unattended continuations per originating user turn. Background-task-run
+adapters remain deferred; Document SDK remains NO-GO; this is not a
+general-purpose SDK, durable Script-execution restart, or managed-secret
+program (ADR-153).
 
 Model-facing `files.*`, `grep`, and `glob` are **storage-plane** tools: runtime writes/reads committed bytes via GCS + `workspace_file_metadata` + internal API (`apps/api`), not sandbox `toolCode: "files"`.
 

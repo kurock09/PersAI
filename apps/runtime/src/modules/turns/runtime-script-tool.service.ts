@@ -164,6 +164,23 @@ export class RuntimeScriptToolService {
       : null;
     if (browserEnabled && terminalReplay === null) {
       try {
+        // Sandbox opens the broker with deadlineAtMs = now + reconciled
+        // maxProcessRuntimeMs (min of plan sandbox policy and Script timeout).
+        // Mint happens before workspace lease wait (up to 60s), so TTL must
+        // cover process budget + pre-open slack; sandbox assertBinding allows
+        // the same slack, then session lifetime clamps to deadlineAtMs.
+        const sandboxPolicy = params.bundle.runtime.sandbox ?? DEFAULT_RUNTIME_SANDBOX_POLICY;
+        const baseProcessRuntimeMs =
+          typeof sandboxPolicy.maxProcessRuntimeMs === "number" &&
+          Number.isFinite(sandboxPolicy.maxProcessRuntimeMs) &&
+          sandboxPolicy.maxProcessRuntimeMs > 0
+            ? sandboxPolicy.maxProcessRuntimeMs
+            : DEFAULT_RUNTIME_SANDBOX_POLICY.maxProcessRuntimeMs;
+        // Must match sandbox resolveWorkspaceLeaseWaitTimeoutMs cap (60s) and
+        // script-browser-broker PREOPEN_SLACK_MS.
+        const BROKER_PREOPEN_SLACK_MS = 60_000;
+        const processBudgetMs = Math.min(artifact.limits.timeoutMs, baseProcessRuntimeMs);
+        const brokerTtlMs = Math.min(31 * 60_000, processBudgetMs + BROKER_PREOPEN_SLACK_MS);
         browserBroker = await this.scriptBrowserBrokerService.register({
           bundle: params.bundle,
           sessionId: params.sessionId,
@@ -174,7 +191,7 @@ export class RuntimeScriptToolService {
           sourceUserMessageText: params.currentUserMessageText,
           sourceUserMessageCreatedAt: params.sourceUserMessageCreatedAt ?? null,
           allowedProfile: typeof structuredProfile === "string" ? structuredProfile.trim() : "",
-          ttlMs: Math.min(31 * 60_000, artifact.limits.timeoutMs),
+          ttlMs: brokerTtlMs,
           ...(params.abortSignal === undefined ? {} : { abortSignal: params.abortSignal }),
           ...(params.toolProgressSink === undefined
             ? {}

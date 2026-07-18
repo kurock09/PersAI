@@ -14,7 +14,8 @@ const apiMocks = vi.hoisted(() => ({
 const streamingMocks = vi.hoisted(() => ({
   activeThreads: new Set<string>(),
   activeMediaThreads: new Set<string>(),
-  activeDocumentThreads: new Set<string>()
+  activeDocumentThreads: new Set<string>(),
+  activeSandboxThreads: new Set<string>()
 }));
 
 vi.mock("../assistant-api-client", () => ({
@@ -27,9 +28,11 @@ vi.mock("./streaming-threads", () => ({
     activeThreads: streamingMocks.activeThreads,
     activeMediaThreads: streamingMocks.activeMediaThreads,
     activeDocumentThreads: streamingMocks.activeDocumentThreads,
+    activeSandboxThreads: streamingMocks.activeSandboxThreads,
     markStreaming: vi.fn(),
     markMediaActive: vi.fn(),
-    markDocumentActive: vi.fn()
+    markDocumentActive: vi.fn(),
+    markSandboxActive: vi.fn()
   })
 }));
 
@@ -77,6 +80,7 @@ describe("AssistantSandboxEgressSettings", () => {
     streamingMocks.activeThreads = new Set();
     streamingMocks.activeMediaThreads = new Set();
     streamingMocks.activeDocumentThreads = new Set();
+    streamingMocks.activeSandboxThreads = new Set();
     apiMocks.getAssistantSandboxEgress.mockResolvedValue({
       requestId: "req-1",
       assistantId: ASSISTANT_ID,

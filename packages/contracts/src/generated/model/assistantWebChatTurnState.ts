@@ -8,6 +8,7 @@ import type { AssistantWebChatState } from "./assistantWebChatState";
 import type { AssistantWebChatMessageState } from "./assistantWebChatMessageState";
 import type { AssistantWebChatActiveMediaJobState } from "./assistantWebChatActiveMediaJobState";
 import type { AssistantWebChatActiveDocumentJobState } from "./assistantWebChatActiveDocumentJobState";
+import type { AssistantWebChatActiveSandboxJobState } from "./assistantWebChatActiveSandboxJobState";
 import type { AssistantWebChatTurnStatePendingBrowserLogin } from "./assistantWebChatTurnStatePendingBrowserLogin";
 import type { AssistantWebChatRuntimeState } from "./assistantWebChatRuntimeState";
 
@@ -17,6 +18,7 @@ export interface AssistantWebChatTurnState {
   assistantMessage: AssistantWebChatMessageState;
   activeMediaJobs?: AssistantWebChatActiveMediaJobState[];
   activeDocumentJobs?: AssistantWebChatActiveDocumentJobState[];
+  activeSandboxJobs?: AssistantWebChatActiveSandboxJobState[];
   /** @nullable */
   pendingBrowserLogin?: AssistantWebChatTurnStatePendingBrowserLogin;
   runtime: AssistantWebChatRuntimeState;

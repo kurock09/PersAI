@@ -130,6 +130,7 @@ enum AssistantDocumentRenderJobStatus {
 enum AssistantAsyncJobHandleKind {
   media
   document
+  sandbox
 }
 
 enum AssistantAsyncJobHandleState {
@@ -489,6 +490,7 @@ enum AttachmentProcessingStatus {
 enum SandboxJobStatus {
   queued
   running
+  detached
   completed
   failed
   blocked
@@ -2436,7 +2438,7 @@ model AssistantMediaJob {
 }
 
 /// ADR-152: one durable opaque mapping and future continuation state row for
-/// canonical asynchronous jobs. Canonical media/document rows remain status truth.
+/// canonical asynchronous jobs. Canonical media/document/sandbox rows remain status truth.
 model AssistantAsyncJobHandle {
   id                               String                       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   jobRef                           String                       @unique @map("job_ref") @db.VarChar(96)
@@ -2450,6 +2452,7 @@ model AssistantAsyncJobHandle {
   threadKey                        String?                      @map("thread_key") @db.VarChar(255)
   sourceClientTurnId               String?                      @map("source_client_turn_id") @db.VarChar(128)
   sourceUserMessageId              String?                      @map("source_user_message_id") @db.Uuid
+  runtimeSessionId                 String?                      @map("runtime_session_id") @db.Uuid
   state                            AssistantAsyncJobHandleState @default(none)
   terminalSnapshotJson             Json?                        @map("terminal_snapshot_json") @db.JsonB
   narrationOwner                   String?                      @map("narration_owner") @db.VarChar(32)

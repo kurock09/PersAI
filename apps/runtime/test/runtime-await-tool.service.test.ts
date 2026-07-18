@@ -52,11 +52,8 @@ export async function runRuntimeAwaitToolServiceTest(): Promise<void> {
     );
     const result = await executeArguments(service, { action: "notify", jobRef: ref });
     assert.equal(result.payload.action, "notified");
-    assert.equal(result.payload.turnControl, "terminal_static");
-    assert.equal(
-      result.payload.staticAssistantText,
-      "I’ll let you know here when the job finishes."
-    );
+    assert.equal(result.payload.turnControl, "continue");
+    assert.equal(result.payload.staticAssistantText, null);
   }
   {
     const { service } = makeService(
@@ -88,15 +85,6 @@ export async function runRuntimeAwaitToolServiceTest(): Promise<void> {
       assert.equal(result.isError, true);
     }
   }
-  {
-    const clock = createClock();
-    const { service } = makeService(async (input) => {
-      assert.equal(input.timeoutMs, 60_000);
-      return terminal;
-    }, clock);
-    assert.equal((await execute(service, 90_000)).payload.status, "completed");
-  }
-
   {
     let calls = 0;
     const { service } = makeService(async () => {
@@ -130,9 +118,115 @@ export async function runRuntimeAwaitToolServiceTest(): Promise<void> {
     const first = await execute(service, 1, waits);
     assert.equal(first.payload.status, "pending");
     const second = await execute(service, 1, waits);
-    assert.equal(second.payload.reason, "blocking_wait_already_used");
+    assert.equal(second.payload.status, "pending");
     const statusOnly = await execute(service, 0, waits);
     assert.equal(statusOnly.payload.status, "pending");
+  }
+  {
+    const { service } = makeService(async () => terminal);
+    const result = await execute(service, 60_001);
+    assert.equal(result.payload.reason, "invalid_arguments");
+  }
+  {
+    let statusCalls = 0;
+    const { service } = makeService(
+      async () => {
+        statusCalls += 1;
+        return pending;
+      },
+      undefined,
+      undefined,
+      async () => ({ outcome: "snapshot", jobs: [{ ...pending, sandboxResult: null }] })
+    );
+    const result = await executeArguments(service, { action: "wait", timeoutMs: 0 });
+    assert.equal(result.payload.jobs?.length, 1);
+    assert.equal(statusCalls, 0);
+  }
+  {
+    let snapshotCalls = 0;
+    const clock = createClock();
+    const { service } = makeService(
+      async () => pending,
+      clock,
+      undefined,
+      async () => {
+        snapshotCalls += 1;
+        return { outcome: "snapshot", jobs: [] };
+      }
+    );
+    const result = await executeArguments(service, { action: "wait", timeoutMs: 60_000 });
+    assert.equal(result.payload.action, "status");
+    assert.equal(result.payload.jobs?.length, 0);
+    assert.equal(snapshotCalls, 1, "empty snapshot must return immediately without polling");
+    assert.equal(clock.current, 0, "empty snapshot must not delay");
+  }
+  {
+    let snapshotCalls = 0;
+    const clock = createClock();
+    const { service } = makeService(
+      async () => pending,
+      clock,
+      undefined,
+      async () => {
+        snapshotCalls += 1;
+        return {
+          outcome: "snapshot",
+          jobs: [{ ...terminal, sandboxResult: null }]
+        };
+      }
+    );
+    const result = await executeArguments(service, { action: "wait", timeoutMs: 60_000 });
+    assert.equal(result.payload.action, "status");
+    assert.equal(result.payload.terminal, true);
+    assert.equal(snapshotCalls, 1, "already-terminal snapshot must not poll");
+    assert.equal(clock.current, 0);
+  }
+  {
+    const { service } = makeService(async () => ({
+      ...terminal,
+      narrationOutcome: "already_owned" as const,
+      narrationOwner: "continuation" as const
+    }));
+    const result = await execute(service, 0);
+    assert.equal(result.payload.turnControl, "continue");
+    assert.equal(result.payload.staticAssistantText, null);
+  }
+  {
+    const { service } = makeService(async () => ({
+      ...terminal,
+      narrationOutcome: "already_owned" as const,
+      narrationOwner: "legacy" as const
+    }));
+    const result = await execute(service, 0);
+    assert.equal(result.payload.turnControl, "terminal_static");
+  }
+  {
+    const admitted = new Set<string>();
+    const { service } = makeService(async () => pending);
+    for (let index = 0; index < 20; index += 1) {
+      const result = await service.executeToolCall({
+        ...base,
+        sourceClientTurnId: "turn",
+        toolCall: {
+          id: `wait-${String(index)}`,
+          name: "await",
+          arguments: { action: "wait", jobRef: ref, timeoutMs: 0 }
+        },
+        admittedWaitToolCallIds: admitted
+      });
+      assert.notEqual(result.payload.reason, "wait_budget_exhausted");
+    }
+    const blocked = await service.executeToolCall({
+      ...base,
+      sourceClientTurnId: "turn",
+      toolCall: {
+        id: "wait-21",
+        name: "await",
+        arguments: { action: "wait", jobRef: ref, timeoutMs: 0 }
+      },
+      admittedWaitToolCallIds: admitted
+    });
+    assert.equal(blocked.payload.reason, "wait_budget_exhausted");
   }
   {
     for (const status of ["failed", "cancelled"] as const) {
@@ -215,11 +309,19 @@ function makeService(
   clock = createClock(),
   subscribeAsyncJob: PersaiInternalApiClientService["subscribeAsyncJob"] = async () => ({
     outcome: "not_found"
+  }),
+  resolveAsyncJobSnapshot: PersaiInternalApiClientService["resolveAsyncJobSnapshot"] = async () => ({
+    outcome: "snapshot",
+    jobs: []
   })
 ) {
   return {
     service: new RuntimeAwaitToolService(
-      { resolveAsyncJobStatus, subscribeAsyncJob } as PersaiInternalApiClientService,
+      {
+        resolveAsyncJobStatus,
+        subscribeAsyncJob,
+        resolveAsyncJobSnapshot
+      } as PersaiInternalApiClientService,
       clock
     ),
     clock

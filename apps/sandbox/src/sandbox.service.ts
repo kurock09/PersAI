@@ -108,6 +108,7 @@ type SandboxToolExecutionResult = {
   durationMs?: number;
   execPodName?: string;
   execPodBinding?: ExecPodJobBinding | undefined;
+  detached?: boolean;
   producedFiles?: RuntimeSandboxProducedFile[];
 };
 
@@ -157,6 +158,7 @@ export class SandboxService {
       binding: ExecPodJobBinding;
       runtimeSessionId: string | null;
       processCleanupStarted: boolean;
+      supervisedProcess: boolean;
     }
   >();
   private readonly sandboxInstanceHolderId = `${hostname()}:${process.pid}:${randomUUID()}`;
@@ -547,7 +549,10 @@ export class SandboxService {
     }
   }
 
-  async cancelJob(jobId: string): Promise<RuntimeSandboxJobResult> {
+  async cancelJob(
+    jobId: string,
+    options?: { forceDetachedOrphan?: boolean }
+  ): Promise<RuntimeSandboxJobResult> {
     const job = await this.findJobRecord(jobId);
     if (job === null) {
       return {
@@ -568,8 +573,56 @@ export class SandboxService {
     if (this.isTerminalJobStatus(job.status)) {
       return this.pollJob(jobId);
     }
+    // ADR-152: turn Stop must not kill detached retained work — no-op poll only.
+    // Admission-orphan cleanup (failed register/context after detach) may force
+    // terminate so unobserved detached work cannot burn the chat 8-cap forever.
+    if (job.status === "detached") {
+      if (options?.forceDetachedOrphan !== true) {
+        return this.pollJob(jobId);
+      }
+      if (job.execPodName !== null) {
+        await this.execPodBridgeService?.terminateDetachedSessionJob({
+          jobId: job.id,
+          assistantId: job.assistantId,
+          workspaceId: job.workspaceId,
+          podName: job.execPodName
+        });
+      }
+      await this.prisma.sandboxJob.updateMany({
+        where: {
+          id: jobId,
+          status: "detached",
+          completedAt: null
+        },
+        data: {
+          status: "cancelled",
+          completedAt: new Date(),
+          violationCode: "admission_orphan",
+          violationMessage:
+            "Detached sandbox job cancelled because opaque registration/context failed.",
+          resultPayload: {
+            reason: "admission_orphan",
+            warning: "Detached sandbox job cancelled because opaque registration/context failed.",
+            exitCode: null,
+            stdout: null,
+            stderr: null,
+            content: null
+          }
+        }
+      });
+      return this.pollJob(jobId);
+    }
     this.activeJobAbortControllers.get(jobId)?.abort();
-    await this.terminateActiveJobProcess(jobId);
+    const processTerminated = await this.terminateActiveJobProcess(jobId);
+    if (!processTerminated) {
+      // Kill failed while the process may still be running (state.json PID retained).
+      // Leave status=running so reconcile/cancel can retry; never stamp cancelled on a
+      // failed terminate.
+      this.logger.warn(
+        `sandbox_job_cancel_skipped_after_kill_failure job=${jobId} status=${job.status}`
+      );
+      return this.pollJob(jobId);
+    }
     await this.prisma.sandboxJob.updateMany({
       where: {
         id: jobId,
@@ -598,27 +651,34 @@ export class SandboxService {
    * ADR-149 — best-effort mid-flight process kill using the existing session
    * TERM/KILL cleanup script (or ephemeral pod retirement). Closing the exec
    * WebSocket alone does not stop the in-pod process.
+   *
+   * Returns false when a kill was attempted and failed so cancelJob must not
+   * stamp cancelled while a state.json PID may still be live.
    */
-  private async terminateActiveJobProcess(jobId: string): Promise<void> {
+  private async terminateActiveJobProcess(jobId: string): Promise<boolean> {
     const live = this.activeJobBindings.get(jobId);
     if (live === undefined || live.processCleanupStarted) {
-      return;
+      return true;
     }
     if (this.execPodBridgeService === null || this.execPodBridgeService === undefined) {
-      return;
+      return true;
     }
     live.processCleanupStarted = true;
     try {
       if (live.runtimeSessionId === null) {
         await this.execPodBridgeService.retireModelJobPod({ binding: live.binding });
+      } else if (live.supervisedProcess) {
+        await this.execPodBridgeService.terminateBoundSessionJobProcess({ binding: live.binding });
       } else {
         await this.execPodBridgeService.cleanupBoundSessionPod({ binding: live.binding });
       }
+      return true;
     } catch (error) {
       live.processCleanupStarted = false;
       this.logger.warn(
         `sandbox_job_cancel_process_kill_failed job=${jobId} error=${error instanceof Error ? error.message : String(error)}`
       );
+      return false;
     }
   }
 
@@ -627,6 +687,7 @@ export class SandboxService {
     const deadlineMs =
       waitMs > 0 ? Date.now() + Math.min(waitMs, this.config.SANDBOX_MAX_POLL_WAIT_MS) : null;
     let job = await this.findJobRecord(jobId);
+    job = await this.refreshDetachedJob(job);
     job = await this.failStaleJobIfNeeded(job);
     while (
       job !== null &&
@@ -642,6 +703,7 @@ export class SandboxService {
         setTimeout(resolve, Math.min(WORKSPACE_LEASE_ACQUIRE_RETRY_MS, remainingWaitMs))
       );
       job = await this.findJobRecord(jobId);
+      job = await this.refreshDetachedJob(job);
       job = await this.failStaleJobIfNeeded(job);
     }
     if (waitMs > 0) {
@@ -875,6 +937,106 @@ export class SandboxService {
     });
   }
 
+  private async refreshDetachedJob(
+    job: Awaited<ReturnType<SandboxService["findJobRecord"]>>
+  ): Promise<Awaited<ReturnType<SandboxService["findJobRecord"]>>> {
+    if (job === null || job.status !== "detached") return job;
+    if (job.execPodName === null) {
+      await this.cancelDetachedJobAfterPodLoss(job.id);
+      return this.findJobRecord(job.id);
+    }
+    let observed = await this.execPodBridgeService.observeDetachedSessionJob({
+      jobId: job.id,
+      assistantId: job.assistantId,
+      workspaceId: job.workspaceId,
+      podName: job.execPodName
+    });
+    if (observed.status === "running") return job;
+    if (observed.status === "failed" || observed.status === "missing") {
+      // Dead-PID finalize race: re-observe before marking failed / pod-loss cancel.
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        observed = await this.execPodBridgeService.observeDetachedSessionJob({
+          jobId: job.id,
+          assistantId: job.assistantId,
+          workspaceId: job.workspaceId,
+          podName: job.execPodName
+        });
+        if (observed.status === "running") return job;
+        if (observed.status === "completed") break;
+      }
+      if (observed.status === "failed") {
+        await this.prisma.sandboxJob.updateMany({
+          where: { id: job.id, status: "detached", completedAt: null },
+          data: {
+            status: "failed",
+            completedAt: new Date(),
+            resultPayload: {
+              reason: "process_failed",
+              warning: null,
+              exitCode: 1,
+              stdout: null,
+              stderr: null,
+              content: null,
+              producedFiles: []
+            }
+          }
+        });
+        return this.findJobRecord(job.id);
+      }
+      if (observed.status === "missing") {
+        await this.cancelDetachedJobAfterPodLoss(job.id);
+        return this.findJobRecord(job.id);
+      }
+    }
+    if (observed.status !== "completed") {
+      return job;
+    }
+    await this.prisma.sandboxJob.updateMany({
+      where: { id: job.id, status: "detached", completedAt: null },
+      data: {
+        status: "completed",
+        completedAt: new Date(),
+        resultPayload: {
+          reason: observed.exitCode === 0 ? null : "process_failed",
+          warning: null,
+          exitCode: observed.exitCode,
+          stdout: this.stripNulCharacters(observed.stdout),
+          stderr: this.stripNulCharacters(observed.stderr),
+          content: null,
+          producedFiles: []
+        },
+        resourceUsage: {
+          stdoutBytes: Buffer.byteLength(observed.stdout, "utf8"),
+          stderrBytes: Buffer.byteLength(observed.stderr, "utf8"),
+          processDurationMs: observed.durationMs
+        }
+      }
+    });
+    return this.findJobRecord(job.id);
+  }
+
+  private async cancelDetachedJobAfterPodLoss(jobId: string): Promise<void> {
+    await this.prisma.sandboxJob.updateMany({
+      where: { id: jobId, status: "detached", completedAt: null },
+      data: {
+        status: "cancelled",
+        completedAt: new Date(),
+        violationCode: "sandbox_session_idle_expired",
+        violationMessage: "The warm sandbox session reached its idle TTL.",
+        resultPayload: {
+          reason: "sandbox_session_idle_expired",
+          warning: "The warm sandbox session reached its idle TTL.",
+          exitCode: null,
+          stdout: null,
+          stderr: null,
+          content: null,
+          producedFiles: []
+        }
+      }
+    });
+  }
+
   private readProducedFilesFromJobPayload(
     payload: Record<string, unknown>
   ): RuntimeSandboxProducedFile[] {
@@ -940,7 +1102,7 @@ export class SandboxService {
       completedAt: Date | null;
     } | null
   >(job: T): Promise<T> {
-    if (job === null || this.isTerminalJobStatus(job.status)) {
+    if (job === null || this.isTerminalJobStatus(job.status) || job.status === "detached") {
       return job;
     }
     const policy = this.parsePolicySnapshot(job.policySnapshot);
@@ -1173,6 +1335,7 @@ export class SandboxService {
     let currentRoot: string | null = null;
     let execPodBinding: ExecPodJobBinding | null = null;
     let terminalWriteSucceeded = false;
+    let detachedWriteSucceeded = false;
     let jobStartedAtMs: number | null = null;
     try {
       if (jobAbortController.signal.aborted) {
@@ -1247,6 +1410,41 @@ export class SandboxService {
       });
       execPodBinding = result.execPodBinding ?? null;
       this.assertWorkspaceLeaseActive(leaseGuard);
+      if (
+        request.runtimeSessionId !== null &&
+        (request.toolCode === "shell" || request.toolCode === "exec") &&
+        result.detached === true
+      ) {
+        detachedWriteSucceeded = await this.updateSandboxJobUnderActiveLease({
+          guard: leaseGuard,
+          jobId,
+          expectedStatus: "running",
+          data: {
+            status: "detached",
+            ...(result.execPodName !== undefined ? { execPodName: result.execPodName } : {}),
+            resultPayload: {
+              reason: "detached",
+              warning: null,
+              exitCode: null,
+              stdout: null,
+              stderr: null,
+              content: null,
+              producedFiles: []
+            }
+          }
+        });
+        if (!detachedWriteSucceeded || execPodBinding === null) {
+          throw this.createWorkspaceLeaseError(
+            "workspace_lease_lost",
+            "Workspace lease was lost before Process-timeout detach could complete."
+          );
+        }
+        // Founder semantics: detach stamp + lease release happen only after the
+        // bridge waited through the plan Process-timeout yield threshold (or
+        // equivalent). Short completions never take this path.
+        await this.execPodBridgeService.releaseBoundSessionPod({ binding: execPodBinding });
+        return;
+      }
 
       const stats = await this.computeWorkspaceStats(workspaceRoot);
       this.assertWorkspaceLeaseActive(leaseGuard);
@@ -1385,64 +1583,68 @@ export class SandboxService {
         });
       }
       const liveBinding = this.activeJobBindings.get(jobId);
-      let podFinalizationSucceeded = execPodBinding === null;
+      let podFinalizationSucceeded = execPodBinding === null || detachedWriteSucceeded;
       if (leaseGuard !== null && execPodBinding !== null) {
-        const cleanupAlreadyStarted = liveBinding?.processCleanupStarted === true;
-        if (cleanupAlreadyStarted) {
+        if (detachedWriteSucceeded) {
           podFinalizationSucceeded = true;
         } else {
-          if (liveBinding !== undefined) {
-            liveBinding.processCleanupStarted = true;
-          }
-          try {
-            if (request.runtimeSessionId === null) {
-              const retirement = await this.execPodBridgeService.retireModelJobPod({
-                binding: execPodBinding
-              });
-              podFinalizationSucceeded = true;
-              this.logger.log(
-                `sandbox_job_pod_retirement_complete job=${jobId} assistant=${request.assistantId} pod=${retirement.podName} uid=${retirement.podUid} retired=${String(retirement.retired)}`
-              );
-            } else {
-              const cleanup = await this.execPodBridgeService.cleanupBoundSessionPod({
-                binding: execPodBinding
-              });
-              podFinalizationSucceeded = true;
-              this.logger.log(
-                `sandbox_job_pod_cleanup_complete job=${jobId} assistant=${request.assistantId} pod=${cleanup.podName} uid=${cleanup.podUid}`
-              );
-            }
-          } catch (cleanupError) {
+          const cleanupAlreadyStarted = liveBinding?.processCleanupStarted === true;
+          if (cleanupAlreadyStarted) {
+            podFinalizationSucceeded = true;
+          } else {
             if (liveBinding !== undefined) {
-              liveBinding.processCleanupStarted = false;
+              liveBinding.processCleanupStarted = true;
             }
-            const cleanupMessage =
-              cleanupError instanceof Error ? cleanupError.message : String(cleanupError);
-            this.logger.error(
-              `sandbox_job_pod_cleanup_failed job=${jobId} assistant=${request.assistantId} workspace=${request.workspaceId} pod=${execPodBinding.podName} uid=${execPodBinding.podUid} error=${cleanupMessage}`
-            );
             try {
-              const retirement = await this.execPodBridgeService.retireModelJobPod({
-                binding: execPodBinding
-              });
-              podFinalizationSucceeded = true;
-              this.logger.warn(
-                `sandbox_job_pod_cleanup_retired job=${jobId} assistant=${request.assistantId} pod=${retirement.podName} uid=${retirement.podUid} retired=${String(retirement.retired)}`
-              );
-            } catch (retirementError) {
-              const retirementMessage =
-                retirementError instanceof Error
-                  ? retirementError.message
-                  : String(retirementError);
+              if (request.runtimeSessionId === null) {
+                const retirement = await this.execPodBridgeService.retireModelJobPod({
+                  binding: execPodBinding
+                });
+                podFinalizationSucceeded = true;
+                this.logger.log(
+                  `sandbox_job_pod_retirement_complete job=${jobId} assistant=${request.assistantId} pod=${retirement.podName} uid=${retirement.podUid} retired=${String(retirement.retired)}`
+                );
+              } else {
+                const cleanup = await this.execPodBridgeService.cleanupBoundSessionPod({
+                  binding: execPodBinding
+                });
+                podFinalizationSucceeded = true;
+                this.logger.log(
+                  `sandbox_job_pod_cleanup_complete job=${jobId} assistant=${request.assistantId} pod=${cleanup.podName} uid=${cleanup.podUid}`
+                );
+              }
+            } catch (cleanupError) {
+              if (liveBinding !== undefined) {
+                liveBinding.processCleanupStarted = false;
+              }
+              const cleanupMessage =
+                cleanupError instanceof Error ? cleanupError.message : String(cleanupError);
               this.logger.error(
-                `sandbox_job_pod_retirement_failed job=${jobId} assistant=${request.assistantId} workspace=${request.workspaceId} pod=${execPodBinding.podName} uid=${execPodBinding.podUid} error=${retirementMessage}`
+                `sandbox_job_pod_cleanup_failed job=${jobId} assistant=${request.assistantId} workspace=${request.workspaceId} pod=${execPodBinding.podName} uid=${execPodBinding.podUid} error=${cleanupMessage}`
               );
+              try {
+                const retirement = await this.execPodBridgeService.retireModelJobPod({
+                  binding: execPodBinding
+                });
+                podFinalizationSucceeded = true;
+                this.logger.warn(
+                  `sandbox_job_pod_cleanup_retired job=${jobId} assistant=${request.assistantId} pod=${retirement.podName} uid=${retirement.podUid} retired=${String(retirement.retired)}`
+                );
+              } catch (retirementError) {
+                const retirementMessage =
+                  retirementError instanceof Error
+                    ? retirementError.message
+                    : String(retirementError);
+                this.logger.error(
+                  `sandbox_job_pod_retirement_failed job=${jobId} assistant=${request.assistantId} workspace=${request.workspaceId} pod=${execPodBinding.podName} uid=${execPodBinding.podUid} error=${retirementMessage}`
+                );
+              }
             }
           }
         }
       }
       await this.stopWorkspaceLeaseHeartbeat(leaseGuard, {
-        release: terminalWriteSucceeded && podFinalizationSucceeded
+        release: (terminalWriteSucceeded || detachedWriteSucceeded) && podFinalizationSucceeded
       });
       this.activeJobBindings.delete(jobId);
       this.activeJobAbortControllers.delete(jobId);
@@ -1605,17 +1807,33 @@ export class SandboxService {
       args: childArgs,
       policy,
       visibleWorkspacePaths: [this.toVisibleWorkspaceAbsolutePath(workspaceRoot, absoluteCwd)],
+      ...(runtimeSessionId === null ? {} : { supervisedDetach: true }),
       signal,
       onBound: (binding) => {
         this.activeJobBindings.set(jobId, {
           binding,
           runtimeSessionId,
-          processCleanupStarted: false
+          processCleanupStarted: false,
+          supervisedProcess: runtimeSessionId !== null
         });
         leaseGuard.podBinding = binding;
       }
     });
     leaseGuard.podBinding = result.execPodBinding ?? null;
+    if (result.detached === true) {
+      return {
+        reason: "detached",
+        warning: null,
+        exitCode: null,
+        stdout: null,
+        stderr: null,
+        content: null,
+        durationMs: result.durationMs,
+        execPodName: result.execPodName,
+        execPodBinding: result.execPodBinding,
+        detached: true
+      };
+    }
     if (result.exitCode !== 0) {
       return {
         reason: "process_failed",
@@ -1803,7 +2021,8 @@ export class SandboxService {
           this.activeJobBindings.set(jobId, {
             binding,
             runtimeSessionId,
-            processCleanupStarted: false
+            processCleanupStarted: false,
+            supervisedProcess: false
           });
           leaseGuard.podBinding = binding;
         }
@@ -2082,7 +2301,8 @@ export class SandboxService {
           this.activeJobBindings.set(jobId, {
             binding,
             runtimeSessionId,
-            processCleanupStarted: false
+            processCleanupStarted: false,
+            supervisedProcess: false
           });
           leaseGuard.podBinding = binding;
         }
@@ -2260,7 +2480,8 @@ export class SandboxService {
           this.activeJobBindings.set(jobId, {
             binding,
             runtimeSessionId,
-            processCleanupStarted: false
+            processCleanupStarted: false,
+            supervisedProcess: false
           });
           leaseGuard.podBinding = binding;
         }

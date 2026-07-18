@@ -30,6 +30,7 @@ import {
   type ChatCompactionState,
   type WebChatActiveMediaJobState,
   type WebChatActiveDocumentJobState,
+  type WebChatActiveSandboxJobState,
   type WebChatActiveTurnState,
   type WebChatTurnStatusState,
   type WebChatUxIssue,
@@ -126,6 +127,7 @@ export interface UseChatReturn {
   chatId: string | null;
   activeMediaJobs: WebChatActiveMediaJobState[];
   activeDocumentJobs: WebChatActiveDocumentJobState[];
+  activeSandboxJobs?: WebChatActiveSandboxJobState[];
   isStreaming: boolean;
   historyLoading: boolean;
   hasOlderMessages: boolean;
@@ -249,6 +251,7 @@ type CachedThreadHistorySnapshot = ActiveTurnSnapshot & {
   hasOlderMessages: boolean;
   activeMediaJobs: WebChatActiveMediaJobState[];
   activeDocumentJobs: WebChatActiveDocumentJobState[];
+  activeSandboxJobs?: WebChatActiveSandboxJobState[];
 };
 type SnapshotDebugEvent = {
   type: "active-snapshot-non-live-user";
@@ -457,9 +460,17 @@ function buildToolLiveActivity(params: {
           : copy.end;
   const shellCommand =
     params.phase === "start" &&
+    params.toolName !== "await" &&
     typeof params.toolInputPreview === "string" &&
     params.toolInputPreview.trim().length > 0
       ? params.toolInputPreview.trim()
+      : undefined;
+  const awaitDeadline =
+    params.phase === "start" &&
+    params.toolName === "await" &&
+    typeof params.toolInputPreview === "string" &&
+    /^await-deadline:\d+$/.test(params.toolInputPreview)
+      ? params.toolInputPreview
       : undefined;
   return {
     id: `activity-live-tool-${Date.now()}-${params.phase}-${params.toolName}`,
@@ -470,7 +481,8 @@ function buildToolLiveActivity(params: {
     source: "tool",
     toolName: params.toolName,
     ...(params.toolCallId === undefined ? {} : { toolCallId: params.toolCallId }),
-    ...(shellCommand === undefined ? {} : { shellCommand })
+    ...(shellCommand === undefined ? {} : { shellCommand }),
+    ...(awaitDeadline === undefined ? {} : { detail: awaitDeadline })
   };
 }
 function buildCompactionLiveActivity(params: {
@@ -862,7 +874,10 @@ function toActiveTurnOverlayMessages(activeTurn: WebChatActiveTurnState | null |
             toolName: activeTurn.currentActivity.toolName,
             phase: activeTurn.currentActivity.phase,
             isError: activeTurn.currentActivity.isError,
-            toolCallId: activeTurn.currentActivity.toolCallId
+            toolCallId: activeTurn.currentActivity.toolCallId,
+            ...(activeTurn.currentActivity.toolInputPreview === undefined
+              ? {}
+              : { toolInputPreview: activeTurn.currentActivity.toolInputPreview })
           })
         }
       : {};
@@ -1194,10 +1209,12 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
   const [chatId, setChatId] = useState<string | null>(null);
   const [activeMediaJobs, setActiveMediaJobs] = useState<WebChatActiveMediaJobState[]>([]);
   const [activeDocumentJobs, setActiveDocumentJobs] = useState<WebChatActiveDocumentJobState[]>([]);
+  const [activeSandboxJobs, setActiveSandboxJobs] = useState<WebChatActiveSandboxJobState[]>([]);
   /* Slice 1.1 ��� per-thread streaming flag. */ /*  */ /* `isStreaming` used to be a single `useState(false)` local to this hook. */ /* That meant Chat A's in-flight stream blocked the composer in Chat B as */ /* soon as the user switched threads. We now lift "which threads are */ /* streaming?" into a shared registry keyed by `surfaceThreadKey`, so each */ /* thread has its own independent boolean and AbortController. */ /* See `streaming-threads.tsx`. */ const {
     activeThreads,
     markDocumentActive,
     markMediaActive,
+    markSandboxActive,
     markStreaming
   } = useStreamingThreadsRegistry();
   const isStreaming = activeThreads.has(assistantScopedThreadKey);
@@ -1251,6 +1268,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
   const activeChatIdRef = useRef<string | null>(null);
   const activeMediaJobsRef = useRef<WebChatActiveMediaJobState[]>([]);
   const activeDocumentJobsRef = useRef<WebChatActiveDocumentJobState[]>([]);
+  const activeSandboxJobsRef = useRef<WebChatActiveSandboxJobState[]>([]);
   const prevThreadKeyRef = useRef(assistantScopedThreadKey);
   const currentThreadKeyRef = useRef(assistantScopedThreadKey);
   const lastResumeRefreshAtRef = useRef(0);
@@ -1486,7 +1504,10 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
           (currentThreadKeyRef.current === targetThreadKey ? activeMediaJobsRef.current : []),
         activeDocumentJobs:
           existing?.activeDocumentJobs ??
-          (currentThreadKeyRef.current === targetThreadKey ? activeDocumentJobsRef.current : [])
+          (currentThreadKeyRef.current === targetThreadKey ? activeDocumentJobsRef.current : []),
+        activeSandboxJobs:
+          existing?.activeSandboxJobs ??
+          (currentThreadKeyRef.current === targetThreadKey ? activeSandboxJobsRef.current : [])
       });
       if (snapshot.chatId !== null) {
         cachedThreadKeyByChatIdRef.current.set(snapshot.chatId, targetThreadKey);
@@ -1509,6 +1530,75 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
       markDocumentActive(currentThreadKeyRef.current, next.length > 0);
     },
     [markDocumentActive]
+  );
+  const replaceActiveSandboxJobs = useCallback(
+    (next: WebChatActiveSandboxJobState[]) => {
+      activeSandboxJobsRef.current = next;
+      setActiveSandboxJobs(next);
+      markSandboxActive(currentThreadKeyRef.current, next.length > 0);
+    },
+    [markSandboxActive]
+  );
+  const upsertAcceptedAsyncJob = useCallback(
+    (payload: {
+      kind: "media" | "document" | "sandbox";
+      jobRef: string;
+      mediaJob?: WebChatActiveMediaJobState;
+      documentJob?: WebChatActiveDocumentJobState;
+      sandboxJob?: WebChatActiveSandboxJobState;
+    }) => {
+      const patchCache = (patch: {
+        activeMediaJobs?: WebChatActiveMediaJobState[];
+        activeDocumentJobs?: WebChatActiveDocumentJobState[];
+        activeSandboxJobs?: WebChatActiveSandboxJobState[];
+      }) => {
+        const threadKey = currentThreadKeyRef.current;
+        const existing = cachedThreadHistorySnapshotsRef.current.get(threadKey);
+        if (existing === undefined) {
+          return;
+        }
+        cachedThreadHistorySnapshotsRef.current.set(threadKey, {
+          ...existing,
+          ...patch
+        });
+      };
+      if (payload.kind === "media" && payload.mediaJob !== undefined) {
+        const next = [...activeMediaJobsRef.current];
+        const index = next.findIndex((job) => job.id === payload.mediaJob!.id);
+        if (index >= 0) {
+          next[index] = { ...next[index], ...payload.mediaJob };
+        } else {
+          next.push(payload.mediaJob);
+        }
+        replaceActiveMediaJobs(next);
+        patchCache({ activeMediaJobs: next });
+        return;
+      }
+      if (payload.kind === "document" && payload.documentJob !== undefined) {
+        const next = [...activeDocumentJobsRef.current];
+        const index = next.findIndex((job) => job.id === payload.documentJob!.id);
+        if (index >= 0) {
+          next[index] = { ...next[index], ...payload.documentJob };
+        } else {
+          next.push(payload.documentJob);
+        }
+        replaceActiveDocumentJobs(next);
+        patchCache({ activeDocumentJobs: next });
+        return;
+      }
+      if (payload.kind === "sandbox" && payload.sandboxJob !== undefined) {
+        const next = [...activeSandboxJobsRef.current];
+        const index = next.findIndex((job) => job.jobRef === payload.sandboxJob!.jobRef);
+        if (index >= 0) {
+          next[index] = { ...next[index], ...payload.sandboxJob };
+        } else {
+          next.push(payload.sandboxJob);
+        }
+        replaceActiveSandboxJobs(next);
+        patchCache({ activeSandboxJobs: next });
+      }
+    },
+    [replaceActiveDocumentJobs, replaceActiveMediaJobs, replaceActiveSandboxJobs]
   );
   const clearSoftDetachReconcileTimer = useCallback((targetThreadKey: string) => {
     const timer = softDetachReconcileTimersByThreadRef.current.get(targetThreadKey);
@@ -1603,8 +1693,11 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
               existingCache?.compactionRunning ?? outgoingSnapshot.compactionRunning,
             olderCursor: existingCache?.olderCursor ?? null,
             hasOlderMessages: existingCache?.hasOlderMessages ?? false,
-            activeMediaJobs: existingCache?.activeMediaJobs ?? activeMediaJobs,
-            activeDocumentJobs: existingCache?.activeDocumentJobs ?? activeDocumentJobs
+            // Prefer live Working projections over a stale cache entry so
+            // mid-turn `async_job_accepted` upserts survive A→B→A swap.
+            activeMediaJobs: activeMediaJobsRef.current,
+            activeDocumentJobs: activeDocumentJobsRef.current,
+            activeSandboxJobs: activeSandboxJobsRef.current
           };
           cachedThreadHistorySnapshotsRef.current.set(outgoingThreadKey, nextCache);
           auditActiveTurnSnapshotMessages("swap-out-cache-sync", outgoingThreadKey, nextCache);
@@ -1700,6 +1793,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
     setHasOlderMessages(cachedHistorySnapshot?.hasOlderMessages ?? false);
     replaceActiveMediaJobs(cachedHistorySnapshot?.activeMediaJobs ?? []);
     replaceActiveDocumentJobs(cachedHistorySnapshot?.activeDocumentJobs ?? []);
+    replaceActiveSandboxJobs(cachedHistorySnapshot?.activeSandboxJobs ?? []);
     /*     * Optimistically flip historyLoading to true the moment the user     * navigates to a different thread. Without this, there is one render     * frame between the synchronous reset above and the post-render effect     * in `chat/page.tsx` that triggers `loadHistory()` ��� and during that     * frame `messages.length === 0 && historyLoading === false`, which     * renders the EmptyState. On a slow fetch the EmptyState then flickers     * for the entire 0.5���1s the history takes to arrive (founder report     * 2026-04-25). The `markHistoryEmpty()` callback below clears this back     * to false when the active thread is brand-new and has no history to     * load.     */ setHistoryLoading(
       restoredSnapshot === undefined
     );
@@ -1861,6 +1955,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
           const page = await getChatMessages(token, targetChatId, undefined, 20);
           const nextActiveMediaJobs = page.activeMediaJobs ?? [];
           const nextActiveDocumentJobs = page.activeDocumentJobs ?? [];
+          const nextActiveSandboxJobs = page.activeSandboxJobs ?? [];
           const rawLoaded = page.messages
             .map(toCommittedChatMessage)
             .filter((message): message is ChatMessage => message !== null);
@@ -2010,6 +2105,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
             setHasOlderMessages(page.nextCursor !== null);
             replaceActiveMediaJobs(nextActiveMediaJobs);
             replaceActiveDocumentJobs(nextActiveDocumentJobs);
+            replaceActiveSandboxJobs(nextActiveSandboxJobs);
             setChatId(targetChatId);
           }
           const cachedThreadKey =
@@ -2020,11 +2116,13 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
             cachedThreadHistorySnapshotsRef.current.set(cachedThreadKey, {
               ...cachedHistorySnapshotForMediaJobs,
               activeMediaJobs: nextActiveMediaJobs,
-              activeDocumentJobs: nextActiveDocumentJobs
+              activeDocumentJobs: nextActiveDocumentJobs,
+              activeSandboxJobs: nextActiveSandboxJobs
             });
           }
           markMediaActive(cachedThreadKey, nextActiveMediaJobs.length > 0);
           markDocumentActive(cachedThreadKey, nextActiveDocumentJobs.length > 0);
+          markSandboxActive(cachedThreadKey, nextActiveSandboxJobs.length > 0);
           historyLoadedRef.current.add(targetChatId);
           void refreshCompactionState(targetChatId);
           if (
@@ -2496,6 +2594,49 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                   )
                 }));
               },
+              onAsyncJobAccepted: (payload) => {
+                if (currentThreadKeyRef.current !== targetThreadKey) {
+                  const cached = cachedThreadHistorySnapshotsRef.current.get(targetThreadKey);
+                  if (cached === undefined) {
+                    return;
+                  }
+                  if (payload.kind === "media" && payload.mediaJob !== undefined) {
+                    const next = [...(cached.activeMediaJobs ?? [])];
+                    const index = next.findIndex((job) => job.id === payload.mediaJob!.id);
+                    if (index >= 0) next[index] = { ...next[index], ...payload.mediaJob };
+                    else next.push(payload.mediaJob);
+                    cachedThreadHistorySnapshotsRef.current.set(targetThreadKey, {
+                      ...cached,
+                      activeMediaJobs: next
+                    });
+                    markMediaActive(targetThreadKey, next.length > 0);
+                  } else if (payload.kind === "document" && payload.documentJob !== undefined) {
+                    const next = [...(cached.activeDocumentJobs ?? [])];
+                    const index = next.findIndex((job) => job.id === payload.documentJob!.id);
+                    if (index >= 0) next[index] = { ...next[index], ...payload.documentJob };
+                    else next.push(payload.documentJob);
+                    cachedThreadHistorySnapshotsRef.current.set(targetThreadKey, {
+                      ...cached,
+                      activeDocumentJobs: next
+                    });
+                    markDocumentActive(targetThreadKey, next.length > 0);
+                  } else if (payload.kind === "sandbox" && payload.sandboxJob !== undefined) {
+                    const next = [...(cached.activeSandboxJobs ?? [])];
+                    const index = next.findIndex(
+                      (job) => job.jobRef === payload.sandboxJob!.jobRef
+                    );
+                    if (index >= 0) next[index] = { ...next[index], ...payload.sandboxJob };
+                    else next.push(payload.sandboxJob);
+                    cachedThreadHistorySnapshotsRef.current.set(targetThreadKey, {
+                      ...cached,
+                      activeSandboxJobs: next
+                    });
+                    markSandboxActive(targetThreadKey, next.length > 0);
+                  }
+                  return;
+                }
+                upsertAcceptedAsyncJob(payload);
+              },
               onProjectActivity: ({ summary, detail }) => {
                 const snapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
                 const assistantMessageId = snapshot?.liveAssistantMessageId ?? null;
@@ -2636,10 +2777,14 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
       applyThreadMessages,
       applyTurnStatusState,
       getToken,
+      markDocumentActive,
+      markMediaActive,
+      markSandboxActive,
       markStreaming,
       refreshChatPlan,
       refreshLatestHistory,
-      resolveKnownChatIdForThread
+      resolveKnownChatIdForThread,
+      upsertAcceptedAsyncJob
     ]
   );
   const startSoftDetachReconcile = useCallback(
@@ -3480,6 +3625,53 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
             )
           }));
         },
+        onAsyncJobAccepted: (payload: {
+          kind: "media" | "document" | "sandbox";
+          jobRef: string;
+          mediaJob?: WebChatActiveMediaJobState;
+          documentJob?: WebChatActiveDocumentJobState;
+          sandboxJob?: WebChatActiveSandboxJobState;
+        }) => {
+          if (currentThreadKeyRef.current !== sendThreadKey) {
+            const cached = cachedThreadHistorySnapshotsRef.current.get(sendThreadKey);
+            if (cached === undefined) {
+              return;
+            }
+            if (payload.kind === "media" && payload.mediaJob !== undefined) {
+              const next = [...(cached.activeMediaJobs ?? [])];
+              const index = next.findIndex((job) => job.id === payload.mediaJob!.id);
+              if (index >= 0) next[index] = { ...next[index], ...payload.mediaJob };
+              else next.push(payload.mediaJob);
+              cachedThreadHistorySnapshotsRef.current.set(sendThreadKey, {
+                ...cached,
+                activeMediaJobs: next
+              });
+              markMediaActive(sendThreadKey, next.length > 0);
+            } else if (payload.kind === "document" && payload.documentJob !== undefined) {
+              const next = [...(cached.activeDocumentJobs ?? [])];
+              const index = next.findIndex((job) => job.id === payload.documentJob!.id);
+              if (index >= 0) next[index] = { ...next[index], ...payload.documentJob };
+              else next.push(payload.documentJob);
+              cachedThreadHistorySnapshotsRef.current.set(sendThreadKey, {
+                ...cached,
+                activeDocumentJobs: next
+              });
+              markDocumentActive(sendThreadKey, next.length > 0);
+            } else if (payload.kind === "sandbox" && payload.sandboxJob !== undefined) {
+              const next = [...(cached.activeSandboxJobs ?? [])];
+              const index = next.findIndex((job) => job.jobRef === payload.sandboxJob!.jobRef);
+              if (index >= 0) next[index] = { ...next[index], ...payload.sandboxJob };
+              else next.push(payload.sandboxJob);
+              cachedThreadHistorySnapshotsRef.current.set(sendThreadKey, {
+                ...cached,
+                activeSandboxJobs: next
+              });
+              markSandboxActive(sendThreadKey, next.length > 0);
+            }
+            return;
+          }
+          upsertAcceptedAsyncJob(payload);
+        },
         onProjectActivity: ({
           summary,
           detail
@@ -3632,6 +3824,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
             };
             activeMediaJobs?: WebChatActiveMediaJobState[];
             activeDocumentJobs?: WebChatActiveDocumentJobState[];
+            activeSandboxJobs?: WebChatActiveSandboxJobState[];
             engagementSummary?: {
               skillDisplayName?: unknown;
               scenarioDisplayName?: unknown;
@@ -3822,6 +4015,9 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
           const nextActiveDocumentJobs = Array.isArray(t?.activeDocumentJobs)
             ? t.activeDocumentJobs
             : undefined;
+          const nextActiveSandboxJobs = Array.isArray(t?.activeSandboxJobs)
+            ? t.activeSandboxJobs
+            : undefined;
           if (currentThreadKeyRef.current === sendThreadKey && nextActiveMediaJobs !== undefined) {
             replaceActiveMediaJobs(nextActiveMediaJobs);
           }
@@ -3830,6 +4026,12 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
             nextActiveDocumentJobs !== undefined
           ) {
             replaceActiveDocumentJobs(nextActiveDocumentJobs);
+          }
+          if (
+            currentThreadKeyRef.current === sendThreadKey &&
+            nextActiveSandboxJobs !== undefined
+          ) {
+            replaceActiveSandboxJobs(nextActiveSandboxJobs);
           }
           if (resolvedChatId && nextActiveMediaJobs !== undefined) {
             const cachedThreadKey =
@@ -3840,13 +4042,18 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                 ...cachedSnapshot,
                 activeMediaJobs: nextActiveMediaJobs,
                 activeDocumentJobs:
-                  nextActiveDocumentJobs ?? cachedSnapshot.activeDocumentJobs ?? []
+                  nextActiveDocumentJobs ?? cachedSnapshot.activeDocumentJobs ?? [],
+                activeSandboxJobs: nextActiveSandboxJobs ?? cachedSnapshot.activeSandboxJobs ?? []
               });
             }
             markMediaActive(cachedThreadKey, nextActiveMediaJobs.length > 0);
             markDocumentActive(
               cachedThreadKey,
               (nextActiveDocumentJobs ?? cachedSnapshot?.activeDocumentJobs ?? []).length > 0
+            );
+            markSandboxActive(
+              cachedThreadKey,
+              (nextActiveSandboxJobs ?? cachedSnapshot?.activeSandboxJobs ?? []).length > 0
             );
           }
           if (resolvedChatId) {
@@ -4084,6 +4291,9 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
       clearThreadLiveActivity,
       clearSoftDetachReconcileTimer,
       currentAssistantId,
+      markDocumentActive,
+      markMediaActive,
+      markSandboxActive,
       markStreaming,
       refreshChatPlan,
       refreshCompactionState,
@@ -4093,7 +4303,8 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
       startSoftDetachReconcile,
       startStoredActiveTurnRestore,
       t,
-      threadKey
+      threadKey,
+      upsertAcceptedAsyncJob
     ]
   );
   const sendWelcome = useCallback(
@@ -4573,7 +4784,8 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
     setHistoryLoading(false);
     replaceActiveMediaJobs([]);
     replaceActiveDocumentJobs([]);
-  }, [replaceActiveDocumentJobs, replaceActiveMediaJobs]);
+    replaceActiveSandboxJobs([]);
+  }, [replaceActiveDocumentJobs, replaceActiveMediaJobs, replaceActiveSandboxJobs]);
   const loadHistory = useCallback(
     async (targetChatId: string) => {
       const cachedThreadKey = cachedThreadKeyByChatIdRef.current.get(targetChatId);
@@ -4615,6 +4827,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
         setHasOlderMessages(cachedHistory.hasOlderMessages);
         replaceActiveMediaJobs(cachedHistory.activeMediaJobs);
         replaceActiveDocumentJobs(cachedHistory.activeDocumentJobs);
+        replaceActiveSandboxJobs(cachedHistory.activeSandboxJobs ?? []);
         setChatId(targetChatId);
         setHistoryLoading(false);
       }
@@ -4625,6 +4838,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
         const page = await getChatMessages(token, targetChatId, undefined, 20);
         const nextActiveMediaJobs = page.activeMediaJobs ?? [];
         const nextActiveDocumentJobs = page.activeDocumentJobs ?? [];
+        const nextActiveSandboxJobs = page.activeSandboxJobs ?? [];
         const loaded: ChatMessage[] = page.messages
           .map(toCommittedChatMessage)
           .filter((message): message is ChatMessage => message !== null);
@@ -4781,6 +4995,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
         setHasOlderMessages(page.nextCursor !== null);
         replaceActiveMediaJobs(nextActiveMediaJobs);
         replaceActiveDocumentJobs(nextActiveDocumentJobs);
+        replaceActiveSandboxJobs(nextActiveSandboxJobs);
         if (currentThreadKeyRef.current === targetThreadKey) {
           setCurrentEngagement(page.currentEngagement ?? null);
           applyPendingBrowserLoginForThread(targetThreadKey, page.pendingBrowserLogin ?? null);
@@ -4810,7 +5025,8 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
           olderCursor: page.nextCursor,
           hasOlderMessages: page.nextCursor !== null,
           activeMediaJobs: nextActiveMediaJobs,
-          activeDocumentJobs: nextActiveDocumentJobs
+          activeDocumentJobs: nextActiveDocumentJobs,
+          activeSandboxJobs: nextActiveSandboxJobs
         });
         cachedThreadKeyByChatIdRef.current.set(targetChatId, targetThreadKey);
         void refreshCompactionState(targetChatId);
@@ -4860,7 +5076,9 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
   useEffect(() => {
     if (
       chatId === null ||
-      (activeMediaJobs.length === 0 && activeDocumentJobs.length === 0) ||
+      (activeMediaJobs.length === 0 &&
+        activeDocumentJobs.length === 0 &&
+        activeSandboxJobs.length === 0) ||
       isStreaming
     ) {
       return;
@@ -4872,7 +5090,14 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
       void refreshLatestHistory(chatId, { targetThreadKey: currentThreadKeyRef.current });
     }, 10_000);
     return () => window.clearInterval(timer);
-  }, [activeDocumentJobs, activeMediaJobs, chatId, isStreaming, refreshLatestHistory]);
+  }, [
+    activeDocumentJobs,
+    activeMediaJobs,
+    activeSandboxJobs,
+    chatId,
+    isStreaming,
+    refreshLatestHistory
+  ]);
   // Drop phantom "thinking" / blinking-cursor placeholders. If a streaming
   // assistant message has empty content AND there's a NEWER assistant
   // message below it, the older one is stale (background turn already
@@ -4942,6 +5167,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
     chatId,
     activeMediaJobs,
     activeDocumentJobs,
+    activeSandboxJobs,
     isStreaming,
     historyLoading,
     hasOlderMessages,

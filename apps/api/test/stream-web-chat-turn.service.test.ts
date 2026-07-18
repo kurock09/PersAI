@@ -2275,6 +2275,128 @@ describe("StreamWebChatTurnService", () => {
       assert.equal(preparation.transport.assistantMessage.content, "hi back");
       assert.equal(Object.hasOwn(preparation.transport, "engagementSummary"), true);
       assert.equal(preparation.transport.engagementSummary, null);
+      assert.ok(Array.isArray(preparation.transport.activeSandboxJobs));
+    }
+  });
+
+  test("stream replay projection includes activeSandboxJobs", async () => {
+    const sandboxJobs = [
+      {
+        jobRef: "jr1.sandbox.gggggggggggggggggggggggggggggggg",
+        toolCode: "exec" as const,
+        status: "running" as const,
+        notifyState: "subscribed" as const,
+        createdAt: "2026-07-18T12:00:00.000Z",
+        startedAt: "2026-07-18T12:00:00.000Z",
+        updatedAt: "2026-07-18T12:00:01.000Z"
+      }
+    ];
+    const completedState = {
+      clientTurnId: "turn-sandbox-stream-replay",
+      chatId: "chat-1",
+      userMessageId: "user-msg-1",
+      assistantMessageId: "assistant-msg-1",
+      respondedAt: "2026-07-18T12:00:01.000Z",
+      degradedByQuotaFallback: false,
+      quotaFallbackReason: null,
+      quotaFallbackModel: null,
+      completedAt: "2026-07-18T12:00:02.000Z"
+    };
+    const service = new StreamWebChatTurnService(
+      {
+        findChatById: async () => ({
+          id: "chat-1",
+          assistantId: "assistant-1",
+          userId: "user-1",
+          surface: "web",
+          surfaceThreadKey: "thread-1",
+          title: "Chat",
+          chatMode: "normal",
+          deepModeEnabled: false,
+          skillDecisionState: null,
+          archivedAt: null,
+          lastMessageAt: new Date("2026-07-18T12:00:02.000Z"),
+          createdAt: new Date("2026-07-18T12:00:00.000Z"),
+          updatedAt: new Date("2026-07-18T12:00:02.000Z")
+        }),
+        findMessageByIdForAssistant: async (messageId: string) => ({
+          id: messageId,
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          author: messageId === "user-msg-1" ? "user" : "assistant",
+          content: messageId === "user-msg-1" ? "hello" : "hi back",
+          createdAt: new Date("2026-07-18T12:00:00.000Z")
+        }),
+        findMessageToolContextById: async () => null
+      } as never,
+      {
+        listByMessageId: async () => []
+      } as never,
+      {
+        claimWebTurnProcessing: async () => "duplicate_handled",
+        getCompletedWebTurnProcessing: async () => completedState
+      } as never,
+      {
+        execute: async () => {
+          throw new Error("web runtime stream should not be used for replay");
+        }
+      } as never,
+      createWebRuntimeTurnClientServiceMock() as never,
+      {
+        execute: async () => {
+          throw new Error("prepare should not be called for replay");
+        }
+      } as never,
+      {
+        resolveByUserId: async () => ({
+          assistantId: "assistant-1"
+        })
+      } as never,
+      {} as never,
+      {
+        recordChatMainReplyEvents: async () => 0
+      } as never,
+      noopRecordToolPathLedgerFromToolInvocationsService,
+      {
+        markUndeliveredArtifactsReconciliationRequired: async () => undefined,
+        deliver: async () => ({ attachments: [] })
+      } as never,
+      createOverviewLatencyTraceServiceMock() as never,
+      createPlatformHttpMetricsServiceMock() as never,
+      createAttachmentObjectAvailabilityServiceMock() as never,
+      createSkillStatePersistenceServiceMock() as never,
+      {
+        attachAcknowledgementMessageId: async () => 0,
+        listOpenJobsForChatContext: async () => [],
+        listOpenJobsForWebChat: async () => []
+      } as never,
+      createAssistantDocumentJobReadServiceMock() as never,
+      createNotificationDeliveryWorkerServiceMock() as never,
+      createAssistantBrowserProfileRepositoryMock() as never,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        finalizeSourceTurn: async () => ({
+          finalized: 0,
+          legacyChosen: 0,
+          currentTurnPreserved: 0,
+          currentTurnReleased: 0
+        }),
+        listOpenSandboxJobsForWebChat: async () => sandboxJobs
+      } as never
+    );
+
+    const preparation = await service.prepare("user-1", {
+      surfaceThreadKey: "thread-1",
+      message: "hello",
+      clientTurnId: "turn-sandbox-stream-replay"
+    });
+
+    assert.equal(preparation.mode, "replayed");
+    if (preparation.mode === "replayed") {
+      assert.deepEqual(preparation.transport.activeSandboxJobs, sandboxJobs);
     }
   });
 

@@ -248,6 +248,7 @@ export const DEFAULT_RUNTIME_SANDBOX_POLICY: RuntimeSandboxPolicy = {
 export type RuntimeSandboxJobStatus =
   | "queued"
   | "running"
+  | "detached"
   | "completed"
   | "failed"
   | "blocked"
@@ -396,9 +397,11 @@ export interface RuntimeSandboxDocumentSyncOutcome {
 export interface RuntimeSandboxToolResult {
   toolCode: string;
   executionMode: "sandbox";
-  action: "completed" | "blocked" | "skipped";
+  action: "completed" | "background" | "blocked" | "skipped";
   reason: string | null;
   warning: string | null;
+  /** Opaque await capability. Present only after a shell/exec job yields. */
+  jobRef?: string;
   job: RuntimeSandboxJobResult | null;
   paths: string[];
   documentSync?: RuntimeSandboxDocumentSyncOutcome[];
@@ -439,11 +442,34 @@ export interface RuntimeAwaitToolResult {
   reason: string | null;
   warning: string | null;
   jobRef: string;
-  kind: "media" | "document" | null;
+  kind: "media" | "document" | "sandbox" | null;
   status: "pending" | "completed" | "failed" | "cancelled" | null;
   terminal: boolean;
   errorCode: string | null;
   message: string | null;
+  sandboxResult?: {
+    toolCode: "shell" | "exec";
+    exitCode: number | null;
+    stdout: string | null;
+    stderr: string | null;
+    paths: string[];
+  } | null;
+  /** Present for no-id wait; stable bounded current-turn/open-chat snapshot. */
+  jobs?: Array<{
+    jobRef: string;
+    kind: "media" | "document" | "sandbox";
+    status: "pending" | "completed" | "failed" | "cancelled";
+    terminal: boolean;
+    errorCode: string | null;
+    message: string | null;
+    sandboxResult: {
+      toolCode: "shell" | "exec";
+      exitCode: number | null;
+      stdout: string | null;
+      stderr: string | null;
+      paths: string[];
+    } | null;
+  }>;
 }
 
 /**
@@ -3386,10 +3412,11 @@ export interface RuntimeTurnRequest {
     sourceUserMessageId: string;
     sourceClientTurnId: string;
     facts: {
-      kind: "media" | "document";
+      kind: "media" | "document" | "sandbox";
       status: "completed" | "failed" | "cancelled";
       errorCode: string | null;
       message: string;
+      sandboxResult?: RuntimeAwaitToolResult["sandboxResult"];
     };
   };
 }
@@ -4469,6 +4496,73 @@ export interface RuntimeToolProgressEvent {
   seq: number;
 }
 
+/**
+ * ADR-152 — emitted immediately after an opaque async job handle is accepted
+ * so web Working continuity can update before the provider loop closes.
+ * Presentation fields mirror web `active*Jobs` shapes; sandbox never carries a
+ * raw SandboxJob id.
+ */
+export interface RuntimeAsyncJobAcceptedEvent {
+  type: "async_job_accepted";
+  requestId: string;
+  sessionId: string;
+  kind: "media" | "document" | "sandbox";
+  jobRef: string;
+  mediaJob?: {
+    id: string;
+    kind: "image" | "audio" | "video";
+    /** Wire ops match OpenAPI AssistantWebChatActiveMediaJobState.operation. */
+    operation: "image_generate" | "image_edit" | "video_generate" | "audio_generate";
+    displayKind?: "cinematic" | "talking_avatar" | null;
+    requestedCount?: number | null;
+    status: "queued" | "running" | "completion_pending";
+    createdAt: string;
+    startedAt: string | null;
+    updatedAt: string;
+    notifyState?:
+      | "none"
+      | "subscribed"
+      | "ready"
+      | "claimed"
+      | "dispatched"
+      | "failed"
+      | "cancelled";
+  };
+  documentJob?: {
+    id: string;
+    documentType: "presentation";
+    descriptorMode: "create_presentation" | "revise_document" | "export_or_redeliver";
+    status: "queued" | "running" | "provider_processing" | "fetching_output" | "ready_for_delivery";
+    createdAt: string;
+    startedAt: string | null;
+    updatedAt: string;
+    notifyState?:
+      | "none"
+      | "subscribed"
+      | "ready"
+      | "claimed"
+      | "dispatched"
+      | "failed"
+      | "cancelled";
+  };
+  sandboxJob?: {
+    jobRef: string;
+    toolCode: "shell" | "exec";
+    status: "queued" | "running" | "detached";
+    notifyState:
+      | "none"
+      | "subscribed"
+      | "ready"
+      | "claimed"
+      | "dispatched"
+      | "failed"
+      | "cancelled";
+    createdAt: string;
+    startedAt: string | null;
+    updatedAt: string;
+  };
+}
+
 export interface RuntimeCompletedEvent {
   type: "completed";
   result: RuntimeTurnResult;
@@ -4507,6 +4601,7 @@ export type RuntimeTurnStreamEvent =
   | RuntimeToolStartedEvent
   | RuntimeToolFinishedEvent
   | RuntimeToolProgressEvent
+  | RuntimeAsyncJobAcceptedEvent
   | RuntimeCompletedEvent
   | RuntimeInterruptedEvent
   | RuntimeFailedEvent;

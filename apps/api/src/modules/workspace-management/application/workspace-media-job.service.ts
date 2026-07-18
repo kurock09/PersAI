@@ -8,11 +8,13 @@ import type {
   RuntimeImageGenerateRequest,
   RuntimeVideoGenerateRequest
 } from "@persai/runtime-contract";
-import type {
-  AssistantWebChatActiveMediaJobDisplayKind,
-  AssistantWebChatActiveMediaJobState
+import {
+  toWebNotifyState,
+  type AssistantWebChatActiveMediaJobDisplayKind,
+  type AssistantWebChatActiveMediaJobState
 } from "./web-chat.types";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
+import { assertActiveBackgroundJobCap } from "./assert-active-background-job-cap";
 
 export type AssistantMediaJobRequestPayload = {
   attachments: RuntimeAttachmentRef[];
@@ -101,14 +103,16 @@ function extractSourceSummaryFromRequestJson(requestJson: unknown): string | nul
 
 function toWebOpenMediaJobStatus(
   status: AssistantMediaJobStatus
-): AssistantWebChatActiveMediaJobState["status"] {
+): AssistantWebChatActiveMediaJobState["status"] | null {
   switch (status) {
     case "queued":
     case "running":
     case "completion_pending":
       return status;
     default:
-      throw new Error(`Unexpected closed media job status in web open-job query: ${status}`);
+      // Continuation-held delivered/failed jobs stay in Working until the
+      // handle settles; map closed statuses onto completion_pending for wire.
+      return null;
   }
 }
 
@@ -277,28 +281,86 @@ export class AssistantMediaJobService {
     userId: string;
     chatId: string;
   }): Promise<AssistantWebChatActiveMediaJobState[]> {
-    const rows = await this.prisma.assistantMediaJob.findMany({
-      where: {
-        assistantId: input.assistantId,
-        userId: input.userId,
-        chatId: input.chatId,
-        status: {
-          in: ["queued", "running", "completion_pending"]
+    const continuationCutoff = new Date(Date.now() - 5 * 60_000);
+    const [openRows, continuationHandles] = await Promise.all([
+      this.prisma.assistantMediaJob.findMany({
+        where: {
+          assistantId: input.assistantId,
+          userId: input.userId,
+          chatId: input.chatId,
+          status: {
+            in: ["queued", "running", "completion_pending"]
+          }
+        },
+        orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+        select: {
+          id: true,
+          kind: true,
+          requestJson: true,
+          status: true,
+          createdAt: true,
+          startedAt: true,
+          updatedAt: true
         }
-      },
-      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-      select: {
-        id: true,
-        kind: true,
-        requestJson: true,
-        status: true,
-        createdAt: true,
-        startedAt: true,
-        updatedAt: true
-      }
+      }),
+      this.prisma.assistantAsyncJobHandle.findMany({
+        where: {
+          assistantId: input.assistantId,
+          chatId: input.chatId,
+          kind: "media",
+          OR: [
+            { state: { in: ["subscribed", "ready", "claimed", "dispatched"] } },
+            {
+              state: { in: ["failed", "cancelled"] },
+              updatedAt: { gte: continuationCutoff }
+            }
+          ]
+        },
+        select: { canonicalJobId: true, state: true }
+      })
+    ]);
+    const openIds = new Set(openRows.map((row) => row.id));
+    const missingIds = continuationHandles
+      .map((handle) => handle.canonicalJobId)
+      .filter((id) => !openIds.has(id));
+    const continuationRows =
+      missingIds.length === 0
+        ? []
+        : await this.prisma.assistantMediaJob.findMany({
+            where: {
+              id: { in: missingIds },
+              assistantId: input.assistantId,
+              userId: input.userId,
+              chatId: input.chatId
+            },
+            select: {
+              id: true,
+              kind: true,
+              requestJson: true,
+              status: true,
+              createdAt: true,
+              startedAt: true,
+              updatedAt: true
+            }
+          });
+    const rows = [...openRows, ...continuationRows].sort((a, b) => {
+      const byCreated = a.createdAt.getTime() - b.createdAt.getTime();
+      return byCreated !== 0 ? byCreated : a.id.localeCompare(b.id);
     });
+    const handles = await this.prisma.assistantAsyncJobHandle.findMany({
+      where: {
+        kind: "media",
+        canonicalJobId: { in: rows.map((row) => row.id) }
+      },
+      select: { canonicalJobId: true, state: true }
+    });
+    const notifyStateByJobId = new Map(
+      handles.map((handle) => [handle.canonicalJobId, handle.state] as const)
+    );
     return rows.map((row) => {
       const requestedCount = extractRequestedCountFromRequestJson(row.requestJson);
+      const handleState = notifyStateByJobId.get(row.id);
+      const openStatus = toWebOpenMediaJobStatus(row.status);
       return {
         id: row.id,
         kind: row.kind,
@@ -308,10 +370,13 @@ export class AssistantMediaJobService {
         }),
         displayKind: toWebOpenMediaJobDisplayKind({ requestJson: row.requestJson }),
         ...(requestedCount === null ? {} : { requestedCount }),
-        status: toWebOpenMediaJobStatus(row.status),
+        // Keep wire status in the open union so continuation-held delivered jobs
+        // still drive Working + history poll until handle settles.
+        status: openStatus ?? "completion_pending",
         createdAt: row.createdAt.toISOString(),
         startedAt: row.startedAt?.toISOString() ?? null,
-        updatedAt: row.updatedAt.toISOString()
+        updatedAt: row.updatedAt.toISOString(),
+        notifyState: toWebNotifyState(handleState)
       };
     });
   }
@@ -363,6 +428,7 @@ export class AssistantMediaJobService {
     request: AssistantMediaJobRequestPayload;
   }): Promise<{ id: string; status: "queued"; jobRef: string }> {
     return this.prisma.$transaction(async (tx) => {
+      await assertActiveBackgroundJobCap(tx, input.chatId);
       const created = await tx.assistantMediaJob.create({
         data: {
           assistantId: input.assistantId,

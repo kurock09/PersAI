@@ -969,6 +969,7 @@ export class AssistantController {
     activeTurn: AssistantWebChatActiveTurnState | null;
     activeMediaJobs: AssistantWebChatListItemState["activeMediaJobs"];
     activeDocumentJobs: AssistantWebChatListItemState["activeDocumentJobs"];
+    activeSandboxJobs: AssistantWebChatListItemState["activeSandboxJobs"];
     currentEngagement: AssistantWebChatEngagementSummary | null;
     pendingBrowserLogin: AssistantWebChatListItemState["pendingBrowserLogin"];
   }> {
@@ -986,6 +987,7 @@ export class AssistantController {
       activeTurn: result.activeTurn,
       activeMediaJobs: result.activeMediaJobs,
       activeDocumentJobs: result.activeDocumentJobs,
+      activeSandboxJobs: result.activeSandboxJobs,
       currentEngagement: result.currentEngagement,
       pendingBrowserLogin: result.pendingBrowserLogin
     };
@@ -1417,6 +1419,15 @@ export class AssistantController {
             ...(line === undefined ? {} : { line }),
             ...(step === undefined ? {} : { step }),
             seq
+          });
+        },
+        onAsyncJobAccepted: ({ kind, jobRef, mediaJob, documentJob, sandboxJob }) => {
+          sendSse("async_job_accepted", {
+            kind,
+            jobRef,
+            ...(mediaJob === undefined ? {} : { mediaJob }),
+            ...(documentJob === undefined ? {} : { documentJob }),
+            ...(sandboxJob === undefined ? {} : { sandboxJob })
           });
         },
         onActivity: ({ source, phase, resultCount, skillName, skillIconEmoji }) => {

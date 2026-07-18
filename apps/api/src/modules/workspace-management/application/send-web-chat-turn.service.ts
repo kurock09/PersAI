@@ -203,14 +203,15 @@ export class SendWebChatTurnService {
     @Inject(AssistantAsyncJobHandleStateService)
     private readonly asyncJobHandleState: Pick<
       AssistantAsyncJobHandleStateService,
-      "finalizeSourceTurn"
+      "finalizeSourceTurn" | "listOpenSandboxJobsForWebChat"
     > = {
       finalizeSourceTurn: async () => ({
         finalized: 0,
         legacyChosen: 0,
         currentTurnPreserved: 0,
         currentTurnReleased: 0
-      })
+      }),
+      listOpenSandboxJobsForWebChat: async () => []
     }
   ) {}
 
@@ -519,6 +520,7 @@ export class SendWebChatTurnService {
         attachmentRepository: this.attachmentRepository,
         assistantMediaJobService: this.assistantMediaJobService,
         assistantDocumentJobReadService: this.assistantDocumentJobReadService,
+        asyncJobHandleState: this.asyncJobHandleState,
         mediaDeliveryService: this.mediaDeliveryService,
         trackWorkspaceQuotaUsageService: this.trackWorkspaceQuotaUsageService,
         notificationDeliveryWorkerService: this.notificationDeliveryWorkerService,
@@ -643,6 +645,7 @@ export class SendWebChatTurnService {
           : { followUpAssistantMessage: postRuntime.followUpAssistantMessage }),
         activeMediaJobs: postRuntime.activeMediaJobs,
         activeDocumentJobs: postRuntime.activeDocumentJobs,
+        activeSandboxJobs: postRuntime.activeSandboxJobs,
         engagementSummary,
         pendingBrowserLogin,
         runtime: {
@@ -809,16 +812,22 @@ export class SendWebChatTurnService {
         ? Promise.resolve([])
         : this.attachmentRepository.listByMessageId(followUpAssistantMessage.id)
     ]);
-    const activeMediaJobs = await this.assistantMediaJobService.listOpenJobsForWebChat({
-      assistantId,
-      userId: chat.userId,
-      chatId: chat.id
-    });
-    const activeDocumentJobs = await this.assistantDocumentJobReadService.listOpenJobsForWebChat({
-      assistantId,
-      userId: chat.userId,
-      chatId: chat.id
-    });
+    const [activeMediaJobs, activeDocumentJobs, activeSandboxJobs] = await Promise.all([
+      this.assistantMediaJobService.listOpenJobsForWebChat({
+        assistantId,
+        userId: chat.userId,
+        chatId: chat.id
+      }),
+      this.assistantDocumentJobReadService.listOpenJobsForWebChat({
+        assistantId,
+        userId: chat.userId,
+        chatId: chat.id
+      }),
+      this.asyncJobHandleState.listOpenSandboxJobsForWebChat({
+        assistantId,
+        chatId: chat.id
+      })
+    ]);
     const messageToolContext = await this.assistantChatRepository.findMessageToolContextById(
       assistantMessage.id,
       assistantId
@@ -888,6 +897,7 @@ export class SendWebChatTurnService {
           }),
       activeMediaJobs,
       activeDocumentJobs,
+      activeSandboxJobs,
       engagementSummary: replayEngagementSummary,
       pendingBrowserLogin,
       runtime: {

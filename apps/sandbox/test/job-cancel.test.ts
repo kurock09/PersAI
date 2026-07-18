@@ -5,7 +5,7 @@ import { SandboxService } from "../src/sandbox.service";
 
 type JobRow = {
   id: string;
-  status: "queued" | "running" | "completed" | "cancelled" | "failed" | "blocked";
+  status: "queued" | "running" | "detached" | "completed" | "cancelled" | "failed" | "blocked";
   toolCode: string;
   policySnapshot: null;
   createdAt: Date;
@@ -14,6 +14,9 @@ type JobRow = {
   violationCode: string | null;
   violationMessage: string | null;
   resultPayload: Record<string, unknown> | null;
+  assistantId?: string;
+  workspaceId?: string;
+  execPodName?: string | null;
 };
 
 function createSandboxService(
@@ -21,6 +24,19 @@ function createSandboxService(
   bridge?: {
     cleanupBoundSessionPod?: (input: { binding: ExecPodJobBinding }) => Promise<unknown>;
     retireModelJobPod?: (input: { binding: ExecPodJobBinding }) => Promise<unknown>;
+    terminateBoundSessionJobProcess?: (input: { binding: ExecPodJobBinding }) => Promise<void>;
+    terminateDetachedSessionJob?: (input: {
+      jobId: string;
+      assistantId: string;
+      workspaceId: string;
+      podName: string;
+    }) => Promise<void>;
+    observeDetachedSessionJob?: (input: {
+      jobId: string;
+      assistantId: string;
+      workspaceId: string;
+      podName: string;
+    }) => Promise<{ status: "running" | "completed" | "failed" | "missing" }>;
   }
 ): SandboxService {
   const prisma = {
@@ -62,6 +78,13 @@ function createSandboxService(
     {} as never
   );
 }
+
+type ActiveJobBindingEntry = {
+  binding: ExecPodJobBinding;
+  runtimeSessionId: string | null;
+  processCleanupStarted: boolean;
+  supervisedProcess: boolean;
+};
 
 const SAMPLE_BINDING: ExecPodJobBinding = {
   namespace: "sandbox",
@@ -166,31 +189,18 @@ describe("sandbox job cancel endpoint", () => {
     (
       service as unknown as {
         activeJobAbortControllers: Map<string, AbortController>;
-        activeJobBindings: Map<
-          string,
-          {
-            binding: ExecPodJobBinding;
-            runtimeSessionId: string | null;
-            processCleanupStarted: boolean;
-          }
-        >;
+        activeJobBindings: Map<string, ActiveJobBindingEntry>;
       }
     ).activeJobAbortControllers.set("job-3", controller);
     (
       service as unknown as {
-        activeJobBindings: Map<
-          string,
-          {
-            binding: ExecPodJobBinding;
-            runtimeSessionId: string | null;
-            processCleanupStarted: boolean;
-          }
-        >;
+        activeJobBindings: Map<string, ActiveJobBindingEntry>;
       }
     ).activeJobBindings.set("job-3", {
       binding: SAMPLE_BINDING,
       runtimeSessionId: "session-1",
-      processCleanupStarted: false
+      processCleanupStarted: false,
+      supervisedProcess: false
     });
 
     const result = await service.cancelJob("job-3");
@@ -230,23 +240,164 @@ describe("sandbox job cancel endpoint", () => {
     });
     (
       service as unknown as {
-        activeJobBindings: Map<
-          string,
-          {
-            binding: ExecPodJobBinding;
-            runtimeSessionId: string | null;
-            processCleanupStarted: boolean;
-          }
-        >;
+        activeJobBindings: Map<string, ActiveJobBindingEntry>;
       }
     ).activeJobBindings.set("job-4", {
       binding: { ...SAMPLE_BINDING, jobId: "job-4" },
       runtimeSessionId: null,
-      processCleanupStarted: false
+      processCleanupStarted: false,
+      supervisedProcess: false
     });
 
     const result = await service.cancelJob("job-4");
     assert.equal(result.status, "cancelled");
     assert.equal(retired, true);
+  });
+
+  test("cancelJob on detached is a no-op (no terminate, stays detached)", async () => {
+    const jobs = new Map<string, JobRow>([
+      [
+        "job-detached",
+        {
+          id: "job-detached",
+          status: "detached",
+          toolCode: "shell",
+          policySnapshot: null,
+          createdAt: new Date(),
+          startedAt: new Date(),
+          completedAt: null,
+          violationCode: null,
+          violationMessage: null,
+          resultPayload: {
+            reason: "detached",
+            warning: null,
+            exitCode: null,
+            stdout: null,
+            stderr: null,
+            content: null
+          },
+          assistantId: "assistant-1",
+          workspaceId: "workspace-1",
+          execPodName: "pod-1"
+        }
+      ]
+    ]);
+    let terminateDetachedCalls = 0;
+    let terminateBoundCalls = 0;
+    const service = createSandboxService(jobs, {
+      terminateDetachedSessionJob: async () => {
+        terminateDetachedCalls += 1;
+      },
+      terminateBoundSessionJobProcess: async () => {
+        terminateBoundCalls += 1;
+      },
+      observeDetachedSessionJob: async () => ({ status: "running" }),
+      cleanupBoundSessionPod: async () => {
+        throw new Error("session cleanup must not run for detached cancel no-op");
+      },
+      retireModelJobPod: async () => {
+        throw new Error("ephemeral retirement must not run for detached cancel no-op");
+      }
+    });
+
+    const result = await service.cancelJob("job-detached");
+    assert.equal(result.status, "detached");
+    assert.equal(jobs.get("job-detached")?.status, "detached");
+    assert.equal(jobs.get("job-detached")?.completedAt, null);
+    assert.equal(terminateDetachedCalls, 0, "Stop must not terminate detached work");
+    assert.equal(terminateBoundCalls, 0);
+  });
+
+  test("cancelJob forceDetachedOrphan terminates and cancels detached admission orphans", async () => {
+    const jobs = new Map<string, JobRow>([
+      [
+        "job-orphan",
+        {
+          id: "job-orphan",
+          status: "detached",
+          toolCode: "shell",
+          policySnapshot: null,
+          createdAt: new Date(),
+          startedAt: new Date(),
+          completedAt: null,
+          violationCode: null,
+          violationMessage: null,
+          resultPayload: {
+            reason: "detached",
+            warning: null,
+            exitCode: null,
+            stdout: null,
+            stderr: null,
+            content: null
+          },
+          assistantId: "assistant-1",
+          workspaceId: "workspace-1",
+          execPodName: "pod-1"
+        }
+      ]
+    ]);
+    let terminateDetachedCalls = 0;
+    const service = createSandboxService(jobs, {
+      terminateDetachedSessionJob: async () => {
+        terminateDetachedCalls += 1;
+      },
+      observeDetachedSessionJob: async () => ({ status: "failed" })
+    });
+
+    const result = await service.cancelJob("job-orphan", { forceDetachedOrphan: true });
+    assert.equal(result.status, "cancelled");
+    assert.equal(jobs.get("job-orphan")?.status, "cancelled");
+    assert.equal(jobs.get("job-orphan")?.violationCode, "admission_orphan");
+    assert.equal(terminateDetachedCalls, 1);
+  });
+
+  test("cancelJob leaves running when supervised terminate fails", async () => {
+    const jobs = new Map<string, JobRow>([
+      [
+        "job-kill-fail",
+        {
+          id: "job-kill-fail",
+          status: "running",
+          toolCode: "shell",
+          policySnapshot: null,
+          createdAt: new Date(),
+          startedAt: new Date(),
+          completedAt: null,
+          violationCode: null,
+          violationMessage: null,
+          resultPayload: null
+        }
+      ]
+    ]);
+    let terminateCalls = 0;
+    const service = createSandboxService(jobs, {
+      terminateBoundSessionJobProcess: async () => {
+        terminateCalls += 1;
+        throw new Error("sandbox_job_process_termination_failed");
+      },
+      cleanupBoundSessionPod: async () => {
+        throw new Error("legacy cleanup must not run for supervised jobs");
+      },
+      retireModelJobPod: async () => {
+        throw new Error("ephemeral retirement must not run for session jobs");
+      }
+    });
+    (
+      service as unknown as {
+        activeJobBindings: Map<string, ActiveJobBindingEntry>;
+      }
+    ).activeJobBindings.set("job-kill-fail", {
+      binding: { ...SAMPLE_BINDING, jobId: "job-kill-fail" },
+      runtimeSessionId: "session-1",
+      processCleanupStarted: false,
+      supervisedProcess: true
+    });
+
+    const result = await service.cancelJob("job-kill-fail");
+    assert.equal(result.status, "running");
+    assert.equal(jobs.get("job-kill-fail")?.status, "running");
+    assert.equal(jobs.get("job-kill-fail")?.completedAt, null);
+    assert.equal(jobs.get("job-kill-fail")?.violationCode, null);
+    assert.equal(terminateCalls, 1);
   });
 });

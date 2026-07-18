@@ -115,6 +115,7 @@ import {
   formatToolHistoryProjectionMetricsLog,
   projectToolExchangesForModelWithMetrics
 } from "./project-tool-exchanges-for-model";
+import { buildAsyncJobAcceptedEvent } from "./build-async-job-accepted-event";
 import { RuntimeFilesToolService } from "./runtime-files-tool.service";
 import { RuntimeImageEditToolService } from "./runtime-image-edit-tool.service";
 import { RuntimeImageGenerateToolService } from "./runtime-image-generate-tool.service";
@@ -322,7 +323,7 @@ type TurnExecutionState = {
   wireExpandedCatalogToolCodes: Set<string>;
   /** ADR-135 S6 — per-turn catalog projection observability counters. */
   catalogToolMetrics: CatalogToolTurnMetrics;
-  blockingWaitedJobRefs: Set<string>;
+  admittedWaitToolCallIds: Set<string>;
 };
 
 type ToolExecutionOutcome = {
@@ -1440,6 +1441,13 @@ export class TurnExecutionService {
                           this.readBrowserToolRequestedAction(result.outcome),
                           this.readBrowserToolPendingLogin(result.outcome)
                         );
+                        const acceptedAsyncJob = this.createAsyncJobAcceptedStreamEvent(
+                          acceptedTurn,
+                          result.outcome
+                        );
+                        if (acceptedAsyncJob !== null) {
+                          yield acceptedAsyncJob;
+                        }
                         if (result.outcome.artifacts !== undefined) {
                           for (const artifact of result.outcome.artifacts) {
                             yield this.createArtifactStreamEvent(acceptedTurn, artifact);
@@ -1512,6 +1520,13 @@ export class TurnExecutionService {
                       this.readBrowserToolRequestedAction(outcome),
                       this.readBrowserToolPendingLogin(outcome)
                     );
+                    const acceptedAsyncJob = this.createAsyncJobAcceptedStreamEvent(
+                      acceptedTurn,
+                      outcome
+                    );
+                    if (acceptedAsyncJob !== null) {
+                      yield acceptedAsyncJob;
+                    }
                     if (outcome.artifacts !== undefined) {
                       for (const artifact of outcome.artifacts) {
                         yield this.createArtifactStreamEvent(acceptedTurn, artifact);
@@ -3729,6 +3744,10 @@ export class TurnExecutionService {
           sessionId: acceptedTurn.session.sessionId,
           requestId: acceptedTurn.receipt.requestId,
           chatId: currentChatId,
+          channel: acceptedTurn.session.conversation.channel,
+          threadKey: acceptedTurn.session.conversation.externalThreadKey,
+          sourceClientTurnId,
+          sourceUserMessageId,
           sourceUserMessageText: input.message.text,
           sourceUserMessageCreatedAt: new Date().toISOString(),
           ...(abortSignal === undefined ? {} : { abortSignal }),
@@ -3793,8 +3812,9 @@ export class TurnExecutionService {
           chatId: currentChatId,
           channel: acceptedTurn.session.conversation.channel,
           threadKey: acceptedTurn.session.conversation.externalThreadKey,
+          sourceClientTurnId,
           locale: input.message.locale ?? execution.bundle.userContext.locale ?? null,
-          blockingWaitedJobRefs: turnState.blockingWaitedJobRefs,
+          admittedWaitToolCallIds: turnState.admittedWaitToolCallIds,
           ...(abortSignal === undefined ? {} : { abortSignal })
         });
         const outcome = this.createToolExecutionOutcome(toolCall, result.payload, result.isError);
@@ -5354,6 +5374,15 @@ export class TurnExecutionService {
   }
 
   private readToolInputPreview(toolCall: ProviderGatewayToolCall): string | null {
+    if (toolCall.name === "await") {
+      const timeoutMs = toolCall.arguments.timeoutMs;
+      return typeof timeoutMs === "number" &&
+        Number.isInteger(timeoutMs) &&
+        timeoutMs > 0 &&
+        timeoutMs <= 60_000
+        ? `await-deadline:${String(Date.now() + timeoutMs)}`
+        : null;
+    }
     if (toolCall.name !== "shell" && toolCall.name !== "exec") {
       return null;
     }
@@ -5494,6 +5523,18 @@ export class TurnExecutionService {
     };
   }
 
+  private createAsyncJobAcceptedStreamEvent(
+    acceptedTurn: AcceptedRuntimeTurn,
+    outcome: ToolExecutionOutcome
+  ): RuntimeTurnStreamEvent | null {
+    return buildAsyncJobAcceptedEvent({
+      requestId: acceptedTurn.receipt.requestId,
+      sessionId: acceptedTurn.session.sessionId,
+      payload: outcome.payload,
+      isError: outcome.exchange.toolResult.isError === true
+    });
+  }
+
   private readBrowserToolPendingLogin(
     outcome: ToolExecutionOutcome
   ): PendingBrowserLoginState | undefined {
@@ -5591,7 +5632,7 @@ export class TurnExecutionService {
       workspaceId: "",
       wireExpandedCatalogToolCodes: new Set<string>(),
       catalogToolMetrics: createEmptyCatalogToolTurnMetrics(),
-      blockingWaitedJobRefs: new Set<string>()
+      admittedWaitToolCallIds: new Set<string>()
     };
   }
 

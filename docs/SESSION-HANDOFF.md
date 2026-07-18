@@ -1,5 +1,276 @@
 # SESSION-HANDOFF
 
+## 2026-07-18 — ADR-152 await/job/cap commit to main (post CLEAN local audit)
+
+Status: **CLEAN-for-local-implementation retained.** Local CI-like gate
+green (lint, format:check, api/web/runtime/sandbox typecheck, full
+api/runtime/sandbox/web tests). Founder-directed commit + push to
+`main` in progress. ADR-152 program remains open for F5 deploy/live
+acceptance; do not treat push as closure.
+
+## 2026-07-18 — ADR-152 await/job/cap CLEAN-for-local-implementation
+
+Status: **Independent full re-audit returned CLEAN-for-local-implementation
+(no open P0/P1).** Prior cap self-include P0 and delivery-visible media
+cap P1 are closed end-to-end. Closure checklist 1–7 HOLD. Optional P2
+test gaps closed locally (runtime post-wait asserts `excludeSandboxJobId`;
+snapshot excludes attachment-visible media). Superseded by commit/push
+entry above for repo truth after push.
+
+## 2026-07-18 — ADR-152 cap self-include P0 + delivery-visible cap P1 (local)
+
+Status: **Superseded by CLEAN-for-local-implementation above.** Repair
+landed: `excludeSandboxJobId` through assert-cap HTTP / runtime client /
+post-wait / register; cap SQL drops delivery-visible
+`completion_pending` media; focused 7→8 tests.
+
+## 2026-07-18 — ADR-152 P2 cleanup + full re-audit pending (local)
+
+Status: **Superseded by cap self-include P0 repair above.** P2 tails
+(`async_job_accepted` OpenAPI ops; post-detach re-assert-cap; F0 Redis
+not-landed) remain landed locally. Full re-audit returned DIRTY on the
+new P0; repair in flight above.
+
+## 2026-07-18 — ADR-152 delivery-visible observe/scheduler P0 repair (local)
+
+Status: **Await adversarial re-audit P0s repaired locally (not CLEAN /
+not committed/deployed).** (1) `readCanonical` classifies
+`failed|expired|canceled` before delivery-visible success so Telegram
+failure-notice `deliveredAt` cannot observe as completed. (2) Shared
+`readCanonicalTerminal` unifies observe + scheduler `loadAndValidateContext`
++ media/document subscribed reconcile — delivery-visible
+`completion_pending`+attachment marks notify `ready` and continuation claim
+validates without `failClaim`/`continuation_context_invalid`. Focused
+handle-state + continuation-scheduler tests green (52). Fresh full re-audit
+still **DIRTY** in other areas (web continuation live visibility; sandbox
+Stop/cap; Working pill labels) — do not treat tree as CLEAN.
+
+## 2026-07-18 — ADR-152 post-fix residual sweep CLEAN (local) — SUPERSEDED
+
+Status: **Superseded.** A later independent adversarial re-audit disproved
+CLEAN-for-local-implementation (delivery-visible observe vs scheduler
+failClaim; failed+deliveredAt; plus web/sandbox findings). See repair entry
+above. Still **not committed, pushed, deployed, or founder live-accepted.**
+
+## 2026-07-18 — ADR-152 P1 permanent continuation failure visibility (local)
+
+Status: **Permanent `failClaim` / retry-exhausted now persist exactly one opaque
+assistant observation (web chat message; Telegram channel notice once via CAS).**
+Web `notifyState` projects `failed|cancelled` honestly. Expired
+dispatched+completed reconcile with invalid context `failClaim`s instead of
+sticking in `dispatched`. Spot-checked: `registerSandboxJob` still requires
+`detached`; `waitForForegroundThreshold` still does not fake-yield. Focused
+API/scheduler tests green. Not committed/deployed.
+
+## 2026-07-18 — ADR-152 Await/API P1 repairs (local)
+
+Status: **Full re-audit Await/API P1s repaired locally (not committed/deployed).**
+(1) No-id `wait` returns immediately on empty or already-terminal first snapshot
+(no poll-to-timeout). (2) Exact-id wait after notify no longer returns
+`turnControl: terminal_static` when narration is `continuation` — model can
+continue; legacy ownership still ends static. (3) Snapshot open-handle OR
+requires currently-open canonical jobs for non-current-turn rows; sandbox
+observe + scheduler reconcile finalize handles so completed unobserved sandbox
+does not stay `none` and reappear. Delivery-visible media (attachment/
+`deliveredAt`) and document (`deliveredAt`) also terminal on observe. Focused
+runtime/API tests green.
+
+## 2026-07-18 — ADR-152 P1 web sandbox live-list dots (local)
+
+Status: **Sandbox jobs now join the streaming-threads registry for live
+dots.** `markSandboxActive` / `activeSandboxThreads` mirror media/document;
+`use-chat` marks on `replaceActiveSandboxJobs` and off-thread
+`onAsyncJobAccepted`; sidebar + home-dashboard include sandbox registry and
+`item.activeSandboxJobs`. Focused web tests updated. Not committed/deployed.
+
+## 2026-07-18 — ADR-152 sandbox re-audit P0/P1 repairs (local)
+
+Status: **Full re-audit sandbox area returned DIRTY; P0/P1 repaired locally.**
+(1) Runtime never yields/registers unless sandbox status is `detached`; outer
+ceiling times out instead of fake-yield; tool rejects `async_detach_incomplete`.
+(2) API `registerSandboxJob` requires `status: detached` fail-closed.
+(3) Dead-PID finalize race: in-pod state.json retry + control-plane
+`waitForSupervisedSessionJobUntilYield` / `refreshDetachedJob` re-observe before
+missing/failed/cancel (never yield on failed). (4) Stop cancels only while
+queued/running — not after `detached`. Short-path pull, retained PID keep,
+broker TTL+60s, detach-at-threshold unchanged. Focused runtime/sandbox/API
+tests green. Not committed/deployed.
+
+## 2026-07-18 — ADR-152 local residual sweep CLEAN (not committed/deployed)
+
+Status: **Independent Cursor Grok residual sweep returned
+CLEAN-for-local-implementation.** Verified present: broker TTL + 60s pre-open
+slack; detached PID keep in warm cleanup; live await countdown;
+docs/sandbox/notify/20-wait/migration honesty; busy requeue without retry
+budget; detach/lease at Process timeout + short pre-yield pull;
+`async_job_accepted` E2E + sandbox replay/list/archive. No remaining P0/P1
+against those closures. Still **not committed, pushed, deployed, or
+founder live-accepted**; plan Process timeout ≥ Script need remains an
+operational live prerequisite for browser acceptance.
+
+## 2026-07-18 — ADR-152 AREA B detach-at-threshold + short-path pull (local)
+
+Status: **The two P1 residuals are closed locally (not committed/deployed).**
+Warm supervised shell/exec now waits through plan Process timeout before
+stamping `detached` and releasing the workspace lease. Short completions
+before that threshold pull/mirror synchronously (`detached` omitted;
+`producedFiles: []` only after true yield). Runtime `waitForForegroundThreshold`
+yields on the sandbox `detached` stamp (generous outer ceiling), not by
+forcing yield while the job is still `running` with the lease held. Retained
+PID keep in `cleanupBoundSessionPod` is unchanged. Focused sandbox + runtime
+tests green. Busy-retry budget also closed (separate). Not CLEAN/deployed.
+
+## 2026-07-18 — ADR-152 `async_job_accepted` + sandbox replay residual (local)
+
+Status: **Cursor Grok finished the mid-turn Working residual on the dirty
+ADR-152 tree: runtime emits `async_job_accepted` after opaque media/document/
+sandbox `jobRef` acceptance; API relays SSE; web upserts active job arrays
+before provider-loop close; send/stream replay + archive empty projections +
+chat-list live dots include sandbox; thread swap-out prefers live Working
+refs. Focused runtime/web/API tests cover event build, SSE parse, and replay
+sandbox projection. Detach-at-threshold + short-path pull and busy-retry
+budget are also closed locally. Still not CLEAN/deployed.**
+
+## 2026-07-18 — ADR-152 audit P0 repairs (local; Terra/Sonnet API-limited)
+
+Status: **Independent Grok full-slice audits returned DIRTY. Parent repaired
+without Terra/Sonnet (API limits): (1) warm `cleanupBoundSessionPod` now keeps
+live `/tmp/persai-detached/*/state.json` PIDs so later jobs do not kill
+retained shell/exec; (2) live `InlineStreamingStatus` await countdown;
+(3) sandbox Working cache on thread swap; (4) stale docs reconciled away from
+media-only / terminal-notify / one-wait / migration-none / Redis-long-poll
+oversell. Follow-ups landed: `async_job_accepted` + turn-replay sandbox
+projection, detach-at-threshold + short-path pull, and busy-retry (no retry
+budget consumption). Not CLEAN/deployed.**
+
+## 2026-07-18 — ADR-152 browser broker TTL/deadline mismatch (local fix)
+
+Status: **Live Browser Script SDK acceptance failed with
+`script_browser_broker_binding_invalid` for `adr152_live_browser` (profile
+`telega-in`). Root cause: runtime minted broker `expiresAt` from Script
+`limits.timeoutMs` alone (120s), while sandbox opens the broker with
+`deadlineAtMs = now + reconciled maxProcessRuntimeMs` (plan Process timeout,
+default 15s). Sandbox correctly rejects `expiresAt > deadline`. Local fix
+first clamped process budget, then adversarial audit found mint→open can still
+expire a 15s broker during workspace lease wait (up to 60s). Current local
+truth: runtime mints `min(31m, processBudget + 60s pre-open slack)`; sandbox
+allows the same slack above `deadlineAtMs` and clamps in-session lifetime to
+`deadlineAtMs`. Not committed/deployed yet.**
+
+Independent Grok audits: duration mismatch clamp alone is necessary but not
+sufficient for live PASS. Pre-open slack repair addresses mint→lease
+`binding_invalid`. Residual: after deploy, raise plan **Process timeout** to
+≥120000 for `adr152_live_browser` or the Script still dies at plan wall-clock
+(`process_timeout`). Opaque `binding_invalid` for all invalid shapes remains
+acceptable. Not committed/deployed.
+
+## 2026-07-18 — ADR-152 universal await + detached warm shell implementation (local)
+
+Status: **Implementation is in progress on the authorized dirty baseline
+`6224af52`; not committed, pushed, deployed, audited, or CLEAN.** The founder
+superseded the media/document-only F0 draft: `SandboxJob` shell/exec is now the
+third narrow opaque-handle adapter. Warm-session shell/exec launches under a
+durable pod-side supervisor; plan Process timeout is the foreground yield
+threshold, not a kill deadline. The canonical job becomes `detached`, releases
+its workspace lease, survives control-plane restart through pod files, and is
+terminated finally by natural exit, explicit process control, or warm-pod idle
+TTL. Sessionless jobs keep hard timeout and retirement behavior.
+
+The local slice adds exact trusted sandbox handle registration (including
+runtime-session ownership), bounded stdout/stderr observation, no-id mixed
+snapshot, 20-wait budget, non-terminal durable notify with source-finalization
+claim gate, scheduler sandbox reconciliation through the trusted sandbox API,
+an atomic unified eight-active-job chat cap, and an initial unified Working
+popover for media/document/sandbox jobs. Detached completion intentionally does
+not attribute produced files because concurrent retained processes make exact
+per-job attribution unsafe without a broader filesystem journal.
+
+Verification after the interrupted Terra continuation (finished locally on
+Cursor Grok 4.5): API/runtime/web/sandbox typechecks; repository
+`format:check`; lint for api/runtime/web/sandbox; runtime suite; focused
+runtime sandbox yield + await harness; continuation-scheduler suite (includes
+native-web/Telegram binding matrix); focused web UI suite for Working pill,
+countdown, and chat-area. Fixed incomplete `notifyState` projection onto web
+media/document jobs, plural post-loop notify status, and chat-input tests for
+the pill/list UX. Preserve the existing native-web continuation repair: web
+requires no synthetic binding; Telegram still requires an active binding.
+
+Still local only: not committed, pushed, deployed, independently audited, or
+founder live-accepted. Residuals: detached completion still does not attribute
+produced files; browser Script detachment remains out of scope; Browser SDK
+acceptance remains paused. Next: one independent audit of this dirty slice,
+then commit/push/deploy and live acceptance.
+
+## 2026-07-18 — ADR-152 founder await/job UX revision (docs-only; F0 audit pending)
+
+Status: **CP1–CP5 landed/deployed history is retained, but founder rejected the
+current required-`jobRef`, one-wait-per-job, terminal-`notify`, and late-banner
+UX after live continuation failed `continuation_context_invalid`. Browser SDK
+acceptance is paused, not rejected. This docs-only F0 revision is not CLEAN,
+does not alter code/live state, and requires an independent docs audit before
+implementation.**
+
+- Preserve the valid uncommitted six-file native-web continuation repair in
+  F1: `web_internal`/`web_chat` has no synthetic
+  `assistant_channel_surface_bindings` row; Telegram still requires an active
+  binding. Existing exact ownership/session/canonical/capability/quota checks
+  remain mandatory.
+- Exact `await` is strict
+  `{ action: "wait" | "notify", jobRef?: string, timeoutMs?: number }`;
+  `jobRef` is optional only for wait, timeout is wait-only `0..60000`, and
+  notify requires an explicit ref at runtime. `wait()` yields a stable,
+  complete, max-32 snapshot of current-server-logical-turn exact-owned handles
+  plus currently-open exact-owned canonical media/document jobs in the current
+  chat/channel/thread. Overflow fails closed; delivery visibility is terminal
+  authority.
+- Redis subscribe-before-read long-poll is **not landed**. Local truth:
+  runtime client-polls immediate DB status/snapshot seams; API ~3s scheduler
+  poll is recovery only. Durable canonical/handle rows remain authority.
+  There is no new persistence, event bus, outbox, registry, or mandatory field.
+- Each dispatched logical runtime turn has 20 admitted waits, replay-deduped by
+  provider tool-call id. Notify is non-terminal and returns
+  `turnControl:"continue"`; source finalization gates scheduler dispatch, and
+  the existing same-chat lease serializes continuation and user turns in both
+  directions. Permanent continuation failure must visibly resolve exactly once.
+- F0 docs revision → F1 correctness foundation → F2 API/runtime await v2 → F3
+  event-first continuation/serialization → F4 web/runtime streaming UX → F5
+  audits/full gate/one push/deploy/live acceptance. No intermediate deploy.
+  Rollout includes additive migration
+  `20260718150000_adr152_sandbox_async_job_handles` → API → runtime → sandbox →
+  web; rollback
+  reverses application order with a fail-closed v2 capability barrier.
+
+Baseline SHA remains `6224af52`; the working tree is intentionally dirty and
+uncommitted. Preserve unrelated native-web repair/docs edits. **Next exact
+checkpoint: independent docs audit of F0. Do not claim F0 CLEAN.**
+
+## 2026-07-18 — ADR-152 native-web continuation validation repair (local; audit pending)
+
+Status: **Production evidence from deployed `6224af52` passed `await.wait`,
+durable `await.notify` subscription through a full API rolling restart, and
+exact-once attachment-first delivery. The subsequent scheduler continuation
+failed with `continuation_context_invalid`: read-only diagnosis confirmed every
+owned chat/session/canonical/entitlement invariant, while native
+`web_internal` intentionally has no persisted channel-binding row. Local repair
+now requires an active persisted binding only for Telegram; native web retains
+the existing exact ownership/session and capability/quota validation. Focused
+regressions pass. Independent audit is pending; this repair is not committed,
+deployed, live-accepted, or CLEAN.**
+
+- The observed notify handle reached `state=subscribed`,
+  `narration_owner=continuation`, and `narration_decision=notify_subscribed`
+  before source finalization and restart. Its media attachment was delivered
+  once after restart; no continuation Assistant message was persisted because
+  scheduler validation incorrectly required a synthetic native-web binding.
+- Regression coverage exercises the real `loadAndValidateContext` path: web
+  succeeds without a binding; missing/inactive Telegram bindings fail; active
+  Telegram succeeds; foreign chat, absent matching session, and nonterminal
+  canonical job still fail closed.
+
+Next recommended step: independent audit of this bounded repair, then parent
+commit/push/deploy and rerun the full continuation live gate. Do not claim
+ADR-152 closure from the partial live PASS evidence.
+
 ## 2026-07-18 — ADR-152 missed web/provider-gateway GitOps pin repair committed
 
 Status: **Dev Image Publish run `29641955595`

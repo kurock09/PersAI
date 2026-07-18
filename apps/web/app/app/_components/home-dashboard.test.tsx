@@ -110,7 +110,18 @@ function makeDataWithRecentChats(): AppData {
         lastMessagePreview: "Quiet latest message",
         activeTurn: null,
         activeMediaJobs: [],
-        activeDocumentJobs: []
+        activeDocumentJobs: [],
+        activeSandboxJobs: [
+          {
+            jobRef: "sandbox-job-ref-1",
+            toolCode: "shell",
+            status: "running",
+            notifyState: "none",
+            createdAt: "2026-04-01T10:04:00.000Z",
+            startedAt: "2026-04-01T10:04:01.000Z",
+            updatedAt: "2026-04-01T10:04:01.000Z"
+          }
+        ]
       },
       {
         chat: {
@@ -126,7 +137,8 @@ function makeDataWithRecentChats(): AppData {
         lastMessagePreview: "Thinking in background",
         activeTurn: { clientTurnId: "turn-1" },
         activeMediaJobs: [],
-        activeDocumentJobs: []
+        activeDocumentJobs: [],
+        activeSandboxJobs: []
       }
     ]
   } as unknown as AppData;
@@ -160,7 +172,7 @@ describe("HomeDashboard", () => {
     expect(screen.getByRole("button", { name: /Project plan/i })).toBeInTheDocument();
     expect(screen.getByLabelText("Project")).toBeInTheDocument();
     expect(screen.getByLabelText("Smarter")).toBeInTheDocument();
-    expect(screen.getByLabelText("Generating reply")).toBeInTheDocument();
+    expect(screen.getAllByLabelText("Generating reply")).toHaveLength(2);
     expect(screen.getByText("Quiet latest message")).toBeInTheDocument();
   });
 });

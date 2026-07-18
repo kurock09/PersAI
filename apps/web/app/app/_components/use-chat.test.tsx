@@ -2277,6 +2277,72 @@ describe("useChat", () => {
     expect(window.sessionStorage.getItem("persai.active-web-turn.v1.thread-1")).toBe("turn-1");
   });
 
+  it("preserves await toolInputPreview countdown when hydrating activeTurn overlay", async () => {
+    const deadlinePreview = `await-deadline:${Date.now() + 30_000}`;
+    assistantApiMocks.getChatMessages.mockResolvedValueOnce({
+      nextCursor: null,
+      messages: [],
+      activeTurn: {
+        clientTurnId: "turn-await-1",
+        status: "running",
+        updatedAt: "2026-04-25T17:45:36.000Z",
+        currentActivity: {
+          type: "tool_use",
+          toolName: "await",
+          toolCallId: "tool-await-1",
+          phase: "start",
+          isError: false,
+          toolInputPreview: deadlinePreview,
+          updatedAt: "2026-04-25T17:45:36.000Z"
+        },
+        pendingUserMessageId: "server-user-await",
+        assistantMessageId: null,
+        chat: {
+          id: "chat-1",
+          assistantId: "assistant-1",
+          surface: "web",
+          surfaceThreadKey: "thread-1",
+          title: "Chat",
+          deepModeEnabled: false,
+          archivedAt: null,
+          lastMessageAt: "2026-04-25T17:45:35.000Z",
+          createdAt: "2026-04-25T17:45:35.000Z",
+          updatedAt: "2026-04-25T17:45:35.000Z"
+        },
+        userMessage: {
+          id: "server-user-await",
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          author: "user",
+          content: "wait please",
+          attachments: [],
+          createdAt: "2026-04-25T17:45:35.000Z"
+        },
+        assistantMessage: null,
+        canReattach: true
+      }
+    });
+
+    const { result } = renderHook(() => useChat("thread-1"), {
+      wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+    });
+
+    await act(async () => {
+      await result.current.loadHistory("chat-1");
+    });
+
+    expect(result.current.entries).toContainEqual(
+      expect.objectContaining({
+        kind: "activity",
+        event: expect.objectContaining({
+          type: "tool_use",
+          toolName: "await",
+          detail: deadlinePreview
+        })
+      })
+    );
+  });
+
   it("does not replace a live local stream with an empty server activeTurn overlay", async () => {
     assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
       async (

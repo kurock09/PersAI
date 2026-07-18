@@ -2,6 +2,7 @@ import type { RuntimeTier } from "./runtime-assignment";
 import type {
   ProviderGatewayToolExchange,
   PendingBrowserLoginState,
+  RuntimeAsyncJobAcceptedEvent,
   RuntimeDeferredMediaJobSummary,
   RuntimeBillingFacts,
   RuntimeOutputArtifact,
@@ -173,6 +174,7 @@ export interface AssistantRuntimeWebChatTurnStreamChunk {
     | "compaction"
     | "tool"
     | "tool_progress"
+    | "async_job_accepted"
     | "activity"
     | "project_activity"
     | "project_reasoning_summary";
@@ -208,6 +210,11 @@ export interface AssistantRuntimeWebChatTurnStreamChunk {
   toolProgressSeq?: number;
   toolRequestedAction?: string;
   pendingBrowserLogin?: PendingBrowserLoginState;
+  asyncJobAcceptedKind?: RuntimeAsyncJobAcceptedEvent["kind"];
+  asyncJobAcceptedJobRef?: string;
+  asyncJobAcceptedMediaJob?: NonNullable<RuntimeAsyncJobAcceptedEvent["mediaJob"]>;
+  asyncJobAcceptedDocumentJob?: NonNullable<RuntimeAsyncJobAcceptedEvent["documentJob"]>;
+  asyncJobAcceptedSandboxJob?: NonNullable<RuntimeAsyncJobAcceptedEvent["sandboxJob"]>;
   isError?: boolean;
   activitySource?: "skill" | "user" | "product" | "web";
   activityPhase?: "start";

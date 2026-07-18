@@ -29,6 +29,8 @@ export interface StreamingThreadsRegistry {
   readonly activeMediaThreads: ReadonlySet<string>;
   /** Set of `threadKey`s with background document jobs currently in flight. */
   readonly activeDocumentThreads: ReadonlySet<string>;
+  /** Set of `threadKey`s with background sandbox jobs currently in flight. */
+  readonly activeSandboxThreads: ReadonlySet<string>;
   /**
    * Mark a `threadKey` as streaming (`active: true`) or idle (`active: false`).
    * Idempotent — repeated calls with the same value do not trigger a
@@ -39,6 +41,8 @@ export interface StreamingThreadsRegistry {
   markMediaActive(threadKey: string, active: boolean): void;
   /** Mark a `threadKey` as having active document jobs or not. */
   markDocumentActive(threadKey: string, active: boolean): void;
+  /** Mark a `threadKey` as having active sandbox jobs or not. */
+  markSandboxActive(threadKey: string, active: boolean): void;
 }
 
 const StreamingThreadsContext = createContext<StreamingThreadsRegistry | null>(null);
@@ -56,6 +60,9 @@ function useRegistryState(): StreamingThreadsRegistry {
     () => new Set()
   );
   const [activeDocumentThreads, setActiveDocumentThreads] = useState<ReadonlySet<string>>(
+    () => new Set()
+  );
+  const [activeSandboxThreads, setActiveSandboxThreads] = useState<ReadonlySet<string>>(
     () => new Set()
   );
 
@@ -104,21 +111,40 @@ function useRegistryState(): StreamingThreadsRegistry {
     });
   }, []);
 
+  const markSandboxActive = useCallback((threadKey: string, active: boolean) => {
+    setActiveSandboxThreads((prev) => {
+      if (active) {
+        if (prev.has(threadKey)) return prev;
+        const next = new Set(prev);
+        next.add(threadKey);
+        return next;
+      }
+      if (!prev.has(threadKey)) return prev;
+      const next = new Set(prev);
+      next.delete(threadKey);
+      return next;
+    });
+  }, []);
+
   return useMemo(
     () => ({
       activeThreads,
       activeMediaThreads,
       activeDocumentThreads,
+      activeSandboxThreads,
       markStreaming,
       markMediaActive,
-      markDocumentActive
+      markDocumentActive,
+      markSandboxActive
     }),
     [
       activeDocumentThreads,
       activeMediaThreads,
+      activeSandboxThreads,
       activeThreads,
       markDocumentActive,
       markMediaActive,
+      markSandboxActive,
       markStreaming
     ]
   );
@@ -164,4 +190,12 @@ export function useHasThreadActiveDocumentJobs(
 ): boolean {
   const { activeDocumentThreads } = useStreamingThreadsRegistry();
   return activeDocumentThreads.has(scopeThreadKey(threadKey, assistantId));
+}
+
+export function useHasThreadActiveSandboxJobs(
+  threadKey: string,
+  assistantId?: string | null
+): boolean {
+  const { activeSandboxThreads } = useStreamingThreadsRegistry();
+  return activeSandboxThreads.has(scopeThreadKey(threadKey, assistantId));
 }

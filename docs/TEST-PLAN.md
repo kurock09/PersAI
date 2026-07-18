@@ -4,6 +4,98 @@ This document defines the current verification baseline for the active PersAI-na
 
 ADR-072 is closed as the historical native migration ADR. Current continuation work should be checked against `docs/ADR/078-consolidated-follow-through-program.md`. `Step 15a` is cancelled and is not an active verification track. ADR-087 defines the unified quota-advisory and paid light-mode target state. ADR-088 defines the unified notification platform target state.
 
+## 2026-07-18 ADR-152 universal await + detached shell implementation
+
+The local founder follow-through is not CLEAN/deployed. Required gate:
+
+- short warm shell/exec remains synchronous (pull/mirror before yield);
+  threshold yield exposes only `jr1.sandbox.*`, stamps `detached` and releases
+  the workspace lease at/after Process timeout (not at supervised admit), and
+  survives sandbox control-plane restart from pod-side authority
+- pre-yield cancellation kills only the verified process group; Stop/wait
+  timeout after yield does not cancel it; retained processes survive later warm
+  calls (`cleanupBoundSessionPod` keeps live `/tmp/persai-detached/*/state.json`
+  PIDs); sessionless timeout/retirement is unchanged
+- detached is not stale-failed or reaper-protected; active queued/running lease
+  is protected through the yield threshold; idle TTL deletes the pod and
+  terminalizes detached jobs
+- exact registration/ownership rejects malformed, raw, and foreign identity;
+  wait covers running/terminal/no-id mixed snapshots with bounded output and a
+  replay-safe 20-call budget
+- notify is non-terminal, source-finalization gated, exactly once, native-web
+  no-binding and Telegram active-binding; terminal-before-subscribe is inline
+- chat-row locked race coverage proves one unified eight-job active cap across
+  media/document/sandbox
+- web coverage proves one Working list, notify badge, immediate acceptance and
+  reconnect repair, decreasing absolute-deadline wait countdown, and
+  deterministic post-loop notify status without an assistant message
+- focused tests, touched-package lint/typecheck, root format, then the normal
+  repository verification gate
+
+## 2026-07-18 ADR-152 F0 founder UX revision
+
+F0 is documentation-only and must receive an independent architecture audit
+before it is called CLEAN. CP1–CP5 deployed history remains evidence only:
+founder rejected the current required-jobRef, one-wait-per-job,
+terminal-notify, and late-banner UX. Browser SDK acceptance is paused. The
+uncommitted native-web repair is carried into F1: native web must validate
+ownership/session/canonical/capability/quota without a synthetic binding;
+Telegram still requires an active binding.
+
+F1 focused tests must cover source-finalization dispatch gating, delivery-visible
+terminal observation, subscribed-terminal reconciliation, exactly-once
+web/Telegram permanent-failure observation (opaque assistant message + Telegram
+notice CAS; expired dispatched+completed invalid-context `failClaim`), and the
+native-web/Telegram binding matrix. F2 must prove exact tool-schema rejection, no-id/current-turn
+plus open-thread snapshot scope, deterministic ordering, empty snapshot,
+max-32 fail-closed overflow, single-id observation, delivery-before-status,
+immediate DB status/snapshot/subscribe seams with runtime ~500ms client poll
+(Redis subscribe-before-read long-poll is not landed), 20-call budget with
+replay-safe tool-call id, and non-terminal notify. F3 must prove completion/
+source-finalization recovery, SchedulerLease single claimant, source gate,
+bidirectional continuation/user-turn lease serialization, and busy requeue
+without consuming retry budget. F4 must prove Working updates (including
+`async_job_accepted` mid-turn Working SSE), durable observation
+reconnect/reload, live decreasing countdown via `await-deadline`,
+Stop/resolve clearing, and EN/RU countdown copy. F5 repeats independent
+audits and the full gate, then verifies exact images and founder live
+acceptance.
+
+No intermediate deployment is authorized. Rollout includes additive migration
+`20260718150000_adr152_sandbox_async_job_handles` → API → runtime → sandbox →
+web with a fail-closed capability barrier; rollback reverses application
+order. Browser SDK acceptance resumes only after the await/job UX is
+founder-accepted.
+
+## 2026-07-18 ADR-152 native-web continuation repair verification
+
+Production release `6224af52` demonstrated live PASS for `await.wait`, durable
+`await.notify` subscription through an API rolling restart, and exact-once
+attachment-first delivery. The subsequent full continuation failed
+`continuation_context_invalid` because
+`loadAndValidateContext` incorrectly required a persisted binding for intrinsic
+native `web_internal`/`web_chat`; no continuation Assistant message was
+persisted. Read-only diagnosis confirmed all ownership, session, canonical,
+published-version, and entitlement invariants.
+
+Before audit, run:
+
+```sh
+corepack pnpm --filter @persai/api exec tsx test/assistant-async-job-continuation-scheduler.service.test.ts
+corepack pnpm --filter @persai/api run lint
+corepack pnpm --filter @persai/api run typecheck
+corepack pnpm run format:check
+git diff --check
+```
+
+The focused scheduler fixture must invoke the real
+`loadAndValidateContext` path. It must accept valid web context with no binding,
+reject missing/inactive Telegram binding, accept active Telegram binding, and
+retain rejection for foreign chat, absent matching runtime session, and
+nonterminal canonical truth. The repair remains audit-pending; do not claim
+CLEAN, deployed, live-accepted, or ADR-152 closure until the full continuation
+gate passes after deployment.
+
 ## 2026-07-18 post-push ADR-152 repair verification
 
 GitHub CI run `29641955628` cancelled the first hung-dispatch test when the
@@ -224,17 +316,19 @@ its first independent audit returned DIRTY (3 P2 docs only), repairs landed,
 and the final status re-check returned CLEAN. ADR-152 is not closed.
 
 1. `await wait` returns already-terminal facts without blocking, clamps to 60s,
-   allows only one blocking wait/job/turn, returns pending on timeout without
-   cancelling canonical work, and rejects repeated polling with `notify`
-   guidance; Stop aborts wait/turn but not media/document work.
-2. `await notify` is current-turn terminal, creates no additional provider loop,
-   and later dispatches exactly one fresh-hydrated continuation in the original
-   chat/channel. Completion-before-call returns terminal inline without a
-   continuation. Unattended continuation depth is hard-bounded at four.
+   admits up to 20 waits per dispatched turn, returns pending on timeout
+   without cancelling canonical work, and guides to `notify` after budget
+   exhaustion; Stop aborts wait/turn but not media/document/sandbox work.
+2. `await notify` is non-terminal (`turnControl:"continue"`), creates durable
+   subscription, and later dispatches exactly one fresh-hydrated continuation
+   in the original chat/channel. Completion-before-call returns terminal
+   inline without a continuation. Unattended continuation depth is
+   hard-bounded at four.
 3. Handle mapping rejects foreign/tampered indistinguishably as not-found,
    rechecks canonical ownership and state, and proves unique `jobRef` plus
-   unique `(kind, canonicalJobId)`. Initial adapter coverage is only media and
-   document jobs; `delivered` is the only terminal success.
+   unique `(kind, canonicalJobId)`. Adapter coverage is media, document, and
+   sandbox; media/document terminal success remains `delivered`, sandbox uses
+   completed/failed/cancelled.
 4. Completion-versus-subscribe CAS/reconciliation proves attachment-first
    delivery occurs once, subscribed jobs skip legacy isolated `maybeFrame`,
    the full continuation is the only model narrator, and unsubscribed framing

@@ -292,6 +292,21 @@ export class WebRuntimeStreamClientService {
               toolProgressSeq: event.seq
             };
             continue;
+          case "async_job_accepted":
+            deadline.recordProgress();
+            yield {
+              type: "async_job_accepted",
+              asyncJobAcceptedKind: event.kind,
+              asyncJobAcceptedJobRef: event.jobRef,
+              ...(event.mediaJob === undefined ? {} : { asyncJobAcceptedMediaJob: event.mediaJob }),
+              ...(event.documentJob === undefined
+                ? {}
+                : { asyncJobAcceptedDocumentJob: event.documentJob }),
+              ...(event.sandboxJob === undefined
+                ? {}
+                : { asyncJobAcceptedSandboxJob: event.sandboxJob })
+            };
+            continue;
           case "artifact":
             if (!emittedArtifactIds.has(event.artifact.artifactId)) {
               emittedArtifactIds.add(event.artifact.artifactId);
@@ -693,6 +708,17 @@ export class WebRuntimeStreamClientService {
             row.kind === "stderr_line" ||
             row.kind === "browser_step") &&
           typeof row.seq === "number"
+        ) {
+          return parsed as RuntimeTurnStreamEvent;
+        }
+        break;
+      case "async_job_accepted":
+        if (
+          typeof row.requestId === "string" &&
+          typeof row.sessionId === "string" &&
+          (row.kind === "media" || row.kind === "document" || row.kind === "sandbox") &&
+          typeof row.jobRef === "string" &&
+          row.jobRef.trim().length > 0
         ) {
           return parsed as RuntimeTurnStreamEvent;
         }

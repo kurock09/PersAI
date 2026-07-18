@@ -1,6 +1,7 @@
 "use client";
 
 import { Cpu, RefreshCw, Info } from "lucide-react";
+import { useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
 import { cn } from "@/app/lib/utils";
 
@@ -314,6 +315,16 @@ export function ActivityBadge({
   const cfg = TYPE_CONFIG[event.type];
   const Icon = cfg.icon;
   const isStrong = event.emphasis === "strong";
+  const awaitDeadlineMatch = event.detail?.match(/^await-deadline:(\d+)$/);
+  const awaitDeadlineMs =
+    awaitDeadlineMatch?.[1] === undefined ? null : Number(awaitDeadlineMatch[1]);
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    if (awaitDeadlineMs === null) return;
+    setNowMs(Date.now());
+    const timer = window.setInterval(() => setNowMs(Date.now()), 250);
+    return () => window.clearInterval(timer);
+  }, [awaitDeadlineMs]);
   const { label, detail, shellCommand, shellProgressLines } = getActivityDisplayParts(
     event,
     t,
@@ -333,14 +344,20 @@ export function ActivityBadge({
         <Icon
           className={cn(isStrong ? "h-3 w-3 opacity-70" : "h-2.5 w-2.5 opacity-40", cfg.color)}
         />
-        <span className="shrink-0">{label}</span>
+        <span className="shrink-0">
+          {awaitDeadlineMs === null
+            ? label
+            : t("awaitCountdown", {
+                seconds: Math.max(0, Math.ceil((awaitDeadlineMs - nowMs) / 1000))
+              })}
+        </span>
         {shellCommand ? (
           <>
             <span className="shrink-0 text-text-subtle/45">—</span>
             <ActivityCommandPreview command={shellCommand} />
           </>
         ) : null}
-        {!shellCommand && detail ? renderActivityDetail(detail) : null}
+        {!shellCommand && detail && awaitDeadlineMs === null ? renderActivityDetail(detail) : null}
         {shellProgressLines && shellProgressLines.length > 0 ? (
           <span className="w-full basis-full font-mono text-[10px] leading-3.5 text-text-subtle/55 not-italic tracking-tight">
             {shellProgressLines.map((line, index) => (

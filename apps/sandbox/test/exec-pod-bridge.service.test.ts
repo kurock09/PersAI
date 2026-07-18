@@ -111,6 +111,16 @@ test("session pod cleanup script never scans /proc via command substitution", as
     /case "\$state" in[\s\S]*Z\*\) continue ;;/,
     "cleanup must ignore zombie entries that cannot be killed"
   );
+  assert.match(
+    cleanupFn,
+    /\/tmp\/persai-detached/,
+    "cleanup must retain live ADR-152 detached supervisor PIDs from durable state.json"
+  );
+  assert.match(
+    cleanupFn,
+    /RETAINED_PIDS/,
+    "cleanup keep-set must include retained detached PIDs so later warm jobs do not kill them"
+  );
 });
 
 type KubeConfigLike = {
@@ -2465,4 +2475,316 @@ void test("LimitedCollector never flags the limit when total bytes stay within i
   }
   assert.equal(collector.limitError, null);
   assert.equal(collector.collect().length, 500);
+});
+
+type SupervisedBridgeAccess = {
+  waitForSupervisedSessionJobUntilYield(input: {
+    podName: string;
+    namespace: string;
+    jobId: string;
+    yieldDeadlineAtMs: number;
+    signal?: AbortSignal;
+  }): Promise<
+    | {
+        status: "completed";
+        exitCode: number;
+        stdout: string;
+        stderr: string;
+        durationMs: number;
+      }
+    | { status: "yield" }
+    | { status: "missing" }
+  >;
+  readSupervisedSessionJobState(
+    podName: string,
+    namespace: string,
+    jobId: string
+  ): Promise<
+    | { status: "running" }
+    | {
+        status: "completed";
+        exitCode: number;
+        stdout: string;
+        stderr: string;
+        durationMs: number;
+      }
+    | { status: "failed" }
+    | { status: "missing" }
+  >;
+};
+
+async function runSupervisedDetachFixture(input: {
+  waitOutcome:
+    | {
+        status: "completed";
+        exitCode: number;
+        stdout: string;
+        stderr: string;
+        durationMs: number;
+      }
+    | { status: "yield" };
+}): Promise<{
+  result: Awaited<ReturnType<ExecPodBridgeService["runInPod"]>>;
+  pullCalls: number;
+  waitCalls: number;
+}> {
+  const ctx: MockK8sContext = {
+    createdPods: [],
+    podPhaseSequence: ["Running"],
+    execResponses: [],
+    deletedPods: [],
+    execCallCount: 0,
+    execCommands: []
+  };
+  const bridge = buildMockBridge(ctx);
+  let pullCalls = 0;
+  let waitCalls = 0;
+  const binding = {
+    namespace: "persai-dev",
+    podName: "exec-session-assistant-1-workspace-1",
+    podUid: "uid-supervised",
+    podResourceVersion: "1",
+    leaseToken: "lease-supervised",
+    leaseHolderId: "holder-test",
+    jobId: "job-supervised",
+    assistantId: "assistant-1",
+    workspaceId: "workspace-1",
+    assistantHandle: "test-handle",
+    mode: "restricted" as const
+  };
+  Object.defineProperty(bridge, "ensureSessionPodRunning", {
+    configurable: true,
+    value: async () => undefined
+  });
+  Object.defineProperty(bridge, "assertPodMatchesEgressMode", {
+    configurable: true,
+    value: async () => "restricted"
+  });
+  Object.defineProperty(bridge, "bindPodToCurrentJob", {
+    configurable: true,
+    value: async () => binding
+  });
+  Object.defineProperty(bridge, "ensureWorkspaceMountBootstrapped", {
+    configurable: true,
+    value: async () => undefined
+  });
+  Object.defineProperty(bridge, "hydrateOnDemandSubPaths", {
+    configurable: true,
+    value: async () => undefined
+  });
+  Object.defineProperty(bridge, "ensureCanonicalSessionPodImmediatelyBeforeExec", {
+    configurable: true,
+    value: async () => "restricted"
+  });
+  Object.defineProperty(bridge, "launchSupervisedSessionJob", {
+    configurable: true,
+    value: async () => ({ exitCode: 0, stdout: "", stderr: "" })
+  });
+  Object.defineProperty(bridge, "waitForSupervisedSessionJobUntilYield", {
+    configurable: true,
+    value: async () => {
+      waitCalls += 1;
+      return input.waitOutcome;
+    }
+  });
+  Object.defineProperty(bridge, "pullWorkspace", {
+    configurable: true,
+    value: async () => {
+      pullCalls += 1;
+    }
+  });
+  const workspaceRoot = await fs.mkdtemp(join(tmpdir(), "persai-supervised-detach-"));
+  try {
+    const sessionRoot = join(workspaceRoot, "assistants", "assistant-1", "sessions", "session-1");
+    await fs.mkdir(sessionRoot, { recursive: true });
+    const result = await bridge.runInPod({
+      jobId: "job-supervised",
+      leaseToken: "lease-supervised",
+      leaseHolderId: "holder-test",
+      runtimeSessionId: "session-1",
+      assistantId: "assistant-1",
+      assistantHandle: "test-handle",
+      siblingHandles: [],
+      workspaceId: "workspace-1",
+      workspaceRoot,
+      absoluteCwd: sessionRoot,
+      command: "/bin/bash",
+      args: ["-lc", "echo > file"],
+      policy: { ...DEFAULT_RUNTIME_SANDBOX_POLICY, enabled: true, maxProcessRuntimeMs: 1_000 },
+      supervisedDetach: true
+    });
+    return { result, pullCalls, waitCalls };
+  } finally {
+    await removePathWithRetries(workspaceRoot);
+  }
+}
+
+test("ADR-152 supervised short completion pulls workspace and is not detached", async () => {
+  const { result, pullCalls, waitCalls } = await runSupervisedDetachFixture({
+    waitOutcome: {
+      status: "completed",
+      exitCode: 0,
+      stdout: "ok",
+      stderr: "",
+      durationMs: 12
+    }
+  });
+  assert.equal(waitCalls, 1, "must wait through the Process-timeout window before deciding");
+  assert.equal(pullCalls, 1, "short sync completion must pull/mirror workspace files");
+  assert.equal(result.detached, undefined);
+  assert.equal(result.exitCode, 0);
+  assert.equal(result.stdout, "ok");
+});
+
+test("ADR-152 supervised yield at Process timeout detaches without pull", async () => {
+  const { result, pullCalls, waitCalls } = await runSupervisedDetachFixture({
+    waitOutcome: { status: "yield" }
+  });
+  assert.equal(waitCalls, 1, "detach requires crossing the yield threshold waiter");
+  assert.equal(pullCalls, 0, "retained detached jobs must not pull for unsafe attribution");
+  assert.equal(result.detached, true);
+  assert.equal(result.exitCode, null);
+});
+
+test("ADR-152 waitForSupervisedSessionJobUntilYield yields only after deadline while running", async () => {
+  const bridge = buildMockBridge({
+    createdPods: [],
+    podPhaseSequence: [],
+    execResponses: [],
+    deletedPods: [],
+    execCallCount: 0,
+    execCommands: []
+  });
+  const access = bridge as unknown as SupervisedBridgeAccess;
+  let reads = 0;
+  Object.defineProperty(bridge, "readSupervisedSessionJobState", {
+    configurable: true,
+    value: async () => {
+      reads += 1;
+      return { status: "running" };
+    }
+  });
+  const started = Date.now();
+  const outcome = await access.waitForSupervisedSessionJobUntilYield({
+    podName: "pod",
+    namespace: "ns",
+    jobId: "job-yield",
+    yieldDeadlineAtMs: started + 120
+  });
+  assert.equal(outcome.status, "yield");
+  assert.ok(reads >= 1);
+  assert.ok(Date.now() >= started + 100, "must hold through the yield threshold, not admit");
+});
+
+test("ADR-152 waitForSupervisedSessionJobUntilYield returns short completion before deadline", async () => {
+  const bridge = buildMockBridge({
+    createdPods: [],
+    podPhaseSequence: [],
+    execResponses: [],
+    deletedPods: [],
+    execCallCount: 0,
+    execCommands: []
+  });
+  const access = bridge as unknown as SupervisedBridgeAccess;
+  Object.defineProperty(bridge, "readSupervisedSessionJobState", {
+    configurable: true,
+    value: async () => ({
+      status: "completed",
+      exitCode: 0,
+      stdout: "done",
+      stderr: "",
+      durationMs: 3
+    })
+  });
+  const outcome = await access.waitForSupervisedSessionJobUntilYield({
+    podName: "pod",
+    namespace: "ns",
+    jobId: "job-short",
+    yieldDeadlineAtMs: Date.now() + 5_000
+  });
+  assert.equal(outcome.status, "completed");
+  if (outcome.status === "completed") {
+    assert.equal(outcome.stdout, "done");
+  }
+});
+
+test("ADR-152 readSupervisedSessionJobState Python retries completed after dead PID", async () => {
+  const source = await fs.readFile(
+    join(process.cwd(), "src", "exec-pod-bridge.service.ts"),
+    "utf8"
+  );
+  const fnStart = source.indexOf("private async readSupervisedSessionJobState(");
+  assert.ok(fnStart >= 0);
+  const fnBody = source.slice(fnStart, fnStart + 4_500);
+  assert.match(fnBody, /for _ in range\(20\):/, "must retry state.json after dead PID");
+  assert.match(fnBody, /time\.sleep\(0\.05\)/, "must backoff before re-read");
+  assert.match(
+    fnBody,
+    /status.*completed/,
+    "must look for completed finalize before emitting failed"
+  );
+  assert.match(fnBody, /status':'failed'/, "true loss after retries must emit failed");
+});
+
+test("ADR-152 waitForSupervisedSessionJobUntilYield recovers completed after failed finalize race", async () => {
+  const bridge = buildMockBridge({
+    createdPods: [],
+    podPhaseSequence: [],
+    execResponses: [],
+    deletedPods: [],
+    execCallCount: 0,
+    execCommands: []
+  });
+  const access = bridge as unknown as SupervisedBridgeAccess;
+  let reads = 0;
+  Object.defineProperty(bridge, "readSupervisedSessionJobState", {
+    configurable: true,
+    value: async () => {
+      reads += 1;
+      if (reads === 1) return { status: "failed" };
+      return {
+        status: "completed",
+        exitCode: 0,
+        stdout: "finalized",
+        stderr: "",
+        durationMs: 9
+      };
+    }
+  });
+  const outcome = await access.waitForSupervisedSessionJobUntilYield({
+    podName: "pod",
+    namespace: "ns",
+    jobId: "job-finalize-race",
+    yieldDeadlineAtMs: Date.now() + 5_000
+  });
+  assert.equal(outcome.status, "completed");
+  if (outcome.status === "completed") {
+    assert.equal(outcome.stdout, "finalized");
+  }
+  assert.ok(reads >= 2, "must re-read after failed before treating as missing");
+});
+
+test("ADR-152 waitForSupervisedSessionJobUntilYield does not yield on persistent failed", async () => {
+  const bridge = buildMockBridge({
+    createdPods: [],
+    podPhaseSequence: [],
+    execResponses: [],
+    deletedPods: [],
+    execCallCount: 0,
+    execCommands: []
+  });
+  const access = bridge as unknown as SupervisedBridgeAccess;
+  Object.defineProperty(bridge, "readSupervisedSessionJobState", {
+    configurable: true,
+    value: async () => ({ status: "failed" })
+  });
+  const started = Date.now();
+  const outcome = await access.waitForSupervisedSessionJobUntilYield({
+    podName: "pod",
+    namespace: "ns",
+    jobId: "job-true-missing",
+    yieldDeadlineAtMs: started // would yield immediately if failed were treated as running
+  });
+  assert.equal(outcome.status, "missing");
+  assert.notEqual(outcome.status, "yield");
 });

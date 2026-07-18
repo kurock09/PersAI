@@ -8,6 +8,10 @@ vi.mock("next-intl", () => ({
     params?.count !== undefined ? `${key} (${String(params.count)})` : key
 }));
 
+function openWorkingJobsList() {
+  fireEvent.click(screen.getByRole("button", { name: /workingJobs/ }));
+}
+
 function toFileList(files: File[]): FileList {
   return {
     ...files,
@@ -392,7 +396,7 @@ describe("ChatInput", () => {
     expect(screen.getByTitle("send")).toBeDisabled();
   });
 
-  it("shows up to two active media job chips with elapsed time", () => {
+  it("shows a Working pill that opens media job rows with elapsed time", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-05-05T12:02:00Z"));
 
@@ -425,6 +429,9 @@ describe("ChatInput", () => {
       />
     );
 
+    expect(screen.getByRole("button", { name: "workingJobs (2)" })).toBeInTheDocument();
+    expect(screen.queryByText("mediaJobImageGenerate 1:42")).toBeNull();
+    openWorkingJobsList();
     expect(screen.getByText("mediaJobImageGenerate 1:42")).toBeInTheDocument();
     expect(screen.getByText("mediaJobVideoGenerate 0:38")).toBeInTheDocument();
     expect(
@@ -456,6 +463,66 @@ describe("ChatInput", () => {
       />
     );
 
+    openWorkingJobsList();
+    expect(screen.getByText("mediaJobImageEdit 1:42")).toBeInTheDocument();
+  });
+
+  it("labels legacy short ops by kind and OpenAPI ops (back-compat)", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-05T12:02:00Z"));
+
+    render(
+      <ChatInput
+        onSend={vi.fn()}
+        onTranscribeVoice={vi.fn(async () => "")}
+        onStop={vi.fn()}
+        isStreaming={false}
+        activeMediaJobs={[
+          {
+            id: "job-video",
+            kind: "video",
+            // Legacy short op still accepted; runtime now emits video_generate.
+            operation: "generate" as "video_generate",
+            status: "running",
+            createdAt: "2026-05-05T12:01:00Z",
+            startedAt: "2026-05-05T12:01:22Z",
+            updatedAt: "2026-05-05T12:01:55Z"
+          },
+          {
+            id: "job-audio",
+            kind: "audio",
+            operation: "generate" as "audio_generate",
+            status: "running",
+            createdAt: "2026-05-05T12:01:00Z",
+            startedAt: "2026-05-05T12:01:22Z",
+            updatedAt: "2026-05-05T12:01:55Z"
+          },
+          {
+            id: "job-image",
+            kind: "image",
+            operation: "image_generate",
+            status: "running",
+            createdAt: "2026-05-05T12:00:00Z",
+            startedAt: "2026-05-05T12:00:18Z",
+            updatedAt: "2026-05-05T12:01:50Z"
+          },
+          {
+            id: "job-edit",
+            kind: "image",
+            operation: "image_edit",
+            status: "running",
+            createdAt: "2026-05-05T12:00:00Z",
+            startedAt: "2026-05-05T12:00:18Z",
+            updatedAt: "2026-05-05T12:01:50Z"
+          }
+        ]}
+      />
+    );
+
+    openWorkingJobsList();
+    expect(screen.getByText("mediaJobVideoGenerate 0:38")).toBeInTheDocument();
+    expect(screen.getByText("mediaJobAudioGenerate 0:38")).toBeInTheDocument();
+    expect(screen.getByText("mediaJobImageGenerate 1:42")).toBeInTheDocument();
     expect(screen.getByText("mediaJobImageEdit 1:42")).toBeInTheDocument();
   });
 
@@ -494,6 +561,7 @@ describe("ChatInput", () => {
       />
     );
 
+    openWorkingJobsList();
     expect(screen.getByText("mediaJobImageGenerateBatch (7) 1:24")).toBeInTheDocument();
     expect(screen.getByText("mediaJobImageEditBatch (4) 1:24")).toBeInTheDocument();
   });
@@ -523,11 +591,12 @@ describe("ChatInput", () => {
       />
     );
 
+    openWorkingJobsList();
     expect(screen.getByText("mediaJobImageGenerate 1:24")).toBeInTheDocument();
     expect(screen.queryByText(/mediaJobImageGenerateBatch/)).toBeNull();
   });
 
-  it("shows active document job chips with elapsed time", () => {
+  it("shows active document jobs in the Working list with elapsed time", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-05-05T12:02:00Z"));
 
@@ -551,6 +620,7 @@ describe("ChatInput", () => {
       />
     );
 
+    openWorkingJobsList();
     expect(screen.getByText("documentJobRedeliver 1:42")).toBeInTheDocument();
   });
 
@@ -578,13 +648,15 @@ describe("ChatInput", () => {
         ]
       };
       render(<ChatInput {...props} />);
+      openWorkingJobsList();
       expect(screen.getByText("mediaJobVideoGenerate 0:10")).toBeInTheDocument();
       expect(screen.queryByText(/chatTalkingAvatarBannerStage/)).toBeNull();
 
-      // Re-mount fresh at t+10min — cinematic chip MUST stay byte-identical.
+      // Re-mount fresh at t+10min — cinematic label MUST stay byte-identical.
       cleanup();
       vi.setSystemTime(new Date("2026-05-05T12:10:00Z"));
       render(<ChatInput {...props} />);
+      openWorkingJobsList();
       expect(screen.getByText("mediaJobVideoGenerate 10:00")).toBeInTheDocument();
       expect(screen.queryByText(/chatTalkingAvatarBannerStage/)).toBeNull();
     });
@@ -613,12 +685,13 @@ describe("ChatInput", () => {
         />
       );
 
+      openWorkingJobsList();
       expect(screen.getByText("mediaJobVideoGenerate 0:10")).toBeInTheDocument();
       expect(screen.queryByText(/chatTalkingAvatarBannerStage/)).toBeNull();
     });
 
     it("rotates label across stages 1→2→3→4 for talking-avatar jobs as elapsed time crosses thresholds", () => {
-      // The chip label is recomputed on every parent re-render with the
+      // The list label is recomputed on every parent re-render with the
       // latest `mediaJobNowMs`. Unit-test the label-by-elapsed-time mapping
       // with separate fresh mounts at each threshold rather than relying on
       // the live 1s interval — same code path, lower flake surface than
@@ -646,6 +719,7 @@ describe("ChatInput", () => {
       vi.useFakeTimers();
       vi.setSystemTime(new Date("2026-05-05T12:00:00Z"));
       render(<ChatInput {...props} />);
+      openWorkingJobsList();
       expect(screen.getByText("chatTalkingAvatarBannerStage1 0:00")).toBeInTheDocument();
       expect(screen.queryByText(/mediaJobVideoGenerate/)).toBeNull();
 
@@ -653,18 +727,21 @@ describe("ChatInput", () => {
       cleanup();
       vi.setSystemTime(new Date("2026-05-05T12:00:31Z"));
       render(<ChatInput {...props} />);
+      openWorkingJobsList();
       expect(screen.getByText("chatTalkingAvatarBannerStage2 0:31")).toBeInTheDocument();
 
       // Stage 3: t+121s — "Rendering video…".
       cleanup();
       vi.setSystemTime(new Date("2026-05-05T12:02:01Z"));
       render(<ChatInput {...props} />);
+      openWorkingJobsList();
       expect(screen.getByText("chatTalkingAvatarBannerStage3 2:01")).toBeInTheDocument();
 
       // Stage 4: t+301s — "Final pass, almost there…".
       cleanup();
       vi.setSystemTime(new Date("2026-05-05T12:05:01Z"));
       render(<ChatInput {...props} />);
+      openWorkingJobsList();
       expect(screen.getByText("chatTalkingAvatarBannerStage4 5:01")).toBeInTheDocument();
     });
   });

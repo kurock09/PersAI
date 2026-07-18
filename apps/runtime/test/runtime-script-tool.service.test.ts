@@ -54,7 +54,7 @@ function activeStep(
   };
 }
 
-function bundle(sandboxEnabled = true) {
+function bundle(sandboxEnabled = true, maxProcessRuntimeMs = 15_000) {
   return {
     metadata: {
       assistantId: "assistant-1",
@@ -63,7 +63,9 @@ function bundle(sandboxEnabled = true) {
       workspaceId: "workspace-1"
     },
     runtime: {
-      sandbox: sandboxEnabled ? { enabled: true } : { enabled: false }
+      sandbox: sandboxEnabled
+        ? { enabled: true, maxProcessRuntimeMs }
+        : { enabled: false, maxProcessRuntimeMs }
     }
   } as never;
 }
@@ -274,6 +276,63 @@ export async function runRuntimeScriptToolServiceTest(): Promise<void> {
       }
     );
     assert.equal(Object.getPrototypeOf(mapped), null);
+  });
+
+  await test("browser broker TTL is clamped to sandbox maxProcessRuntimeMs, not Script timeout alone", async () => {
+    const browserStep = activeStep({
+      inputMapping: {
+        ...scriptRef().inputMapping,
+        profile: { source: "literal", value: "Work" }
+      },
+      inputSchema: {
+        type: "object",
+        properties: {
+          query: { type: "string" },
+          limit: { type: "number" },
+          format: { type: "string" },
+          profile: { type: "string" }
+        },
+        required: ["query", "limit", "profile"],
+        additionalProperties: false
+      }
+    });
+    const { service, brokerRegistrations } = buildService({
+      fetchArtifact: async () => ({
+        ...successArtifact(),
+        limits: {
+          timeoutMs: 120_000,
+          maxMemoryMb: 128,
+          maxCpuMillicores: 500,
+          maxOutputBytes: 1024
+        },
+        manifest: {
+          ...successArtifact().manifest,
+          capabilities: { browser: { actions: ["snapshot", "act"] } }
+        },
+        inputSchema: browserStep.step.scriptRef?.inputSchema ?? {}
+      })
+    });
+    await service.executeToolCall(
+      baseParams({
+        bundle: bundle(true, 15_000),
+        activeScenarioStep: browserStep,
+        toolCall: toolCall({ action: "execute", input: { format: "json", profile: "Work" } }),
+        transportSurface: "web",
+        bridgeDeviceId: "device-1",
+        bridgeDeviceKind: "desktop_extension"
+      }) as never
+    );
+    assert.equal(brokerRegistrations.length, 1);
+    assert.equal(
+      brokerRegistrations[0]?.ttlMs,
+      75_000,
+      "broker TTL must be process budget (15s) + 60s pre-open lease-wait slack"
+    );
+    assert.notEqual(
+      brokerRegistrations[0]?.ttlMs,
+      120_000,
+      "Script timeout alone must not mint a broker that outlives sandbox deadline+slack"
+    );
   });
 
   await test("browser-capable immutable manifest registers and forwards only an ephemeral broker binding", async () => {

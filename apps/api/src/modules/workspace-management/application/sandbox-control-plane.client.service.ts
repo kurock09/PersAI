@@ -43,6 +43,26 @@ export class SandboxControlPlaneClientService {
     );
   }
 
+  async inspectJob(jobId: string): Promise<boolean> {
+    const baseUrl = this.config.PERSAI_SANDBOX_BASE_URL?.trim();
+    const token = this.config.PERSAI_INTERNAL_API_TOKEN?.trim();
+    if (!baseUrl || !token) return false;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), this.config.PERSAI_SANDBOX_TIMEOUT_MS);
+    try {
+      const response = await fetch(`${baseUrl}/api/v1/jobs/${encodeURIComponent(jobId)}`, {
+        method: "GET",
+        headers: { Authorization: `Bearer ${token}` },
+        signal: controller.signal
+      });
+      return response.ok;
+    } catch {
+      return false;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
   async pushWorkspaceFileBytes(input: {
     assistantId: string;
     workspaceId: string;

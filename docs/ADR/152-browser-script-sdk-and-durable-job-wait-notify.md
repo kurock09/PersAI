@@ -2,6 +2,74 @@
 
 ## Status
 
+**2026-07-18 founder final semantics — local implementation in progress
+(`Давай делай чисто и честно`):** this decision supersedes the
+media/document-only F0 draft and the prior assumption that Process timeout is a
+warm shell kill deadline. Exact-owned warm-session shell/exec `SandboxJob` is
+the third narrow async adapter. Model-facing shell/exec always launches through
+a durable pod-side supervisor: short completion is returned synchronously; at
+the plan Process-timeout threshold the runtime returns only an opaque
+`jr1.sandbox.*` and the canonical row is `detached`. Detached work releases the
+workspace lease, survives sandbox control-plane restart while the pod survives,
+and is not cancelled by turn Stop or await timeout. Natural exit, explicit
+later process control, or idle-TTL pod deletion ends it. CPU budget, pod
+resources/egress, and sessionless hard-timeout/retirement semantics are
+unchanged.
+
+Universal await is
+`await({action:"wait"|"notify",jobRef?:string,timeoutMs?:number})`: wait may
+omit `jobRef` for a complete bounded current-turn/open-chat snapshot; notify
+requires it; timeout is wait-only `0..60000`; and 20 replay-deduped waits are
+admitted per dispatched turn. Canonical adapters are media, document, and
+sandbox. Registration is trusted and exact-owned through runtime session and
+source turn. Notify remains non-terminal and durable; terminal-before-subscribe
+is inline; sourceFinalizedAt and same-chat lease gate exactly-once continuation.
+
+One chat-row lock now defines the target eight-active-background-job cap across
+all three adapters. UI truth is one Working popover, per-job notify badge,
+decreasing absolute-deadline inline wait status, and deterministic post-loop
+subscribed status. No browser-enabled Script detachment is claimed. Exact
+detached produced-file attribution is intentionally empty in this checkpoint:
+concurrent retained processes make attribution unsafe without a broader
+filesystem journal, and another job's files must never be assigned.
+
+Local implementation and verification are still underway. Do not call this
+CLEAN, committed, pushed, deployed, or founder-accepted.
+
+**2026-07-18 founder UX revision (documentation-only; F0 audit pending):**
+CP1–CP5 remain landed/deployed history, including the deployed `6224af52`
+evidence for `await.wait`, durable `await.notify` subscription through an API
+rolling restart, and exactly-once attachment-first delivery. The continuation
+then failed with `continuation_context_invalid`; the narrow, uncommitted
+native-web repair remains valid: intrinsic `web_internal`/`web_chat` needs no
+synthetic `assistant_channel_surface_bindings` row, while Telegram still
+requires an active binding. It must be carried into F1.
+
+Founder rejected the current required-`jobRef`, one-wait-per-job,
+terminal-`notify`, and late-banner UX as not Cursor-like. Browser SDK
+acceptance is paused, not rejected. The decision below supersedes only the
+previous `await`/continuation behavior and follow-through sequence; it
+preserves CP1–CP5 history and does not reopen ADR-151 or ADR-156. F0 is
+documentation revision only and is **not CLEAN** until an independent audit.
+
+**2026-07-18 live-found repair (local; independent audit pending):** deployed
+`6224af52` demonstrated `await.wait` PASS, durable `await.notify` subscription
+across a full API rolling restart, and exact-once attachment-first delivery.
+The continuation scheduler then failed the handle with
+`continuation_context_invalid`, so no continuation Assistant message was
+persisted. Read-only production diagnosis confirmed every existing
+chat/assistant/workspace/user/surface/thread, published-version, canonical
+delivery, source-message, runtime-session, and entitlement invariant; the sole
+rejected fact was the intentionally absent
+`assistant_channel_surface_bindings` row for intrinsic native
+`web_internal`/`web_chat`. The local repair limits persisted active-binding
+validation to Telegram. Native web continues to use its existing exact
+ownership/session/canonical checks plus authoritative capability/quota
+enforcement. Focused real-path regressions cover native web without a binding,
+missing/inactive/active Telegram bindings, and foreign chat/session/canonical
+fail-closed checks. This repair is not CLEAN, committed, deployed, or
+live-accepted; ADR-152 remains open.
+
 **Approved architecture checkpoint, open for staged implementation.** Checkpoint
 1 (opaque media/document handles, owned canonical resolver, and bounded
 `await.wait`) is implemented and independently audited CLEAN; it is not
@@ -62,26 +130,93 @@ are not reopened.
 
 The model-facing tool name is `await`:
 
-- `await({ action: "wait", jobRef, timeoutMs })` resolves terminal state before
-  blocking, clamps `timeoutMs` to at most 60 seconds, and permits at most one
-  blocking wait for a job in a turn. Timeout returns pending and never cancels
-  the canonical job. Repeated model polling is rejected with guidance to use
-  `notify`. Stop aborts only the wait and turn; it does not cancel media or
-  document work.
-- `await({ action: "notify", jobRef })` creates a durable subscription and is
-  terminal for the current turn: there is no next provider loop. API returns
-  localized static acknowledgement/activity only. A later terminal job creates
-  one full model continuation in the exact originating chat and channel, with
-  fresh Role, effective-Skill, Scenario, todo, and bundle hydration. Existing
-  file delivery is not repeated.
+The exact schema is
+`await({ action: "wait" | "notify", jobRef?: string, timeoutMs?: number })`
+with `additionalProperties: false` and required `action`. `jobRef` is optional
+only for `wait`; runtime validation still requires it for `notify`. `timeoutMs`
+is valid only for `wait`, with an inclusive `0..60000` range. There is no
+`notify-all` action.
 
-If the job became terminal before the call, `notify` returns terminal facts
-inline and creates no continuation. The continuation chain has a hard maximum
-depth of **4** unattended continuations per originating user turn. The handle
-row stores the originating turn depth. An ordinary user-created job is depth
-`0`; its scheduler continuation is depth `1`. A job created inside continuation
-depth `d` stores depth `d`, and its next scheduler continuation is `d + 1`.
-Rows at depth `4` cannot subscribe, so no fifth unattended continuation can run.
+`wait(jobRef)` observes one exact owned job. `wait()` observes one complete,
+stable-ordered bounded snapshot: all exact-owned handles created by the current
+server-derived logical turn (terminal included), plus exact-owned currently-open
+canonical media/document/sandbox jobs in the current chat/channel/thread. Exact
+ownership includes assistant, workspace, user, chat, channel, and thread;
+older terminal jobs not created by the current turn are excluded. No relevant
+job returns an immediate empty snapshot. A snapshot has at most 32 rows;
+overflow is the typed, fail-closed `snapshot_overflow` result, never silent
+truncation or disclosure.
+
+Local follow-through truth (not the aspirational Redis long-poll design):
+internal `POST …/async-jobs/v1/{status,snapshot,subscribe}` perform immediate
+owned DB reads; runtime client-polls ~500ms while waiting. A Redis
+subscribe-before-read long-poll wake path is **not landed**. Durable
+canonical/handle rows remain authority. Additive migration
+`20260718150000_adr152_sandbox_async_job_handles` adds handle kind `sandbox`,
+SandboxJob status `detached`, and `runtime_session_id`.
+
+Actual attachment/delivery visibility wins over lagging worker/job state:
+already visible or delivered media/documents are terminal immediately. This
+closes the delivery-before-job/handle-finalization window without requiring a
+risky giant atomic transaction. A completion/delivery transaction, or its
+immediately-following handle CAS, marks subscribed handles ready. Local truth
+today: no Redis subscribe-before-read long-poll; runtime polls immediate DB
+seams and the API ~3s scheduler poll is the recovery path. (Post-commit Redis
+wake/kick + immediate scheduler tick remains aspirational, not landed.)
+Reconciliation promotes subscribed handles whose canonical observable truth is
+terminal/visible but whose handle is not ready.
+
+Each dispatched logical runtime turn has a 20-call admitted wait budget across
+all jobs and provider loops; an original turn and each continuation have their
+own budget. Timeout zero counts. The unique provider tool-call id makes
+transport replay free; invalid/pre-admission failures do not count. Call 21
+returns typed `wait_budget_exhausted` plus `notify` guidance. The former
+one-wait-per-job Set is removed.
+
+Every wait returns the complete snapshot and one deterministic trigger, or
+`null` on timeout/status: order changed candidates by canonical observable
+transition time, then handle id. A snapshot may therefore reflect multiple
+changes in one read. Current-turn terminal rows represented in that snapshot
+are CAS-owned by `current_turn` as needed, preserving one narrator and
+attachment-first delivery.
+
+`notify(jobRef)` CAS-subscribes a pending exact-owned job durably, reserves
+continuation narration, and returns a non-terminal
+`turnControl: "continue"` receipt. The model may continue independent work or
+naturally finish. Terminal-before-subscribe returns inline and creates no
+subscription; duplicates return existing state. UI observation remains visible.
+Stop aborts only the current wait/turn, never the job or subscription.
+
+The continuation chain remains bounded at depth four. The source-turn gate is
+now critical: because notify is non-terminal, the scheduler may claim a ready
+continuation only after `sourceFinalizedAt IS NOT NULL`, and defensively
+revalidates immediately before dispatch. A terminal job before source
+finalization can be ready but cannot dispatch. Source finalization/lease
+release kicks the scheduler. The existing same-chat runtime session lease
+serializes continuations and ordinary user turns bidirectionally: whichever
+acquires first runs; busy-before-runtime-acceptance requeues unchanged without
+retry-budget consumption. Later ordinary user turns do not cancel or suppress
+notify; a continuation hydrates all committed messages before lease acquisition
+and resumes afterward. Only a future explicit cancellation may supersede.
+
+Permanent continuation validation/retry failure must persist/project exactly one
+honest failure observation through existing CAS/delivery machinery: visible in
+web and a channel notice in Telegram. Attachment delivery remains unaffected.
+
+## Observation streaming UX
+
+Immediately after canonical enqueue returns `jobRef`, runtime emits a dedicated
+`async_job_accepted` stream event before the provider loop closes; API relays it
+through SSE. The durable/reconnect authority is the chat active-observation
+projection derived from existing handle/canonical rows.
+
+Runtime emits await activity start/end events with one absolute `startedAt`
+timestamp, not per-second ticks. Existing 50ms tool-progress draining may relay
+start while wait blocks. Web locally renders `Waiting · Ns` / `Ожидаю · N сек`;
+reattach/status returns the same `startedAt`, and Stop/resolve clears it.
+Durable notify observation projects `subscribed | ready | claimed | dispatched`
+across normal turn completion, reload, and reconnect. Telegram has no live
+seconds UI but retains durable notify and failure semantics.
 
 ## Durable handle and ownership model
 
@@ -101,19 +236,19 @@ as is `(kind, canonicalJobId)`.
 Every resolver rechecks the canonical job row and all ownership constraints.
 Foreign, malformed, and tampered handles are indistinguishable from not found.
 
-Initial adapters are only:
+Current adapters (founder-superseding local follow-through):
 
 - `assistant_media_jobs`;
-- `assistant_document_render_jobs`.
+- `assistant_document_render_jobs`;
+- warm-session `SandboxJob` shell/exec (`kind: sandbox`, including `detached`).
 
-Only `delivered` is terminal success. `completion_pending` and
-`ready_for_delivery` remain pending. The adapter contract is deliberately
-extensible to other canonical long jobs, so background runs are not forgotten.
-Current `assistant_background_task_runs`, however, does not expose the concrete
-immutable run identity required to mint and resolve a safe handle. It is
-therefore deferred until that canonical prerequisite exists; a recurring
-`assistant_background_tasks` row never qualifies as a `jobRef`. Sandbox,
-indexing, safety, and rollout work are excluded.
+For media/document, only `delivered` is terminal success; `completion_pending`
+and `ready_for_delivery` remain pending. For sandbox, terminal success/failure
+is completed/failed/cancelled (detached is open until observe finalizes). The
+adapter contract remains extensible, but `assistant_background_task_runs` still
+lacks an immutable exposed run identity and stays deferred; a recurring
+`assistant_background_tasks` row never qualifies as a `jobRef`. Indexing,
+safety, and rollout-handle adapters remain excluded.
 
 ## Delivery and continuation ownership
 
@@ -217,36 +352,43 @@ sequentially before or after a Script.
   Script-specific sandbox contour;
 - headless fallback for profile-backed Script browser work;
 - secret broker, redaction, TTL, revoke, or logging guarantees (ADR-153);
-- sandbox/indexing/safety/rollout handle adapters.
+- indexing/safety/rollout handle adapters (sandbox shell/exec is in scope).
 
-## Implementation checkpoints
+## Follow-through checkpoints
 
-These are flow checkpoints, not separately deployable products and do not
-authorize intermediate deploys:
+These bounded checkpoints do not authorize an intermediate deploy.
 
-1. contracts plus handle and `await wait`;
-2. durable `notify`;
-3. browser SDK and broker;
-4. Admin/MCP manifest authoring and contracts;
-5. independent audits, full gate, one push, deploy, and live acceptance.
+- **F0 — architecture revision and independent docs audit.** This
+  documentation-only checkpoint records the failed founder UX acceptance and
+  this superseding await decision. It is pending an independent CLEAN audit.
+- **F1 — correctness foundation.** Preserve the native-web/Telegram binding
+  repair; add the `sourceFinalizedAt` dispatch gate, delivery-visible canonical
+  observable truth, subscribed-terminal reconciliation, exactly-once visible
+  permanent-failure fallback, and focused tests.
+- **F2 — API/runtime await v2.** Implement no-id snapshot and exact-id wait,
+  race-free long-poll with Redis hints, the 20-call budget, and non-terminal
+  notify, with contract and mixed-version tests.
+- **F3 — event-first continuation and serialization.** Add completion/source-
+  finalization kicks, immediate scheduler tick, bidirectional lease/busy
+  behavior, and duplicate/missed-wake tests.
+- **F4 — web/runtime streaming UX.** Add immediate accepted banner, durable
+  active observations, absolute-time wait activity, reconnect/reload/Stop
+  coverage, and English/Russian strings.
+- **F5 — final acceptance.** Run independent audits and the full gate, then one
+  push, deploy, exact-image/database/Redis-recovery/founder live acceptance.
+  Resume paused Browser SDK acceptance only after the await/job UX passes; close
+  ADR-152 only if both it and browser acceptance pass.
 
-Checkpoint 1 uses `timeoutMs=0` as a status-only read and clamps positive waits
-to 60 seconds. The runtime observes canonical API-owned rows at a bounded
-low-frequency interval within one model tool call; it introduces no event bus or
-parallel registry. Handle minting is an insert trigger in the same transaction
-as each canonical media/document job insert, so every creation path—including
-replay-safe canonical creation paths—uses the unique mapping row.
-The positive timeout is one overall deadline including the initial and final
-status RPCs. Caller Stop remains an `AbortError`; internal deadline expiry after
-ownership was established returns the last safe pending receipt. Expiry before
-the first ownership read returns typed
-`wait_deadline_expired_before_status` with null kind/status, revealing no job
-existence.
+The v2 application protocol retains the fail-closed capability barrier. Safe
+rollout is additive migration
+`20260718150000_adr152_sandbox_async_job_handles` → API → runtime → sandbox →
+web; rollback reverses application order. This follow-through is local and
+**not CLEAN/deployed**; ADR-152 is not reduced to “push/deploy only.”
 
-Independent second allowed-model audits are required for wait/notify, browser,
-and final integration. The parent agent audits and commits only; product
-implementation is delegated only to `gpt-5.6-terra-medium` or
-`claude-sonnet-5-thinking-high`.
+Independent allowed-model audits are required for F0, the await/job
+follow-through, paused browser acceptance, and final integration. The parent
+agent audits and commits only; product implementation is delegated only to
+`gpt-5.6-terra-medium` or `claude-sonnet-5-thinking-high`.
 
 ## Rollback
 
@@ -271,19 +413,31 @@ v1 API/runtime contract declaration. The hook's own NetworkPolicy-only label is
 explicitly allowed to the public readiness port. A missing/old/malformed API
 capability fails the hook and blocks runtime; there is no handleless fallback.
 
-This ordering is defense in depth, not the rollback safety boundary. New
-runtime uses only `v1` internal media enqueue, document enqueue, handle status,
-and handle subscribe routes. API retains the unversioned routes only for old
-runtimes, while an old API has no `v1` routes and returns 404 before controller
-authorization, parsing, enqueue, or any canonical-job/handle mutation. Thus,
-if chart annotations disappear or rollback advances API first, the remaining
-new runtime fails closed without accepting an ADR-152 request; it has no
-unversioned retry or fallback. Operational rollback remains runtime first, then
-API, while retaining the additive migration and handle rows.
+This ordering is defense in depth, not the rollback safety boundary. F2 advances
+the await observation protocol to `/v2`; runtime uses only the versioned v2
+snapshot/long-poll and subscribe operations, with no unversioned/v1 fallback
+for v2 semantics. API advertises the exact v2 capability only after it serves
+the contract; an old API returns 404 before controller authorization, parsing,
+enqueue, or canonical mutation. Thus an API-first rollback fails closed rather
+than accepting a partial v2 request. Retain additive rows and reverse
+application rollout runtime → API → web. The existing v1 enqueue barrier
+remains historical CP5 protection for the previously deployed surface.
 
 ## Production exit gates
 
 The approved founder gates are:
+
+The former gate wording that treats `notify` as current-turn terminal, requires
+one blocking wait/job/turn, or evaluates a late-only banner is superseded by the
+F1–F4 criteria above. The historical CP1–CP5 evidence remains preserved; it is
+not founder acceptance of this revised UX.
+
+**Current production evidence:** the deployed live run passed gates 6–8 for
+`wait`, durable `notify`, and restart survival, and gate 11 attachment delivery
+remained exactly once. The full continuation portion of gates 9/10/13 did not
+complete because native-web dispatch was incorrectly rejected for lacking a
+synthetic binding row. The bounded local repair is pending independent audit;
+these partial results do not constitute live acceptance or closure.
 
 0. Migration → API → runtime rollout ordering is enforced; no new runtime
    replica can receive a handleless async enqueue response.
@@ -312,7 +466,7 @@ The approved founder gates are:
 In addition, implementation must prove:
 
 1. no dual narrator and no double model completion framing;
-2. one blocking wait per job per turn;
+2. at most 20 admitted waits per dispatched turn (not one-wait-per-job);
 3. dispatch-time entitlement recheck;
 4. bounded unattended-continuation chain;
 5. Redis-outage fail-closed behavior while ordinary Script execution remains

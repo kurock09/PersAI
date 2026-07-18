@@ -1393,6 +1393,46 @@ describe("streamAssistantWebChatTurn", () => {
 
     expect(order).toEqual(["delta:Preface ", "tool:start:summarize_context"]);
   });
+
+  it("handles async_job_accepted SSE before completed", async () => {
+    const accepted: Array<{ kind: string; jobRef: string }> = [];
+    const sandboxJob = {
+      jobRef: "jr1.sandbox.eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      toolCode: "shell" as const,
+      status: "detached" as const,
+      notifyState: "none" as const,
+      createdAt: "2026-07-18T12:00:00.000Z",
+      startedAt: "2026-07-18T12:00:00.000Z",
+      updatedAt: "2026-07-18T12:00:00.000Z"
+    };
+    global.fetch = vi.fn().mockResolvedValue(
+      createSseResponse([
+        [
+          `event: async_job_accepted\ndata: ${JSON.stringify({
+            kind: "sandbox",
+            jobRef: sandboxJob.jobRef,
+            sandboxJob
+          })}\n\n`,
+          `event: completed\ndata: ${JSON.stringify({ transport: { mode: "sse" } })}\n\n`
+        ].join("")
+      ])
+    ) as typeof fetch;
+
+    await streamAssistantWebChatTurn(
+      "token-1",
+      { surfaceThreadKey: "thread-1", message: "run long shell" },
+      {
+        onAsyncJobAccepted: (payload) => {
+          accepted.push({ kind: payload.kind, jobRef: payload.jobRef });
+          expect(payload.sandboxJob).toEqual(sandboxJob);
+        }
+      }
+    );
+
+    expect(accepted).toEqual([
+      { kind: "sandbox", jobRef: "jr1.sandbox.eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee" }
+    ]);
+  });
 });
 
 // ADR-109 Slice 10c — Fix #1: URL double-prefix regression guard

@@ -34,10 +34,18 @@ import {
 } from "../chat-file-policy";
 import type {
   WebChatActiveDocumentJobState,
-  WebChatActiveMediaJobState
+  WebChatActiveMediaJobState,
+  WebChatActiveSandboxJobState,
+  WebChatNotifyState
 } from "../assistant-api-client";
 import { useTouchDevice } from "./use-touch-device";
 import { ATTACHMENTS_ONLY_PLACEHOLDER } from "./attachments-only-placeholder";
+
+function notifyStateLabel(t: (key: string) => string, state: WebChatNotifyState): string {
+  if (state === "failed") return t("notifyFailed");
+  if (state === "cancelled") return t("notifyCancelled");
+  return t("notifyEnabled");
+}
 
 const MAX_FILES = 5;
 const MAX_CHAT_UPLOAD_BYTES = 25 * 1024 * 1024;
@@ -242,7 +250,18 @@ function resolveMediaJobLabel(
   // job missing/with a non-`talking_avatar` `displayKind` keep the legacy
   // `mediaJobVideoGenerate` chip byte-identical (preserves cross-slice
   // invariant 1).
-  if (job.operation === "video_generate" && job.displayKind === "talking_avatar") {
+  //
+  // ADR-152: runtime `async_job_accepted` emits OpenAPI ops
+  // (`image_generate`|`image_edit`|`video_generate`|`audio_generate`). Still
+  // accept legacy short `generate`|`edit`+kind for back-compat.
+  const operation = String(job.operation);
+  const kind = job.kind;
+  const isVideoGenerate =
+    operation === "video_generate" || (operation === "generate" && kind === "video");
+  const isAudioGenerate =
+    operation === "audio_generate" || (operation === "generate" && kind === "audio");
+  const isImageEdit = operation === "image_edit" || operation === "edit";
+  if (isVideoGenerate && job.displayKind === "talking_avatar") {
     const elapsedSec = resolveMediaJobElapsedSeconds(job, nowMs);
     if (elapsedSec < 30) return t("chatTalkingAvatarBannerStage1");
     if (elapsedSec < 120) return t("chatTalkingAvatarBannerStage2");
@@ -253,21 +272,21 @@ function resolveMediaJobLabel(
     typeof job.requestedCount === "number" && Number.isInteger(job.requestedCount)
       ? job.requestedCount
       : null;
-  switch (job.operation) {
-    case "image_edit":
-      return requestedCount !== null && requestedCount > 1
-        ? t("mediaJobImageEditBatch", { count: requestedCount })
-        : t("mediaJobImageEdit");
-    case "video_generate":
-      return t("mediaJobVideoGenerate");
-    case "audio_generate":
-      return t("mediaJobAudioGenerate");
-    case "image_generate":
-    default:
-      return requestedCount !== null && requestedCount > 1
-        ? t("mediaJobImageGenerateBatch", { count: requestedCount })
-        : t("mediaJobImageGenerate");
+  if (isImageEdit) {
+    return requestedCount !== null && requestedCount > 1
+      ? t("mediaJobImageEditBatch", { count: requestedCount })
+      : t("mediaJobImageEdit");
   }
+  if (isVideoGenerate) {
+    return t("mediaJobVideoGenerate");
+  }
+  if (isAudioGenerate) {
+    return t("mediaJobAudioGenerate");
+  }
+  // `image_generate`, `generate`+image, `generate` with missing kind, or unknown.
+  return requestedCount !== null && requestedCount > 1
+    ? t("mediaJobImageGenerateBatch", { count: requestedCount })
+    : t("mediaJobImageGenerate");
 }
 
 function resolveMediaJobElapsedSeconds(job: WebChatActiveMediaJobState, nowMs: number): number {
@@ -351,6 +370,7 @@ interface ChatInputProps {
     | null;
   activeMediaJobs?: WebChatActiveMediaJobState[];
   activeDocumentJobs?: WebChatActiveDocumentJobState[];
+  activeSandboxJobs?: WebChatActiveSandboxJobState[];
 }
 
 export interface ChatInputHandle {
@@ -372,7 +392,8 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
     disabled,
     pendingSendStatus = null,
     activeMediaJobs = [],
-    activeDocumentJobs = []
+    activeDocumentJobs = [],
+    activeSandboxJobs = []
   }: ChatInputProps,
   ref
 ) {
@@ -390,6 +411,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
   const attachMenuRef = useRef<HTMLDivElement>(null);
   const attachTriggerRef = useRef<HTMLButtonElement>(null);
   const composerShellRef = useRef<HTMLDivElement>(null);
+  const [backgroundJobsOpen, setBackgroundJobsOpen] = useState(false);
   const dragDepthRef = useRef(0);
   const isTouchDevice = useTouchDevice();
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
@@ -445,7 +467,11 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
   }, [isStreaming, pendingSendStatus, isTouchDevice]);
 
   useEffect(() => {
-    if (activeMediaJobs.length === 0 && activeDocumentJobs.length === 0) {
+    if (
+      activeMediaJobs.length === 0 &&
+      activeDocumentJobs.length === 0 &&
+      activeSandboxJobs.length === 0
+    ) {
       return;
     }
     setMediaJobNowMs(Date.now());
@@ -453,7 +479,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
       setMediaJobNowMs(Date.now());
     }, 1_000);
     return () => window.clearInterval(timer);
-  }, [activeDocumentJobs, activeMediaJobs]);
+  }, [activeDocumentJobs, activeMediaJobs, activeSandboxJobs]);
 
   const stopCameraPreview = useCallback(() => {
     cameraPreviewStreamRef.current?.getTracks().forEach((track) => track.stop());
@@ -682,10 +708,8 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
   const controlsDisabled =
     disabled === true || isRecording || isTranscribing || sendBlockedByFailedSlot;
   const hasKnowledgeEligibleFiles = pendingFiles.some((file) => isKnowledgeEligibleFile(file));
-  const visibleMediaJobs = activeMediaJobs.slice(0, 2);
-  const showCollapsedMediaJobs = activeMediaJobs.length > 2;
-  const visibleDocumentJobs = activeDocumentJobs.slice(0, 2);
-  const showCollapsedDocumentJobs = activeDocumentJobs.length > 2;
+  const backgroundJobCount =
+    activeMediaJobs.length + activeDocumentJobs.length + activeSandboxJobs.length;
   const composerCanSend = draftText.trim().length > 0 || pendingFiles.length > 0;
   const showAttachmentOrdinals = pendingFiles.length > 1;
   const showComposerMicSlot = !isRecording || isTouchDevice;
@@ -1246,55 +1270,102 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
         ) : null}
 
         <div className="relative">
-          {(activeMediaJobs.length > 0 || activeDocumentJobs.length > 0) && (
+          {backgroundJobCount > 0 && (
             <div
               aria-live="polite"
-              className="pointer-events-none absolute inset-x-0 bottom-full z-10 mb-2 flex flex-col items-center gap-2 md:inset-x-auto md:right-0 md:items-end"
+              className="absolute inset-x-0 bottom-full z-20 mb-2 flex flex-col items-center md:inset-x-auto md:right-0 md:items-end"
             >
-              {activeMediaJobs.length > 0 &&
-                (showCollapsedMediaJobs ? (
-                  <div className="inline-flex max-w-full items-center rounded-full border border-border/70 bg-surface px-3 py-1 text-xs text-text-muted shadow-sm pointer-events-auto">
-                    <span className="truncate">
-                      {t("mediaJobsInProgress", { count: activeMediaJobs.length })}
-                    </span>
-                  </div>
-                ) : (
-                  <div className="flex max-w-full justify-center gap-2 overflow-x-auto pb-0.5 pointer-events-auto md:justify-end">
-                    {visibleMediaJobs.map((job) => (
-                      <div
-                        key={job.id}
-                        className="inline-flex shrink-0 items-center rounded-full border border-border/70 bg-surface px-3 py-1 text-xs text-text-muted shadow-sm"
-                      >
-                        <span className="whitespace-nowrap">
-                          {resolveMediaJobLabel(t, job, mediaJobNowMs)}{" "}
-                          {formatDuration(resolveMediaJobElapsedSeconds(job, mediaJobNowMs))}
+              {backgroundJobsOpen ? (
+                <div
+                  role="dialog"
+                  aria-label={t("workingJobsList")}
+                  className="mb-2 max-h-72 w-[min(22rem,calc(100vw-2rem))] overflow-y-auto rounded-2xl border border-border/70 bg-surface-raised p-2 shadow-lg"
+                >
+                  {activeMediaJobs.map((job) => (
+                    <div
+                      key={`media:${job.id}`}
+                      className="flex items-center justify-between gap-3 rounded-xl px-3 py-2 text-xs text-text"
+                    >
+                      <span>
+                        {resolveMediaJobLabel(t, job, mediaJobNowMs)}{" "}
+                        {formatDuration(resolveMediaJobElapsedSeconds(job, mediaJobNowMs))}
+                      </span>
+                      {job.notifyState !== undefined && job.notifyState !== "none" && (
+                        <span
+                          className={
+                            job.notifyState === "failed" || job.notifyState === "cancelled"
+                              ? "rounded-full bg-destructive/10 px-2 py-0.5 text-destructive"
+                              : "rounded-full bg-accent/10 px-2 py-0.5 text-accent"
+                          }
+                        >
+                          {notifyStateLabel(t, job.notifyState)}
                         </span>
-                      </div>
-                    ))}
-                  </div>
-                ))}
-              {activeDocumentJobs.length > 0 &&
-                (showCollapsedDocumentJobs ? (
-                  <div className="inline-flex max-w-full items-center rounded-full border border-border/70 bg-surface px-3 py-1 text-xs text-text-muted shadow-sm pointer-events-auto">
-                    <span className="truncate">
-                      {t("documentJobsInProgress", { count: activeDocumentJobs.length })}
-                    </span>
-                  </div>
-                ) : (
-                  <div className="flex max-w-full justify-center gap-2 overflow-x-auto pb-0.5 pointer-events-auto md:justify-end">
-                    {visibleDocumentJobs.map((job) => (
-                      <div
-                        key={job.id}
-                        className="inline-flex shrink-0 items-center rounded-full border border-border/70 bg-surface px-3 py-1 text-xs text-text-muted shadow-sm"
-                      >
-                        <span className="whitespace-nowrap">
-                          {resolveDocumentJobLabel(t, job)}{" "}
-                          {formatDuration(resolveDocumentJobElapsedSeconds(job, mediaJobNowMs))}
+                      )}
+                    </div>
+                  ))}
+                  {activeDocumentJobs.map((job) => (
+                    <div
+                      key={`document:${job.id}`}
+                      className="flex items-center justify-between gap-3 rounded-xl px-3 py-2 text-xs text-text"
+                    >
+                      <span>
+                        {resolveDocumentJobLabel(t, job)}{" "}
+                        {formatDuration(resolveDocumentJobElapsedSeconds(job, mediaJobNowMs))}
+                      </span>
+                      {job.notifyState !== undefined && job.notifyState !== "none" && (
+                        <span
+                          className={
+                            job.notifyState === "failed" || job.notifyState === "cancelled"
+                              ? "rounded-full bg-destructive/10 px-2 py-0.5 text-destructive"
+                              : "rounded-full bg-accent/10 px-2 py-0.5 text-accent"
+                          }
+                        >
+                          {notifyStateLabel(t, job.notifyState)}
                         </span>
-                      </div>
-                    ))}
-                  </div>
-                ))}
+                      )}
+                    </div>
+                  ))}
+                  {activeSandboxJobs.map((job) => (
+                    <div
+                      key={`sandbox:${job.jobRef}`}
+                      className="flex items-center justify-between gap-3 rounded-xl px-3 py-2 text-xs text-text"
+                    >
+                      <span>
+                        {job.toolCode === "shell" ? t("backgroundShell") : t("backgroundExec")} ·{" "}
+                        {formatDuration(
+                          Math.max(
+                            0,
+                            Math.floor(
+                              (mediaJobNowMs - new Date(job.startedAt ?? job.createdAt).getTime()) /
+                                1000
+                            )
+                          )
+                        )}
+                      </span>
+                      {job.notifyState !== "none" && (
+                        <span
+                          className={
+                            job.notifyState === "failed" || job.notifyState === "cancelled"
+                              ? "rounded-full bg-destructive/10 px-2 py-0.5 text-destructive"
+                              : "rounded-full bg-accent/10 px-2 py-0.5 text-accent"
+                          }
+                        >
+                          {notifyStateLabel(t, job.notifyState)}
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+              <button
+                type="button"
+                aria-expanded={backgroundJobsOpen}
+                aria-haspopup="dialog"
+                onClick={() => setBackgroundJobsOpen((open) => !open)}
+                className="inline-flex cursor-pointer items-center rounded-full border border-border/70 bg-surface px-3 py-1 text-xs text-text-muted shadow-sm"
+              >
+                {t("workingJobs", { count: backgroundJobCount })}
+              </button>
             </div>
           )}
 

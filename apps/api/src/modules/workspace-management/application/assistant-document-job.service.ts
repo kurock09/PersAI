@@ -14,6 +14,7 @@ import type {
   RuntimeOutputArtifact
 } from "@persai/runtime-contract";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
+import { assertActiveBackgroundJobCap } from "./assert-active-background-job-cap";
 import {
   buildAssistantDocumentLinkMetadata,
   type AssistantDocumentWorkspaceFacts,
@@ -151,6 +152,7 @@ export class AssistantDocumentJobService {
     request: AssistantDocumentRequestPayload;
   }): Promise<{ docId: string; versionId: string; renderJobId: string; status: "queued" }> {
     return this.prisma.$transaction(async (tx) => {
+      await assertActiveBackgroundJobCap(tx, input.chatId);
       const document = await tx.assistantDocument.create({
         data: {
           assistantId: input.assistantId,

@@ -42,10 +42,16 @@ export class SandboxClientService {
     return this.parseJobResponse(response);
   }
 
-  async cancelJob(jobId: string): Promise<RuntimeSandboxJobResult> {
+  async cancelJob(
+    jobId: string,
+    options?: { forceDetachedOrphan?: boolean }
+  ): Promise<RuntimeSandboxJobResult> {
     const response = await this.fetchJson(`/api/v1/jobs/${encodeURIComponent(jobId)}/cancel`, {
       method: "POST",
-      headers: this.buildHeaders()
+      headers: this.buildHeaders(),
+      ...(options?.forceDetachedOrphan === true
+        ? { body: JSON.stringify({ forceDetachedOrphan: true }) }
+        : {})
     });
     return this.parseJobResponse(response);
   }
@@ -111,6 +117,63 @@ export class SandboxClientService {
         }
       }
       return current;
+    } finally {
+      signal?.removeEventListener("abort", onAbort);
+    }
+  }
+
+  async waitForForegroundThreshold(
+    request: RuntimeSandboxJobRequest,
+    options?: { signal?: AbortSignal; onPoll?: (job: RuntimeSandboxJobResult) => void }
+  ): Promise<{ job: RuntimeSandboxJobResult; yielded: boolean }> {
+    const signal = options?.signal;
+    let current = await this.submitJob(request);
+    // Sandbox owns the Process-timeout yield: it stamps `detached` and releases
+    // the workspace lease only at/after that threshold. Runtime may register an
+    // opaque jobRef only after that stamp — never on outer wall-clock alone.
+    const deadline = Date.now() + this.resolveCompletionTimeoutMs(request);
+    let cancelRequested = false;
+    // Defer cancel until after the next poll so a Stop that races the first
+    // `detached` stamp cannot TERM/KILL retained work.
+    const onAbort = (): void => {
+      cancelRequested = true;
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+    if (signal?.aborted) onAbort();
+    try {
+      while (current.status === "queued" || current.status === "running") {
+        const remainingMs = deadline - Date.now();
+        if (remainingMs <= 0) {
+          throw new ServiceUnavailableException(
+            "Sandbox job timed out before detach or completion."
+          );
+        }
+        current = await this.pollJob(current.jobId, Math.max(1, Math.min(remainingMs, 1_500)));
+        options?.onPoll?.(current);
+        if (current.status === "detached") {
+          return { job: current, yielded: true };
+        }
+        if (signal?.aborted || cancelRequested) {
+          // Race: poll saw running, sandbox stamped detached, then Stop arrived.
+          // One more poll before cancel so we never cancelJob once detached.
+          if (current.status === "queued" || current.status === "running") {
+            current = await this.pollJob(current.jobId, 0);
+            options?.onPoll?.(current);
+            if (current.status === "detached") {
+              return { job: current, yielded: true };
+            }
+          }
+          if (current.status === "queued" || current.status === "running") {
+            void this.cancelJob(current.jobId).catch(() => undefined);
+            throw new DOMException("Sandbox job aborted.", "AbortError");
+          }
+          break;
+        }
+      }
+      if (current.status === "detached") {
+        return { job: current, yielded: true };
+      }
+      return { job: current, yielded: false };
     } finally {
       signal?.removeEventListener("abort", onAbort);
     }

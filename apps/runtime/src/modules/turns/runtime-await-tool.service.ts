@@ -44,8 +44,11 @@ export class RuntimeAwaitToolService {
     chatId: string;
     channel: "web" | "telegram" | "max_ru";
     threadKey: string;
+    sourceClientTurnId?: string;
     locale?: string | null;
-    blockingWaitedJobRefs: Set<string>;
+    admittedWaitToolCallIds?: Set<string>;
+    /** Legacy test seam; no longer enforces one blocking wait per job. */
+    blockingWaitedJobRefs?: Set<string>;
     abortSignal?: AbortSignal;
   }): Promise<{ payload: RuntimeAwaitToolResult; isError: boolean }> {
     const jobRef =
@@ -63,9 +66,9 @@ export class RuntimeAwaitToolService {
         isError: true
       };
     }
-    if (jobRef.length === 0) {
+    if (jobRef.length === 0 && action === "notify") {
       return {
-        payload: this.skipped("", "invalid_arguments", "await.jobRef is required."),
+        payload: this.skipped("", "invalid_arguments", "await.jobRef is required for notify."),
         isError: true
       };
     }
@@ -88,18 +91,37 @@ export class RuntimeAwaitToolService {
       (typeof rawTimeout !== "number" ||
         !Number.isFinite(rawTimeout) ||
         !Number.isInteger(rawTimeout) ||
-        rawTimeout < 0)
+        rawTimeout < 0 ||
+        rawTimeout > MAX_AWAIT_WAIT_TIMEOUT_MS)
     ) {
       return {
         payload: this.skipped(
           jobRef,
           "invalid_arguments",
-          "await.timeoutMs must be a finite non-negative integer."
+          "await.timeoutMs must be an integer from 0 through 60000."
         ),
         isError: true
       };
     }
     const timeoutMs = Math.min(MAX_AWAIT_WAIT_TIMEOUT_MS, Number(rawTimeout ?? 0));
+    const admittedWaitToolCallIds =
+      input.admittedWaitToolCallIds ?? input.blockingWaitedJobRefs ?? new Set<string>();
+    if (!admittedWaitToolCallIds.has(input.toolCall.id)) {
+      if (admittedWaitToolCallIds.size >= 20) {
+        return {
+          payload: this.skipped(
+            jobRef,
+            "wait_budget_exhausted",
+            "This turn used all 20 wait calls. Use notify(jobRef) for durable follow-up."
+          ),
+          isError: true
+        };
+      }
+      admittedWaitToolCallIds.add(input.toolCall.id);
+    }
+    if (jobRef.length === 0) {
+      return this.waitSnapshot(input, timeoutMs);
+    }
     const positiveDeadline = timeoutMs > 0 ? this.clock.now() + timeoutMs : null;
     const resolve = () => {
       const remainingMs =
@@ -141,17 +163,6 @@ export class RuntimeAwaitToolService {
     let status = initialStatus;
     if (status.terminal || timeoutMs === 0)
       return { payload: this.receipt(status, "status"), isError: false };
-    if (input.blockingWaitedJobRefs.has(jobRef)) {
-      return {
-        payload: this.skipped(
-          jobRef,
-          "blocking_wait_already_used",
-          "Only one blocking wait per job is allowed in a turn. Continue other work or use notify when available."
-        ),
-        isError: true
-      };
-    }
-    input.blockingWaitedJobRefs.add(jobRef);
     const deadline = positiveDeadline!;
     while (!status.terminal && this.clock.now() < deadline) {
       const remainingBeforeDelay = Math.max(0, deadline - this.clock.now());
@@ -183,6 +194,90 @@ export class RuntimeAwaitToolService {
       }
     }
     return { payload: this.receipt(status, "waited"), isError: false };
+  }
+
+  private async waitSnapshot(
+    input: {
+      assistantId: string;
+      workspaceId: string;
+      chatId: string;
+      channel: "web" | "telegram" | "max_ru";
+      threadKey: string;
+      sourceClientTurnId?: string;
+      abortSignal?: AbortSignal;
+    },
+    timeoutMs: number
+  ): Promise<{ payload: RuntimeAwaitToolResult; isError: boolean }> {
+    const deadline = this.clock.now() + timeoutMs;
+    const read = () =>
+      this.api.resolveAsyncJobSnapshot({
+        sourceClientTurnId: input.sourceClientTurnId ?? "",
+        assistantId: input.assistantId,
+        workspaceId: input.workspaceId,
+        chatId: input.chatId,
+        channel: input.channel,
+        threadKey: input.threadKey,
+        ...(input.abortSignal === undefined ? {} : { abortSignal: input.abortSignal })
+      });
+    let snapshot = await read();
+    if (snapshot.outcome !== "snapshot") {
+      return {
+        payload: this.skipped(
+          "",
+          snapshot.outcome,
+          snapshot.outcome === "snapshot_overflow"
+            ? "The owned job snapshot exceeds the safe 32-job limit."
+            : "No owned jobs were found."
+        ),
+        isError: snapshot.outcome === "snapshot_overflow"
+      };
+    }
+    const snapshotSettled =
+      snapshot.jobs.length === 0 || snapshot.jobs.every((job) => job.terminal);
+    // Empty and already-terminal first reads return immediately (like single-ref wait).
+    if (!snapshotSettled && timeoutMs > 0) {
+      const initialFingerprint = JSON.stringify(
+        snapshot.jobs.map((job) => [job.jobRef, job.status, job.terminal])
+      );
+      while (this.clock.now() < deadline) {
+        const remaining = deadline - this.clock.now();
+        await this.clock.delay(Math.min(AWAIT_OBSERVE_INTERVAL_MS, remaining), input.abortSignal);
+        const next = await read();
+        if (next.outcome !== "snapshot") break;
+        snapshot = next;
+        const fingerprint = JSON.stringify(
+          snapshot.jobs.map((job) => [job.jobRef, job.status, job.terminal])
+        );
+        if (fingerprint !== initialFingerprint || snapshot.jobs.some((job) => job.terminal)) break;
+      }
+    }
+    return {
+      payload: {
+        toolCode: "await",
+        executionMode: "inline",
+        action: snapshotSettled || timeoutMs === 0 ? "status" : "waited",
+        turnControl: "continue",
+        staticAssistantText: null,
+        reason: null,
+        warning: null,
+        jobRef: "",
+        kind: null,
+        status: null,
+        terminal: snapshot.jobs.length > 0 && snapshot.jobs.every((job) => job.terminal),
+        errorCode: null,
+        message: null,
+        jobs: snapshot.jobs.map((job) => ({
+          jobRef: job.jobRef,
+          kind: job.kind,
+          status: job.status,
+          terminal: job.terminal,
+          errorCode: job.errorCode,
+          message: job.message,
+          sandboxResult: job.sandboxResult ?? null
+        }))
+      },
+      isError: false
+    };
   }
 
   private async notify(
@@ -227,7 +322,8 @@ export class RuntimeAwaitToolService {
           status: result.status,
           terminal: true,
           errorCode: result.errorCode,
-          message: result.message
+          message: result.message,
+          sandboxResult: result.sandboxResult ?? null
         },
         isError: false
       };
@@ -259,12 +355,8 @@ export class RuntimeAwaitToolService {
         toolCode: "await",
         executionMode: "inline",
         action: "notified",
-        turnControl: "terminal_static",
-        staticAssistantText: this.localized(
-          input.locale,
-          "Я сообщу здесь, когда задача завершится.",
-          "I’ll let you know here when the job finishes."
-        ),
+        turnControl: "continue",
+        staticAssistantText: null,
         reason: result.duplicate ? "already_subscribed" : null,
         warning: null,
         jobRef,
@@ -289,16 +381,18 @@ export class RuntimeAwaitToolService {
       toolCode: "await",
       executionMode: "inline",
       action,
+      // Continuation-owned terminals must stay model-continuable after notify;
+      // only legacy ownership ends the turn with a static receipt.
       turnControl:
         status.terminal &&
         status.narrationOutcome === "already_owned" &&
-        status.narrationOwner !== "current_turn"
+        status.narrationOwner === "legacy"
           ? "terminal_static"
           : "continue",
       staticAssistantText:
         status.terminal &&
         status.narrationOutcome === "already_owned" &&
-        status.narrationOwner !== "current_turn"
+        status.narrationOwner === "legacy"
           ? "This job completion is already being handled in this conversation."
           : null,
       reason: null,

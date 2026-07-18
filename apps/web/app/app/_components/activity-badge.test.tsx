@@ -193,4 +193,21 @@ describe("ActivityBadge", () => {
     expect(screen.getByText("✈️")).toBeInTheDocument();
     expect(screen.getByText("✈️")).toHaveStyle({ filter: "saturate(0.68) brightness(1.04)" });
   });
+
+  it("formats await-deadline detail as a decreasing countdown label", () => {
+    const deadlineMs = Date.now() + 12_500;
+    render(
+      <ActivityBadge
+        event={{
+          id: "activity-await",
+          type: "tool_use",
+          label: "await_started",
+          detail: `await-deadline:${String(deadlineMs)}`
+        }}
+      />
+    );
+
+    expect(screen.getByText(/awaitCountdown/)).toBeInTheDocument();
+    expect(screen.queryByText(/await-deadline:/)).toBeNull();
+  });
 });
