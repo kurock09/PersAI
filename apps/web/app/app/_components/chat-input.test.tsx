@@ -8,8 +8,15 @@ vi.mock("next-intl", () => ({
     params?.count !== undefined ? `${key} (${String(params.count)})` : key
 }));
 
+/** Resting → compact peek → full list (same progression as the plan pill). */
 function openWorkingJobsList() {
-  fireEvent.click(screen.getByRole("button", { name: /workingJobs/ }));
+  const resting =
+    screen.queryByTestId("chat-working-collapsed-chip") ??
+    screen.queryByTestId("chat-working-mobile-circle");
+  if (resting) {
+    fireEvent.click(resting);
+  }
+  fireEvent.click(screen.getByTestId("chat-working-header"));
 }
 
 function toFileList(files: File[]): FileList {
@@ -429,14 +436,21 @@ describe("ChatInput", () => {
       />
     );
 
-    expect(screen.getByRole("button", { name: "workingJobs (2)" })).toBeInTheDocument();
-    expect(screen.queryByText("mediaJobImageGenerate 1:42")).toBeNull();
-    openWorkingJobsList();
+    const resting =
+      screen.getByTestId("chat-working-collapsed-chip") ??
+      screen.getByTestId("chat-working-mobile-circle");
+    expect(resting).toBeInTheDocument();
+    expect(screen.queryByText("mediaJobVideoGenerate 0:38")).toBeNull();
+    // First click: compact peek of the oldest job only.
+    fireEvent.click(resting);
+    expect(screen.getByText("mediaJobImageGenerate 1:42")).toBeInTheDocument();
+    expect(screen.queryByTestId("chat-working-jobs-body")).toBeNull();
+    // Second click: full upward list.
+    fireEvent.click(screen.getByTestId("chat-working-header"));
+    expect(screen.getByTestId("chat-working-jobs-body")).toBeInTheDocument();
     expect(screen.getByText("mediaJobImageGenerate 1:42")).toBeInTheDocument();
     expect(screen.getByText("mediaJobVideoGenerate 0:38")).toBeInTheDocument();
-    expect(
-      screen.getByText("mediaJobImageGenerate 1:42").closest('[aria-live="polite"]')
-    ).toHaveClass("inset-x-0", "items-center", "md:right-0", "md:items-end");
+    expect(screen.getByTestId("chat-working-jobs-pill")).toHaveAttribute("aria-live", "polite");
   });
 
   it("falls back to createdAt when a media job is still queued", () => {
@@ -467,7 +481,7 @@ describe("ChatInput", () => {
     expect(screen.getByText("mediaJobImageEdit 1:42")).toBeInTheDocument();
   });
 
-  it("labels legacy short ops by kind and OpenAPI ops (back-compat)", () => {
+  it("labels Working pills by OpenAPI media ops only", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-05-05T12:02:00Z"));
 
@@ -481,8 +495,7 @@ describe("ChatInput", () => {
           {
             id: "job-video",
             kind: "video",
-            // Legacy short op still accepted; runtime now emits video_generate.
-            operation: "generate" as "video_generate",
+            operation: "video_generate",
             status: "running",
             createdAt: "2026-05-05T12:01:00Z",
             startedAt: "2026-05-05T12:01:22Z",
@@ -491,7 +504,7 @@ describe("ChatInput", () => {
           {
             id: "job-audio",
             kind: "audio",
-            operation: "generate" as "audio_generate",
+            operation: "audio_generate",
             status: "running",
             createdAt: "2026-05-05T12:01:00Z",
             startedAt: "2026-05-05T12:01:22Z",

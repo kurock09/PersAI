@@ -533,6 +533,7 @@
     "documentJobRevise": "Revising document",
     "documentJobRedeliver": "Preparing document",
     "documentJobsInProgress": "Documents in progress: {count}",
+    "workingTitle": "Working",
     "workingJobs": "Working · {count}",
     "workingJobsList": "Background jobs",
     "backgroundShell": "Shell",

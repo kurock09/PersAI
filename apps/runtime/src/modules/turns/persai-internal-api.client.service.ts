@@ -916,6 +916,71 @@ export class PersaiInternalApiClientService {
     };
   }
 
+  async resolveAsyncJobPerceptionArtifacts(input: {
+    jobRef: string;
+    assistantId: string;
+    workspaceId: string;
+    chatId: string;
+    channel: "web" | "telegram" | "max_ru";
+    threadKey: string;
+    abortSignal?: AbortSignal;
+  }): Promise<
+    Array<{
+      storagePath: string;
+      mimeType: string;
+      filename: string | null;
+      role: "output" | "source_reference";
+    }>
+  > {
+    const response = await this.fetchJson(
+      "/api/v1/internal/runtime/async-jobs/v1/perception-artifacts",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${this.config.PERSAI_INTERNAL_API_TOKEN}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          jobRef: input.jobRef,
+          assistantId: input.assistantId,
+          workspaceId: input.workspaceId,
+          chatId: input.chatId,
+          channel: input.channel,
+          threadKey: input.threadKey
+        }),
+        ...(input.abortSignal === undefined ? {} : { signal: input.abortSignal })
+      }
+    );
+    const row = this.asObject(response.body);
+    if (!response.ok || row === null || !Array.isArray(row.artifacts)) {
+      return [];
+    }
+    const artifacts: Array<{
+      storagePath: string;
+      mimeType: string;
+      filename: string | null;
+      role: "output" | "source_reference";
+    }> = [];
+    for (const entry of row.artifacts) {
+      const item = this.asObject(entry);
+      if (
+        item === null ||
+        typeof item.storagePath !== "string" ||
+        typeof item.mimeType !== "string" ||
+        !item.mimeType.startsWith("image/")
+      ) {
+        continue;
+      }
+      artifacts.push({
+        storagePath: item.storagePath,
+        mimeType: item.mimeType,
+        filename: typeof item.filename === "string" ? item.filename : null,
+        role: item.role === "source_reference" ? "source_reference" : "output"
+      });
+    }
+    return artifacts;
+  }
+
   async resolveAsyncJobSnapshot(input: {
     sourceClientTurnId: string;
     assistantId: string;

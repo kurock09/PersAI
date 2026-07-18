@@ -176,14 +176,14 @@ describe("AssistantAsyncJobHandleStateService", () => {
     }
   });
 
-  test("delivery arbitration defers unresolved and preserves finalized legacy", async () => {
+  test("delivery arbitration never blocks unresolved narration; legacy still frames", async () => {
     const unresolved = fixture();
     assert.equal(
       await unresolved.service.prepareDelivery({
         kind: "media",
         canonicalJobId: "00000000-0000-4000-8000-000000000006"
       }),
-      "defer"
+      "skip_legacy_frame"
     );
     const legacy = fixture({
       narrationOwner: "legacy",

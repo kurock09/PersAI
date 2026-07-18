@@ -7,7 +7,6 @@ import { useAuth } from "@clerk/nextjs";
 import {
   AlertCircle,
   AlertTriangle,
-  ArrowDown,
   ChevronDown,
   FolderKanban,
   X,
@@ -1219,31 +1218,11 @@ export function ChatArea({
               activeMediaJobs={chat.activeMediaJobs}
               activeDocumentJobs={chat.activeDocumentJobs}
               activeSandboxJobs={chat.activeSandboxJobs ?? []}
+              showScrollToBottom={showScrollToBottom}
+              onScrollToBottom={() => scrollToBottom("smooth")}
             />
           </div>
         </div>
-
-        {showScrollToBottom && (
-          <div
-            data-testid="chat-scroll-to-bottom-anchor"
-            className="pointer-events-none absolute inset-x-0 bottom-[5.25rem] z-30 px-3 md:bottom-24 md:px-4"
-          >
-            <div className="mx-auto flex w-full max-w-[50rem] justify-end">
-              <button
-                type="button"
-                onClick={() => scrollToBottom("smooth")}
-                className={cn(
-                  "pointer-events-auto flex h-11 w-11 cursor-pointer items-center justify-center rounded-full border border-border/45 bg-surface-raised text-text-muted shadow-sm transition-all",
-                  "hover:-translate-y-0.5 hover:border-accent/30 hover:bg-surface-hover hover:text-text active:translate-y-0"
-                )}
-                aria-label={t("scrollToBottom")}
-                title={t("scrollToBottom")}
-              >
-                <ArrowDown className="h-5 w-5" strokeWidth={1.15} />
-              </button>
-            </div>
-          </div>
-        )}
       </div>
 
       <BrowserLoginModal

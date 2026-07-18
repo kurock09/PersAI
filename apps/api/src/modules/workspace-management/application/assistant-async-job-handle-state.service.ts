@@ -42,7 +42,7 @@ export type FailClaimResult = {
 
 export type AsyncJobTerminalStatus = "completed" | "failed" | "cancelled";
 export type AsyncJobNarrationOwner = "current_turn" | "continuation" | "legacy";
-export type AsyncJobDeliveryDecision = "legacy_frame" | "skip_legacy_frame" | "defer";
+export type AsyncJobDeliveryDecision = "legacy_frame" | "skip_legacy_frame";
 
 export type SandboxTerminalResult = {
   toolCode: "shell" | "exec";
@@ -579,10 +579,9 @@ export class AssistantAsyncJobHandleStateService {
       const row = await this.lockCanonical(tx, input);
       if (row === null) return "legacy_frame";
       if (row.narrationOwner === "legacy") return "legacy_frame";
-      if (row.narrationOwner === "current_turn" || row.narrationOwner === "continuation") {
-        return "skip_legacy_frame";
-      }
-      return "defer";
+      // ADR-157: unresolved narration must not block artifact delivery. Bytes
+      // proceed with skip_legacy_frame; chat-model / continuation owns text.
+      return "skip_legacy_frame";
     });
   }
 
@@ -597,11 +596,7 @@ export class AssistantAsyncJobHandleStateService {
       if (row === null) return { decision: "legacy_frame", state: input.terminalStatus };
       const now = new Date();
       const decision: AsyncJobDeliveryDecision =
-        row.narrationOwner === "legacy"
-          ? "legacy_frame"
-          : row.narrationOwner === null
-            ? "defer"
-            : "skip_legacy_frame";
+        row.narrationOwner === "legacy" ? "legacy_frame" : "skip_legacy_frame";
       const continuationReady =
         row.narrationOwner === "continuation" &&
         row.narrationDecision === "notify_subscribed" &&

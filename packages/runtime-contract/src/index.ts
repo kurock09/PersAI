@@ -3416,6 +3416,8 @@ export interface RuntimeTurnRequest {
       status: "completed" | "failed" | "cancelled";
       errorCode: string | null;
       message: string;
+      /** Opaque handle for ADR-157 perception hydration (not user-visible). */
+      jobRef?: string;
       sandboxResult?: RuntimeAwaitToolResult["sandboxResult"];
     };
   };

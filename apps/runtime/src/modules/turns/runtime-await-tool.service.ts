@@ -5,7 +5,7 @@ import {
   PersaiInternalApiClientService
 } from "./persai-internal-api.client.service";
 
-export const MAX_AWAIT_WAIT_TIMEOUT_MS = 60_000;
+export const MAX_AWAIT_WAIT_TIMEOUT_MS = 300_000;
 const AWAIT_OBSERVE_INTERVAL_MS = 500;
 export const RUNTIME_AWAIT_CLOCK = Symbol("RUNTIME_AWAIT_CLOCK");
 export interface RuntimeAwaitClock {
@@ -98,7 +98,7 @@ export class RuntimeAwaitToolService {
         payload: this.skipped(
           jobRef,
           "invalid_arguments",
-          "await.timeoutMs must be an integer from 0 through 60000."
+          "await.timeoutMs must be an integer from 0 through 300000."
         ),
         isError: true
       };
@@ -232,30 +232,39 @@ export class RuntimeAwaitToolService {
         isError: snapshot.outcome === "snapshot_overflow"
       };
     }
-    const snapshotSettled =
-      snapshot.jobs.length === 0 || snapshot.jobs.every((job) => job.terminal);
-    // Empty and already-terminal first reads return immediately (like single-ref wait).
-    if (!snapshotSettled && timeoutMs > 0) {
-      const initialFingerprint = JSON.stringify(
-        snapshot.jobs.map((job) => [job.jobRef, job.status, job.terminal])
-      );
-      while (this.clock.now() < deadline) {
+    const initiallyEmpty = snapshot.jobs.length === 0;
+    const initiallyAllTerminal = !initiallyEmpty && snapshot.jobs.every((job) => job.terminal);
+    if (timeoutMs > 0) {
+      if (initiallyEmpty || initiallyAllTerminal) {
+        // ADR-157: empty or already-terminal snapshot + positive timeout is a timer.
         const remaining = deadline - this.clock.now();
-        await this.clock.delay(Math.min(AWAIT_OBSERVE_INTERVAL_MS, remaining), input.abortSignal);
-        const next = await read();
-        if (next.outcome !== "snapshot") break;
-        snapshot = next;
-        const fingerprint = JSON.stringify(
+        if (remaining > 0) {
+          await this.clock.delay(remaining, input.abortSignal);
+        }
+      } else {
+        const initialFingerprint = JSON.stringify(
           snapshot.jobs.map((job) => [job.jobRef, job.status, job.terminal])
         );
-        if (fingerprint !== initialFingerprint || snapshot.jobs.some((job) => job.terminal)) break;
+        while (this.clock.now() < deadline) {
+          const remaining = deadline - this.clock.now();
+          await this.clock.delay(Math.min(AWAIT_OBSERVE_INTERVAL_MS, remaining), input.abortSignal);
+          const next = await read();
+          if (next.outcome !== "snapshot") break;
+          snapshot = next;
+          const fingerprint = JSON.stringify(
+            snapshot.jobs.map((job) => [job.jobRef, job.status, job.terminal])
+          );
+          if (fingerprint !== initialFingerprint || snapshot.jobs.some((job) => job.terminal)) {
+            break;
+          }
+        }
       }
     }
     return {
       payload: {
         toolCode: "await",
         executionMode: "inline",
-        action: snapshotSettled || timeoutMs === 0 ? "status" : "waited",
+        action: timeoutMs === 0 ? "status" : "waited",
         turnControl: "continue",
         staticAssistantText: null,
         reason: null,

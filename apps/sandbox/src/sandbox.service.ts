@@ -1787,6 +1787,22 @@ export class SandboxService {
       currentRoot
     );
     const command = this.requireString(args.command, "command");
+    const immediateBackground = args.background === true;
+    // ADR-157: explicit background requires a warm session for durable jobRef /
+    // retained PIDs. Fail closed rather than silently running synchronously.
+    if (immediateBackground && runtimeSessionId === null) {
+      return {
+        reason: "async_context_unavailable",
+        warning:
+          "background:true requires a warm session pod. Retry in a session-backed turn, or omit background for synchronous execution.",
+        exitCode: 1,
+        stdout: null,
+        stderr:
+          "background:true requires a warm session pod. Retry in a session-backed turn, or omit background for synchronous execution.",
+        content: null,
+        durationMs: 0
+      };
+    }
     const childArgs: string[] = shellMode
       ? ["-lc", command]
       : Array.isArray(args.args)
@@ -1808,6 +1824,7 @@ export class SandboxService {
       policy,
       visibleWorkspacePaths: [this.toVisibleWorkspaceAbsolutePath(workspaceRoot, absoluteCwd)],
       ...(runtimeSessionId === null ? {} : { supervisedDetach: true }),
+      ...(immediateBackground ? { immediateBackground: true } : {}),
       signal,
       onBound: (binding) => {
         this.activeJobBindings.set(jobId, {

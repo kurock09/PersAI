@@ -338,18 +338,20 @@ export class RuntimeSandboxToolService {
         }
       }
 
+      const skippedReason =
+        job.reason === "process_failed" || job.reason === "async_context_unavailable";
       return {
         payload: {
           toolCode: params.toolCall.name,
           executionMode: "sandbox",
-          action: job.reason === "process_failed" ? "skipped" : "completed",
+          action: skippedReason ? "skipped" : "completed",
           reason: job.reason,
           warning: job.warning ?? job.violationMessage,
           job,
           paths: job.files.map((file) => file.storagePath),
           ...(documentSync !== undefined ? { documentSync } : {})
         },
-        isError: job.reason === "process_failed"
+        isError: skippedReason
       };
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") {

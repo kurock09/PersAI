@@ -66,13 +66,14 @@ ADR-109 and ADR-111 add one bounded HeyGen-backed product seam inside the active
 - ADR-147 Slice S2 local truth: runtime bundles now carry non-model `effectiveRoleId`; `skill.engage` / `skill.release` persistence validates internal UUIDs before raw casts, sends `expectedRoleId`, and returns honest `stale_assistant_role_snapshot` results instead of claiming durable state after a role change or role-skill drift. Skill-related mutations share the absent-link-safe order `Skill -> AssistantRole -> Assistant -> AssistantChat -> AssistantRoleSkill` (sorted ids for every multi-row class). Scenario mutation locks its parent Skill before discovering/revalidating linked Roles and taking its Assistant snapshot; release uses an unlocked Skill candidate only to enter that order, then revalidates locked chat state before writing. Future Role-Skill replacement must lock every involved Skill before any Role. Role PUT touches no Skill/link and remains a valid Role→Assistant subsequence with bounded Assistant revalidation retry.
 - runtime session and turn state
 - native execution health/readiness
-- ADR-152 local follow-through model-visible `await`: exact-id or no-id bounded
-  observation across canonical media, document, and detached shell/exec
-  SandboxJobs; `timeoutMs` is `0..60000`; each dispatched turn admits 20
-  replay-deduped waits. Stop aborts only the current turn/wait after a job has
-  yielded. Notify is durable and non-terminal, with source-finalization and the
-  same-chat runtime lease gating continuation. No runtime Prisma access or
-  parallel job registry is introduced.
+- ADR-157 (opens over ADR-152 await/job follow-through): model-visible
+  `await` across media/document/sandbox; empty wait with positive `timeoutMs`
+  is a real timer (`0..300000`); delivery-visible media/document bytes must
+  not defer on narration; image user text is chat-model owned (no image
+  ghostwriter framing); explicit background shell returns `jobRef` and stays
+  visible until warm pod idle TTL. Each dispatched turn admits 20
+  replay-deduped waits. Notify remains durable and non-terminal. No runtime
+  Prisma access or parallel job registry is introduced.
 
 ### Provider plane
 
@@ -101,14 +102,14 @@ ADR-140 closes the persistent Browserless session era. The active browser archit
 - isolated process/document job execution (`shell`, `exec`, `execute_document_code`, `render_html_to_pdf`)
 - assistant-workspace pod materialization and session snapshot cache (not canonical bytes authority — ADR-137)
 - sandbox job health/readiness and job polling surfaces used by `apps/runtime`
-- ADR-152 founder follow-through: warm-session model-facing shell/exec runs
-  under a durable pod-side supervisor. `maxProcessRuntimeMs` is the foreground
-  yield threshold on this path; a yielded canonical job is `detached`, releases
-  the workspace lease, and is observed from bounded pod status/output files
-  after control-plane restart. Successful warm jobs do not run the global
-  baseline-PID cleanup. Sessionless jobs retain hard timeout and exact-pod
-  retirement. Detached processes remain inside the same pod resource/egress
-  contour and idle-TTL pod deletion is final cleanup authority.
+- ADR-157 / ADR-152 sandbox follow-through: warm-session model-facing
+  shell/exec runs under a durable pod-side supervisor. Synchronous shell is
+  default; explicit background returns opaque `jobRef` immediately (not only
+  after Process-timeout). Background jobs stay in Working and survive later
+  sync shells; warm pod idle TTL (~15m) is GC. Turn Stop cancels only current
+  turn foreground work. Sessionless jobs retain hard timeout and exact-pod
+  retirement. Background processes remain inside the same pod resource/egress
+  contour.
 
 **ADR-148 closed (founder live-accepted 2026-07-15):** healthy
 session-scoped exec pods are warm reusable execution containers, not
@@ -297,18 +298,20 @@ pending.
 
 The universal model-visible `await` tool observes owned canonical
 media/document/**sandbox** jobs through opaque server-minted `jr1` handles
-mapped by `assistant_async_job_handles`. `wait` is capped at 60 seconds, admits
-up to 20 waits per dispatched turn, and never cancels canonical work; `notify`
-creates a durable subscription and returns non-terminal
-`turnControl:"continue"`, later dispatching exactly one fresh-hydrated
-continuation in the original chat/channel without re-delivering files.
-Existing attachment-first delivery remains sole file delivery owner.
-Subscribed completion skips legacy isolated completion framing; unsubscribed
-behavior remains byte-compatible. The continuation chain is bounded to four
-unattended continuations per originating user turn. Background-task-run
-adapters remain deferred; Document SDK remains NO-GO; this is not a
-general-purpose SDK, durable Script-execution restart, or managed-secret
-program (ADR-153).
+mapped by `assistant_async_job_handles`. `wait` caps at 300000 ms (ADR-157;
+empty/all-terminal + positive timeout is a pure timer), admits up to 20 waits
+per dispatched turn, and never cancels canonical work; `notify` creates a
+durable subscription and returns non-terminal `turnControl:"continue"`, later
+dispatching exactly one fresh-hydrated continuation in the original
+chat/channel without re-delivering files. Existing attachment-first delivery
+remains sole file delivery owner and must not defer bytes on unresolved
+narration. Image success no longer uses ghostwriter completion framing; when
+the plan enables vision, perception is injected into the next chat-model call
+only. Explicit shell/exec `background:true` yields an opaque Working `jobRef`
+on warm sessions. The continuation chain is bounded to four unattended
+continuations per originating user turn. Background-task-run adapters remain
+deferred; Document SDK remains NO-GO; this is not a general-purpose SDK,
+durable Script-execution restart, or managed-secret program (ADR-153).
 
 Model-facing `files.*`, `grep`, and `glob` are **storage-plane** tools: runtime writes/reads committed bytes via GCS + `workspace_file_metadata` + internal API (`apps/api`), not sandbox `toolCode: "files"`.
 

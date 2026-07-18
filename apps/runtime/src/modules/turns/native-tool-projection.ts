@@ -459,8 +459,9 @@ function createAwaitToolDefinition(): ProviderGatewayToolDefinition {
         timeoutMs: {
           type: "integer",
           minimum: 0,
-          maximum: 60_000,
-          description: "0 performs a status-only read; positive values block up to 60 seconds."
+          maximum: 300_000,
+          description:
+            "0 performs a status-only read. Positive values wait up to 300000 ms (5 minutes). With no open jobs this is a pure timer; with open jobs it waits for a status change, terminality, or the deadline."
         }
       }
     }
@@ -1896,6 +1897,11 @@ function createExecToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayToo
           type: "string",
           description:
             "Optional subdirectory under the current session root. Omit unless you need a subfolder — default cwd is already the session root from Working Files. Never pass a full `/workspace/...` path (duplicates the root and fails)."
+        },
+        background: {
+          type: "boolean",
+          description:
+            "When true, detach immediately with an opaque jobRef and keep the process in the warm session until pod idle TTL. Use for Cursor-like background jobs; await/notify apply. Default false runs synchronously and is not listed as an in-progress Working job. Do not use nohup without background:true."
         }
       }
     }
@@ -1919,6 +1925,11 @@ function createShellToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayTo
           type: "string",
           description:
             "Optional subdirectory under the current session root. Omit unless you need a subfolder — default cwd is already the session root from Working Files. Never pass a full `/workspace/...` path (duplicates the root and fails)."
+        },
+        background: {
+          type: "boolean",
+          description:
+            "When true, detach immediately with an opaque jobRef and keep the process in the warm session until pod idle TTL. Use for Cursor-like background jobs; await/notify apply. Default false runs synchronously and is not listed as an in-progress Working job. Do not use nohup without background:true."
         }
       }
     }

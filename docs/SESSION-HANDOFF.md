@@ -1,5 +1,43 @@
 # SESSION-HANDOFF
 
+## 2026-07-19 — ADR-157 local gate green; commit/push in flight
+
+Status: **CLEAN-for-local-implementation + AGENTS/CI-like gate green; pushing
+`main`.** Baseline was `3879196a`. Scope: ADR-157 D1–D5 (delivery never defers
+on narration; chat-model image narration + perception artifacts;
+await max 300000ms pure timer; explicit `background:true` shell with
+fail-closed / retained PIDs; Working OpenAPI ops) + Working pill bounce dots /
+gray job emoji. Local gate: recursive lint, format:check, full typecheck,
+`pnpm test`, `test:ci-detect-affected`, `test:adr146-slice5`, `test:step2`,
+`pnpm build`. Deploy/live acceptance still open after image pin. No separate
+intermediate deploy was used during implementation.
+
+## 2026-07-19 — Working pill bounce dots + gray job emoji (local)
+
+Status: **Superseded by gate/push entry above.**
+
+## 2026-07-18 — ADR-157 CLEAN-for-local-implementation (local; not committed)
+
+Status: **Superseded by gate/push entry above.** Independent Composer re-audit
+returned CLEAN-for-local-implementation (no P0/P1) before the full gate.
+
+## 2026-07-18 — ADR-157 verification residuals closed (local)
+
+Status: **Superseded by CLEAN-for-local-implementation above.**
+
+## 2026-07-18 — ADR-157 audit repairs (local; re-audit pending)
+
+Status: **Superseded by verification-residuals entry above.** Closed
+audit/Bugbot findings: D2 plan-gated image perception via
+`POST …/async-jobs/v1/perception-artifacts` → `pendingFilePreviewBlocks`;
+image delivery empty text when non-legacy; D4 `background:true` fail-closed
+without warm session; single knowledge checkbox; API-BOUNDARY/ARCHITECTURE
+60s/`defer` drift; Working pill UI polish.
+
+## 2026-07-18 — ADR-157 opened (await delivery / image narration / background shell)
+
+Status: **Superseded by audit-repairs entry above.**
+
 ## 2026-07-18 — Script draft / Scenario scriptRef / Scenario-scoped runtime
 
 Status: **Pushed `main` `327788b3`.** No new ADR. Baseline was clean `main`
@@ -16,7 +54,8 @@ indentation-trick fail-closed in `analyzePinableServiceImageTags` (shared SHA
 substring bug in the detect-affected test also fixed). Local CI-like gate was
 green before push (lint+format:check, full typecheck, full `pnpm test`,
 `test:step2`, `test:adr146-slice5`, `test:ci-detect-affected`, helm
-lint/template, build). Deploy/live acceptance still open.
+lint/template, build). Deploy/live acceptance still open. Superseded as
+current priority by ADR-157 above.
 
 ## 2026-07-18 — ADR-152 await/job/cap pushed to main
 

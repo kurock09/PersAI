@@ -2073,3 +2073,173 @@ test("SandboxService: exact active lease can terminalize running job", async () 
   assert.equal(leaseWhere.holderId, "holder-active");
   assert.ok((leaseWhere.expiresAt as { gt: unknown }).gt instanceof Date);
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ADR-157 D4 — explicit background shell fail-closed + immediateBackground flag.
+// ─────────────────────────────────────────────────────────────────────────────
+
+test("SandboxService: ADR-157 background:true without warm session fails closed", async () => {
+  const runInPodCalls: unknown[] = [];
+  const jobUpdates: Array<Record<string, unknown>> = [];
+  const service = new SandboxService(
+    {
+      sandboxJob: {
+        async update(input: { where: { id: string }; data: Record<string, unknown> }) {
+          return { id: input.where.id, ...input.data };
+        },
+        async updateMany(input: { data: Record<string, unknown> }) {
+          jobUpdates.push({ ...input.data });
+          return { count: 1 };
+        },
+        async findUnique() {
+          return null;
+        }
+      },
+      assistantWorkspaceLease: {
+        async create(input: { data: Record<string, unknown> }) {
+          return {
+            id: "lease-bg-fail",
+            assistantId: String(input.data.assistantId),
+            workspaceId: String(input.data.workspaceId),
+            sandboxJobId: null,
+            leaseToken: String(input.data.leaseToken),
+            holderId: String(input.data.holderId),
+            expiresAt: input.data.expiresAt as Date
+          };
+        },
+        async updateMany() {
+          return { count: 1 };
+        }
+      }
+    } as never,
+    {
+      buildSandboxObjectKey() {
+        return "obj/key";
+      },
+      buildSessionSnapshotKey() {
+        return "snap/key";
+      },
+      async saveObject(input: { buffer: Buffer }) {
+        return input.buffer.length;
+      },
+      async downloadObject() {
+        throw new Error("missing");
+      }
+    } as never,
+    new SandboxObservabilityService(),
+    createSandboxConfig({ SANDBOX_WARM_POOL_SIZE_PER_ASSISTANT: 0 }),
+    {
+      async runInPod(input: Record<string, unknown>) {
+        runInPodCalls.push(input);
+        return {
+          exitCode: 0,
+          stdout: "should-not-run",
+          stderr: "",
+          durationMs: 1,
+          execPodName: "ses-test"
+        };
+      },
+      async warmSessionPod() {
+        return { podName: "ses-test", alreadyRunning: false };
+      },
+      async retireModelJobPod() {
+        return { podName: "exec-shell", retired: true };
+      }
+    } as never,
+    {} as never,
+    TEST_SCRIPT_BROWSER_BROKER
+  );
+
+  await (service as unknown as SandboxServiceTestAccess).executeQueuedJob("bg-fail-closed-1", {
+    assistantId: "assistant-bg-1",
+    workspaceId: "workspace-bg-1",
+    runtimeRequestId: "request-bg-1",
+    runtimeSessionId: null,
+    toolCode: "shell",
+    policy: { ...DEFAULT_RUNTIME_SANDBOX_POLICY, enabled: true },
+    args: { command: "sleep 60", background: true }
+  });
+
+  assert.equal(runInPodCalls.length, 0, "background:true without session must not enter the pod");
+  const terminal = jobUpdates.find((update) => update.status === "completed");
+  assert.ok(terminal, "fail-closed path must still terminal-write the job");
+  const payload = terminal!.resultPayload as { reason?: string; exitCode?: number };
+  assert.equal(payload.reason, "async_context_unavailable");
+  assert.equal(payload.exitCode, 1);
+});
+
+test("SandboxService: ADR-157 background:true with warm session passes immediateBackground", async () => {
+  const runInPodCalls: Array<{ immediateBackground?: boolean }> = [];
+  const service = new SandboxService(
+    createLeasePrismaStub(),
+    {
+      buildSandboxObjectKey() {
+        return "obj/key";
+      },
+      buildSessionSnapshotKey() {
+        return "snap/key";
+      },
+      async saveObject(input: { buffer: Buffer }) {
+        return input.buffer.length;
+      },
+      async downloadObject() {
+        throw new Error("missing");
+      }
+    } as never,
+    new SandboxObservabilityService(),
+    createSandboxConfig({ SANDBOX_WARM_POOL_SIZE_PER_ASSISTANT: 0 }),
+    {
+      async runInPod(input: { immediateBackground?: boolean }) {
+        runInPodCalls.push(
+          input.immediateBackground === true
+            ? { immediateBackground: true }
+            : input.immediateBackground === false
+              ? { immediateBackground: false }
+              : {}
+        );
+        return {
+          exitCode: null,
+          stdout: "",
+          stderr: "",
+          durationMs: 1,
+          execPodName: "ses-bg",
+          execPodBinding: {
+            podName: "ses-bg",
+            namespace: "ns",
+            mode: "restricted",
+            podUid: "uid-bg"
+          },
+          detached: true
+        };
+      },
+      async warmSessionPod() {
+        return { podName: "ses-bg", alreadyRunning: true };
+      },
+      async retireModelJobPod() {
+        return { podName: "ses-bg", retired: true };
+      },
+      async releaseBoundSessionPod() {
+        return undefined;
+      }
+    } as never,
+    {} as never,
+    TEST_SCRIPT_BROWSER_BROKER
+  );
+
+  await (service as unknown as SandboxServiceTestAccess).executeQueuedJob("bg-immediate-1", {
+    assistantId: "assistant-bg-2",
+    workspaceId: "workspace-bg-2",
+    runtimeRequestId: "request-bg-2",
+    runtimeSessionId: "session-bg-2",
+    toolCode: "shell",
+    policy: { ...DEFAULT_RUNTIME_SANDBOX_POLICY, enabled: true },
+    args: { command: "sleep 60", background: true }
+  });
+
+  assert.equal(runInPodCalls.length, 1, "session-backed background must enter the pod once");
+  assert.equal(
+    runInPodCalls[0]?.immediateBackground,
+    true,
+    "warm-session background:true must set immediateBackground for Cursor-like detach"
+  );
+});

@@ -121,6 +121,28 @@ export class InternalRuntimeAsyncJobsController {
     });
   }
 
+  /** ADR-157 — image perception refs for the next chat-model call (not model-visible). */
+  @HttpCode(200)
+  @Post(["perception-artifacts", "v1/perception-artifacts"])
+  async perceptionArtifacts(
+    @Req() req: { headers: Record<string, string | string[] | undefined> },
+    @Body() body: Record<string, unknown>
+  ) {
+    assertPersaiInternalApiAuthorized(
+      req,
+      "PERSAI_INTERNAL_API_TOKEN must be configured for async job perception.",
+      "Internal async job perception authorization failed."
+    );
+    return this.resolver.executePerceptionArtifacts({
+      jobRef: this.text(body.jobRef),
+      assistantId: this.text(body.assistantId),
+      workspaceId: this.text(body.workspaceId),
+      chatId: this.text(body.chatId),
+      channel: parseInternalAsyncJobChannel(body.channel),
+      threadKey: this.text(body.threadKey)
+    });
+  }
+
   @HttpCode(200)
   @Post(["subscribe", "v1/subscribe"])
   async subscribe(

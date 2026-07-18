@@ -276,10 +276,11 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
     assert.equal(sendReplyCalls.length, 1);
     assert.equal(sendReplyCalls[0]?.assistantMessageId, "assistant-message-2");
     assert.equal(sendReplyCalls[0]?.mediaAlreadyDelivered, true);
-    assert.equal(sendReplyCalls[0]?.text, "Fresh Telegram framing.");
+    // ADR-157: image success skips ghostwriter maybeFrame; stored resultText is kept.
+    assert.equal(sendReplyCalls[0]?.text, "Your image is ready.");
   });
 
-  test("refreshes completion framing even when an acknowledgement message already exists", async () => {
+  test("does not refresh image completion with ghostwriter framing when an acknowledgement already exists", async () => {
     const finalUpdates: Array<Record<string, unknown>> = [];
     const messageUpdates: Array<Record<string, unknown>> = [];
     let maybeFrameCalls = 0;
@@ -372,12 +373,12 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
     const processed = await service.processPendingBatch();
 
     assert.equal(processed, 1);
-    assert.equal(maybeFrameCalls, 1);
+    assert.equal(maybeFrameCalls, 0, "ADR-157: image success must not call maybeFrame");
     assert.deepEqual(messageUpdates, [
       {
         messageId: "assistant-message-existing-1",
         assistantId: "assistant-1",
-        content: "Fresh current-context framing."
+        content: "Your image is ready."
       }
     ]);
     assert.equal(finalUpdates.at(-1)?.data?.status, "delivered");

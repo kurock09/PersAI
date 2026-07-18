@@ -227,6 +227,11 @@ export function applyFinalDeliveryHonestyCorrection(input: {
   deliveredAttachmentFilenames?: string[];
   attemptedArtifactKind?: UndeliveredArtifactKind;
   locale?: string | null;
+  /**
+   * ADR-157: image success text is chat-model owned. When attachments already
+   * landed, keep an empty delivery message instead of system "Media sent."
+   */
+  allowEmptyWhenAttachmentsDelivered?: boolean;
 }): string {
   const { assistantText: withoutTechnicalSummary } = stripTechnicalAttachmentSummary({
     assistantText: input.assistantText.trim()
@@ -239,6 +244,9 @@ export function applyFinalDeliveryHonestyCorrection(input: {
     assistantText: deliveredNormalizedText
   });
   if (normalizedText.length === 0) {
+    if (input.deliveredAttachmentCount > 0 && input.allowEmptyWhenAttachmentsDelivered === true) {
+      return "";
+    }
     return input.deliveredAttachmentCount > 0
       ? buildDeliveredAttachmentFallback(input.locale, input.attemptedArtifactKind ?? "file")
       : normalizedText;

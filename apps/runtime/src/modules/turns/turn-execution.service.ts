@@ -132,6 +132,8 @@ import { RuntimeQuotaStatusToolService } from "./runtime-quota-status-tool.servi
 import { RuntimeSandboxToolService } from "./runtime-sandbox-tool.service";
 import { RuntimeScriptToolService } from "./runtime-script-tool.service";
 import { RuntimeAwaitToolService } from "./runtime-await-tool.service";
+import { hydrateMediaJobCompletionVisionContent } from "./media-job-completion-vision-hydration";
+import { PersaiMediaObjectStorageService } from "./persai-media-object-storage.service";
 import { createTurnToolProgressSink, type TurnToolProgressSink } from "./tool-progress-sink";
 import { RuntimeGrepGlobToolService } from "./runtime-grep-glob-tool.service";
 import { RuntimeBackgroundTaskToolService } from "./runtime-background-task-tool.service";
@@ -590,7 +592,8 @@ export class TurnExecutionService {
     private readonly buildSystemReminderBlocksService: BuildSystemReminderBlocksService,
     private readonly runtimeObservabilityService: RuntimeObservabilityService,
     private readonly runtimeExecutionAdmissionService: RuntimeExecutionAdmissionService,
-    private readonly runtimeAwaitToolService: RuntimeAwaitToolService
+    private readonly runtimeAwaitToolService: RuntimeAwaitToolService,
+    private readonly mediaObjectStorage: PersaiMediaObjectStorageService
   ) {}
 
   async createTurn(input: RuntimeTurnRequest): Promise<RuntimeTurnResult> {
@@ -617,7 +620,7 @@ export class TurnExecutionService {
         const executionClass = this.classifyInteractiveExecutionClass(input, execution);
         return this.runtimeExecutionAdmissionService.runWithAdmission(executionClass, async () => {
           const turnState = this.createTurnExecutionState();
-          await this.initializeTurnDeliveryContext(turnState, input);
+          await this.initializeTurnDeliveryContext(turnState, input, execution.bundle);
           this.applyPreparedTurnExecutionState(turnState, execution);
           const result = await this.executeAcceptedTurn(acceptedTurn, execution, input, turnState);
           return this.finalizeAcceptedTurnWithPostTurnEffects({
@@ -663,7 +666,7 @@ export class TurnExecutionService {
       const execution = await this.prepareTurnExecution(input, {
         allowModelToolExposure: true
       });
-      await this.initializeTurnDeliveryContext(turnState, input);
+      await this.initializeTurnDeliveryContext(turnState, input, execution.bundle);
       this.applyPreparedTurnExecutionState(turnState, execution);
       const result = await this.runtimeExecutionAdmissionService.runWithAdmission(
         this.classifyInteractiveExecutionClass(input, execution),
@@ -711,7 +714,7 @@ export class TurnExecutionService {
             promptMode: "background_worker"
           });
           const turnState = this.createTurnExecutionState();
-          await this.initializeTurnDeliveryContext(turnState, input);
+          await this.initializeTurnDeliveryContext(turnState, input, execution.bundle);
           this.applyPreparedTurnExecutionState(turnState, execution);
           const result = await this.executeAcceptedTurn(acceptedTurn, execution, input, turnState);
           return this.finalizeAcceptedTurnWithPostTurnEffects({
@@ -755,7 +758,7 @@ export class TurnExecutionService {
         });
         const executionClass = this.classifyInteractiveExecutionClass(input, execution);
         const turnState = this.createTurnExecutionState();
-        await this.initializeTurnDeliveryContext(turnState, input);
+        await this.initializeTurnDeliveryContext(turnState, input, execution.bundle);
         this.applyPreparedTurnExecutionState(turnState, execution);
         return this.runtimeExecutionAdmissionService.runStreamWithAdmission(executionClass, () => {
           return this.streamAcceptedTurn(
@@ -3819,6 +3822,25 @@ export class TurnExecutionService {
         ) {
           outcome.terminalControl = { assistantText: result.payload.staticAssistantText };
         }
+        if (
+          result.payload.terminal === true &&
+          result.payload.status === "completed" &&
+          result.payload.kind === "media" &&
+          typeof result.payload.jobRef === "string" &&
+          result.payload.jobRef.length > 0
+        ) {
+          const perceptionBlocks = await this.hydrateImagePerceptionBlocks({
+            bundle: execution.bundle,
+            jobRef: result.payload.jobRef,
+            chatId: currentChatId,
+            channel: acceptedTurn.session.conversation.channel,
+            threadKey: acceptedTurn.session.conversation.externalThreadKey,
+            ...(abortSignal === undefined ? {} : { abortSignal })
+          });
+          if (perceptionBlocks.length > 0) {
+            outcome.pendingFilePreviewBlocks = perceptionBlocks;
+          }
+        }
         return outcome;
       }
       case GREP_TOOL_CODE: {
@@ -5374,7 +5396,7 @@ export class TurnExecutionService {
       return typeof timeoutMs === "number" &&
         Number.isInteger(timeoutMs) &&
         timeoutMs > 0 &&
-        timeoutMs <= 60_000
+        timeoutMs <= 300_000
         ? `await-deadline:${String(Date.now() + timeoutMs)}`
         : null;
     }
@@ -5693,11 +5715,90 @@ export class TurnExecutionService {
 
   private async initializeTurnDeliveryContext(
     turnState: TurnExecutionState,
-    input: RuntimeTurnRequest
+    input: RuntimeTurnRequest,
+    bundle: AssistantRuntimeBundle
   ): Promise<void> {
     turnState.workspaceId = input.bundle.workspaceId;
     turnState.currentChatId = await this.turnContextHydrationService.resolveCanonicalChatId(input);
     turnState.deliveryFacts = createEmptyTurnDeliveryFacts();
+    // ADR-157 D2 — inject plan-gated image perception for notify continuations.
+    const continuation = input.continuation;
+    const jobRef =
+      typeof continuation?.facts.jobRef === "string" ? continuation.facts.jobRef.trim() : "";
+    if (
+      continuation !== undefined &&
+      continuation.facts.kind === "media" &&
+      continuation.facts.status === "completed" &&
+      jobRef.length > 0 &&
+      turnState.currentChatId !== null
+    ) {
+      const channel = input.conversation.channel;
+      if (channel === "web" || channel === "telegram" || channel === "max_ru") {
+        const perceptionBlocks = await this.hydrateImagePerceptionBlocks({
+          bundle,
+          jobRef,
+          chatId: turnState.currentChatId,
+          channel,
+          threadKey: input.conversation.externalThreadKey
+        });
+        if (perceptionBlocks.length > 0) {
+          turnState.pendingFilePreviewBlocks = this.mergePendingFilePreviewBlocks(
+            turnState.pendingFilePreviewBlocks,
+            perceptionBlocks
+          );
+        }
+      }
+    }
+  }
+
+  private isMediaCompletionVisionEnabled(bundle: AssistantRuntimeBundle): boolean {
+    return bundle.governance.toolPolicies.some(
+      (policy) =>
+        (policy.toolCode === "image_generate" || policy.toolCode === "image_edit") &&
+        policy.mediaCompletionVisionEnabled === true
+    );
+  }
+
+  private async hydrateImagePerceptionBlocks(input: {
+    bundle: AssistantRuntimeBundle;
+    jobRef: string;
+    chatId: string;
+    channel: "web" | "telegram" | "max_ru";
+    threadKey: string;
+    abortSignal?: AbortSignal;
+  }): Promise<ProviderGatewayMessageContentBlock[]> {
+    if (!this.isMediaCompletionVisionEnabled(input.bundle)) {
+      return [];
+    }
+    try {
+      const artifacts =
+        await this.persaiInternalApiClientService.resolveAsyncJobPerceptionArtifacts({
+          jobRef: input.jobRef,
+          assistantId: input.bundle.metadata.assistantId,
+          workspaceId: input.bundle.metadata.workspaceId,
+          chatId: input.chatId,
+          channel: input.channel,
+          threadKey: input.threadKey,
+          ...(input.abortSignal === undefined ? {} : { abortSignal: input.abortSignal })
+        });
+      if (artifacts.length === 0) {
+        return [];
+      }
+      // DeepSeek/text-only sanitization happens later when the tool-loop consumes
+      // pendingFilePreviewBlocks (has provider routing + acceptedTurn context).
+      return await hydrateMediaJobCompletionVisionContent({
+        workspaceId: input.bundle.metadata.workspaceId,
+        mediaObjectStorage: this.mediaObjectStorage,
+        artifacts
+      });
+    } catch (error) {
+      this.logger.warn(
+        `ADR-157 image perception hydration failed for ${input.jobRef}: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+      return [];
+    }
   }
 
   private async autoAttachUndeliveredProducedPaths(input: {

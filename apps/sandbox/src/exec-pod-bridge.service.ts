@@ -370,6 +370,12 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
      * pull/mirror synchronously or return detached for opaque jobRef handoff.
      */
     supervisedDetach?: boolean;
+    /**
+     * ADR-157 — model requested immediate background. Yield/detach as soon as
+     * the supervised job is admitted and still running (do not wait for plan
+     * Process-timeout).
+     */
+    immediateBackground?: boolean;
   }): Promise<PodExecResult> {
     const namespace = this.config.SANDBOX_EXEC_NAMESPACE;
     const startedAt = Date.now();
@@ -400,6 +406,7 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
             ...(options.supervisedDetach === undefined
               ? {}
               : { supervisedDetach: options.supervisedDetach }),
+            ...(options.immediateBackground === true ? { immediateBackground: true } : {}),
             namespace,
             startedAt
           });
@@ -767,6 +774,7 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
     onBound?: (binding: ExecPodJobBinding) => void;
     interactive?: InteractiveExecStreams;
     supervisedDetach?: boolean;
+    immediateBackground?: boolean;
     namespace: string;
     startedAt: number;
   }): Promise<PodExecResult> {
@@ -881,7 +889,10 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
         podName,
         namespace,
         jobId: options.jobId,
-        yieldDeadlineAtMs: Date.now() + Math.max(0, options.policy.maxProcessRuntimeMs),
+        yieldDeadlineAtMs:
+          options.immediateBackground === true
+            ? Date.now()
+            : Date.now() + Math.max(0, options.policy.maxProcessRuntimeMs),
         ...(options.signal === undefined ? {} : { signal: options.signal })
       });
       if (yieldOrCompletion.status === "completed") {

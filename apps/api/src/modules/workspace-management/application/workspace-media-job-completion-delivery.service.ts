@@ -329,20 +329,6 @@ export class AssistantMediaJobCompletionDeliveryService {
         kind: "media",
         canonicalJobId: job.id
       });
-      if (narrationDecision === "defer") {
-        await this.prisma.assistantMediaJob.updateMany({
-          where: { id: job.id, schedulerClaimToken: job.claimToken },
-          data: {
-            nextRetryAt: new Date(Date.now() + COMPLETION_DELIVERY_RETRY_BASE_DELAY_MS),
-            schedulerClaimToken: null,
-            schedulerClaimedAt: null,
-            schedulerClaimExpiresAt: null,
-            lastErrorCode: "async_narration_decision_pending",
-            lastErrorMessage: "Waiting for the source turn narration decision."
-          }
-        });
-        return;
-      }
       const completionAssistantText = await this.resolveCompletionAssistantText({
         job,
         sourceUserMessageText: requestPayload.sourceUserMessageText,
@@ -388,7 +374,9 @@ export class AssistantMediaJobCompletionDeliveryService {
           .map((attachment) => attachment.originalFilename)
           .filter((filename): filename is string => typeof filename === "string"),
         attemptedArtifactKind: "media",
-        locale: failureLocale
+        locale: failureLocale,
+        allowEmptyWhenAttachmentsDelivered:
+          job.kind === "image" && narrationDecision !== "legacy_frame"
       });
       // ADR-105 FIX B: system-authored structural truth for partial under-delivery.
       const webReservationN =
@@ -473,23 +461,26 @@ export class AssistantMediaJobCompletionDeliveryService {
       text: null,
       usage: null
     };
+    // ADR-157: image success framing is removed — chat model owns user-facing
+    // text. Non-image kinds may still use completion framing when legacy_frame.
     try {
-      framed = input.allowLegacyFrame
-        ? await this.assistantMediaJobCompletionTurnService.maybeFrame({
-            id: input.job.id,
-            assistantId: input.job.assistantId,
-            workspaceId: input.job.workspaceId,
-            chatId: input.job.chatId,
-            surface: input.job.surface,
-            kind: input.job.kind,
-            sourceUserMessageId: input.job.sourceUserMessageId,
-            sourceUserMessageText: input.sourceUserMessageText,
-            sourceUserMessageCreatedAt: input.sourceUserMessageCreatedAt,
-            resultText: rawAssistantText,
-            artifacts: input.artifacts,
-            requestJson: input.job.requestJson
-          })
-        : framed;
+      framed =
+        input.allowLegacyFrame && input.job.kind !== "image"
+          ? await this.assistantMediaJobCompletionTurnService.maybeFrame({
+              id: input.job.id,
+              assistantId: input.job.assistantId,
+              workspaceId: input.job.workspaceId,
+              chatId: input.job.chatId,
+              surface: input.job.surface,
+              kind: input.job.kind,
+              sourceUserMessageId: input.job.sourceUserMessageId,
+              sourceUserMessageText: input.sourceUserMessageText,
+              sourceUserMessageCreatedAt: input.sourceUserMessageCreatedAt,
+              resultText: rawAssistantText,
+              artifacts: input.artifacts,
+              requestJson: input.job.requestJson
+            })
+          : framed;
     } catch (error) {
       this.logger.warn(
         `Media completion framing failed for job ${input.job.id}; falling back to stored text: ${
@@ -830,7 +821,8 @@ export class AssistantMediaJobCompletionDeliveryService {
         .map((attachment) => attachment.originalFilename)
         .filter((filename): filename is string => typeof filename === "string"),
       attemptedArtifactKind: "media",
-      locale: deliveryContext.locale
+      locale: deliveryContext.locale,
+      allowEmptyWhenAttachmentsDelivered: params.job.kind === "image"
     });
     // ADR-105 FIX B: system-authored structural truth for partial under-delivery.
     const tgReservationN =

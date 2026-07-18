@@ -15,6 +15,7 @@ import {
   type EnqueueRuntimeDeferredMediaJobInput
 } from "../src/modules/workspace-management/application/enqueue-runtime-deferred-media-job.service";
 import { ResolveAssistantAsyncJobService } from "../src/modules/workspace-management/application/resolve-assistant-async-job.service";
+import { WorkspaceManagementPrismaService } from "../src/modules/workspace-management/infrastructure/persistence/workspace-management-prisma.service";
 import { parseInternalAsyncJobChannel } from "../src/modules/workspace-management/interface/http/internal-runtime-async-jobs.controller";
 import { InternalRuntimeAsyncJobsController } from "../src/modules/workspace-management/interface/http/internal-runtime-async-jobs.controller";
 import { InternalRuntimeDocumentJobsEnqueueController } from "../src/modules/workspace-management/interface/http/internal-runtime-document-jobs-enqueue.controller";
@@ -80,7 +81,8 @@ export async function runAssistantAsyncJobHandleTest(): Promise<void> {
     { kind: "document" as const, canonicalStatus: "delivered", expected: "completed" }
   ]) {
     const resolver = new ResolveAssistantAsyncJobService(
-      fakeState(fixture.kind, fixture.canonicalStatus)
+      fakeState(fixture.kind, fixture.canonicalStatus),
+      {} as never
     );
     const result = await resolver.execute(owned);
     assert.equal(result.found, true);
@@ -88,11 +90,13 @@ export async function runAssistantAsyncJobHandleTest(): Promise<void> {
   }
 
   const malformed = await new ResolveAssistantAsyncJobService(
-    fakeState("media", "delivered")
+    fakeState("media", "delivered"),
+    {} as never
   ).execute({ ...owned, jobRef: "bad" });
   assert.deepEqual(malformed, { found: false, code: "job_not_found" });
   const foreign = await new ResolveAssistantAsyncJobService(
-    fakeState("media", "delivered", true)
+    fakeState("media", "delivered", true),
+    {} as never
   ).execute(owned);
   assert.deepEqual(foreign, malformed, "foreign and malformed handles must be indistinguishable");
   for (const changed of [
@@ -102,7 +106,8 @@ export async function runAssistantAsyncJobHandleTest(): Promise<void> {
     { threadKey: "other" }
   ]) {
     const result = await new ResolveAssistantAsyncJobService(
-      fakeState("media", "delivered")
+      fakeState("media", "delivered"),
+      {} as never
     ).execute({
       ...owned,
       ...changed
@@ -140,7 +145,11 @@ async function assertAdr152InternalRouteBindings(): Promise<void> {
   );
   Reflect.defineMetadata(
     "design:paramtypes",
-    [ResolveAssistantAsyncJobService, AssistantAsyncJobHandleStateService],
+    [
+      ResolveAssistantAsyncJobService,
+      AssistantAsyncJobHandleStateService,
+      WorkspaceManagementPrismaService
+    ],
     InternalRuntimeAsyncJobsController
   );
   const app = await NestFactory.create(Adr152InternalRouteTestModule, {
@@ -205,16 +214,30 @@ async function assertAdr152InternalRouteBindings(): Promise<void> {
       });
     }
 
-    assert.deepEqual(calls.media, [
+    for (const route of [
+      "/api/v1/internal/runtime/async-jobs/perception-artifacts",
+      "/api/v1/internal/runtime/async-jobs/v1/perception-artifacts"
+    ]) {
+      const response = await postJson(baseUrl, route, owned, authorized);
+      assert.equal(response.status, 200, `${route} must bind perception artifacts`);
+      assert.deepEqual(await response.json(), { artifacts: [] });
+    }
+
+    const uniqueByJson = <T>(rows: T[]): T[] => [
+      ...new Map(rows.map((row) => [JSON.stringify(row), row] as const)).values()
+    ];
+    assert.deepEqual(uniqueByJson(calls.media), [
       { route: "/api/v1/internal/runtime/media-jobs/enqueue" },
       { route: "/api/v1/internal/runtime/media-jobs/v1/enqueue" }
     ]);
-    assert.deepEqual(calls.document, [
+    assert.deepEqual(uniqueByJson(calls.document), [
       { route: "/api/v1/internal/runtime/document-jobs/enqueue" },
       { route: "/api/v1/internal/runtime/document-jobs/v1/enqueue" }
     ]);
-    assert.deepEqual(calls.status, [owned, owned]);
-    assert.deepEqual(calls.subscribe, [owned, owned]);
+    assert.deepEqual(uniqueByJson(calls.status), [owned]);
+    assert.deepEqual(uniqueByJson(calls.subscribe), [owned]);
+    assert.ok(calls.status.length >= 2, "status unversioned + v1 must both bind");
+    assert.ok(calls.subscribe.length >= 2, "subscribe unversioned + v1 must both bind");
 
     const callsBeforeRejectedRequests = structuredClone(calls);
     const unauthorized = await postJson(baseUrl, "/api/v1/internal/runtime/media-jobs/v1/enqueue", {
@@ -314,7 +337,8 @@ async function postJson(
         execute: async (input: unknown) => {
           routeBindingCalls.status.push(input);
           return { found: false, code: "job_not_found" as const };
-        }
+        },
+        executePerceptionArtifacts: async () => ({ artifacts: [] })
       }
     },
     {
@@ -327,8 +351,14 @@ async function postJson(
             continuationClientTurnId: "continuation",
             duplicate: false
           };
-        }
+        },
+        registerSandboxJob: async () => ({ registered: false as const }),
+        assertBackgroundJobCap: async () => undefined
       }
+    },
+    {
+      provide: WorkspaceManagementPrismaService,
+      useValue: {}
     }
   ]
 })

@@ -43,7 +43,30 @@ vi.mock("./chat-message", () => ({
 }));
 
 vi.mock("./chat-input", () => ({
-  ChatInput: () => <div data-testid="chat-input" />
+  ChatInput: ({
+    showScrollToBottom,
+    onScrollToBottom
+  }: {
+    showScrollToBottom?: boolean;
+    onScrollToBottom?: () => void;
+  }) => (
+    <div data-testid="chat-composer-chrome">
+      <div data-testid="chat-input" />
+      {showScrollToBottom ? (
+        <div
+          data-testid="chat-scroll-to-bottom-anchor"
+          className="pointer-events-none absolute inset-x-0 bottom-full z-30 mb-2 flex justify-end"
+        >
+          <button
+            type="button"
+            aria-label="scrollToBottom"
+            className="pointer-events-auto flex h-11 w-11 cursor-pointer items-center justify-center rounded-full border border-border/45 bg-surface-raised"
+            onClick={onScrollToBottom}
+          />
+        </div>
+      ) : null}
+    </div>
+  )
 }));
 
 vi.mock("./assistant-avatar", () => ({
@@ -915,8 +938,8 @@ describe("ChatArea", () => {
     expect(scrollButton.className).not.toMatch(/md:left-1\/2/);
     expect(scrollButton.className).not.toMatch(/\bright-3\b/);
     const anchor = screen.getByTestId("chat-scroll-to-bottom-anchor");
-    expect(anchor).toHaveClass("px-3", "md:px-4");
-    expect(anchor.firstElementChild).toHaveClass("max-w-[50rem]", "justify-end");
+    expect(anchor).toHaveClass("bottom-full", "justify-end");
+    expect(anchor.closest('[data-testid="chat-composer-chrome"]')).not.toBeNull();
     fireEvent.click(scrollButton);
 
     expect(scrollTo).toHaveBeenCalledWith({ top: 1200, behavior: "smooth" });

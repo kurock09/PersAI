@@ -338,7 +338,8 @@ export class AssistantAsyncJobContinuationSchedulerService
       kind: handle.kind,
       status: terminal.status,
       errorCode: terminal.errorCode,
-      message: terminal.message
+      message: terminal.message,
+      jobRef: handle.jobRef
     };
     return { handle, session, sourceUserMessage, facts };
   }

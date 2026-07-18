@@ -75,6 +75,10 @@ const TESTS: Array<{ modulePath: string; exportName: string }> = [
     exportName: "runRuntimeAwaitToolServiceTest"
   },
   {
+    modulePath: "./adr157-image-perception-wire.test.ts",
+    exportName: "runAdr157ImagePerceptionWireTest"
+  },
+  {
     modulePath: "./persai-internal-api-async-job-status.test.ts",
     exportName: "runPersaiInternalApiAsyncJobStatusTest"
   },

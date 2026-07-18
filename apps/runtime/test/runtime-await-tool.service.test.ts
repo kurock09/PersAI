@@ -124,7 +124,7 @@ export async function runRuntimeAwaitToolServiceTest(): Promise<void> {
   }
   {
     const { service } = makeService(async () => terminal);
-    const result = await execute(service, 60_001);
+    const result = await execute(service, 300_001);
     assert.equal(result.payload.reason, "invalid_arguments");
   }
   {
@@ -155,10 +155,22 @@ export async function runRuntimeAwaitToolServiceTest(): Promise<void> {
       }
     );
     const result = await executeArguments(service, { action: "wait", timeoutMs: 60_000 });
-    assert.equal(result.payload.action, "status");
+    assert.equal(result.payload.action, "waited");
     assert.equal(result.payload.jobs?.length, 0);
-    assert.equal(snapshotCalls, 1, "empty snapshot must return immediately without polling");
-    assert.equal(clock.current, 0, "empty snapshot must not delay");
+    assert.equal(snapshotCalls, 1, "empty snapshot timer does not re-poll jobs");
+    assert.equal(clock.current, 60_000, "empty snapshot sleeps the full timeout");
+  }
+  {
+    const clock = createClock();
+    const { service } = makeService(
+      async () => pending,
+      clock,
+      undefined,
+      async () => ({ outcome: "snapshot", jobs: [] })
+    );
+    const result = await executeArguments(service, { action: "wait", timeoutMs: 300_000 });
+    assert.equal(result.payload.action, "waited");
+    assert.equal(clock.current, 300_000, "ADR-157 empty snapshot timer honors five-minute max");
   }
   {
     let snapshotCalls = 0;
@@ -176,10 +188,10 @@ export async function runRuntimeAwaitToolServiceTest(): Promise<void> {
       }
     );
     const result = await executeArguments(service, { action: "wait", timeoutMs: 60_000 });
-    assert.equal(result.payload.action, "status");
+    assert.equal(result.payload.action, "waited");
     assert.equal(result.payload.terminal, true);
-    assert.equal(snapshotCalls, 1, "already-terminal snapshot must not poll");
-    assert.equal(clock.current, 0);
+    assert.equal(snapshotCalls, 1, "already-terminal timer does not re-poll jobs");
+    assert.equal(clock.current, 60_000, "all-terminal snapshot sleeps the full timeout");
   }
   {
     const { service } = makeService(async () => ({

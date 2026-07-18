@@ -110,27 +110,31 @@ All volatile-context blocks are marked `cacheRole: "volatile_context"` on the me
 
 ## Runtime-related boundaries
 
-**ADR-152 founder universal-await implementation (local; verification
-incomplete)** supersedes the former media/document-only F0 contour. The
+**ADR-152 / ADR-157 universal-await (local; ADR-157 open for remaining
+perception/gate)** supersedes the former media/document-only F0 contour. The
 model-facing contract is strict
 `await({action:"wait"|"notify", jobRef?:string, timeoutMs?:number})`:
 `jobRef` is optional only for wait, notify requires it, and timeout is
-wait-only `0..60000`. Canonical adapters are media, document, and exact-owned
-warm-session shell/exec SandboxJobs. Registration is an internal bearer-only
-server-derived operation and validates assistant/workspace/user/chat/channel/
-thread/source turn/runtime session plus canonical SandboxJob identity; raw
-SandboxJob ids are not model observation capabilities.
+wait-only `0..300000` (ADR-157). Canonical adapters are media, document, and
+exact-owned warm-session shell/exec SandboxJobs. Registration is an internal
+bearer-only server-derived operation and validates
+assistant/workspace/user/chat/channel/thread/source turn/runtime session plus
+canonical SandboxJob identity; raw SandboxJob ids are not model observation
+capabilities.
 
 Exact-id wait observes one owned job; no-id wait returns the complete,
 stable-ordered max-32 snapshot of current-server-logical-turn handles plus
 currently-open exact-owned media/document/sandbox jobs in the current
-chat/channel/thread. No relevant row returns an immediate empty snapshot;
-overflow is typed `snapshot_overflow`, never truncation.
+chat/channel/thread. Empty snapshot with positive `timeoutMs` is a real timer
+(ADR-157; max `300000`). Overflow is typed `snapshot_overflow`, never
+truncation.
 
 Landed observation seams are immediate owned DB reads on
-`POST …/async-jobs/v1/{status,snapshot,subscribe}`; runtime client-polls
-~500ms. Redis subscribe-before-read long-poll wake acceleration is **not
-landed**. Delivery visibility remains terminal authority where implemented for
+`POST …/async-jobs/v1/{status,snapshot,subscribe}` plus internal
+`POST …/async-jobs/v1/perception-artifacts` (ADR-157 — image storage refs for
+chat-model perception only; not model-facing). Runtime client-polls ~500ms.
+Redis subscribe-before-read long-poll wake acceleration is **not landed**.
+Delivery visibility remains terminal authority where implemented for
 media/document. The retained scheduler poll/reconciler is recovery. Additive
 migration adds sandbox handle kind / detached / runtime_session_id.
 Bearer-protected `POST …/async-jobs/v1/assert-cap` admits chat-scoped
@@ -157,7 +161,7 @@ seam with current assistant/workspace/chat/channel/thread ownership. It returns 
 `jobRef`, canonical kind, normalized status, and bounded safe terminal facts;
 malformed, tampered, and foreign handles all return the same not-found result.
 The model-visible `await` tool projects exactly `action="wait"|"notify"` (zero
-wait is status-only, positive timeout is capped at 60 seconds).
+wait is status-only, positive timeout is capped at 300000 ms / 5 minutes).
 
 Checkpoint 2 adds the bearer-protected
 `POST /api/v1/internal/runtime/async-jobs/v1/subscribe` seam and API-owned
@@ -165,11 +169,15 @@ same-row state operations. Source finalization has no HTTP seam: authoritative
 API message-persistence owners call the in-process owner after persistence or
 failure. Status/subscribe re-read canonical truth
 under the locked handle and derive user ownership from the chat. Terminal status
-observation claims current-turn narration before returning facts. Media/document delivery consults
-the durable narration decision before invoking legacy completion framing:
-continuation/current-turn owners skip it, finalized legacy owners preserve it,
-and unresolved source turns defer. API message-persistence owners finalize with
-proof of persisted output; failed/Stopped turns release current-turn ownership.
+observation claims current-turn narration before returning facts. Media/document
+delivery consults the durable narration decision before invoking legacy
+completion framing: continuation/current-turn owners skip it, finalized legacy
+owners preserve it, and unresolved source turns no longer defer bytes
+(ADR-157 — artifact delivery proceeds with `skip_legacy_frame`; chat-model /
+continuation owns user text). Image success framing is removed; plan-gated
+vision is perception-only for the next chat-model call. API message-persistence
+owners finalize with proof of persisted output; failed/Stopped turns release
+current-turn ownership.
 The runtime additionally exposes bearer-protected
 `POST /api/v1/internal/runtime/async-continuations`, which uses ordinary
 same-chat turn acceptance/session lease/receipt replay and returns typed
@@ -266,17 +274,19 @@ direct MCP execution boundary, no browser/Tool SDK/async `jobRef`/`wait`/
 Until ADR-153, code/input credentials are unmanaged values with no promised
 redaction, TTL, revoke, or log-history protection.
 
-**ADR-152 (historical CP3 archive + superseding local follow-through):**
+**ADR-152 / ADR-157 (await follow-through):**
 adds no public execute endpoint. Runtime projects one model tool, `await`, over
 server-minted opaque assistant-owned job refs. `wait` resolves terminal state
-first, caps at 60 seconds, admits up to 20 waits per dispatched turn, and does
-not cancel the canonical job. `notify` writes durable same-row subscription
-state and returns non-terminal `turnControl:"continue"`; a terminal completion
-later re-enters only the original active chat/channel with fresh runtime
-hydration and no duplicated attachment delivery. The internal runtime/API
-boundary resolves handles against owned media, document, and sandbox adapters,
-returning foreign/tampered handles as not found. Background-task-run adapters
-remain deferred.
+first (empty/all-terminal + positive `timeoutMs` is a pure timer), caps at
+300000 ms, admits up to 20 waits per dispatched turn, and does not cancel the
+canonical job. Explicit shell/exec `background:true` returns an opaque `jobRef`
+immediately on a warm session; sessionless pods fail closed. `notify` writes
+durable same-row subscription state and returns non-terminal
+`turnControl:"continue"`; a terminal completion later re-enters only the
+original active chat/channel with fresh runtime hydration and no duplicated
+attachment delivery. The internal runtime/API boundary resolves handles against
+owned media, document, and sandbox adapters, returning foreign/tampered handles
+as not found. Background-task-run adapters remain deferred.
 
 The only Script browser boundary is an immutable-manifest capability-gated
 `{browser:{actions:["snapshot","act"]}}` request through the existing

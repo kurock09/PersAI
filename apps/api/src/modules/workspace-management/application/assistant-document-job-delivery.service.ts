@@ -271,15 +271,6 @@ export class AssistantDocumentJobDeliveryService {
         kind: "document",
         canonicalJobId: job.id
       });
-      if (narrationDecision === "defer") {
-        await this.deferRetry(
-          job,
-          currentPayload,
-          "async_narration_decision_pending",
-          "Waiting for the source turn narration decision."
-        );
-        return;
-      }
 
       let completionAssistantMessageId = currentPayload.completionAssistantMessageId ?? null;
       if (

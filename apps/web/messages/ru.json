@@ -533,6 +533,7 @@
     "documentJobRevise": "Обновляю документ",
     "documentJobRedeliver": "Готовлю документ",
     "documentJobsInProgress": "Документы в процессе: {count}",
+    "workingTitle": "В работе",
     "workingJobs": "В работе · {count}",
     "workingJobsList": "Фоновые задачи",
     "backgroundShell": "Команда shell",

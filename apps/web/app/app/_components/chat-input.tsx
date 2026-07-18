@@ -5,6 +5,7 @@ import {
   useCallback,
   useEffect,
   useImperativeHandle,
+  useMemo,
   useRef,
   useState,
   type KeyboardEvent
@@ -22,7 +23,8 @@ import {
   Loader2,
   Camera,
   Image as ImageIcon,
-  Files as FilesIcon
+  Files as FilesIcon,
+  ArrowDown
 } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { cn } from "@/app/lib/utils";
@@ -35,17 +37,11 @@ import {
 import type {
   WebChatActiveDocumentJobState,
   WebChatActiveMediaJobState,
-  WebChatActiveSandboxJobState,
-  WebChatNotifyState
+  WebChatActiveSandboxJobState
 } from "../assistant-api-client";
 import { useTouchDevice } from "./use-touch-device";
 import { ATTACHMENTS_ONLY_PLACEHOLDER } from "./attachments-only-placeholder";
-
-function notifyStateLabel(t: (key: string) => string, state: WebChatNotifyState): string {
-  if (state === "failed") return t("notifyFailed");
-  if (state === "cancelled") return t("notifyCancelled");
-  return t("notifyEnabled");
-}
+import { ChatWorkingJobsPill, type WorkingJobRow } from "./chat-working-jobs-pill";
 
 const MAX_FILES = 5;
 const MAX_CHAT_UPLOAD_BYTES = 25 * 1024 * 1024;
@@ -251,16 +247,11 @@ function resolveMediaJobLabel(
   // `mediaJobVideoGenerate` chip byte-identical (preserves cross-slice
   // invariant 1).
   //
-  // ADR-152: runtime `async_job_accepted` emits OpenAPI ops
-  // (`image_generate`|`image_edit`|`video_generate`|`audio_generate`). Still
-  // accept legacy short `generate`|`edit`+kind for back-compat.
+  // ADR-157: Working pills accept OpenAPI ops only.
   const operation = String(job.operation);
-  const kind = job.kind;
-  const isVideoGenerate =
-    operation === "video_generate" || (operation === "generate" && kind === "video");
-  const isAudioGenerate =
-    operation === "audio_generate" || (operation === "generate" && kind === "audio");
-  const isImageEdit = operation === "image_edit" || operation === "edit";
+  const isVideoGenerate = operation === "video_generate";
+  const isAudioGenerate = operation === "audio_generate";
+  const isImageEdit = operation === "image_edit";
   if (isVideoGenerate && job.displayKind === "talking_avatar") {
     const elapsedSec = resolveMediaJobElapsedSeconds(job, nowMs);
     if (elapsedSec < 30) return t("chatTalkingAvatarBannerStage1");
@@ -283,7 +274,7 @@ function resolveMediaJobLabel(
   if (isAudioGenerate) {
     return t("mediaJobAudioGenerate");
   }
-  // `image_generate`, `generate`+image, `generate` with missing kind, or unknown.
+  // `image_generate` or unknown op → image-generate copy.
   return requestedCount !== null && requestedCount > 1
     ? t("mediaJobImageGenerateBatch", { count: requestedCount })
     : t("mediaJobImageGenerate");
@@ -371,6 +362,9 @@ interface ChatInputProps {
   activeMediaJobs?: WebChatActiveMediaJobState[];
   activeDocumentJobs?: WebChatActiveDocumentJobState[];
   activeSandboxJobs?: WebChatActiveSandboxJobState[];
+  /** Quiet jump control; anchored above mic / Working, not a fixed viewport offset. */
+  showScrollToBottom?: boolean;
+  onScrollToBottom?: () => void;
 }
 
 export interface ChatInputHandle {
@@ -393,7 +387,9 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
     pendingSendStatus = null,
     activeMediaJobs = [],
     activeDocumentJobs = [],
-    activeSandboxJobs = []
+    activeSandboxJobs = [],
+    showScrollToBottom = false,
+    onScrollToBottom
   }: ChatInputProps,
   ref
 ) {
@@ -411,7 +407,6 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
   const attachMenuRef = useRef<HTMLDivElement>(null);
   const attachTriggerRef = useRef<HTMLButtonElement>(null);
   const composerShellRef = useRef<HTMLDivElement>(null);
-  const [backgroundJobsOpen, setBackgroundJobsOpen] = useState(false);
   const dragDepthRef = useRef(0);
   const isTouchDevice = useTouchDevice();
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
@@ -710,6 +705,50 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
   const hasKnowledgeEligibleFiles = pendingFiles.some((file) => isKnowledgeEligibleFile(file));
   const backgroundJobCount =
     activeMediaJobs.length + activeDocumentJobs.length + activeSandboxJobs.length;
+  const workingJobRows = useMemo((): WorkingJobRow[] => {
+    const rows: WorkingJobRow[] = [];
+    for (const job of activeMediaJobs) {
+      const sortKeyMs = Date.parse(job.startedAt ?? job.createdAt);
+      const operation = String(job.operation);
+      const emoji =
+        operation === "video_generate" ? "🎬" : operation === "audio_generate" ? "🔊" : "🖼️";
+      rows.push({
+        id: `media:${job.id}`,
+        label: `${resolveMediaJobLabel(t, job, mediaJobNowMs)} ${formatDuration(resolveMediaJobElapsedSeconds(job, mediaJobNowMs))}`,
+        emoji,
+        sortKeyMs: Number.isNaN(sortKeyMs) ? 0 : sortKeyMs,
+        notifyState: job.notifyState
+      });
+    }
+    for (const job of activeDocumentJobs) {
+      const sortKeyMs = Date.parse(job.startedAt ?? job.createdAt);
+      rows.push({
+        id: `document:${job.id}`,
+        label: `${resolveDocumentJobLabel(t, job)} ${formatDuration(resolveDocumentJobElapsedSeconds(job, mediaJobNowMs))}`,
+        emoji: "📄",
+        sortKeyMs: Number.isNaN(sortKeyMs) ? 0 : sortKeyMs,
+        notifyState: job.notifyState
+      });
+    }
+    for (const job of activeSandboxJobs) {
+      const sortKeyMs = Date.parse(job.startedAt ?? job.createdAt);
+      rows.push({
+        id: `sandbox:${job.jobRef}`,
+        label: `${job.toolCode === "shell" ? t("backgroundShell") : t("backgroundExec")} · ${formatDuration(
+          Math.max(
+            0,
+            Math.floor(
+              (mediaJobNowMs - (Number.isNaN(sortKeyMs) ? mediaJobNowMs : sortKeyMs)) / 1000
+            )
+          )
+        )}`,
+        emoji: "💻",
+        sortKeyMs: Number.isNaN(sortKeyMs) ? 0 : sortKeyMs,
+        notifyState: job.notifyState
+      });
+    }
+    return rows;
+  }, [activeDocumentJobs, activeMediaJobs, activeSandboxJobs, mediaJobNowMs, t]);
   const composerCanSend = draftText.trim().length > 0 || pendingFiles.length > 0;
   const showAttachmentOrdinals = pendingFiles.length > 1;
   const showComposerMicSlot = !isRecording || isTouchDevice;
@@ -1167,51 +1206,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
         "relative px-3 pb-[max(0.5rem,env(safe-area-inset-bottom))] md:px-4 md:pb-3"
       )}
     >
-      <div className="relative mx-auto w-full max-w-[50rem]">
-        {pendingFiles.length > 0 && (
-          <div className="mb-2 flex flex-wrap gap-2">
-            {pendingFiles.map((file, idx) => (
-              <div
-                key={`${file.name}-${String(idx)}`}
-                className="group/file relative flex items-center gap-1.5 rounded-lg border border-border bg-surface-raised px-2.5 py-1.5"
-              >
-                <PendingFilePreview
-                  file={file}
-                  ordinal={idx + 1}
-                  showOrdinal={showAttachmentOrdinals}
-                />
-                <span className="max-w-[120px] truncate text-xs text-text-muted">{file.name}</span>
-                <button
-                  type="button"
-                  onClick={() => removeFile(idx)}
-                  className="ml-0.5 cursor-pointer rounded-full p-0.5 text-text-subtle transition-colors hover:bg-destructive/15 hover:text-destructive"
-                >
-                  <X className="h-3 w-3" />
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {hasKnowledgeEligibleFiles && (
-          <label className="mb-2 flex cursor-pointer items-start gap-2 rounded-lg border border-border/70 bg-surface px-3 py-2">
-            <input
-              type="checkbox"
-              aria-label={t("knowledgeAddToBase")}
-              checked={addToKnowledgeBase}
-              disabled={controlsDisabled}
-              onChange={(e) => setAddToKnowledgeBase(e.target.checked)}
-              className="mt-0.5 h-4 w-4 rounded border-border text-accent focus:ring-accent disabled:cursor-not-allowed"
-            />
-            <span className="min-w-0">
-              <span className="block text-base text-text md:text-sm">
-                {t("knowledgeAddToBase")}
-              </span>
-              <span className="block text-xs text-text-muted">{t("knowledgeAddToBaseHint")}</span>
-            </span>
-          </label>
-        )}
-
+      <div className="@container relative mx-auto w-full max-w-[50rem]">
         {isRecording && !isTouchDevice && (
           <div className="mb-2 flex items-center gap-3 rounded-2xl border border-border bg-surface-raised px-3 py-2.5 shadow-sm">
             <span className="relative flex h-9 w-9 shrink-0 items-center justify-center">
@@ -1269,105 +1264,76 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
           </div>
         ) : null}
 
-        <div className="relative">
-          {backgroundJobCount > 0 && (
-            <div
-              aria-live="polite"
-              className="absolute inset-x-0 bottom-full z-20 mb-2 flex flex-col items-center md:inset-x-auto md:right-0 md:items-end"
-            >
-              {backgroundJobsOpen ? (
+        {pendingFiles.length > 0 && (
+          <div className="mb-2 flex flex-col gap-0.5">
+            <div className="flex flex-wrap items-end gap-2">
+              {pendingFiles.map((file, idx) => (
                 <div
-                  role="dialog"
-                  aria-label={t("workingJobsList")}
-                  className="mb-2 max-h-72 w-[min(22rem,calc(100vw-2rem))] overflow-y-auto rounded-2xl border border-border/70 bg-surface-raised p-2 shadow-lg"
+                  key={`${file.name}-${String(idx)}`}
+                  className="group/file relative flex items-center gap-1.5 rounded-lg border border-border bg-surface-raised px-2.5 py-1.5"
                 >
-                  {activeMediaJobs.map((job) => (
-                    <div
-                      key={`media:${job.id}`}
-                      className="flex items-center justify-between gap-3 rounded-xl px-3 py-2 text-xs text-text"
-                    >
-                      <span>
-                        {resolveMediaJobLabel(t, job, mediaJobNowMs)}{" "}
-                        {formatDuration(resolveMediaJobElapsedSeconds(job, mediaJobNowMs))}
-                      </span>
-                      {job.notifyState !== undefined && job.notifyState !== "none" && (
-                        <span
-                          className={
-                            job.notifyState === "failed" || job.notifyState === "cancelled"
-                              ? "rounded-full bg-destructive/10 px-2 py-0.5 text-destructive"
-                              : "rounded-full bg-accent/10 px-2 py-0.5 text-accent"
-                          }
-                        >
-                          {notifyStateLabel(t, job.notifyState)}
-                        </span>
-                      )}
-                    </div>
-                  ))}
-                  {activeDocumentJobs.map((job) => (
-                    <div
-                      key={`document:${job.id}`}
-                      className="flex items-center justify-between gap-3 rounded-xl px-3 py-2 text-xs text-text"
-                    >
-                      <span>
-                        {resolveDocumentJobLabel(t, job)}{" "}
-                        {formatDuration(resolveDocumentJobElapsedSeconds(job, mediaJobNowMs))}
-                      </span>
-                      {job.notifyState !== undefined && job.notifyState !== "none" && (
-                        <span
-                          className={
-                            job.notifyState === "failed" || job.notifyState === "cancelled"
-                              ? "rounded-full bg-destructive/10 px-2 py-0.5 text-destructive"
-                              : "rounded-full bg-accent/10 px-2 py-0.5 text-accent"
-                          }
-                        >
-                          {notifyStateLabel(t, job.notifyState)}
-                        </span>
-                      )}
-                    </div>
-                  ))}
-                  {activeSandboxJobs.map((job) => (
-                    <div
-                      key={`sandbox:${job.jobRef}`}
-                      className="flex items-center justify-between gap-3 rounded-xl px-3 py-2 text-xs text-text"
-                    >
-                      <span>
-                        {job.toolCode === "shell" ? t("backgroundShell") : t("backgroundExec")} ·{" "}
-                        {formatDuration(
-                          Math.max(
-                            0,
-                            Math.floor(
-                              (mediaJobNowMs - new Date(job.startedAt ?? job.createdAt).getTime()) /
-                                1000
-                            )
-                          )
-                        )}
-                      </span>
-                      {job.notifyState !== "none" && (
-                        <span
-                          className={
-                            job.notifyState === "failed" || job.notifyState === "cancelled"
-                              ? "rounded-full bg-destructive/10 px-2 py-0.5 text-destructive"
-                              : "rounded-full bg-accent/10 px-2 py-0.5 text-accent"
-                          }
-                        >
-                          {notifyStateLabel(t, job.notifyState)}
-                        </span>
-                      )}
-                    </div>
-                  ))}
+                  <PendingFilePreview
+                    file={file}
+                    ordinal={idx + 1}
+                    showOrdinal={showAttachmentOrdinals}
+                  />
+                  <span className="max-w-[120px] truncate text-xs text-text-muted">
+                    {file.name}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => removeFile(idx)}
+                    className="ml-0.5 cursor-pointer rounded-full p-0.5 text-text-subtle transition-colors hover:bg-destructive/15 hover:text-destructive"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
                 </div>
-              ) : null}
+              ))}
+            </div>
+            {hasKnowledgeEligibleFiles ? (
+              <label className="flex max-w-full cursor-pointer items-center gap-1 px-0.5">
+                <input
+                  type="checkbox"
+                  aria-label={t("knowledgeAddToBase")}
+                  checked={addToKnowledgeBase}
+                  disabled={controlsDisabled}
+                  onChange={(e) => setAddToKnowledgeBase(e.target.checked)}
+                  className="h-3 w-3 shrink-0 rounded border-border text-accent focus:ring-accent disabled:cursor-not-allowed"
+                />
+                <span className="min-w-0 truncate text-[10px] leading-tight text-text-muted">
+                  {t("knowledgeAddToBase")}
+                </span>
+              </label>
+            ) : null}
+          </div>
+        )}
+
+        <div className="relative">
+          {showScrollToBottom && onScrollToBottom ? (
+            <div
+              data-testid="chat-scroll-to-bottom-anchor"
+              className="pointer-events-none absolute inset-x-0 bottom-full z-30 mb-2 flex justify-end"
+            >
               <button
                 type="button"
-                aria-expanded={backgroundJobsOpen}
-                aria-haspopup="dialog"
-                onClick={() => setBackgroundJobsOpen((open) => !open)}
-                className="inline-flex cursor-pointer items-center rounded-full border border-border/70 bg-surface px-3 py-1 text-xs text-text-muted shadow-sm"
+                onClick={onScrollToBottom}
+                className={cn(
+                  "pointer-events-auto flex h-11 w-11 cursor-pointer items-center justify-center rounded-full border border-border/45 bg-surface-raised text-text-muted shadow-sm transition-all",
+                  "hover:-translate-y-0.5 hover:border-accent/30 hover:bg-surface-hover hover:text-text active:translate-y-0"
+                )}
+                aria-label={t("scrollToBottom")}
+                title={t("scrollToBottom")}
               >
-                {t("workingJobs", { count: backgroundJobCount })}
+                <ArrowDown className="h-5 w-5" strokeWidth={1.15} />
               </button>
             </div>
-          )}
+          ) : null}
+
+          {backgroundJobCount > 0 ? (
+            <div className="mb-2 flex justify-end">
+              <ChatWorkingJobsPill jobs={workingJobRows} />
+            </div>
+          ) : null}
 
           <AnimatePresence>
             {isTouchDevice && isRecording && (

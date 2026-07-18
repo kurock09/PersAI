@@ -42,24 +42,14 @@ uncommitted native-web repair is carried into F1: native web must validate
 ownership/session/canonical/capability/quota without a synthetic binding;
 Telegram still requires an active binding.
 
-F1 focused tests must cover source-finalization dispatch gating, delivery-visible
-terminal observation, subscribed-terminal reconciliation, exactly-once
-web/Telegram permanent-failure observation (opaque assistant message + Telegram
-notice CAS; expired dispatched+completed invalid-context `failClaim`), and the
-native-web/Telegram binding matrix. F2 must prove exact tool-schema rejection, no-id/current-turn
-plus open-thread snapshot scope, deterministic ordering, empty snapshot,
-max-32 fail-closed overflow, single-id observation, delivery-before-status,
-immediate DB status/snapshot/subscribe seams with runtime ~500ms client poll
-(Redis subscribe-before-read long-poll is not landed), 20-call budget with
-replay-safe tool-call id, and non-terminal notify. F3 must prove completion/
-source-finalization recovery, SchedulerLease single claimant, source gate,
-bidirectional continuation/user-turn lease serialization, and busy requeue
-without consuming retry budget. F4 must prove Working updates (including
-`async_job_accepted` mid-turn Working SSE), durable observation
-reconnect/reload, live decreasing countdown via `await-deadline`,
-Stop/resolve clearing, and EN/RU countdown copy. F5 repeats independent
-audits and the full gate, then verifies exact images and founder live
-acceptance.
+ADR-157 verification (no intermediate deploy): delivery-visible media/document
+attach must proceed while `narrationOwner` is null; empty `await.wait` with
+positive `timeoutMs` sleeps up to 300000ms; explicit background shell returns
+`jobRef`, appears in Working, survives a later sync shell, and is not killed by
+turn Stop; image success path has no ghostwriter user-text framing; Working
+pills accept OpenAPI ops only. Retain prior ADR-152 coverage for notify,
+source-finalization, 20-wait budget, snapshot overflow, Redis-not-landed, and
+same-chat lease serialization.
 
 No intermediate deployment is authorized. Rollout includes additive migration
 `20260718150000_adr152_sandbox_async_job_handles` → API → runtime → sandbox →
@@ -315,7 +305,8 @@ Checkpoint 4 Admin/MCP authoring is implemented locally (see section above);
 its first independent audit returned DIRTY (3 P2 docs only), repairs landed,
 and the final status re-check returned CLEAN. ADR-152 is not closed.
 
-1. `await wait` returns already-terminal facts without blocking, clamps to 60s,
+1. `await wait` returns already-terminal facts without blocking, clamps to
+   300000ms (ADR-157; empty/all-terminal + positive timeout is a pure timer),
    admits up to 20 waits per dispatched turn, returns pending on timeout
    without cancelling canonical work, and guides to `notify` after budget
    exhaustion; Stop aborts wait/turn but not media/document/sandbox work.

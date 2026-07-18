@@ -123,6 +123,23 @@ test("session pod cleanup script never scans /proc via command substitution", as
   );
 });
 
+test("ExecPodBridgeService: ADR-157 immediateBackground yields at once (survival-oriented)", async () => {
+  const source = await fs.readFile(
+    join(process.cwd(), "src", "exec-pod-bridge.service.ts"),
+    "utf8"
+  );
+  assert.match(
+    source,
+    /options\.immediateBackground === true\s*\?\s*Date\.now\(\)/,
+    "immediateBackground must set yieldDeadlineAtMs to now so retained jobs detach without Process-timeout wait"
+  );
+  assert.match(
+    source,
+    /RETAINED_PIDS/,
+    "session cleanup must keep retained background PIDs alive across later warm jobs"
+  );
+});
+
 type KubeConfigLike = {
   loadFromCluster(): void;
   makeApiClient<T>(apiClass: new (...args: unknown[]) => T): T;

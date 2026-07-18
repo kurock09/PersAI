@@ -2237,6 +2237,7 @@ export async function runAdr151TurnDispatchIntegrationTest(): Promise<void> {
     { buildBlocks: () => [] } as never,
     null as never,
     null as never,
+    null as never,
     null as never
   );
   const privateAccess = service as unknown as {
@@ -2529,7 +2530,8 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     new BuildSystemReminderBlocksService(),
     runtimeObservabilityService,
     runtimeExecutionAdmissionService,
-    null as never
+    null as never, // runtimeAwaitToolService
+    mediaObjectStorage as never
   );
 
   const request = createRuntimeTurnRequest();
@@ -2745,7 +2747,8 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     new BuildSystemReminderBlocksService(),
     runtimeObservabilityService,
     runtimeExecutionAdmissionService,
-    null as never
+    null as never, // runtimeAwaitToolService
+    mediaObjectStorage as never
   );
   providerGatewayClient.calls = [];
   turnAcceptanceService.result = createAcceptedTurn();
@@ -2825,7 +2828,8 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     new BuildSystemReminderBlocksService(),
     runtimeObservabilityService,
     runtimeExecutionAdmissionService,
-    null as never
+    null as never, // runtimeAwaitToolService
+    mediaObjectStorage as never
   );
   providerGatewayClient.calls = [];
   turnAcceptanceService.result = createAcceptedTurn();
@@ -9085,6 +9089,7 @@ export function buildTurnExecutionHarness(): TurnExecutionHarness {
     new BuildSystemReminderBlocksService(),
     runtimeObservabilityService,
     runtimeExecutionAdmissionService,
+    null as never,
     null as never
   );
   return {
@@ -9343,7 +9348,8 @@ function buildMinimalTurnExecutionService(runtimeAwaitToolService?: unknown): Tu
     null as never, // buildSystemReminderBlocksService
     null as never, // runtimeObservabilityService
     null as never, // runtimeExecutionAdmissionService
-    runtimeAwaitToolService as never
+    runtimeAwaitToolService as never,
+    null as never // mediaObjectStorage
   );
 }
 

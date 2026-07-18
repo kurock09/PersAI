@@ -5,6 +5,27 @@
 
 ## 2026-07-18
 
+- **ADR-157 landed locally (gate green; push in flight).** D1–D5: delivery
+  never defers on narration; image narration is chat-model owned with
+  plan-gated perception artifacts; await wait max 300000ms pure timer;
+  explicit shell `background:true` with session fail-closed + retained PIDs;
+  Working OpenAPI ops + bounce-dot pill / gray job emoji. Composer
+  CLEAN-for-local-implementation; AGENTS + CI-like gate green (lint,
+  format:check, typecheck, full test, step2, adr146-slice5,
+  ci-detect-affected, build). Deploy/live acceptance still open.
+
+- **ADR-157 audit repairs (local; re-audit pending).** Closes DIRTY findings:
+  plan-gated image perception into next chat-model call (internal perception
+  artifacts + `pendingFilePreviewBlocks`); empty image delivery text when
+  chat-model owns narration; `background:true` fail-closed without session;
+  single knowledge-base checkbox; docs 60s/`defer` drift cleared; Working
+  composer pill UX. Not CLEAN until independent re-audit + full gate.
+
+- **ADR-157 S1+S2 landing (local; superseded by audit repairs above).**
+  Delivery never defers on narration; await timer max 5m; shell/exec
+  `background:true` immediate detach; image ghostwriter framing off; Working
+  OpenAPI ops only.
+
 - **Script draft seed + Scenario scriptRef UI + Scenario-scoped runtime
   Scripts (no new ADR).** Admin «Новая версия-черновик» copies the last
   published ScriptVersion (existing draft never overwritten). Skills Scenario

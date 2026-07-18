@@ -119,6 +119,20 @@ async function run(): Promise<void> {
     "Media sent."
   );
 
+  // ADR-157: chat-model-owned image delivery may keep empty text when attachments landed.
+  assert.equal(
+    applyFinalDeliveryHonestyCorrection({
+      assistantText: "",
+      attemptedArtifactCount: 1,
+      deliveredAttachmentCount: 1,
+      deliveredAttachmentFilenames: ["mansion_photo_edit.png"],
+      attemptedArtifactKind: "media",
+      locale: "en",
+      allowEmptyWhenAttachmentsDelivered: true
+    }),
+    ""
+  );
+
   // Multiple attachment summaries + one delivered → fallback
   assert.equal(
     applyFinalDeliveryHonestyCorrection({

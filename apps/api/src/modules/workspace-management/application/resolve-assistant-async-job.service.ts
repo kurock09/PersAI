@@ -1,7 +1,15 @@
 import { Injectable } from "@nestjs/common";
 import { AssistantAsyncJobHandleStateService } from "./assistant-async-job-handle-state.service";
+import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 
 const JOB_REF_RE = /^jr1\.(media|document|sandbox)\.[A-Za-z0-9_-]{32}$/;
+
+export type AssistantAsyncJobPerceptionArtifact = {
+  storagePath: string;
+  mimeType: string;
+  filename: string | null;
+  role: "output" | "source_reference";
+};
 
 export type AssistantAsyncJobStatusResult =
   | { found: false; code: "job_not_found" }
@@ -26,7 +34,75 @@ export type AssistantAsyncJobStatusResult =
 
 @Injectable()
 export class ResolveAssistantAsyncJobService {
-  constructor(private readonly handleState: AssistantAsyncJobHandleStateService) {}
+  constructor(
+    private readonly handleState: AssistantAsyncJobHandleStateService,
+    private readonly prisma: WorkspaceManagementPrismaService
+  ) {}
+
+  /**
+   * ADR-157 D2 — bounded image artifact refs for chat-model perception only.
+   * Not part of the model-facing await receipt (no storagePath leakage there).
+   */
+  async executePerceptionArtifacts(input: {
+    jobRef: string;
+    assistantId: string;
+    workspaceId: string;
+    chatId: string;
+    channel: "web" | "telegram" | "max_ru";
+    threadKey: string;
+  }): Promise<{ artifacts: AssistantAsyncJobPerceptionArtifact[] }> {
+    if (!JOB_REF_RE.test(input.jobRef) || input.channel === "max_ru") {
+      return { artifacts: [] };
+    }
+    const handle = await this.prisma.assistantAsyncJobHandle.findFirst({
+      where: {
+        jobRef: input.jobRef,
+        assistantId: input.assistantId,
+        workspaceId: input.workspaceId,
+        chatId: input.chatId,
+        channel: input.channel,
+        threadKey: input.threadKey,
+        kind: "media",
+        chat: {
+          assistantId: input.assistantId,
+          workspaceId: input.workspaceId,
+          surface: input.channel,
+          surfaceThreadKey: input.threadKey
+        }
+      },
+      select: { canonicalJobId: true }
+    });
+    if (handle === null) {
+      return { artifacts: [] };
+    }
+    const job = await this.prisma.assistantMediaJob.findUnique({
+      where: { id: handle.canonicalJobId },
+      select: { kind: true, artifactsJson: true }
+    });
+    if (job === null || job.kind !== "image" || !Array.isArray(job.artifactsJson)) {
+      return { artifacts: [] };
+    }
+    const artifacts: AssistantAsyncJobPerceptionArtifact[] = [];
+    for (const entry of job.artifactsJson) {
+      if (entry === null || typeof entry !== "object" || Array.isArray(entry)) continue;
+      const row = entry as Record<string, unknown>;
+      const storagePath = typeof row.storagePath === "string" ? row.storagePath.trim() : "";
+      const mimeType = typeof row.mimeType === "string" ? row.mimeType.trim() : "";
+      if (storagePath.length === 0 || !mimeType.startsWith("image/")) continue;
+      const filename =
+        typeof row.filename === "string" && row.filename.trim().length > 0
+          ? row.filename.trim()
+          : null;
+      artifacts.push({
+        storagePath,
+        mimeType,
+        filename,
+        role: "output"
+      });
+      if (artifacts.length >= 10) break;
+    }
+    return { artifacts };
+  }
 
   async execute(input: {
     jobRef: string;
