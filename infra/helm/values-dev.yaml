@@ -324,7 +324,7 @@ web:
       maxSurge: 1
   image:
     name: web
-    tag: 845ea6c7041a8a790c50fcc2205a927f9b0efb30
+    tag: 327788b3d6287e10bc82bea3f15fda923884d179
     pullPolicy: IfNotPresent
   env:
     NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_live_Y2xlcmsucGVyc2FpLmRldiQ
@@ -476,7 +476,7 @@ runtime:
     name: api-sa
   image:
     name: runtime
-    tag: 845ea6c7041a8a790c50fcc2205a927f9b0efb30
+    tag: 327788b3d6287e10bc82bea3f15fda923884d179
     pullPolicy: IfNotPresent
   cloudSqlProxy:
     enabled: true
