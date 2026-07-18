@@ -5,20 +5,23 @@
 
 ## 2026-07-18
 
-- **ADR-152 missed web/provider-gateway GitOps pin repair (pending parent
-  audit/commit/push; not deployed or live-accepted).** Dev Image Publish run
+- **ADR-152 missed web/provider-gateway GitOps pin repair committed (parent
+  push pending; not deployed or live-accepted).** Dev Image Publish run
   `29641955595` successfully built and pushed web
   (`sha256:f0b1827491fd9608aeac816f611fefd37b7a5efc84e2737156143ca1d311250e`)
   and provider-gateway
   (`sha256:52b1ea3f38e7b52872a8b41db36919b382b5b925aa4fbfea060dc2e88d03df20`)
   at `9a284c74d9238f9af8214aae5e06d317af794e5c`, but the later sandbox-exec
   failure prevented the migration pin stage. Repair `8170f238` / bot GitOps
-  pin `07eb17d2` separately rebuilt and pinned api/runtime/sandbox/sandbox-exec
+  pin `07eb17d2` separately succeeded for api/runtime/sandbox/sandbox-exec
   only, leaving web/provider-gateway desired/live on `f0944d31` and omitting
   the ADR-152 UI/provider bridge. The bounded values-only repair moves only
   `web.image.tag` and `providerGateway.image.tag` to the existing
-  `9a284c74...` tag; it preserves every `8170f238` pin. Parent audit, commit,
-  and push remain pending. No deploy or live closure has occurred.
+  `9a284c74...` tag while preserving every `8170f238` pin. Parent audit and
+  Helm validation passed; the repair is committed as `7c38b639`
+  (`fix(dev-gitops): pin missed ADR-152 service images`). Parent push to
+  `main` remains pending at this documentation checkpoint. Deploy and live
+  acceptance remain pending.
 
 - **Post-push ADR-152 CI/image repair re-audited CLEAN; parent commit/push
   pending.** Main
