@@ -47,6 +47,27 @@ describe("InternalRuntimeAsyncContinuationClientService", () => {
     assert.equal(signal?.aborted, true);
   });
 
+  test("aborts a hung inspection at its deadline and returns the safe ambiguous fallback", async () => {
+    let signal: AbortSignal | undefined;
+    mock.method(globalThis, "fetch", async (_url, init) => {
+      signal = init?.signal ?? undefined;
+      return new Promise<Response>((_resolve, reject) => {
+        signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")), {
+          once: true
+        });
+      });
+    });
+
+    const service = new InternalRuntimeAsyncContinuationClientService();
+    assert.deepEqual(
+      await service.inspect({ requestId: "inspect-1", sessionId: "session-1" } as never, {
+        timeoutMs: 5
+      }),
+      { proof: "ambiguous", receiptStatus: "absent", exactInFlight: false }
+    );
+    assert.equal(signal?.aborted, true);
+  });
+
   for (const outcome of ["busy", "duplicate"] as const) {
     test(`accepts the exact ${outcome} response shape`, async () => {
       mock.method(globalThis, "fetch", async () => Response.json({ outcome }, { status: 200 }));

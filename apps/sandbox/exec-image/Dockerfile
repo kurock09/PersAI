@@ -128,6 +128,7 @@ RUN chmod 0555 /opt/persai-script-browser/persai-browser-cli.js \
   && ln -s /opt/persai-script-browser/persai-browser-cli.js /usr/local/bin/persai-browser \
   && mkdir -p /usr/local/lib/node_modules/@persai/script-sdk \
   && ln -s /opt/persai-script-browser/node-index.js /usr/local/lib/node_modules/@persai/script-sdk/index.js \
+  && mkdir -p /usr/local/lib/python3.11/site-packages \
   && ln -s /opt/persai-script-browser/persai_browser.py /usr/local/lib/python3.11/site-packages/persai_browser.py
 
 # ── make the venv authoritative for LOGIN shells too ─────────────────────────
@@ -195,7 +196,7 @@ RUN rg --version \
   && node --version \
   && npm --version \
   && node -e "const sdk=require('/usr/local/lib/node_modules/@persai/script-sdk'); if(typeof sdk.browser.snapshot!=='function'||typeof sdk.browser.act!=='function')process.exit(1)" \
-  && python3 -c "import persai_browser; assert callable(persai_browser.snapshot) and callable(persai_browser.act)" \
+  && PYTHONPATH=/usr/local/lib/python3.11/site-packages python3 -c "import persai_browser; assert callable(persai_browser.snapshot) and callable(persai_browser.act)" \
   && bash --version \
   && bash -c '[[ "$(echo {a,b,c})" = "a b c" ]] && echo bash_brace_ok' \
   && bash -c 'set -o pipefail; true | true && echo bash_pipefail_ok' \

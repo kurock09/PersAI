@@ -1,5 +1,42 @@
 # SESSION-HANDOFF
 
+## 2026-07-18 — Post-push ADR-152 CI/image repair re-audited CLEAN
+
+Status: **Main HEAD is `9a284c74` plus bot sandbox pin `cdc6153f`. GitHub CI
+run `29641955628` failed in the API suite and Dev Image Publish run
+`29641955595` failed building `sandbox-exec`; focused local verification now
+passes, and the strict Sonnet re-audit returned CLEAN with no P0/P1/P2.
+Parent commit and push remain pending at this documentation checkpoint. The
+repair is not deployed or live-accepted; do not claim overall ADR-152
+closure.**
+
+- API root cause: the continuation client unref'd the only deadline timer while
+  awaiting `fetch`. A mocked or real hung request could then leave no ref'd
+  event-loop handle, so Node cancelled the pending test before the abort
+  deadline settled it. Both dispatch and inspection timers now remain ref'd
+  until their awaited request settles; `finally` clears them. The first
+  independent Sonnet audit found a remaining P2: only dispatch had a
+  deterministic hung-fetch regression. `inspect` now accepts an optional
+  bounded timeout seam (default 10,000ms; minimum 1ms) and its focused test
+  proves a fetch that settles only on `AbortSignal` abort reaches that deadline
+  and returns the safe ambiguous fallback.
+- Sandbox root cause: the exec image linked `persai_browser.py` into the
+  browser Script runtime `PYTHONPATH` without creating
+  `/usr/local/lib/python3.11/site-packages`. The Dockerfile now creates that
+  exact directory first, uses that same path for the image import self-check,
+  and its source contract test guards both.
+- The strict Sonnet re-audit returned CLEAN with no P0/P1/P2 findings. Focused
+  verification passes: the 10-test API client suite (including the P2
+  inspection-timeout regression), API lint/typecheck, 8-test exec-image
+  Dockerfile source suite, sandbox lint, root format check, diff check, and a
+  local Docker `sandbox-exec` build. The first local Docker build exposed that
+  the wrapper path is intentionally runtime-`PYTHONPATH` only; the self-check
+  was aligned before the successful rebuild.
+
+Next recommended step: parent commit and push the repair to `main`, then verify
+GitHub CI and Dev Image Publish. Do not deploy or claim ADR-152 live closure
+before those pending stages and founder live acceptance.
+
 ## 2026-07-18 — ADR-152 checkpoint 5 local gate CLEAN
 
 Status: **Final frozen-tree independent re-audits by GPT Terra and Sonnet

@@ -27,7 +27,6 @@ export class InternalRuntimeAsyncContinuationClientService {
     }
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), Math.max(1, options.timeoutMs));
-    timer.unref?.();
     try {
       const response = await fetch(
         new URL("/api/v1/internal/runtime/async-continuations", baseUrl).toString(),
@@ -135,7 +134,10 @@ export class InternalRuntimeAsyncContinuationClientService {
     return typeof value === "object" && value !== null && !Array.isArray(value);
   }
 
-  async inspect(input: RuntimeTurnRequest & { sessionId: string }): Promise<{
+  async inspect(
+    input: RuntimeTurnRequest & { sessionId: string },
+    options: { timeoutMs?: number } = {}
+  ): Promise<{
     proof: "proven" | "ambiguous";
     receiptStatus: "absent" | "accepted" | "completed" | "interrupted" | "failed";
     exactInFlight: boolean;
@@ -147,8 +149,7 @@ export class InternalRuntimeAsyncContinuationClientService {
       return { proof: "ambiguous", receiptStatus: "absent", exactInFlight: false };
     }
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 10_000);
-    timer.unref?.();
+    const timer = setTimeout(() => controller.abort(), Math.max(1, options.timeoutMs ?? 10_000));
     try {
       const response = await fetch(
         new URL("/api/v1/internal/runtime/async-continuations/status", baseUrl).toString(),

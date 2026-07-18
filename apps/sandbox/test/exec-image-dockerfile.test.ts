@@ -100,6 +100,7 @@ test("exec image self-check verifies bash brace expansion + pipefail + npm", asy
 });
 
 test("exec image carries narrow Node/Python browser SDK wrappers without infrastructure credentials", async () => {
+  const dockerfile = await readFile(join(process.cwd(), "exec-image", "Dockerfile"), "utf8");
   const cli = await readFile(
     join(process.cwd(), "exec-image", "script-browser-sdk", "persai-browser-cli.js"),
     "utf8"
@@ -123,6 +124,16 @@ test("exec image carries narrow Node/Python browser SDK wrappers without infrast
   assert.match(pythonWrapper, /pass_fds=\(3, 4\)/);
   assert.match(cli, /writeSync\(3/);
   assert.match(cli, /readLine\(4\)/);
+  assert.match(
+    dockerfile,
+    /mkdir -p \/usr\/local\/lib\/python3\.11\/site-packages\s*\\\s*\n\s*&& ln -s \/opt\/persai-script-browser\/persai_browser\.py \/usr\/local\/lib\/python3\.11\/site-packages\/persai_browser\.py/,
+    "the browser Python wrapper target directory must exist before its symlink is created"
+  );
+  assert.match(
+    dockerfile,
+    /PYTHONPATH=\/usr\/local\/lib\/python3\.11\/site-packages python3 -c "import persai_browser; assert callable\(persai_browser\.snapshot\) and callable\(persai_browser\.act\)"/,
+    "the image self-check must import the wrapper through the browser Script PYTHONPATH"
+  );
 });
 
 test("exec image preinstalls curated document/data/image system and python baseline", async () => {

@@ -4,6 +4,42 @@ This document defines the current verification baseline for the active PersAI-na
 
 ADR-072 is closed as the historical native migration ADR. Current continuation work should be checked against `docs/ADR/078-consolidated-follow-through-program.md`. `Step 15a` is cancelled and is not an active verification track. ADR-087 defines the unified quota-advisory and paid light-mode target state. ADR-088 defines the unified notification platform target state.
 
+## 2026-07-18 post-push ADR-152 repair verification
+
+GitHub CI run `29641955628` cancelled the first hung-dispatch test when the
+async-continuation client unref'd its sole abort deadline, and Dev Image Publish
+run `29641955595` failed the `sandbox-exec` Docker build because the exact
+browser-Script Python wrapper destination directory was absent. Before a repair
+commit, run:
+
+```sh
+corepack pnpm --filter @persai/api exec tsx test/internal-runtime-async-continuation.client.service.test.ts
+corepack pnpm --filter @persai/api run lint
+corepack pnpm --filter @persai/api run typecheck
+corepack pnpm --filter @persai/sandbox exec tsx test/exec-image-dockerfile.test.ts
+docker build -f apps/sandbox/exec-image/Dockerfile .
+corepack pnpm run format:check
+git diff --check
+```
+
+The first independent Sonnet audit found P2 coverage missing for inspection:
+only dispatch proved that a hung `fetch` reaches its abort deadline. The API
+test must now prove both dispatch and inspection fetches settle only when their
+`AbortSignal` aborts: dispatch returns its ambiguous accepted-state error;
+inspection returns `{ proof: "ambiguous", receiptStatus: "absent",
+exactInFlight: false }`. `inspect` exposes a narrow optional timeout seam for
+this test; production callers preserve the 10,000ms default, clamped to at
+least 1ms. Both deadline timers must stay ref'd until their awaited request
+settles and `finally` clears them. The image source test must prove
+`/usr/local/lib/python3.11/site-packages` is created before `persai_browser.py`
+is linked and the image self-check must import through that same browser Script
+`PYTHONPATH`. The focused checks, including the P2 API test and a local Docker
+build, pass. The strict Sonnet re-audit returned CLEAN with no P0/P1/P2
+findings. Parent commit and push to `main` remain pending at this documentation
+checkpoint; the repair is not deployed or live-accepted, and this repair-level
+audit result does not close ADR-152 overall. Next, parent must commit and push
+the repair to `main`, then verify GitHub CI and Dev Image Publish.
+
 ## ADR-152 checkpoint 5 local final gate
 
 Final frozen-tree independent GPT Terra and Sonnet re-audits returned CLEAN

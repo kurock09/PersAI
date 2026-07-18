@@ -5,6 +5,32 @@
 
 ## 2026-07-18
 
+- **Post-push ADR-152 CI/image repair re-audited CLEAN; parent commit/push
+  pending.** Main
+  `9a284c74` plus bot sandbox pin `cdc6153f` exposed two failures: CI run
+  `29641955628` cancelled the hung async-continuation dispatch test because
+  `InternalRuntimeAsyncContinuationClientService` unref'd its only abort
+  deadline, allowing Node to finish its event loop before awaited `fetch`
+  settled; Dev Image Publish run `29641955595` could not build `sandbox-exec`
+  because the browser Python wrapper symlink target directory did not exist.
+  The client now retains both dispatch and inspection deadline timers until
+  `finally` clears them. The first independent Sonnet audit found a remaining
+  P2: inspection had no deterministic hung-fetch abort regression. `inspect`
+  now has a narrow test timeout seam (production default remains
+  10,000ms, clamped to at least 1ms), and focused coverage proves a fetch that
+  settles only after abort reaches its deadline and returns the safe ambiguous
+  fallback. The exec image explicitly creates the exact browser-Script
+  `PYTHONPATH` directory before linking the wrapper, uses that same path in the
+  image import self-check, and has a Dockerfile source regression assertion.
+  The strict Sonnet re-audit returned **CLEAN with no P0/P1/P2 findings**.
+  Focused verification remains green: the 10-test API client suite (including
+  the new inspection-timeout regression), API lint/typecheck, the 8-test
+  exec-image Dockerfile source suite, sandbox lint, root format check, diff
+  check, and a successful local `sandbox-exec` Docker build. Parent commit and
+  push to `main` remain pending at this documentation checkpoint; the repair
+  is not deployed or live-accepted, and this repair-level CLEAN result does not
+  close ADR-152 overall.
+
 - **ADR-152 checkpoint 5 committed at `e47964ed`; full gate CLEAN (not pushed,
   deployed, or live-accepted).** Independent frozen-tree GPT Terra
   and Sonnet re-audits returned CLEAN with no P0/P1/P2. Final repairs add
