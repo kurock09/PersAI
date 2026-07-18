@@ -53,6 +53,31 @@ function assertNoRemoteReferences(value: unknown, path: string): void {
   }
 }
 
+/** Exact optional Script browser capability (ADR-152). Absent = no browser access. */
+export const SCRIPT_BROWSER_CAPABILITY = {
+  browser: { actions: ["snapshot", "act"] as const }
+} as const;
+
+export function assertBrowserCapableInputSchema(inputSchema: Record<string, unknown>): void {
+  const properties = inputSchema.properties;
+  const required = inputSchema.required;
+  const profileSchema =
+    properties !== null &&
+    typeof properties === "object" &&
+    !Array.isArray(properties) &&
+    (properties as Record<string, unknown>).profile;
+  if (
+    profileSchema === null ||
+    typeof profileSchema !== "object" ||
+    Array.isArray(profileSchema) ||
+    (profileSchema as Record<string, unknown>).type !== "string" ||
+    !Array.isArray(required) ||
+    !required.includes("profile")
+  ) {
+    throw new Error("Browser-capable Script inputSchema must require a string profile property.");
+  }
+}
+
 export function assertScriptJsonSchema(
   schema: Record<string, unknown>,
   path: "inputSchema" | "outputSchema"

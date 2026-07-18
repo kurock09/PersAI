@@ -1,5 +1,30 @@
 # SESSION-HANDOFF
 
+## 2026-07-18 — ADR-152 checkpoint 4 committed
+
+Status: **Admin/MCP Script browser capability authoring is committed. First
+independent Cursor Grok audit returned DIRTY (3 P2 docs only, no P0/P1);
+repairs landed; final status re-check returned CLEAN. Authoring code was PASS
+throughout. Not deployed or live-accepted. ADR-152 remains open; checkpoint 5
+(full gate / one push / deploy / live acceptance) is next.**
+
+- Baseline before commit: `a0d9d368` on branch `adr-152-browser-sdk-job-await`.
+- Admin Scripts UI: toggle emits only the exact capability object or omits
+  `capabilities`; load restores the toggle from an exact match; save does
+  not strip capabilities; client validation requires
+  `inputSchema.properties.profile` type string and `required` includes
+  `profile` when enabled; EN/RU i18n keys added.
+- MCP: `scriptManifestSchema` accepts exact optional `capabilities` via
+  strict Zod tuple `["snapshot","act"]`; wrong order/extra actions/extra
+  keys/`null`/empty object rejected; browser capability without required
+  string `profile` rejected.
+- Docs: handoff/changelog/ADR-152/API-BOUNDARY/TEST-PLAN/ARCHITECTURE plus
+  MCP README and `script_version_upsert` description. Final status CLEAN.
+
+Next recommended step: ADR-152 checkpoint 5 — independent final audits, full
+repository gate, one push, deploy, and founder live acceptance. Do not deploy
+before that gate.
+
 ## 2026-07-18 — ADR-152 checkpoint 3 committed
 
 Status: **Browser Script SDK and ephemeral broker are committed. A first
@@ -10,7 +35,8 @@ corrected before commit. Authored-output persistence remains a founder-owned
 wording residual only. This checkpoint is not deployed or live-accepted.
 ADR-152 remains open; checkpoint 4 Admin/MCP manifest authoring is next.**
 
-- Baseline before commit: `252f346072baf2b3aeccc9a99ff0ef439cd694c7`.
+- Committed: `a0d9d368` on branch `adr-152-browser-sdk-job-await`
+  (baseline `252f346072baf2b3aeccc9a99ff0ef439cd694c7`).
 - Script manifests may carry only the exact optional ordered capability
   `{browser:{actions:["snapshot","act"]}}`; parser normalization participates
   in the immutable content hash. Sandbox reloads and strictly parses the

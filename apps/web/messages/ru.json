@@ -1921,6 +1921,8 @@
       "workingDirectoryHint": "Необязательно. Пусто — рабочая директория песочницы по умолчанию.",
       "environment": "Переменные окружения (JSON)",
       "environmentHint": "JSON-объект строковых значений, например '{\"FOO\": \"bar\"}'. Ключи PERSAI_SCRIPT_* зарезервированы.",
+      "browserCapability": "Возможность браузера (snapshot + act)",
+      "browserCapabilityHint": "Необязательно. При включении неизменяемый манифест сохраняет ровно '{browser:{actions:[snapshot, act]}}'. Схема входа должна требовать строковое свойство profile. Без capability доступа к браузеру нет.",
       "inputSchema": "Схема входных данных (JSON Schema, object)",
       "outputSchema": "Схема выходных данных (JSON Schema)",
       "runtime": "Среда выполнения",
@@ -1946,6 +1948,7 @@
       "published": "Версия опубликована и теперь неизменяема.",
       "errors": {
         "invalidJson": "Код, манифест, окружение, JSON-схемы, среда выполнения, команда запуска и лимиты должны соответствовать каноническому контракту Скрипта.",
+        "browserProfileRequired": "Для Scripts с браузером inputSchema.properties.profile должно быть строкой, а inputSchema.required — включать \"profile\".",
         "save": "Не удалось сохранить версию-черновик.",
         "create": "Не удалось создать версию-черновик.",
         "validate": "Не удалось проверить версию-черновик.",

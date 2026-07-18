@@ -1,6 +1,10 @@
 # @persai/admin-mcp
 
-Stdio MCP server for PersAI operator workflows (ADR-136 + ADR-147 S4 + ADR-151): admin Skill authoring, admin Role authoring/assignment, admin Script authoring/publishing + Skill-Script bindings, assign/publish, and web chat smoke with attachments.
+Stdio MCP server for PersAI operator workflows (ADR-136 + ADR-147 S4 + ADR-151 +
+ADR-152 checkpoint 4): admin Skill authoring, admin Role authoring/assignment,
+admin Script authoring/publishing + Skill-Script bindings (including optional
+exact Script browser capability), assign/publish, and web chat smoke with
+attachments.
 
 ## Cursor setup
 
@@ -46,7 +50,7 @@ Optional: `PERSAI_MCP_CHAT_TIMEOUT_MS` (default 310000), `PERSAI_MCP_INDEXING_TI
 
 Role tools use immutable `roleKey`, resolve `roleId` through `GET /api/v1/admin/roles`, then call the roleId Admin HTTP routes. `role_skills_replace` is full replacement only. `assistant_role_assign` requires exact `assistantId` + `roleKey` and calls `PUT /api/v1/assistant/{assistantId}/role`.
 
-Script tools (ADR-151) use immutable `scriptKey`, resolve `scriptId` through `GET /api/v1/admin/scripts`, then call the scriptId Admin HTTP routes. `script_upsert` only writes core metadata (name/description/category/icon/color/displayOrder); `script_version_upsert` authors the draft `code`/`manifest`/`inputSchema`/`outputSchema`/`runtime`/`entryCommand`/`limits` and auto-resolves `expectedRevision` against the Script's existing draft (creates the first draft if none exists). `script_version_validate` checks the draft's executable contract without publishing. `script_publish` auto-resolves the current draft's `versionId`/`expectedRevision` and permanently freezes it. `script_archive` fails with `admin_script_in_use` while a live Skill or Scenario still references the Script. `skill_scripts_replace` is full replacement only (all `scriptIds` must reference published Scripts). `skill_scenario_upsert` step bodies additionally accept an optional `scriptRef: { scriptKey, inputMapping }` to bind a step to a published Script.
+Script tools (ADR-151 + ADR-152 checkpoint 4) use immutable `scriptKey`, resolve `scriptId` through `GET /api/v1/admin/scripts`, then call the scriptId Admin HTTP routes. `script_upsert` only writes core metadata (name/description/category/icon/color/displayOrder); `script_version_upsert` authors the draft `code`/`manifest`/`inputSchema`/`outputSchema`/`runtime`/`entryCommand`/`limits` and auto-resolves `expectedRevision` against the Script's existing draft (creates the first draft if none exists). Optional `manifest.capabilities` may be omitted (no browser access) or set exactly to `{browser:{actions:["snapshot","act"]}}`; any other shape is rejected. When that capability is present, `inputSchema` must declare required string property `profile` (the model supplies the profile value at `script.execute`; MCP/Admin do not pick profiles). `script_version_validate` checks the draft's executable contract without publishing. `script_publish` auto-resolves the current draft's `versionId`/`expectedRevision` and permanently freezes it. `script_archive` fails with `admin_script_in_use` while a live Skill or Scenario still references the Script. `skill_scripts_replace` is full replacement only (all `scriptIds` must reference published Scripts). `skill_scenario_upsert` step bodies additionally accept an optional `scriptRef: { scriptKey, inputMapping }` to bind a step to a published Script.
 
 `skill_list({})` returns the canonical unfiltered `GET /api/v1/admin/skills` payload, including Skill UUIDs and current metadata. Use it before `skill_get`, `role_skills_replace`, or catalog migration; it does not add local filtering, sorting, pagination, or response projection.
 

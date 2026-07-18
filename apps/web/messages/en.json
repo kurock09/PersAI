@@ -1921,6 +1921,8 @@
       "workingDirectoryHint": "Optional. Blank uses the default sandbox working directory.",
       "environment": "Environment variables (JSON)",
       "environmentHint": "JSON object of string values, e.g. '{\"FOO\": \"bar\"}'. PERSAI_SCRIPT_* keys are reserved.",
+      "browserCapability": "Browser capability (snapshot + act)",
+      "browserCapabilityHint": "Optional. When enabled, the immutable manifest stores exactly '{browser:{actions:[snapshot, act]}}'. Input schema must require a string profile property. Absent capability means no browser access.",
       "inputSchema": "Input schema (JSON Schema, object)",
       "outputSchema": "Output schema (JSON Schema)",
       "runtime": "Runtime",
@@ -1946,6 +1948,7 @@
       "published": "Version published. It is now immutable.",
       "errors": {
         "invalidJson": "Code, manifest, environment, JSON Schemas, runtime, entry command, and limits must satisfy the canonical Script contract.",
+        "browserProfileRequired": "Browser-capable Scripts require inputSchema.properties.profile to be a string and inputSchema.required to include \"profile\".",
         "save": "Could not save the draft version.",
         "create": "Could not create the draft version.",
         "validate": "Could not validate the draft version.",

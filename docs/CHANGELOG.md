@@ -5,6 +5,23 @@
 
 ## 2026-07-18
 
+- **ADR-152 checkpoint 4 committed (not deployed or live-accepted).** Admin
+  Scripts UI authors the exact optional immutable-manifest browser capability
+  `{browser:{actions:["snapshot","act"]}}` (toggle on) or omits `capabilities`
+  (toggle off); load round-trips an exact match; save preserves capabilities;
+  client validation requires a string `profile` property in `inputSchema.required`
+  when the capability is present (EN/RU copy). MCP `script_version_upsert`
+  accepts the same exact optional capability via strict Zod (ordered
+  `snapshot`/`act` tuple) and rejects wrong order, extra actions/keys,
+  empty/`null` shapes, and browser capability without required string
+  `profile`. No new MCP tools, Document SDK, runtime/sandbox broker changes, or
+  deploy. A first independent Cursor Grok audit returned **DIRTY (3 P2 docs
+  only, no P0/P1)**; authoring code was PASS. Docs P2s were repaired
+  (ARCHITECTURE, MCP README, tool description, CHANGELOG/status lines,
+  TEST-PLAN trailer); final status re-check returned **CLEAN**. Checkpoint 5
+  (final audits, full gate, one push, deploy, live acceptance) remains pending.
+  ADR-152 stays open.
+
 - **ADR-152 checkpoint 3 implemented (not deployed or live-accepted).** Added
   exact immutable Script manifest
   capability parsing for ordered `snapshot`/`act`; a runtime-owned unguessable
@@ -49,8 +66,9 @@
   independent re-audit on Cursor Grok 4.5 found all prior code P1/P2 closed
   and one residual ARCHITECTURE status contradiction (P2), which was corrected
   before commit. Authored-output persistence remains a founder-owned wording
-  residual. Checkpoint 4 Admin/MCP authoring, deploy, and live acceptance
-  remain pending. ADR-152 stays open. Complete sandbox/runtime suites,
+  residual. Checkpoint 4 Admin/MCP authoring is covered by the newer
+  changelog entry above; deploy and live acceptance remain pending.
+  ADR-152 stays open. Complete sandbox/runtime suites,
   focused API domain tests, all required typechecks, repository lint/format,
   Helm lint/template, contract generation, and diff integrity pass.
 

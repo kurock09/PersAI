@@ -611,6 +611,77 @@ void test("Script MCP schemas normalize and forward strings exactly like canonic
   );
 });
 
+void test("Script MCP schema accepts exact optional browser capability and rejects wrong shapes", () => {
+  const browserInputSchema = {
+    type: "object",
+    properties: { profile: { type: "string" } },
+    required: ["profile"],
+    additionalProperties: false
+  };
+  const withBrowser = {
+    ...versionBody,
+    manifest: {
+      ...versionBody.manifest,
+      capabilities: { browser: { actions: ["snapshot", "act"] as const } }
+    },
+    inputSchema: browserInputSchema
+  };
+  assert.equal(scriptVersionParse(withBrowser).success, true);
+  assert.equal(scriptVersionParse(versionBody).success, true, "omitted capabilities remain valid");
+
+  for (const capabilities of [
+    { browser: { actions: ["act", "snapshot"] } },
+    { browser: { actions: ["snapshot"] } },
+    { browser: { actions: ["snapshot", "act", "click"] } },
+    { browser: { actions: ["snapshot", "act"], extra: true } },
+    { browser: { actions: ["snapshot", "act"] }, extra: true },
+    { browser: {} },
+    {},
+    null
+  ]) {
+    assert.equal(
+      scriptVersionParse({
+        ...versionBody,
+        manifest: { ...versionBody.manifest, capabilities },
+        inputSchema: browserInputSchema
+      }).success,
+      false,
+      `capabilities ${JSON.stringify(capabilities)} must be rejected`
+    );
+  }
+
+  assert.equal(
+    scriptVersionParse({
+      ...withBrowser,
+      inputSchema: { type: "object", properties: {}, required: [] }
+    }).success,
+    false,
+    "browser capability without required string profile must fail"
+  );
+  assert.equal(
+    scriptVersionParse({
+      ...withBrowser,
+      inputSchema: {
+        type: "object",
+        properties: { profile: { type: "number" } },
+        required: ["profile"]
+      }
+    }).success,
+    false
+  );
+  assert.equal(
+    scriptVersionParse({
+      ...withBrowser,
+      inputSchema: {
+        type: "object",
+        properties: { profile: { type: "string" } },
+        required: []
+      }
+    }).success,
+    false
+  );
+});
+
 void test("Script MCP schema mirrors canonical manifest and JSON Schema limits", () => {
   const environmentAtLimit = Object.fromEntries(
     Array.from({ length: 64 }, (_, index) => [`KEY_${String(index)}`, "x".repeat(4_096)])

@@ -26,7 +26,11 @@ import {
 } from "@/app/app/assistant-api-client";
 import { ContractsApiError } from "@persai/contracts";
 import { getAdminSessionToken } from "@/app/admin/admin-session";
-import { assertScriptVersionAuthoringContract } from "./script-authoring-validation";
+import {
+  assertScriptVersionAuthoringContract,
+  isExactScriptBrowserCapability,
+  SCRIPT_BROWSER_CAPABILITY
+} from "./script-authoring-validation";
 
 type UiLocale = "en" | "ru";
 
@@ -60,6 +64,8 @@ type VersionDraft = {
   maxMemoryMb: string;
   maxCpuMillicores: string;
   maxOutputBytes: string;
+  /** When true, save emits exact `{browser:{actions:["snapshot","act"]}}`; otherwise omits capabilities. */
+  browserCapabilityEnabled: boolean;
   contentHash: string | null;
   publishedAt: string | null;
 };
@@ -112,6 +118,7 @@ const EMPTY_VERSION_DRAFT: VersionDraft = {
   maxMemoryMb: "512",
   maxCpuMillicores: "1000",
   maxOutputBytes: "1048576",
+  browserCapabilityEnabled: false,
   contentHash: null,
   publishedAt: null
 };
@@ -247,6 +254,7 @@ export function versionToDraft(version: ScriptVersionState | null): VersionDraft
     maxMemoryMb: String(version.limits.maxMemoryMb),
     maxCpuMillicores: String(version.limits.maxCpuMillicores),
     maxOutputBytes: String(version.limits.maxOutputBytes),
+    browserCapabilityEnabled: isExactScriptBrowserCapability(version.manifest.capabilities),
     contentHash: version.contentHash,
     publishedAt: version.publishedAt
   };
@@ -292,14 +300,22 @@ function parseVersionDraftPayload(draft: VersionDraft): AdminScriptVersionCreate
     outputSchema: outputSchema as Record<string, unknown>,
     runtime,
     entryCommand: draft.entryCommand,
-    limits
+    limits,
+    browserCapabilityEnabled: draft.browserCapabilityEnabled
   });
   return {
     code: draft.code,
     manifest: {
       schemaVersion: 1,
       workingDirectory: draft.workingDirectory.length === 0 ? null : draft.workingDirectory.trim(),
-      environment: environment as Record<string, string>
+      environment: environment as Record<string, string>,
+      ...(draft.browserCapabilityEnabled
+        ? {
+            capabilities: {
+              browser: { actions: [...SCRIPT_BROWSER_CAPABILITY.browser.actions] }
+            }
+          }
+        : {})
     },
     inputSchema: inputSchema as Record<string, unknown>,
     outputSchema: outputSchema as Record<string, unknown>,
@@ -313,7 +329,13 @@ export function validateVersionDraftJson(draft: VersionDraft): string | null {
   try {
     parseVersionDraftPayload(draft);
     return null;
-  } catch {
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message.includes("must require a string profile property")
+    ) {
+      return "browserProfileRequired";
+    }
     return "invalidJson";
   }
 }
@@ -1271,6 +1293,23 @@ export default function AdminScriptsPage() {
                         }
                       />
                       <span className="text-[10px]">{t("versions.environmentHint")}</span>
+                    </label>
+                    <label className="flex items-start gap-2 text-[11px] text-text-muted">
+                      <input
+                        type="checkbox"
+                        className="mt-0.5"
+                        checked={versionDraft.browserCapabilityEnabled}
+                        onChange={(event) =>
+                          setVersionDraft((current) => ({
+                            ...current,
+                            browserCapabilityEnabled: event.target.checked
+                          }))
+                        }
+                      />
+                      <span className="grid gap-0.5">
+                        <span className="text-text">{t("versions.browserCapability")}</span>
+                        <span className="text-[10px]">{t("versions.browserCapabilityHint")}</span>
+                      </span>
                     </label>
                     <div className="grid gap-3 md:grid-cols-2">
                       <label className="grid gap-1 text-[11px] text-text-muted">

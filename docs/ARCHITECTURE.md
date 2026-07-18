@@ -187,7 +187,7 @@ promise. Release `f0944d31` / GitOps pin `95c7d68d`, the deployed `5fb61f3c`
 allowed-model audit, strict model-driven Script smoke, and approved-account
 Admin Scripts UI founder acceptance. ADR-151 is closed.
 
-**ADR-152 (checkpoint 3 locally implemented; first audit DIRTY, repairs landed, founder-directed re-audit closed residual docs P2):** checkpoint 1, the
+**ADR-152 (checkpoint 3 committed `a0d9d368`; checkpoint 4 Admin/MCP authoring CLEAN):** checkpoint 1, the
 API/data/delivery ownership core, exact `wait|notify` terminal control,
 source-turn finalization, and serialized same-chat continuation are implemented
 locally. A SchedulerLease-backed API worker now validates and claims ready
@@ -230,10 +230,15 @@ replay lookup checks assistant, server-derived invocation identity, immutable
 Script version/content hash, and canonical input hash before broker
 registration; only terminal persisted output can bypass live broker readiness,
 while new execution still fails closed unless its subscriber is ready.
-Checkpoint 3 is uncommitted. A first independent audit returned DIRTY; code
-repairs landed; a founder-directed independent re-audit found only this
-ARCHITECTURE status contradiction as residual P2 (now corrected). It is not
-deployed or live-accepted.
+Checkpoint 3 is committed at `a0d9d368` after a first independent DIRTY audit,
+code repairs, and a founder-directed re-audit that closed residual docs P2. It
+is not deployed or live-accepted. Checkpoint 4 adds Admin Scripts UI and MCP
+`script_version_upsert` authoring for the exact optional manifest capability
+`{browser:{actions:["snapshot","act"]}}` (or omit); when present, draft
+`inputSchema` must declare required string `profile` (the model supplies the
+value at `script.execute`). Checkpoint 4 authoring passed a final CLEAN status
+re-check after a first DIRTY docs-only audit and repairs. It is not deployed
+or live-accepted; checkpoint 5 remains pending.
 
 The universal model-visible `await` tool will observe only owned canonical
 media/document jobs through opaque server-minted `jr1` handles mapped by one

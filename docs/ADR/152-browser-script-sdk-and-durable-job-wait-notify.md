@@ -28,8 +28,12 @@ founder-directed independent re-audit on Cursor Grok 4.5 found all prior code
 P1/P2 closed and one residual ARCHITECTURE docs contradiction (P2), which was
 corrected before commit. Authored-output persistence remains a founder-owned
 wording residual only. Checkpoint 3 is not deployed or live-accepted.
-Checkpoint 4 Admin/MCP manifest authoring remains pending. ADR-152 remains
-open.
+Checkpoint 4 Admin/MCP manifest authoring is implemented. A first independent
+Cursor Grok audit returned **DIRTY (3 P2 docs only, no P0/P1)** with authoring
+code PASS; docs repairs landed and the final status re-check returned
+**CLEAN**. Checkpoint 4 is not deployed or live-accepted. Checkpoint 5
+(independent final audits, full gate, one push, deploy, live acceptance)
+remains pending. ADR-152 remains open.
 
 ## Decision
 

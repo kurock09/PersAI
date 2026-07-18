@@ -4,6 +4,60 @@ export const SCRIPT_SCHEMA_MAX_BYTES = 65_536;
 export const SCRIPT_SCHEMA_MAX_DEPTH = 16;
 export const SCRIPT_WORKING_DIRECTORY_MAX_CHARS = 512;
 
+/** Exact optional Script browser capability (ADR-152). Absent = no browser access. */
+export const SCRIPT_BROWSER_CAPABILITY = {
+  browser: { actions: ["snapshot", "act"] as const }
+} as const;
+
+export type ScriptBrowserCapability = {
+  browser: { actions: ["snapshot", "act"] };
+};
+
+export function isExactScriptBrowserCapability(value: unknown): value is ScriptBrowserCapability {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  const keys = Object.keys(value as Record<string, unknown>);
+  if (keys.length !== 1 || keys[0] !== "browser") {
+    return false;
+  }
+  const browser = (value as Record<string, unknown>).browser;
+  if (browser === null || typeof browser !== "object" || Array.isArray(browser)) {
+    return false;
+  }
+  const browserKeys = Object.keys(browser as Record<string, unknown>);
+  if (browserKeys.length !== 1 || browserKeys[0] !== "actions") {
+    return false;
+  }
+  const actions = (browser as Record<string, unknown>).actions;
+  return (
+    Array.isArray(actions) &&
+    actions.length === 2 &&
+    actions[0] === "snapshot" &&
+    actions[1] === "act"
+  );
+}
+
+export function assertBrowserCapableInputSchema(inputSchema: Record<string, unknown>): void {
+  const properties = inputSchema.properties;
+  const required = inputSchema.required;
+  const profileSchema =
+    properties !== null &&
+    typeof properties === "object" &&
+    !Array.isArray(properties) &&
+    (properties as Record<string, unknown>).profile;
+  if (
+    profileSchema === null ||
+    typeof profileSchema !== "object" ||
+    Array.isArray(profileSchema) ||
+    (profileSchema as Record<string, unknown>).type !== "string" ||
+    !Array.isArray(required) ||
+    !required.includes("profile")
+  ) {
+    throw new Error("Browser-capable Script inputSchema must require a string profile property.");
+  }
+}
+
 const ajv = new Ajv2020({
   strict: true,
   strictSchema: true,
@@ -95,6 +149,7 @@ export function assertScriptVersionAuthoringContract(input: {
     maxCpuMillicores: number;
     maxOutputBytes: number;
   };
+  browserCapabilityEnabled?: boolean;
 }): void {
   if (input.code.length < 1 || input.code.length > 1_000_000) {
     throw new Error("code has an invalid length.");
@@ -108,6 +163,9 @@ export function assertScriptVersionAuthoringContract(input: {
   }
   assertScriptEnvironment(input.environment);
   assertScriptJsonSchema(input.inputSchema, "inputSchema");
+  if (input.browserCapabilityEnabled) {
+    assertBrowserCapableInputSchema(input.inputSchema);
+  }
   assertScriptJsonSchema(input.outputSchema, "outputSchema");
   if (!/^[a-z][a-z0-9_.-]{0,63}$/.test(input.runtime)) {
     throw new Error("runtime has an invalid format.");

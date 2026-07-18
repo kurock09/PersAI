@@ -233,17 +233,90 @@ describe("admin scripts page helpers", () => {
   it("round-trips a version draft and rejects invalid JSON", () => {
     const draft = versionToDraft(createVersion());
     expect(draft.runtime).toBe("python3");
+    expect(draft.browserCapabilityEnabled).toBe(false);
     expect(validateVersionDraftJson(draft)).toBeNull();
 
     const payload = draftToVersionWritePayload(draft);
     expect(payload.runtime).toBe("python3");
     expect(payload.manifest.schemaVersion).toBe(1);
+    expect(payload.manifest.capabilities).toBeUndefined();
 
     expect(validateVersionDraftJson({ ...draft, inputSchemaJson: "{not json" })).toBe(
       "invalidJson"
     );
     expect(validateVersionDraftJson({ ...draft, code: "" })).toBe("invalidJson");
     expect(validateVersionDraftJson({ ...draft, timeoutMs: "abc" })).toBe("invalidJson");
+  });
+
+  it("round-trips exact browser capability and requires string profile input", () => {
+    const browserVersion = createVersion({
+      manifest: {
+        schemaVersion: 1,
+        workingDirectory: null,
+        environment: {},
+        capabilities: { browser: { actions: ["snapshot", "act"] } }
+      },
+      inputSchema: {
+        type: "object",
+        properties: { profile: { type: "string" } },
+        required: ["profile"],
+        additionalProperties: false
+      }
+    });
+    const draft = versionToDraft(browserVersion);
+    expect(draft.browserCapabilityEnabled).toBe(true);
+    expect(validateVersionDraftJson(draft)).toBeNull();
+
+    const payload = draftToVersionWritePayload(draft);
+    expect(payload.manifest.capabilities).toEqual({
+      browser: { actions: ["snapshot", "act"] }
+    });
+
+    expect(
+      validateVersionDraftJson({
+        ...draft,
+        inputSchemaJson: JSON.stringify({ type: "object", properties: {}, required: [] })
+      })
+    ).toBe("browserProfileRequired");
+    expect(
+      validateVersionDraftJson({
+        ...draft,
+        inputSchemaJson: JSON.stringify({
+          type: "object",
+          properties: { profile: { type: "number" } },
+          required: ["profile"]
+        })
+      })
+    ).toBe("browserProfileRequired");
+    expect(
+      validateVersionDraftJson({
+        ...draft,
+        inputSchemaJson: JSON.stringify({
+          type: "object",
+          properties: { profile: { type: "string" } },
+          required: []
+        })
+      })
+    ).toBe("browserProfileRequired");
+
+    const withoutCapability = draftToVersionWritePayload({
+      ...draft,
+      browserCapabilityEnabled: false
+    });
+    expect(withoutCapability.manifest.capabilities).toBeUndefined();
+
+    expect(
+      versionToDraft(
+        createVersion({
+          manifest: {
+            schemaVersion: 1,
+            workingDirectory: null,
+            environment: {},
+            capabilities: { browser: { actions: ["act", "snapshot"] } } as never
+          }
+        })
+      ).browserCapabilityEnabled
+    ).toBe(false);
   });
 
   it("pins canonical ScriptVersion authoring bounds and valid edges", () => {
@@ -384,6 +457,47 @@ describe("AdminScriptsPage integration", () => {
     expect(payload.code).toContain('os.environ["PERSAI_SCRIPT_INPUT_PATH"]');
     expect(payload.code).toContain('os.environ["PERSAI_SCRIPT_OUTPUT_PATH"]');
     expect(await screen.findByText("Draft version created.")).toBeInTheDocument();
+  });
+
+  it("loads browser capability into the draft and preserves it on save", async () => {
+    const browserInputSchema = {
+      type: "object",
+      properties: { profile: { type: "string" } },
+      required: ["profile"],
+      additionalProperties: false
+    };
+    api.getAdminScriptVersions.mockResolvedValue([
+      createVersion({
+        manifest: {
+          schemaVersion: 1,
+          workingDirectory: null,
+          environment: {},
+          capabilities: { browser: { actions: ["snapshot", "act"] } }
+        },
+        inputSchema: browserInputSchema
+      })
+    ]);
+    api.updateAdminScriptVersion.mockImplementation(
+      async (_token, _scriptId, _versionId, payload) => ({
+        ...createVersion(),
+        ...payload,
+        revision: 2
+      })
+    );
+    renderPage("en");
+    fireEvent.click(await screen.findByRole("button", { name: /Send report/ }));
+    const checkbox = await screen.findByRole("checkbox", {
+      name: /Browser capability \(snapshot \+ act\)/
+    });
+    expect(checkbox).toBeChecked();
+
+    fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
+    await waitFor(() => expect(api.updateAdminScriptVersion).toHaveBeenCalledTimes(1));
+    const [, , , payload] = api.updateAdminScriptVersion.mock.calls[0] ?? [];
+    expect(payload.manifest.capabilities).toEqual({
+      browser: { actions: ["snapshot", "act"] }
+    });
+    expect(payload.inputSchema).toEqual(browserInputSchema);
   });
 
   it("persists the exact visible draft before validating it", async () => {

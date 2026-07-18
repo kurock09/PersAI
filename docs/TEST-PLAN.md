@@ -4,6 +4,22 @@ This document defines the current verification baseline for the active PersAI-na
 
 ADR-072 is closed as the historical native migration ADR. Current continuation work should be checked against `docs/ADR/078-consolidated-follow-through-program.md`. `Step 15a` is cancelled and is not an active verification track. ADR-087 defines the unified quota-advisory and paid light-mode target state. ADR-088 defines the unified notification platform target state.
 
+## ADR-152 Browser Script SDK and Durable Job Wait/Notify (checkpoint 4 local)
+
+Checkpoint-4 local coverage proves Admin Scripts UI and MCP
+`script_version_upsert` author only the exact optional capability
+`{browser:{actions:["snapshot","act"]}}` or omit `capabilities`. Web tests
+cover load/save round-trip (capabilities not stripped), client rejection when
+capability is present without required string `profile`, and EN checkbox
+persistence. MCP tests cover accept exact capability + profile coupling,
+omit-capability success, and reject wrong order, truncated/extra actions,
+extra keys, empty/`null` shapes, and missing/non-string/`required`-missing
+profile. Focused web page tests, MCP admin-scripts tests, and proportional
+typecheck/lint/format are required. A first independent Cursor Grok audit
+returned DIRTY (3 P2 docs only; authoring code PASS); docs repairs landed and
+the final status re-check returned CLEAN. Deploy and live acceptance remain
+pending under checkpoint 5. ADR-152 is not closed.
+
 ## ADR-152 Browser Script SDK and Durable Job Wait/Notify (checkpoint 3 local)
 
 Before one coordinated deploy, implementation must prove all 18 approved
@@ -93,9 +109,12 @@ Redis reconnect dispose, serialized <=64 KiB stdin chunk writes, a POSIX-only
 real OS-FD wrapper/CLI round-trip for fragmented >64 KiB responses with
 result-marker separation, FD-dup gating behind `browserEnabled`,
 scriptVersion/assistant replay invisibility, and OpenAPI tuple-constraint
-evidence. Independent **re-audit**, real Redis cross-replica proof, exact-image
-Node/Python smoke, deploy, and live browser acceptance remain pending.
-Checkpoint 4 Admin/MCP authoring is also pending; ADR-152 is not closed.
+evidence. A founder-directed independent re-audit closed residual CP3 docs P2
+after code repairs. Real Redis cross-replica proof, exact-image Node/Python
+smoke, deploy, and live browser acceptance remain pending.
+Checkpoint 4 Admin/MCP authoring is implemented locally (see section above);
+its first independent audit returned DIRTY (3 P2 docs only), repairs landed,
+and the final status re-check returned CLEAN. ADR-152 is not closed.
 
 1. `await wait` returns already-terminal facts without blocking, clamps to 60s,
    allows only one blocking wait/job/turn, returns pending on timeout without

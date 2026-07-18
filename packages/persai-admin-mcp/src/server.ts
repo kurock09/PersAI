@@ -11,6 +11,7 @@ import {
   SMOKE_DELIVERY_AGENT_GUIDE
 } from "./chat-deliverables.js";
 import {
+  assertBrowserCapableInputSchema,
   assertScenarioScriptInputMapping,
   assertScriptEnvironment,
   assertScriptJsonSchema,
@@ -280,11 +281,21 @@ const scriptEnvironmentSchema = z.custom<Record<string, string>>(
   },
   { message: "manifest.environment violates the canonical Script environment contract" }
 );
+const scriptBrowserCapabilitySchema = z
+  .object({
+    browser: z
+      .object({
+        actions: z.tuple([z.literal("snapshot"), z.literal("act")])
+      })
+      .strict()
+  })
+  .strict();
 const scriptManifestSchema = z
   .object({
     schemaVersion: z.literal(1),
     workingDirectory: z.string().trim().min(1).max(SCRIPT_WORKING_DIRECTORY_MAX_CHARS).nullable(),
-    environment: scriptEnvironmentSchema
+    environment: scriptEnvironmentSchema,
+    capabilities: scriptBrowserCapabilitySchema.optional()
   })
   .strict();
 const scriptJsonSchema = (path: "inputSchema" | "outputSchema") =>
@@ -321,7 +332,21 @@ const scriptVersionBodySchema = z
     entryCommand: z.string().min(1).max(4_096),
     limits: scriptLimitsSchema
   })
-  .strict();
+  .strict()
+  .superRefine((body, context) => {
+    if (body.manifest.capabilities === undefined) {
+      return;
+    }
+    try {
+      assertBrowserCapableInputSchema(body.inputSchema);
+    } catch (error) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["inputSchema"],
+        message: error instanceof Error ? error.message : String(error)
+      });
+    }
+  });
 
 export const adminSkillMcpInputSchemas = {
   skillList: z.object({}).strict()
@@ -1047,7 +1072,7 @@ export function createPersaiAdminMcpServer(
     "script_version_upsert",
     {
       description:
-        "Author a Script's draft ScriptVersion (code/manifest/inputSchema/outputSchema/runtime/entryCommand/limits) by scriptKey. Creates the first draft if none exists, or updates the existing draft with an auto-resolved expectedRevision. Published versions are immutable — this never touches them.",
+        "Author a Script's draft ScriptVersion (code/manifest/inputSchema/outputSchema/runtime/entryCommand/limits) by scriptKey. Optional manifest.capabilities may be omitted (no browser) or set exactly to {browser:{actions:[\"snapshot\",\"act\"]}}; when present, inputSchema must require a string profile property (model supplies the value at execute time). Creates the first draft if none exists, or updates the existing draft with an auto-resolved expectedRevision. Published versions are immutable — this never touches them.",
       inputSchema: adminScriptMcpInputSchemas.scriptVersionUpsert
     },
     async ({ scriptKey, body }) => {

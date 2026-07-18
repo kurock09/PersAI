@@ -265,8 +265,15 @@ canonical input hash, and terminal state all match. This seam cannot create or
 admit work. Broker transport payloads are not automatically persisted/logged,
 but a Script can deliberately include SDK-derived data in ordinary authored
 output, which remains persisted `SandboxJob` output.
-Checkpoint 4 Admin/MCP manifest authoring is still pending; checkpoint 3 is
-not deployed or live-accepted.
+Checkpoint 4 Admin/MCP manifest authoring is implemented locally
+(uncommitted): Admin Scripts UI and MCP `script_version_upsert` may set or omit
+the exact optional `manifest.capabilities` object
+`{browser:{actions:["snapshot","act"]}}`; when present, authoring clients
+require `inputSchema` to include a string `profile` property in `required`
+(API publish/validate already enforce the same coupling). Wrong capability
+shapes are rejected at the MCP Zod boundary. A first independent audit returned
+DIRTY (3 P2 docs only); repairs landed and the final status re-check returned
+CLEAN. Checkpoint 3/4 are not deployed or live-accepted.
 
 - The web client performs a best-effort latest-history refresh on `focus`, `visibilitychange` back to visible, and `pageshow`, so a passive disconnect that already committed server-side is reconciled without requiring a manual page reload.
 - the hard-stop route is idempotent with explicit outcomes. Terminal attempt `errorCode: "user_stopped"` on successful Stop; next-turn hydration includes explicit user-stop fact.
