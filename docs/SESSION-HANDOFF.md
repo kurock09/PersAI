@@ -1,16 +1,16 @@
 # SESSION-HANDOFF
 
-## 2026-07-19 — ADR-157 local gate green; commit/push in flight
+## 2026-07-19 — ADR-157 pushed to main
 
-Status: **CLEAN-for-local-implementation + AGENTS/CI-like gate green; pushing
-`main`.** Baseline was `3879196a`. Scope: ADR-157 D1–D5 (delivery never defers
-on narration; chat-model image narration + perception artifacts;
-await max 300000ms pure timer; explicit `background:true` shell with
-fail-closed / retained PIDs; Working OpenAPI ops) + Working pill bounce dots /
-gray job emoji. Local gate: recursive lint, format:check, full typecheck,
-`pnpm test`, `test:ci-detect-affected`, `test:adr146-slice5`, `test:step2`,
-`pnpm build`. Deploy/live acceptance still open after image pin. No separate
-intermediate deploy was used during implementation.
+Status: **Pushed `main` `add71bdf`.** CLEAN-for-local-implementation +
+AGENTS/CI-like gate green before push. Baseline was `3879196a` (rebased over
+gitops pin `41020f19`). Scope: ADR-157 D1–D5 (delivery never defers on
+narration; chat-model image narration + perception artifacts; await max
+300000ms pure timer; explicit `background:true` shell with fail-closed /
+retained PIDs; Working OpenAPI ops) + Working pill bounce dots / gray job
+emoji. Local gate: recursive lint, format:check, full typecheck, `pnpm test`,
+`test:ci-detect-affected`, `test:adr146-slice5`, `test:step2`, `pnpm build`.
+Deploy/live acceptance still open after image pin / migration approvals.
 
 ## 2026-07-19 — Working pill bounce dots + gray job emoji (local)
 
