@@ -324,7 +324,7 @@ web:
       maxSurge: 1
   image:
     name: web
-    tag: f0944d31a052c7a340e1f5ec0e7f544189ec3b16
+    tag: 9a284c74d9238f9af8214aae5e06d317af794e5c
     pullPolicy: IfNotPresent
   env:
     NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_live_Y2xlcmsucGVyc2FpLmRldiQ
@@ -398,7 +398,7 @@ providerGateway:
       maxSurge: 1
   image:
     name: provider-gateway
-    tag: f0944d31a052c7a340e1f5ec0e7f544189ec3b16
+    tag: 9a284c74d9238f9af8214aae5e06d317af794e5c
     pullPolicy: IfNotPresent
   env:
     APP_ENV: dev

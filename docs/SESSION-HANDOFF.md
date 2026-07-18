@@ -1,5 +1,29 @@
 # SESSION-HANDOFF
 
+## 2026-07-18 — ADR-152 missed web/provider-gateway GitOps pin repair pending
+
+Status: **Current HEAD is `07eb17d2`. Dev Image Publish run `29641955595`
+successfully built and pushed the ADR-152 `9a284c74d9238f9af8214aae5e06d317af794e5c`
+web (`sha256:f0b1827491fd9608aeac816f611fefd37b7a5efc84e2737156143ca1d311250e`)
+and provider-gateway
+(`sha256:52b1ea3f38e7b52872a8b41db36919b382b5b925aa4fbfea060dc2e88d03df20`)
+images, but its later sandbox-exec failure prevented migration pin completion.
+Repair `8170f238` / bot pin `07eb17d2` separately rebuilt and pinned only
+api/runtime/sandbox/sandbox-exec. This bounded repair pins the already-existing
+web/provider-gateway images; parent audit, commit, and push remain pending. No
+deploy or live closure has occurred.**
+
+- Root cause: selective image pinning did not preserve the earlier successful
+  web/provider-gateway outputs after the later sandbox-exec failure, leaving
+  both desired/live on `f0944d31` and omitting the ADR-152 UI/provider bridge.
+- Repair scope: only `web.image.tag` and `providerGateway.image.tag` move to
+  the full `9a284c74...` tag. The `8170f238` api/runtime/sandbox/sandbox-exec
+  pins from `07eb17d2` remain unchanged.
+
+Next recommended step: parent audit, commit, and push this values-only GitOps
+repair, then perform the authorized exact-image deploy and founder live
+acceptance. Do not claim ADR-152 closure before those stages.
+
 ## 2026-07-18 — Post-push ADR-152 CI/image repair re-audited CLEAN
 
 Status: **Main HEAD is `9a284c74` plus bot sandbox pin `cdc6153f`. GitHub CI
