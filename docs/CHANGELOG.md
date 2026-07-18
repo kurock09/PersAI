@@ -5,14 +5,13 @@
 
 ## 2026-07-19
 
-- **ScriptRef isolation: broken Script no longer takes down chat.** Bundle
-  materialization degrades an unresolvable / schema-incompatible Scenario step
-  `scriptRef` to `null` instead of failing the whole assistant rematerialize
-  (which previously surfaced as compaction/turn `runtime_degraded` 503). Admin
-  Script publish fail-closes with
-  `admin_script_publish_scenario_mapping_incompatible` when live scenarios still
-  miss required `inputMapping` keys for the new schema. Focused tests updated in
-  `script-ref-materialization` + `manage-admin-scripts`.
+- **ScriptRef isolation pushed to `main` (`e4b9ebae`).** Bundle materialization
+  degrades an unresolvable / schema-incompatible Scenario step `scriptRef` to
+  `null` instead of failing the whole assistant rematerialize (which previously
+  surfaced as compaction/turn `runtime_degraded` 503). Admin Script publish
+  fail-closes with `admin_script_publish_scenario_mapping_incompatible` when
+  live scenarios still miss required `inputMapping` keys for the new schema.
+  Focused tests updated in `script-ref-materialization` + `manage-admin-scripts`.
 
 ## 2026-07-18
 

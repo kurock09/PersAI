@@ -2,13 +2,13 @@
 
 ## 2026-07-19 — ScriptRef isolation (broken Script ≠ dead chat)
 
-Status: **Local implementation.** Baseline clean `main` `5ce806da`. Product
-fix: one unresolvable Scenario `scriptRef` (e.g. Telega v3 required
-`profile` missing from mapping) must not fail-closed rematerialize the whole
-assistant (compaction 503 / turns looking “down”). `materializeScenarioStepScriptRefs`
-now degrades that step to `scriptRef: null` and continues; sibling steps and
-the bundle stay up. Admin `publishVersion` preflight rejects incompatible live
-scenario mappings with
+Status: **Pushed `main` `e4b9ebae`.** Rebased over gitops pin `d4766776`
+(baseline before slice was `5ce806da`). Product fix: one unresolvable Scenario
+`scriptRef` (e.g. Telega v3 required `profile` missing from mapping) must not
+fail-closed rematerialize the whole assistant (compaction 503 / turns looking
+“down”). `materializeScenarioStepScriptRefs` now degrades that step to
+`scriptRef: null` and continues; sibling steps and the bundle stay up. Admin
+`publishVersion` preflight rejects incompatible live scenario mappings with
 `admin_script_publish_scenario_mapping_incompatible` before dirtying
 assistants. Docs: ARCHITECTURE ADR-151 paragraph, CHANGELOG, TEST-PLAN.
 Ops note: tonight’s live Telega scenario mapping was also repaired via MCP
