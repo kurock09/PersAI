@@ -5,11 +5,16 @@
 
 ## 2026-07-18
 
-- **ADR-152 await/job/cap CLEAN-for-local-implementation (local; not
-  committed/deployed).** Independent full re-audit: no open P0/P1; checklist
-  1–7 HOLD. Cap self-include + delivery-visible media cap repairs retained;
-  P2 test gaps closed (runtime post-wait `excludeSandboxJobId` assert;
-  snapshot attachment-visible media exclusion). Not founder live-accepted.
+- **ADR-152 await/job/cap landed on `main` (`845ea6c7`).** Independent full
+  re-audit CLEAN-for-local-implementation; local CI-like gate green before
+  push. Unified 8-cap self-exclude, delivery-visible media terminality,
+  Stop/orphan detach, Working/`async_job_accepted` UX, sandbox async-job
+  handle migration. Deploy/live acceptance still open.
+
+- **ADR-152 await/job/cap CLEAN-for-local-implementation (superseded by
+  push above).** Independent full re-audit: no open P0/P1; checklist 1–7
+  HOLD. Cap self-include + delivery-visible media cap repairs retained;
+  P2 test gaps closed.
 
 - **ADR-152 cap self-include P0 + delivery-visible cap P1 (local; not
   CLEAN).** Post-detach/register cap re-assert excludes the current

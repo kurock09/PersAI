@@ -1,12 +1,13 @@
 # SESSION-HANDOFF
 
-## 2026-07-18 — ADR-152 await/job/cap commit to main (post CLEAN local audit)
+## 2026-07-18 — ADR-152 await/job/cap pushed to main
 
-Status: **CLEAN-for-local-implementation retained.** Local CI-like gate
-green (lint, format:check, api/web/runtime/sandbox typecheck, full
-api/runtime/sandbox/web tests). Founder-directed commit + push to
-`main` in progress. ADR-152 program remains open for F5 deploy/live
-acceptance; do not treat push as closure.
+Status: **Pushed `main` `845ea6c7`.** CLEAN-for-local-implementation
+retained. Local CI-like gate was green (lint, format:check,
+api/web/runtime/sandbox typecheck, full api/runtime/sandbox/web tests)
+before commit. ADR-152 program remains open for migration approval,
+image pin/deploy, and founder live acceptance; do not treat push as
+closure.
 
 ## 2026-07-18 — ADR-152 await/job/cap CLEAN-for-local-implementation
 
