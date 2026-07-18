@@ -129,6 +129,66 @@ void test("publish freezes the exact draft hash, advances Script, and dirties li
   assert.deepEqual(dirtyUpdate, { configDirtyAt: now });
 });
 
+void test("publish fails closed when a live scenario mapping misses new required inputSchema keys", async () => {
+  const tx = {
+    $queryRaw: async (query: unknown) => {
+      const sql = sqlText(query);
+      if (sql.includes("clock_timestamp")) {
+        return [{ now }];
+      }
+      if (sql.includes("skill_scenarios") && sql.includes("scriptRef")) {
+        return [
+          {
+            skillId,
+            scenarioKey: "media_plan",
+            stepNumber: 2,
+            scriptRef: {
+              scriptKey: "sample_script",
+              inputMapping: {
+                query: { source: "tool_input", name: "query" }
+              }
+            }
+          }
+        ];
+      }
+      return [];
+    },
+    skillScript: {
+      findMany: async () => [{ skillId }]
+    },
+    script: {
+      findUnique: async () => scriptRow()
+    },
+    scriptVersion: {
+      findFirst: async () =>
+        versionRow({
+          inputSchema: {
+            type: "object",
+            properties: {
+              profile: { type: "string" },
+              query: { type: "string" }
+            },
+            required: ["profile", "query"],
+            additionalProperties: false
+          }
+        }),
+      update: async () => {
+        throw new Error("must not publish when scenario mappings are incompatible");
+      }
+    }
+  };
+  const prisma = { $transaction: async (fn: (value: typeof tx) => unknown) => fn(tx) };
+  const service = new ManageAdminScriptsService(auth() as never, prisma as never);
+  await assert.rejects(
+    () => service.publishVersion(userId, scriptId, versionId, 2),
+    (error: unknown) =>
+      error instanceof ApiErrorHttpException &&
+      error.getStatus() === 409 &&
+      error.errorObject.code === "admin_script_publish_scenario_mapping_incompatible" &&
+      /missing required keys: profile/.test(error.errorObject.message)
+  );
+});
+
 void test("archive fails closed while a live Skill link remains", async () => {
   const tx = {
     $queryRaw: async () => [],

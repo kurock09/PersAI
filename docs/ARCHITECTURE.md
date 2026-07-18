@@ -139,9 +139,15 @@ nullable (no legacy optional dual-read). Bundle materialization resolves an auth
 live `SkillScript` link to `Script.currentPublishedVersion` and pins the exact
 `{scriptKey, scriptId, scriptVersionId, versionNumber, contentHash,
 inputMapping}` plus the bounded input schema needed for dynamic projection;
-an authored non-null reference that cannot resolve fails bundle materialization
-closed, while an authored null stays null. An already-admitted bundle keeps its
-exact old pin even after a later republish. A dedicated
+an authored non-null reference that cannot resolve (missing live SkillScript
+pin, missing frozen hash, or inputMapping incompatible with the published
+inputSchema) degrades that Scenario step to `scriptRef: null` only — the rest
+of the assistant bundle continues so one broken Script cannot take down chat /
+compaction. Admin Script publish still fail-closes with
+`admin_script_publish_scenario_mapping_incompatible` when live scenarios still
+reference the Script with an incompatible mapping, so authors fix scenarios
+before assistants are dirtied. An authored null stays null. An already-admitted
+bundle keeps its exact old pin even after a later republish. A dedicated
 internal read boundary (`apps/api`) lets the runtime re-fetch that exact pinned
 `ScriptVersion` artifact immediately before execution, live-checking the
 assistant's current Role/effective active Skill, `Script.status`, and the

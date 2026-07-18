@@ -1,5 +1,21 @@
 # SESSION-HANDOFF
 
+## 2026-07-19 — ScriptRef isolation (broken Script ≠ dead chat)
+
+Status: **Local implementation.** Baseline clean `main` `5ce806da`. Product
+fix: one unresolvable Scenario `scriptRef` (e.g. Telega v3 required
+`profile` missing from mapping) must not fail-closed rematerialize the whole
+assistant (compaction 503 / turns looking “down”). `materializeScenarioStepScriptRefs`
+now degrades that step to `scriptRef: null` and continues; sibling steps and
+the bundle stay up. Admin `publishVersion` preflight rejects incompatible live
+scenario mappings with
+`admin_script_publish_scenario_mapping_incompatible` before dirtying
+assistants. Docs: ARCHITECTURE ADR-151 paragraph, CHANGELOG, TEST-PLAN.
+Ops note: tonight’s live Telega scenario mapping was also repaired via MCP
+(`profile` in inputMapping) and dirty rematerialize cleared for `persai` /
+`luma`. Local gate green before push: recursive lint, format:check, api+web
+typecheck, full `pnpm test`, `test:ci-detect-affected`, `test:step2`.
+
 ## 2026-07-19 — ADR-157 pushed to main
 
 Status: **Pushed `main` `add71bdf`.** CLEAN-for-local-implementation +

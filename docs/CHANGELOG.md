@@ -3,6 +3,17 @@
 > Archive: detailed historical entries from 2026-06-05 and earlier moved to `docs/CHANGELOG.archive-2026-06-05-details-and-earlier.md`; entries from 2026-05-19 and earlier remain in `docs/CHANGELOG.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: current entries plus concise recent summaries only.
 
+## 2026-07-19
+
+- **ScriptRef isolation: broken Script no longer takes down chat.** Bundle
+  materialization degrades an unresolvable / schema-incompatible Scenario step
+  `scriptRef` to `null` instead of failing the whole assistant rematerialize
+  (which previously surfaced as compaction/turn `runtime_degraded` 503). Admin
+  Script publish fail-closes with
+  `admin_script_publish_scenario_mapping_incompatible` when live scenarios still
+  miss required `inputMapping` keys for the new schema. Focused tests updated in
+  `script-ref-materialization` + `manage-admin-scripts`.
+
 ## 2026-07-18
 
 - **ADR-157 pushed to `main` (`add71bdf`).** D1–D5: delivery never defers on

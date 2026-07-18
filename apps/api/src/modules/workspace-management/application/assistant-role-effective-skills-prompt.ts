@@ -68,9 +68,9 @@ export async function resolveAssistantRoleEffectiveSkillsPrompt(params: {
       description: normalizeStringRecord(row.description),
       iconEmoji: row.iconEmoji,
       intentExamples: normalizeStringArray(row.intentExamples),
-      // ADR-151 — pins each step's raw {scriptKey, inputMapping} to the exact
-      // owning-Skill SkillScript link + Script.currentPublishedVersion, or
-      // null when that chain no longer resolves live.
+      // Pins each step's raw {scriptKey, inputMapping} to the exact owning-Skill
+      // SkillScript link + Script.currentPublishedVersion. Unresolvable / schema-
+      // incompatible refs degrade to null on that step only (bundle stays up).
       steps: await materializeScenarioStepScriptRefs({
         prisma: params.prisma,
         skillId: row.skillId,

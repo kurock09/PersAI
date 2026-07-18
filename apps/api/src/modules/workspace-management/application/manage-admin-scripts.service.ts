@@ -29,6 +29,8 @@ import {
   type ScriptVersionWriteInput,
   type SkillScriptLinkState
 } from "./script-management.types";
+import { describeMappingIncompatibility } from "./script-ref-materialization";
+import { parseScriptRef } from "./skill-scenario.types";
 
 @Injectable()
 export class ManageAdminScriptsService {
@@ -304,6 +306,11 @@ export class ManageAdminScriptsService {
       }
       const executable = this.versionInput(version);
       validateExecutableContract(executable);
+      await this.assertScenarioMappingsCompatibleWithPublishedSchema(
+        tx,
+        script.key,
+        (version.inputSchema ?? {}) as Record<string, unknown>
+      );
       const hash = computeScriptContentHash(executable);
       const clock = await this.databaseClock(tx);
       const published = await tx.scriptVersion.update({
@@ -472,6 +479,76 @@ export class ManageAdminScriptsService {
       orderBy: { skillId: "asc" }
     });
     return links.map((link) => link.skillId);
+  }
+
+  /**
+   * Fail closed at publish time when any live Skill scenario still references
+   * this Script with an inputMapping that cannot satisfy the new published
+   * inputSchema. Prevents dirtying every Role-linked assistant into a broken
+   * rematerialize loop; authors must fix the scenario mapping first.
+   */
+  private async assertScenarioMappingsCompatibleWithPublishedSchema(
+    tx: Prisma.TransactionClient,
+    scriptKey: string,
+    inputSchema: Record<string, unknown>
+  ): Promise<void> {
+    const rows = await tx.$queryRaw<
+      Array<{
+        skillId: string;
+        scenarioKey: string;
+        stepNumber: number;
+        scriptRef: unknown;
+      }>
+    >(Prisma.sql`
+      SELECT
+        scenario."skill_id"::text AS "skillId",
+        scenario."key" AS "scenarioKey",
+        COALESCE((step.value ->> 'number')::int, 0) AS "stepNumber",
+        step.value -> 'scriptRef' AS "scriptRef"
+      FROM "skill_scenarios" scenario
+      JOIN "skills" skill ON skill."id" = scenario."skill_id"
+      CROSS JOIN LATERAL jsonb_array_elements(
+        CASE
+          WHEN jsonb_typeof(scenario."steps") = 'array' THEN scenario."steps"
+          ELSE '[]'::jsonb
+        END
+      ) AS step(value)
+      WHERE scenario."status" <> 'archived'
+        AND skill."status" <> 'archived'
+        AND skill."archived_at" IS NULL
+        AND step.value -> 'scriptRef' ->> 'scriptKey' = ${scriptKey}
+      ORDER BY scenario."skill_id" ASC, scenario."key" ASC, "stepNumber" ASC
+    `);
+
+    const conflicts: string[] = [];
+    for (const row of rows) {
+      let parsed;
+      try {
+        parsed = parseScriptRef(row.scriptRef, "scriptRef");
+      } catch (error) {
+        conflicts.push(
+          `skill=${row.skillId} scenario=${row.scenarioKey} step=${row.stepNumber}: ${
+            error instanceof Error ? error.message : "scriptRef is malformed"
+          }`
+        );
+        continue;
+      }
+      if (parsed === null) {
+        continue;
+      }
+      const problem = describeMappingIncompatibility(parsed.inputMapping, inputSchema);
+      if (problem !== null) {
+        conflicts.push(
+          `skill=${row.skillId} scenario=${row.scenarioKey} step=${row.stepNumber}: ${problem}`
+        );
+      }
+    }
+    if (conflicts.length > 0) {
+      throw this.conflict(
+        "admin_script_publish_scenario_mapping_incompatible",
+        `Cannot publish Script "${scriptKey}": live Skill scenario scriptRef mappings are incompatible with the new inputSchema. Fix scenarios first. ${conflicts.slice(0, 5).join("; ")}`
+      );
+    }
   }
 
   private async hasLiveScenarioReference(

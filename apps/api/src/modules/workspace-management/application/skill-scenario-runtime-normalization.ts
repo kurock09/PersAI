@@ -8,7 +8,7 @@ import type { RuntimeBundleSkillScenarioStep } from "@persai/runtime-contract";
  * materialization pass (`script-ref-materialization.ts`), which reuses the
  * exact same `parseScriptRef` the Admin authoring path uses (no duplicated
  * parsing logic here) and is the first point in this pipeline that has the
- * `skillId` needed to build a stable `ScriptRefMaterializationError`. This
+ * `skillId` needed for per-step Script pin resolution / degradation. This
  * pass must never canonicalize a malformed non-null value to `null` — doing
  * so would let bundle materialization silently succeed as if the authored ref
  * were explicitly absent.

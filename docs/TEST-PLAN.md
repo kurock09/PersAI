@@ -4,6 +4,19 @@ This document defines the current verification baseline for the active PersAI-na
 
 ADR-072 is closed as the historical native migration ADR. Current continuation work should be checked against `docs/ADR/078-consolidated-follow-through-program.md`. `Step 15a` is cancelled and is not an active verification track. ADR-087 defines the unified quota-advisory and paid light-mode target state. ADR-088 defines the unified notification platform target state.
 
+## 2026-07-19 ScriptRef isolation (broken Script ≠ dead chat)
+
+- `apps/api/test/script-ref-materialization.test.ts`: unresolvable pin, missing
+  hash, incompatible required mapping, and malformed authored refs degrade the
+  step to `scriptRef: null` (with `onDegraded` reason) while sibling steps still
+  pin; successful pin path unchanged
+- `apps/api/test/manage-admin-scripts.service.test.ts`: publish rejects with
+  `admin_script_publish_scenario_mapping_incompatible` when a live scenario
+  mapping misses new required inputSchema keys; happy-path publish still dirties
+  linked assistants
+- regression expectation: compaction/turn rematerialize must not 503 solely
+  because one Scenario scriptRef cannot pin
+
 ## 2026-07-18 ADR-152 universal await + detached shell implementation
 
 The local founder follow-through is not CLEAN/deployed. Required gate:
@@ -358,10 +371,12 @@ additionally covers:
   exact `{scriptId, scriptVersionId, versionNumber, contentHash}` pin with
   `inputMapping` carried through unchanged; one lookup per distinct
   `scriptKey` (not per step); unresolvable references (unlinked, archived,
-  draft-only/no frozen hash, or schema-incompatible mapping) throw the stable
-  typed materialization error and fail the bundle closed; only an authored
-  null remains null; a later republish only changes a _future_
-  materialization, never a bundle already materialized.
+  draft-only/no frozen hash, schema-incompatible mapping, or malformed
+  authored ref) degrade that step to `scriptRef: null` only (bundle continues;
+  `onDegraded` carries the reason); only an authored null remains null; a later
+  republish only changes a _future_ materialization, never a bundle already
+  materialized. Admin publish separately fail-closes on incompatible live
+  scenario mappings before dirtying assistants.
 - **Internal artifact API**
   (`apps/api/test/internal-runtime-script-artifact.service.test.ts`): success
   path returns the exact pin plus bounded executable/schema metadata (never

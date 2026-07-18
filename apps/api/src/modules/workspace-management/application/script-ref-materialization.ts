@@ -6,13 +6,10 @@ import { parseScriptRef, type SkillScenarioScriptRef } from "./skill-scenario.ty
 import type { NormalizedSkillScenarioStep } from "./skill-scenario-runtime-normalization";
 
 /**
- * ADR-151 — the narrow read surface the materializer needs from Prisma. A
- * single `findFirst` per distinct `scriptKey` resolves, in one round-trip,
- * whether the owning Skill still has a live `SkillScript` link to a Script
- * that is `published` (not archived, not draft-only), and if so returns its
- * exact `currentPublishedVersion` — the pin. An authored non-null reference
- * that cannot resolve is materialization corruption/staleness and fails the
- * whole assistant bundle closed with a stable typed error.
+ * Narrow Prisma read surface for Script-pin resolution during Skill scenario
+ * materialization. One `findFirst` per distinct `scriptKey` resolves whether
+ * the owning Skill still has a live published SkillScript link and returns
+ * the exact `currentPublishedVersion` pin.
  */
 export interface ScriptRefMaterializationPrismaClient {
   skillScript: {
@@ -53,6 +50,11 @@ type ResolvedScriptPin = {
 export const SCRIPT_REF_MATERIALIZATION_ERROR_CODE =
   "script_ref_materialization_unresolvable" as const;
 
+/**
+ * Typed authoring/publish error. Bundle materialization no longer throws this
+ * for live chat admission: unresolvable step refs degrade to `scriptRef: null`
+ * so one broken Script cannot take down the whole assistant.
+ */
 export class ScriptRefMaterializationError extends Error {
   readonly code = SCRIPT_REF_MATERIALIZATION_ERROR_CODE;
 
@@ -70,34 +72,30 @@ export class ScriptRefMaterializationError extends Error {
   }
 }
 
+export type ScriptRefStepDegradation = {
+  skillId: string;
+  stepNumber: number;
+  scriptKey: string;
+  reason: string;
+};
+
 /**
- * ADR-151 — resolves every raw, unparsed `scriptRef` scenario-step value into
- * the exact immutable pin. This is the canonical materialization boundary:
- * it is the first point in the normalization/materialization pipeline that
- * both (a) has the `skillId` needed to build a stable
- * `ScriptRefMaterializationError` and (b) is the designated place authored
- * `scriptRef` values are parsed/validated for the runtime path, via the exact
- * same `parseScriptRef` the Admin authoring path uses. Only an authored
- * explicit `null`/absent value remains `null`. Every other value fails
- * closed with a typed `ScriptRefMaterializationError`: a malformed non-null
- * `scriptRef` or a malformed nested `inputMapping`/source entry (caught here,
- * before any database round-trip), an authored reference with no live
- * `SkillScript` link, or a mapping that cannot satisfy the pinned Script's
- * published input schema. `inputMapping` is carried through unchanged once
- * parsed (the runtime maps inputs; the API never interprets
- * `literal`/`current_user_message`/`tool_input` sources). Runs at most one
- * query per distinct `scriptKey` referenced across the given steps, not per
- * step.
+ * Resolves every raw scenario-step `scriptRef` into an exact immutable pin.
+ *
+ * Isolation rule: an authored non-null reference that cannot parse, resolve,
+ * or satisfy the published input schema degrades that step to `scriptRef: null`
+ * and records a degradation. Other steps and the rest of the assistant bundle
+ * continue. Publish/authoring paths still use
+ * {@link isMappingCompatibleWithInputSchema} / {@link ScriptRefMaterializationError}
+ * to fail closed before assistants are dirtied.
  */
 export async function materializeScenarioStepScriptRefs(params: {
   prisma: ScriptRefMaterializationPrismaClient;
   skillId: string;
   steps: NormalizedSkillScenarioStep[];
+  onDegraded?: (degradation: ScriptRefStepDegradation) => void;
 }): Promise<RuntimeBundleSkillScenarioStep[]> {
-  const parsedSteps = params.steps.map((step) => ({
-    step,
-    ref: parseAuthoredScriptRefOrFail(params.skillId, step.scriptRef)
-  }));
+  const parsedSteps = params.steps.map((step) => parseStepScriptRef(step));
   const distinctScriptKeys = [
     ...new Set(
       parsedSteps
@@ -113,16 +111,39 @@ export async function materializeScenarioStepScriptRefs(params: {
       )
     )
   );
-  return parsedSteps.map(({ step, ref }) => {
+
+  return parsedSteps.map(({ step, ref, parseFailure }) => {
+    if (parseFailure !== null) {
+      emitDegraded(params, {
+        skillId: params.skillId,
+        stepNumber: step.number,
+        scriptKey: parseFailure.scriptKey,
+        reason: parseFailure.reason
+      });
+      return { ...step, scriptRef: null };
+    }
     if (ref === null) {
       return { ...step, scriptRef: null };
     }
     const pin = pinsByScriptKey.get(ref.scriptKey) ?? null;
     if (pin === null) {
-      throw new ScriptRefMaterializationError(params.skillId, ref.scriptKey);
+      emitDegraded(params, {
+        skillId: params.skillId,
+        stepNumber: step.number,
+        scriptKey: ref.scriptKey,
+        reason: "no live published SkillScript pin (missing link, version, or contentHash)"
+      });
+      return { ...step, scriptRef: null };
     }
-    if (!isMappingCompatibleWithInputSchema(ref.inputMapping, pin.inputSchema)) {
-      throw new ScriptRefMaterializationError(params.skillId, ref.scriptKey);
+    const mappingProblem = describeMappingIncompatibility(ref.inputMapping, pin.inputSchema);
+    if (mappingProblem !== null) {
+      emitDegraded(params, {
+        skillId: params.skillId,
+        stepNumber: step.number,
+        scriptKey: ref.scriptKey,
+        reason: mappingProblem
+      });
+      return { ...step, scriptRef: null };
     }
     return {
       ...step,
@@ -139,25 +160,36 @@ export async function materializeScenarioStepScriptRefs(params: {
   });
 }
 
-/**
- * ADR-151 repair — a persisted non-null `scriptRef` (or a malformed nested
- * `inputMapping`/source entry) that fails the canonical parser must fail
- * bundle materialization closed with a typed `ScriptRefMaterializationError`,
- * not silently canonicalize to `null` the way the earlier hand-rolled
- * runtime-only normalizer used to.
- */
-function parseAuthoredScriptRefOrFail(
-  skillId: string,
-  rawScriptRef: unknown
-): SkillScenarioScriptRef | null {
+function emitDegraded(
+  params: {
+    skillId: string;
+    onDegraded?: (degradation: ScriptRefStepDegradation) => void;
+  },
+  degradation: ScriptRefStepDegradation
+): void {
+  params.onDegraded?.(degradation);
+}
+
+function parseStepScriptRef(step: NormalizedSkillScenarioStep): {
+  step: NormalizedSkillScenarioStep;
+  ref: SkillScenarioScriptRef | null;
+  parseFailure: { scriptKey: string; reason: string } | null;
+} {
   try {
-    return parseScriptRef(rawScriptRef, "scriptRef");
+    return {
+      step,
+      ref: parseScriptRef(step.scriptRef, "scriptRef"),
+      parseFailure: null
+    };
   } catch (error) {
-    throw new ScriptRefMaterializationError(
-      skillId,
-      extractScriptKeyGuess(rawScriptRef),
-      error instanceof Error ? error.message : "scriptRef is malformed."
-    );
+    return {
+      step,
+      ref: null,
+      parseFailure: {
+        scriptKey: extractScriptKeyGuess(step.scriptRef),
+        reason: error instanceof Error ? error.message : "scriptRef is malformed."
+      }
+    };
   }
 }
 
@@ -171,12 +203,21 @@ function extractScriptKeyGuess(rawScriptRef: unknown): string {
   return "<malformed>";
 }
 
-function isMappingCompatibleWithInputSchema(
+/** True when every schema-required key is present in the authored mapping. */
+export function isMappingCompatibleWithInputSchema(
   inputMapping: Record<string, unknown>,
   inputSchema: Record<string, unknown>
 ): boolean {
+  return describeMappingIncompatibility(inputMapping, inputSchema) === null;
+}
+
+/** Human-readable incompatibility, or null when the mapping is compatible. */
+export function describeMappingIncompatibility(
+  inputMapping: Record<string, unknown>,
+  inputSchema: Record<string, unknown>
+): string | null {
   if (inputSchema.type !== "object") {
-    return false;
+    return "published inputSchema.type must be object";
   }
   const properties =
     inputSchema.properties !== null &&
@@ -184,16 +225,24 @@ function isMappingCompatibleWithInputSchema(
     !Array.isArray(inputSchema.properties)
       ? (inputSchema.properties as Record<string, unknown>)
       : {};
-  if (
-    inputSchema.additionalProperties === false &&
-    Object.keys(inputMapping).some((key) => !Object.prototype.hasOwnProperty.call(properties, key))
-  ) {
-    return false;
+  if (inputSchema.additionalProperties === false) {
+    const unknownKeys = Object.keys(inputMapping).filter(
+      (key) => !Object.prototype.hasOwnProperty.call(properties, key)
+    );
+    if (unknownKeys.length > 0) {
+      return `inputMapping has keys not allowed by additionalProperties:false: ${unknownKeys.join(", ")}`;
+    }
   }
   const required = Array.isArray(inputSchema.required)
     ? inputSchema.required.filter((entry): entry is string => typeof entry === "string")
     : [];
-  return required.every((key) => Object.prototype.hasOwnProperty.call(inputMapping, key));
+  const missing = required.filter(
+    (key) => !Object.prototype.hasOwnProperty.call(inputMapping, key)
+  );
+  if (missing.length > 0) {
+    return `inputMapping missing required keys: ${missing.join(", ")}`;
+  }
+  return null;
 }
 
 async function resolveScriptPin(
