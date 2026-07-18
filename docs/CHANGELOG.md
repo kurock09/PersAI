@@ -5,14 +5,12 @@
 
 ## 2026-07-18
 
-- **ADR-157 landed locally (gate green; push in flight).** D1–D5: delivery
-  never defers on narration; image narration is chat-model owned with
-  plan-gated perception artifacts; await wait max 300000ms pure timer;
-  explicit shell `background:true` with session fail-closed + retained PIDs;
-  Working OpenAPI ops + bounce-dot pill / gray job emoji. Composer
-  CLEAN-for-local-implementation; AGENTS + CI-like gate green (lint,
-  format:check, typecheck, full test, step2, adr146-slice5,
-  ci-detect-affected, build). Deploy/live acceptance still open.
+- **ADR-157 pushed to `main` (`add71bdf`).** D1–D5: delivery never defers on
+  narration; image narration is chat-model owned with plan-gated perception
+  artifacts; await wait max 300000ms pure timer; explicit shell
+  `background:true` with session fail-closed + retained PIDs; Working OpenAPI
+  ops + bounce-dot pill / gray job emoji. Composer CLEAN-for-local-implementation;
+  AGENTS + CI-like gate green before push. Deploy/live acceptance still open.
 
 - **ADR-157 audit repairs (local; re-audit pending).** Closes DIRTY findings:
   plan-gated image perception into next chat-model call (internal perception
