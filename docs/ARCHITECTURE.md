@@ -147,11 +147,15 @@ assistant's current Role/effective active Skill, `Script.status`, and the
 `SkillScript` link on every admission (older published
 pins remain valid; archived/unlinked/key/hash mismatch fails closed with
 stable typed errors) without ever leaking code to prompts/logs. The
-provider-facing tool name is `script` (`{action:"execute", input:object}`,
-internal operation/`SandboxJob.toolCode` exactly `script.execute`), projected
-only when the exact current active Scenario step carries a materialized
-`scriptRef`; projection is not authorization, so the runtime re-resolves the
-live Skill/Scenario/step immediately before dispatch. Runtime input mapping
+provider-facing tool name is `script`
+(`{action:"execute", scriptKey:string, input:object}`, internal
+operation/`SandboxJob.toolCode` exactly `script.execute`), projected when the
+active Scenario binds at least one materialized step `scriptRef` (Scenario-
+scoped: every Script referenced by any step of that Scenario remains available
+for the whole Scenario period, not only the current operational step). The
+model must name an explicit `scriptKey`. Projection is not authorization: the
+runtime re-derives Scenario membership from live Skill/Scenario state and
+re-fetches the pinned artifact immediately before dispatch. Runtime input mapping
 supports exactly `literal` / `current_user_message` / `tool_input` sources,
 validates the mapped object and the Script's result against the exact
 published input/output JSON Schemas with Ajv 8.18 strict Draft 2020-12, and

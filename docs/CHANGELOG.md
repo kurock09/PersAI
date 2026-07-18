@@ -5,6 +5,20 @@
 
 ## 2026-07-18
 
+- **Script draft seed + Scenario scriptRef UI + Scenario-scoped runtime
+  Scripts (no new ADR).** Admin «Новая версия-черновик» copies the last
+  published ScriptVersion (existing draft never overwritten). Skills Scenario
+  editor round-trips `scriptRef` (select published Skill-linked Scripts +
+  literal/current_user_message/tool_input mapping) instead of wiping
+  MCP-authored refs with `null`. Runtime projects and authorizes every Script
+  bound to any step of the active Scenario for the whole Scenario period;
+  provider `script` requires explicit `scriptKey`. Post-audit repairs:
+  multi-Script wire schema `type:object`+`oneOf`; padded `scriptKey`
+  fail-closed; ARCHITECTURE/API-BOUNDARY honesty. Also hardens
+  `analyzePinableServiceImageTags` to fail closed on mis-indented `tag:`
+  lines under pinable image blocks (fixes detect-affected indentation-trick
+  coverage when shared SHAs collide).
+
 - **ADR-152 await/job/cap landed on `main` (`845ea6c7`).** Independent full
   re-audit CLEAN-for-local-implementation; local CI-like gate green before
   push. Unified 8-cap self-exclude, delivery-visible media terminality,

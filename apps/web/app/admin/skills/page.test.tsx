@@ -7,6 +7,7 @@ import type {
 } from "@/app/app/assistant-api-client";
 import type { AdminSkillScenario } from "@persai/contracts";
 import {
+  draftToScriptRef,
   draftToSkillPayload,
   filterUnsavedProposedKnowledgeCards,
   KNOWLEDGE_LOCALE_OPTIONS,
@@ -19,6 +20,7 @@ import {
   scenarioDraftToCreatePayload,
   scenarioDraftToUpdatePayload,
   scenarioToDraft,
+  scriptRefToDraft,
   skillToDraft,
   summarizeKnowledgeCards,
   summarizeSkillReadiness,
@@ -439,7 +441,8 @@ describe("admin skills — scenario helper functions", () => {
           expectedUserResponse: "" as string,
           nextStepTrigger: "" as string,
           recoveryGuidance: "" as string,
-          firstStepPreview: "" as string
+          firstStepPreview: "" as string,
+          scriptRef: null
         }
       ]
     };
@@ -681,5 +684,98 @@ describe("ADR-119 Slice 10 — new scenario step fields", () => {
     const draft = { ...scenarioToDraft(createScenario()), steps: [] };
     const preview = renderScenarioCatalogFirstStepPreview(draft);
     expect(preview).toBe("");
+  });
+
+  it("scenarioToDraft / create+update payloads round-trip step scriptRef", () => {
+    const scenario = createScenario("scripted_carousel", "active");
+    scenario.steps[0] = {
+      ...scenario.steps[0]!,
+      scriptRef: {
+        scriptKey: "carousel_render",
+        inputMapping: {
+          topic: { source: "current_user_message" },
+          count: { source: "literal", value: 8 },
+          format: { source: "tool_input", name: "format" }
+        }
+      }
+    };
+    const draft = scenarioToDraft(scenario);
+    expect(draft.steps[0]?.scriptRef).toEqual({
+      scriptKey: "carousel_render",
+      mappingEntries: [
+        {
+          fieldName: "topic",
+          source: "current_user_message",
+          literalValueJson: "null",
+          toolInputName: ""
+        },
+        {
+          fieldName: "count",
+          source: "literal",
+          literalValueJson: "8",
+          toolInputName: ""
+        },
+        {
+          fieldName: "format",
+          source: "tool_input",
+          literalValueJson: "null",
+          toolInputName: "format"
+        }
+      ]
+    });
+    const createPayload = scenarioDraftToCreatePayload(draft);
+    expect(createPayload.steps[0]?.scriptRef).toEqual({
+      scriptKey: "carousel_render",
+      inputMapping: {
+        topic: { source: "current_user_message" },
+        count: { source: "literal", value: 8 },
+        format: { source: "tool_input", name: "format" }
+      }
+    });
+    const updatePayload = scenarioDraftToUpdatePayload(draft);
+    expect(updatePayload.steps?.[0]?.scriptRef).toEqual(createPayload.steps[0]?.scriptRef);
+  });
+
+  it("create/update payloads keep unbound scriptRef as null (never wipe by omission)", () => {
+    const draft = scenarioToDraft(createScenario());
+    expect(draft.steps.every((step) => step.scriptRef === null)).toBe(true);
+    const createPayload = scenarioDraftToCreatePayload(draft);
+    expect(createPayload.steps.every((step) => step.scriptRef === null)).toBe(true);
+    const updatePayload = scenarioDraftToUpdatePayload(draft);
+    expect(updatePayload.steps?.every((step) => step.scriptRef === null)).toBe(true);
+  });
+
+  it("draftToScriptRef / scriptRefToDraft reject invalid literal JSON via validateScenarioDraft", () => {
+    const draft = scenarioToDraft(createScenario());
+    const step0 = draft.steps[0]!;
+    const invalid = {
+      ...draft,
+      steps: [
+        {
+          ...step0,
+          scriptRef: {
+            scriptKey: "carousel_render",
+            mappingEntries: [
+              {
+                fieldName: "count",
+                source: "literal" as const,
+                literalValueJson: "{not-json",
+                toolInputName: ""
+              }
+            ]
+          }
+        },
+        ...draft.steps.slice(1)
+      ]
+    };
+    const { errors } = validateScenarioDraft(invalid);
+    expect(errors.step_0_script_ref).toMatch(/Literal JSON/);
+    expect(() => draftToScriptRef(invalid.steps[0]!.scriptRef)).toThrow(/Literal JSON/);
+    expect(
+      scriptRefToDraft({
+        scriptKey: "carousel_render",
+        inputMapping: { topic: { source: "current_user_message" } }
+      })?.scriptKey
+    ).toBe("carousel_render");
   });
 });

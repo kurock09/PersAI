@@ -2178,15 +2178,19 @@ export async function runAdr151TurnDispatchIntegrationTest(): Promise<void> {
       };
     }
   };
-  const observedSteps: Array<number | null> = [];
+  const observedAvailability: Array<string[] | null> = [];
   const runtimeScriptToolService = {
     async executeToolCall(input: {
-      activeScenarioStep: { step: { number: number; scriptRef: unknown } } | null;
+      availableScenarioScripts: {
+        scriptRefs: Array<{ scriptKey: string }>;
+      } | null;
     }) {
-      const activeScriptStep =
-        input.activeScenarioStep?.step.scriptRef === null ? null : input.activeScenarioStep;
-      observedSteps.push(activeScriptStep?.step.number ?? null);
-      return activeScriptStep === null
+      const keys =
+        input.availableScenarioScripts === null
+          ? null
+          : input.availableScenarioScripts.scriptRefs.map((ref) => ref.scriptKey);
+      observedAvailability.push(keys);
+      return keys === null || keys.length === 0
         ? {
             payload: { toolCode: "script", action: "skipped", reason: "script_not_active" },
             isError: true
@@ -2195,7 +2199,7 @@ export async function runAdr151TurnDispatchIntegrationTest(): Promise<void> {
             payload: {
               toolCode: "script",
               action: "completed",
-              content: { dispatchedStep: activeScriptStep.step.number }
+              content: { availableScriptKeys: keys }
             },
             isError: false
           };
@@ -2263,7 +2267,7 @@ export async function runAdr151TurnDispatchIntegrationTest(): Promise<void> {
       knowledgeSearchSources: [],
       knowledgeFetchSources: []
     },
-    nativeToolProjectionOptions: { activeScriptRef: scriptRef },
+    nativeToolProjectionOptions: { activeScenarioScriptRefs: [scriptRef] },
     providerRequest: {
       messages: [{ role: "user", content: request.message.text }],
       tools: [{ name: "script", description: "Execute active script.", inputSchema: {} }]
@@ -2283,10 +2287,11 @@ export async function runAdr151TurnDispatchIntegrationTest(): Promise<void> {
   const providerScriptCall: ProviderGatewayToolCall = {
     id: "script-call-1",
     name: "script",
-    arguments: { action: "execute", input: {} }
+    arguments: { action: "execute", scriptKey: "dispatch_script", input: {} }
   };
 
-  const revokedOutcome = await privateAccess.executeProjectedToolCall(
+  liveTodos = stepTwoTodos;
+  const onLaterStepOutcome = await privateAccess.executeProjectedToolCall(
     execution,
     createAcceptedTurn(),
     request,
@@ -2297,8 +2302,8 @@ export async function runAdr151TurnDispatchIntegrationTest(): Promise<void> {
     [],
     turnState
   );
-  assert.equal(revokedOutcome.payload.reason, "script_not_active");
-  assert.deepEqual(observedSteps, [null]);
+  assert.equal(onLaterStepOutcome.payload.action, "completed");
+  assert.deepEqual(observedAvailability, [["dispatch_script"]]);
 
   liveTodos = stepOneTodos;
   const authorizedOutcome = await privateAccess.executeProjectedToolCall(
@@ -2313,7 +2318,7 @@ export async function runAdr151TurnDispatchIntegrationTest(): Promise<void> {
     turnState
   );
   assert.equal(authorizedOutcome.payload.action, "completed");
-  assert.deepEqual(observedSteps, [null, 1]);
+  assert.deepEqual(observedAvailability, [["dispatch_script"], ["dispatch_script"]]);
 
   execution.currentSkillDecisionState = null;
   const releasedSkillOutcome = await privateAccess.executeProjectedToolCall(
@@ -2328,16 +2333,17 @@ export async function runAdr151TurnDispatchIntegrationTest(): Promise<void> {
     turnState
   );
   assert.equal(releasedSkillOutcome.payload.reason, "script_not_active");
-  assert.deepEqual(observedSteps, [null, 1, null]);
+  assert.deepEqual(observedAvailability, [["dispatch_script"], ["dispatch_script"], null]);
 
   execution.currentSkillDecisionState = activeSkillState;
+  liveTodos = stepOneTodos;
   await privateAccess.refreshVolatilePrefix(execution, request, {}, turnState);
   assert.ok(execution.providerRequest.tools.some((tool) => tool.name === "script"));
   liveTodos = stepTwoTodos;
   await privateAccess.refreshVolatilePrefix(execution, request, {}, turnState);
-  assert.equal(
+  assert.ok(
     execution.providerRequest.tools.some((tool) => tool.name === "script"),
-    false
+    "script remains projected on later steps while Scenario still binds Scripts"
   );
   execution.currentSkillDecisionState = null;
   liveTodos = stepOneTodos;

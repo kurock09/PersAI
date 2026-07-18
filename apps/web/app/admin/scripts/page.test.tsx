@@ -8,7 +8,9 @@ import AdminScriptsPage, {
   draftToScriptCreatePayload,
   draftToScriptUpdatePayload,
   draftToVersionWritePayload,
+  resolveVersionEditorSeed,
   scriptToDraft,
+  seedDraftCreateFromPublished,
   validateScriptDraft,
   validateVersionDraftJson,
   versionToDraft
@@ -438,12 +440,54 @@ describe("AdminScriptsPage integration", () => {
     );
   });
 
-  it("creates a draft version from the editor and reports the localized confirmation", async () => {
+  it("creates a draft version by copying the last published version, not empty boilerplate", async () => {
+    const publishedCode =
+      'import json, os\nresult = {"echo": True}\njson.dump(result, open(os.environ["PERSAI_SCRIPT_OUTPUT_PATH"], "w"))\n';
+    const published = createVersion({
+      id: "00000000-0000-4000-8000-000000000699",
+      status: "published",
+      version: 1,
+      code: publishedCode,
+      contentHash: "abc123",
+      publishedAt: "2026-07-17T01:00:00.000Z",
+      limits: {
+        timeoutMs: 12_000,
+        maxMemoryMb: 128,
+        maxCpuMillicores: 250,
+        maxOutputBytes: 32_768
+      },
+      inputSchema: {
+        type: "object",
+        properties: { message: { type: "string" } },
+        required: ["message"],
+        additionalProperties: false
+      }
+    });
+    api.getAdminScripts.mockResolvedValue([
+      createScript({
+        status: "published",
+        currentPublishedVersionId: published.id
+      })
+    ]);
+    api.getAdminScriptVersions.mockResolvedValue([published]);
+    api.createAdminScriptVersion.mockResolvedValue(
+      createVersion({
+        id: "00000000-0000-4000-8000-000000000700",
+        status: "draft",
+        version: 2,
+        code: publishedCode
+      })
+    );
+
     renderPage("en");
     fireEvent.click(await screen.findByRole("button", { name: /Send report/ }));
     expect(
       await screen.findByText("No draft version. Create one to author code.")
     ).toBeInTheDocument();
+    await waitFor(() => {
+      const codeField = screen.getByRole("textbox", { name: /^Code$/i });
+      expect(codeField).toHaveValue(publishedCode);
+    });
 
     fireEvent.click(screen.getByRole("button", { name: "New draft version" }));
 
@@ -452,11 +496,37 @@ describe("AdminScriptsPage integration", () => {
     expect(call).toBeDefined();
     const [, scriptId, payload] = call ?? [];
     expect(scriptId).toBe("00000000-0000-4000-8000-000000000501");
-    expect(payload.runtime).toBe("python3");
+    expect(payload.code).toBe(publishedCode);
+    expect(payload.limits).toEqual(published.limits);
+    expect(payload.inputSchema).toEqual(published.inputSchema);
     expect(payload.entryCommand).toBe('python3 "$PERSAI_SCRIPT_ENTRY_PATH"');
-    expect(payload.code).toContain('os.environ["PERSAI_SCRIPT_INPUT_PATH"]');
-    expect(payload.code).toContain('os.environ["PERSAI_SCRIPT_OUTPUT_PATH"]');
     expect(await screen.findByText("Draft version created.")).toBeInTheDocument();
+  });
+
+  it("resolveVersionEditorSeed prefers draft, else published, else empty boilerplate", () => {
+    const published = createVersion({
+      id: "pub-1",
+      status: "published",
+      code: "published_code",
+      version: 1
+    });
+    const draft = createVersion({
+      id: "draft-1",
+      status: "draft",
+      code: "draft_code",
+      version: 2
+    });
+    expect(resolveVersionEditorSeed([published, draft], published.id).code).toBe("draft_code");
+    expect(resolveVersionEditorSeed([published], published.id).code).toBe("published_code");
+    expect(seedDraftCreateFromPublished([published], published.id)).toMatchObject({
+      code: "published_code",
+      id: null,
+      status: null,
+      revision: null,
+      contentHash: null,
+      publishedAt: null
+    });
+    expect(resolveVersionEditorSeed([], null).code).toContain("PERSAI_SCRIPT_INPUT_PATH");
   });
 
   it("loads browser capability into the draft and preserves it on save", async () => {

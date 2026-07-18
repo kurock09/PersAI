@@ -3,7 +3,7 @@ import test from "node:test";
 import Ajv2020 from "ajv/dist/2020.js";
 import type { RuntimeBundleSkillScenarioScriptRef } from "@persai/runtime-contract";
 import { RuntimeScriptToolService } from "../src/modules/turns/runtime-script-tool.service";
-import type { ResolvedActiveScenarioStep } from "../src/modules/turns/build-active-scenario-block.service";
+import type { ResolvedActiveScenarioScripts } from "../src/modules/turns/build-active-scenario-block.service";
 import { buildScriptToolInputSchema } from "../src/modules/turns/native-tool-projection";
 
 const skillId = "skill-1";
@@ -35,22 +35,28 @@ function scriptRef(overrides: Partial<RuntimeBundleSkillScenarioScriptRef> = {})
   } satisfies RuntimeBundleSkillScenarioScriptRef;
 }
 
-function activeStep(
+function availableScripts(
   overrides: Partial<RuntimeBundleSkillScenarioScriptRef> | null = {}
-): ResolvedActiveScenarioStep {
+): ResolvedActiveScenarioScripts | null {
+  if (overrides === null) {
+    return null;
+  }
   return {
     skillId,
     scenarioKey: "scenario-1",
     scenario: {} as never,
-    stepIndex: 0,
-    step: {
-      number: 1,
-      directive: "Run the report Script.",
-      recommendedToolCall: null,
-      mayBeSkippedIf: null,
-      negativeGuards: [],
-      scriptRef: overrides === null ? null : scriptRef(overrides)
-    }
+    scriptRefs: [scriptRef(overrides)]
+  };
+}
+
+function availableScriptsList(
+  refs: Array<Partial<RuntimeBundleSkillScenarioScriptRef>>
+): ResolvedActiveScenarioScripts {
+  return {
+    skillId,
+    scenarioKey: "scenario-1",
+    scenario: {} as never,
+    scriptRefs: refs.map((entry) => scriptRef(entry))
   };
 }
 
@@ -153,8 +159,12 @@ function buildService(input: {
 function baseParams(overrides: Record<string, unknown> = {}) {
   return {
     bundle: bundle(),
-    toolCall: toolCall({ action: "execute", input: { format: "json" } }),
-    activeScenarioStep: activeStep(),
+    toolCall: toolCall({
+      action: "execute",
+      scriptKey: "sample_script",
+      input: { format: "json" }
+    }),
+    availableScenarioScripts: availableScripts(),
     sessionId: "session-1",
     requestId: "request-1",
     currentUserMessageText: "hello world",
@@ -163,20 +173,28 @@ function baseParams(overrides: Record<string, unknown> = {}) {
 }
 
 export async function runRuntimeScriptToolServiceTest(): Promise<void> {
-  await test("skips when no active Scenario step / no materialized scriptRef is bound", async () => {
+  await test("skips when no Scenario-scoped Scripts are available", async () => {
     const { service } = buildService({});
-    const result = await service.executeToolCall(baseParams({ activeScenarioStep: null }) as never);
+    const result = await service.executeToolCall(
+      baseParams({ availableScenarioScripts: null }) as never
+    );
     assert.equal(result.isError, true);
     assert.equal(result.payload.action, "skipped");
     assert.equal(result.payload.reason, "script_not_active");
   });
 
-  await test("skips when the active step has no materialized scriptRef", async () => {
+  await test("skips when the requested scriptKey is not bound to the active Scenario", async () => {
     const { service } = buildService({});
     const result = await service.executeToolCall(
-      baseParams({ activeScenarioStep: activeStep(null) }) as never
+      baseParams({
+        toolCall: toolCall({
+          action: "execute",
+          scriptKey: "other_script",
+          input: { format: "json" }
+        })
+      }) as never
     );
-    assert.equal(result.payload.reason, "script_not_active");
+    assert.equal(result.payload.reason, "script_not_authorized");
   });
 
   await test("skips when the sandbox is not configured/enabled", async () => {
@@ -195,26 +213,57 @@ export async function runRuntimeScriptToolServiceTest(): Promise<void> {
     assert.equal(result.payload.reason, "user_stopped");
   });
 
-  await test("rejects malformed tool-call arguments (not {action:execute,input:object})", async () => {
+  await test("rejects malformed tool-call arguments (not {action:execute,scriptKey,input})", async () => {
     const { service } = buildService({});
     const wrongAction = await service.executeToolCall(
       baseParams({ toolCall: toolCall({ action: "list" }) }) as never
     );
     assert.equal(wrongAction.payload.reason, "invalid_arguments");
 
+    const missingScriptKey = await service.executeToolCall(
+      baseParams({
+        toolCall: toolCall({ action: "execute", input: { format: "json" } })
+      }) as never
+    );
+    assert.equal(missingScriptKey.payload.reason, "invalid_arguments");
+
+    const paddedScriptKey = await service.executeToolCall(
+      baseParams({
+        toolCall: toolCall({
+          action: "execute",
+          scriptKey: " sample_script ",
+          input: { format: "json" }
+        })
+      }) as never
+    );
+    assert.equal(paddedScriptKey.payload.reason, "invalid_arguments");
+
     const nonObjectInput = await service.executeToolCall(
-      baseParams({ toolCall: toolCall({ action: "execute", input: "not-an-object" }) }) as never
+      baseParams({
+        toolCall: toolCall({
+          action: "execute",
+          scriptKey: "sample_script",
+          input: "not-an-object"
+        })
+      }) as never
     );
     assert.equal(nonObjectInput.payload.reason, "invalid_arguments");
 
     const arrayInput = await service.executeToolCall(
-      baseParams({ toolCall: toolCall({ action: "execute", input: [] }) }) as never
+      baseParams({
+        toolCall: toolCall({ action: "execute", scriptKey: "sample_script", input: [] })
+      }) as never
     );
     assert.equal(arrayInput.payload.reason, "invalid_arguments");
 
     const extraField = await service.executeToolCall(
       baseParams({
-        toolCall: toolCall({ action: "execute", input: {}, scriptVersionId: "model-choice" })
+        toolCall: toolCall({
+          action: "execute",
+          scriptKey: "sample_script",
+          input: {},
+          scriptVersionId: "model-choice"
+        })
       }) as never
     );
     assert.equal(extraField.payload.reason, "invalid_arguments");
@@ -222,7 +271,7 @@ export async function runRuntimeScriptToolServiceTest(): Promise<void> {
 
   await test("rejects omitted input even when no tool_input source is authored", async () => {
     const { service, submittedRequests } = buildService({});
-    const noToolInputMapping = activeStep({
+    const noToolInputMapping = availableScripts({
       inputMapping: {
         query: { source: "current_user_message" },
         limit: { source: "literal", value: 10 }
@@ -236,13 +285,40 @@ export async function runRuntimeScriptToolServiceTest(): Promise<void> {
     });
     const result = await service.executeToolCall(
       baseParams({
-        activeScenarioStep: noToolInputMapping,
-        toolCall: toolCall({ action: "execute" })
+        availableScenarioScripts: noToolInputMapping,
+        toolCall: toolCall({ action: "execute", scriptKey: "sample_script" })
       }) as never
     );
     assert.equal(result.isError, true);
     assert.equal(result.payload.reason, "invalid_arguments");
     assert.equal(submittedRequests.length, 0);
+  });
+
+  await test("authorizes a non-current-step Script when it is Scenario-scoped", async () => {
+    const { service, submittedRequests } = buildService({});
+    const result = await service.executeToolCall(
+      baseParams({
+        availableScenarioScripts: availableScriptsList([
+          { scriptKey: "step_one_script" },
+          {
+            scriptKey: "step_two_script",
+            inputMapping: {
+              query: { source: "current_user_message" },
+              limit: { source: "literal", value: 10 },
+              format: { source: "tool_input", name: "format" }
+            }
+          }
+        ]),
+        toolCall: toolCall({
+          action: "execute",
+          scriptKey: "step_two_script",
+          input: { format: "json" }
+        })
+      }) as never
+    );
+    assert.equal(result.isError, false);
+    assert.equal(result.payload.action, "completed");
+    assert.equal(submittedRequests.length, 1);
   });
 
   await test("propagates the internal artifact API's live-authorization failure verbatim (archived/unlinked/hash/key mismatch)", async () => {
@@ -263,7 +339,11 @@ export async function runRuntimeScriptToolServiceTest(): Promise<void> {
     await service.executeToolCall(
       baseParams({
         currentUserMessageText: "what is the weather",
-        toolCall: toolCall({ action: "execute", input: { format: "csv" } })
+        toolCall: toolCall({
+          action: "execute",
+          scriptKey: "sample_script",
+          input: { format: "csv" }
+        })
       }) as never
     );
     const mapped = (submittedRequests[0]!.args as { input: Record<string, unknown> }).input;
@@ -279,7 +359,7 @@ export async function runRuntimeScriptToolServiceTest(): Promise<void> {
   });
 
   await test("browser broker TTL is clamped to sandbox maxProcessRuntimeMs, not Script timeout alone", async () => {
-    const browserStep = activeStep({
+    const browserStep = availableScripts({
       inputMapping: {
         ...scriptRef().inputMapping,
         profile: { source: "literal", value: "Work" }
@@ -309,14 +389,18 @@ export async function runRuntimeScriptToolServiceTest(): Promise<void> {
           ...successArtifact().manifest,
           capabilities: { browser: { actions: ["snapshot", "act"] } }
         },
-        inputSchema: browserStep.step.scriptRef?.inputSchema ?? {}
+        inputSchema: browserStep!.scriptRefs[0]!.inputSchema
       })
     });
     await service.executeToolCall(
       baseParams({
         bundle: bundle(true, 15_000),
-        activeScenarioStep: browserStep,
-        toolCall: toolCall({ action: "execute", input: { format: "json", profile: "Work" } }),
+        availableScenarioScripts: browserStep,
+        toolCall: toolCall({
+          action: "execute",
+          scriptKey: "sample_script",
+          input: { format: "json", profile: "Work" }
+        }),
         transportSurface: "web",
         bridgeDeviceId: "device-1",
         bridgeDeviceKind: "desktop_extension"
@@ -336,7 +420,7 @@ export async function runRuntimeScriptToolServiceTest(): Promise<void> {
   });
 
   await test("browser-capable immutable manifest registers and forwards only an ephemeral broker binding", async () => {
-    const browserStep = activeStep({
+    const browserStep = availableScripts({
       inputMapping: {
         ...scriptRef().inputMapping,
         profile: { source: "literal", value: "Work" }
@@ -360,12 +444,12 @@ export async function runRuntimeScriptToolServiceTest(): Promise<void> {
           ...successArtifact().manifest,
           capabilities: { browser: { actions: ["snapshot", "act"] } }
         },
-        inputSchema: browserStep.step.scriptRef?.inputSchema ?? {}
+        inputSchema: browserStep!.scriptRefs[0]!.inputSchema
       })
     });
     await service.executeToolCall(
       baseParams({
-        activeScenarioStep: browserStep,
+        availableScenarioScripts: browserStep,
         chatId: "chat-1",
         transportSurface: "web",
         bridgeDeviceId: "device-1",
@@ -390,7 +474,7 @@ export async function runRuntimeScriptToolServiceTest(): Promise<void> {
   });
 
   await test("browser-capable Script fails closed before sandbox submit when Redis broker registration fails", async () => {
-    const browserStep = activeStep({
+    const browserStep = availableScripts({
       inputMapping: {
         ...scriptRef().inputMapping,
         profile: { source: "literal", value: "Work" }
@@ -414,21 +498,21 @@ export async function runRuntimeScriptToolServiceTest(): Promise<void> {
           ...successArtifact().manifest,
           capabilities: { browser: { actions: ["snapshot", "act"] } }
         },
-        inputSchema: browserStep.step.scriptRef?.inputSchema ?? {}
+        inputSchema: browserStep!.scriptRefs[0]!.inputSchema
       }),
       registerBroker: async () => {
         throw new Error("redis unavailable");
       }
     });
     const result = await service.executeToolCall(
-      baseParams({ activeScenarioStep: browserStep }) as never
+      baseParams({ availableScenarioScripts: browserStep }) as never
     );
     assert.equal(result.payload.reason, "script_browser_broker_unavailable");
     assert.equal(submittedRequests.length, 0);
   });
 
   await test("terminal browser Script replay returns persisted output without a live broker", async () => {
-    const browserStep = activeStep({
+    const browserStep = availableScripts({
       inputMapping: {
         ...scriptRef().inputMapping,
         profile: { source: "literal", value: "Work" }
@@ -453,7 +537,7 @@ export async function runRuntimeScriptToolServiceTest(): Promise<void> {
           ...successArtifact().manifest,
           capabilities: { browser: { actions: ["snapshot", "act"] } }
         },
-        inputSchema: browserStep.step.scriptRef?.inputSchema ?? {}
+        inputSchema: browserStep!.scriptRefs[0]!.inputSchema
       }),
       findTerminalScriptReplay: async (request) => {
         replayLookups.push(request);
@@ -472,7 +556,7 @@ export async function runRuntimeScriptToolServiceTest(): Promise<void> {
       }
     });
     const result = await service.executeToolCall(
-      baseParams({ activeScenarioStep: browserStep }) as never
+      baseParams({ availableScenarioScripts: browserStep }) as never
     );
     assert.equal(result.isError, false);
     assert.deepEqual(result.payload.output, { result: "persisted" });
@@ -528,7 +612,9 @@ export async function runRuntimeScriptToolServiceTest(): Promise<void> {
       })
     });
     const result = await service.executeToolCall(
-      baseParams({ toolCall: toolCall({ action: "execute", input: {} }) }) as never
+      baseParams({
+        toolCall: toolCall({ action: "execute", scriptKey: "sample_script", input: {} })
+      }) as never
     );
     assert.equal(result.payload.reason, "script_input_invalid");
     assert.match(result.payload.warning ?? "", /format/);
@@ -548,7 +634,7 @@ export async function runRuntimeScriptToolServiceTest(): Promise<void> {
     });
     const result = await service.executeToolCall(
       baseParams({
-        activeScenarioStep: activeStep({
+        availableScenarioScripts: availableScripts({
           inputMapping: {
             query: { source: "literal", value: 42 },
             limit: { source: "literal", value: 10 }
@@ -564,13 +650,19 @@ export async function runRuntimeScriptToolServiceTest(): Promise<void> {
     await service.executeToolCall(
       baseParams({
         requestId: "req-A",
-        toolCall: toolCall({ action: "execute", input: { format: "json" } }, "call-A")
+        toolCall: toolCall(
+          { action: "execute", scriptKey: "sample_script", input: { format: "json" } },
+          "call-A"
+        )
       }) as never
     );
     await service.executeToolCall(
       baseParams({
         requestId: "req-A",
-        toolCall: toolCall({ action: "execute", input: { format: "json" } }, "call-A")
+        toolCall: toolCall(
+          { action: "execute", scriptKey: "sample_script", input: { format: "json" } },
+          "call-A"
+        )
       }) as never
     );
     const keys = submittedRequests.map((request) => request.scriptInvocationKey);
@@ -584,13 +676,19 @@ export async function runRuntimeScriptToolServiceTest(): Promise<void> {
     await service.executeToolCall(
       baseParams({
         requestId: "req-B",
-        toolCall: toolCall({ action: "execute", input: { format: "json" } }, "call-1")
+        toolCall: toolCall(
+          { action: "execute", scriptKey: "sample_script", input: { format: "json" } },
+          "call-1"
+        )
       }) as never
     );
     await service.executeToolCall(
       baseParams({
         requestId: "req-B",
-        toolCall: toolCall({ action: "execute", input: { format: "json" } }, "call-2")
+        toolCall: toolCall(
+          { action: "execute", scriptKey: "sample_script", input: { format: "json" } },
+          "call-2"
+        )
       }) as never
     );
     const [first, second] = submittedRequests.map((request) => request.scriptInvocationKey);

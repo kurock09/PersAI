@@ -304,23 +304,34 @@ describe("detect-affected: ADR-146 foundation markers", () => {
     );
     assert.equal(valuesDevContentTriggersFoundation(baseNested, headNested), true);
 
-    // Indentation trick under sandboxExec (unique tag value): not pin-script shape.
+    // Indentation trick under sandboxExec only: not pin-script shape.
+    // Replace must stay block-scoped — a bare `   tag: <sha>` substring can
+    // also match inside a correctly indented `    tag: <sha>` line when the
+    // SHA is shared across services (api/runtime/sandbox currently pin alike).
     const sandboxExecBlockMatch = REAL_VALUES_DEV.match(
       /sandboxExec:\n  image:\n    # Exec image name in GAR \(matches the service name in detect-affected \+ pin script\)\.\n    name: sandbox-exec\n    # Initial tag; CI pins this to the SHA of the most recent successful build\.\n    tag: ([0-9a-f]{40})\n/
     );
-    assert.ok(sandboxExecBlockMatch, "values-dev.yaml must contain the sandboxExec image tag block");
+    assert.ok(
+      sandboxExecBlockMatch,
+      "values-dev.yaml must contain the sandboxExec image tag block"
+    );
     const sandboxExecTag = sandboxExecBlockMatch[1];
     const sandboxExecBlock = sandboxExecBlockMatch[0];
-    const baseIndent = REAL_VALUES_DEV.replace(
-      sandboxExecBlock,
-      sandboxExecBlock.replace(`    tag: ${sandboxExecTag}\n`, `   tag: ${sandboxExecTag}\n`)
+    const indentedSandboxExecBlock = sandboxExecBlock.replace(
+      `    tag: ${sandboxExecTag}\n`,
+      `   tag: ${sandboxExecTag}\n`
     );
-    const headIndent = baseIndent.replace(
+    const mutatedSandboxExecBlock = indentedSandboxExecBlock.replace(
       `   tag: ${sandboxExecTag}\n`,
       "   tag: indentedtrick11111111111111111111111111111\n"
     );
+    const baseIndent = REAL_VALUES_DEV.replace(sandboxExecBlock, indentedSandboxExecBlock);
+    const headIndent = baseIndent.replace(indentedSandboxExecBlock, mutatedSandboxExecBlock);
     assert.notEqual(baseIndent, REAL_VALUES_DEV);
     assert.equal(valuesDevContentTriggersFoundation(baseIndent, headIndent), true);
+    // Mis-indented tag under a pinable image block is never pin-pure even when
+    // compared against itself (analyzer fail-closes on wrong indent).
+    assert.equal(valuesDevContentTriggersFoundation(baseIndent, baseIndent), true);
   });
 
   it("fail-closes mixed allowed pin + disallowed semantic edit", () => {

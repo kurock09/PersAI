@@ -381,26 +381,32 @@ additionally covers:
   to the Skill; input parsing rejects malformed UUIDs/empty strings.
 - **Runtime tool dispatch**
   (`apps/runtime/test/runtime-script-tool.service.test.ts`,
-  `apps/runtime/test/turn-execution.service.test.ts`, and
-  `apps/runtime/test/native-tool-projection.test.ts`): skips when no
-  active step/materialized `scriptRef`, when the sandbox is unconfigured, or
-  when the turn's abort signal is already set; rejects malformed
-  exact `{action, input}` arguments (extra fields and omitted input fail);
-  maps `literal` / `current_user_message` / `tool_input` sources into a
-  null-prototype object and rejects reserved prototype-pollution names;
-  dynamic projection preserves local `$defs`/`$ref` and combines constraints
-  with `allOf` when one model field feeds multiple Script properties;
-  propagates the internal artifact API's live-authorization failure
-  verbatim; fails closed on input/output JSON Schema violations; derives a
-  deterministic `scriptInvocationKey` from
-  `requestId:toolCallId:scriptVersionId` (same triple ⇒ same key, different
-  tool-call id ⇒ different key); distinguishes `blocked` (policy preflight)
-  from `skipped` (validation/execution/output failures); maps a mid-execution
-  `AbortError` to `user_stopped`. Production `SCRIPT_TOOL_CODE` dispatch
-  re-reads live chat-plan todos and current Skill state rather than trusting
-  projection-time state; `refreshVolatilePrefix` adds/removes the dynamic
-  `script` tool as todo/Skill state changes; projection also requires
-  `bundle.runtime.sandbox.enabled === true`.
+  `apps/runtime/test/turn-execution.service.test.ts`,
+  `apps/runtime/test/native-tool-projection.test.ts`, and
+  `apps/runtime/test/build-active-scenario-block.service.test.ts`): skips when
+  no Scenario-scoped Scripts are available, when `scriptKey` is not bound to
+  the active Scenario, when the sandbox is unconfigured, or when the turn's
+  abort signal is already set; rejects malformed exact
+  `{action, scriptKey, input}` arguments (extra fields, missing `scriptKey`,
+  and omitted input fail); maps `literal` / `current_user_message` /
+  `tool_input` sources into a null-prototype object and rejects reserved
+  prototype-pollution names; dynamic projection lists available `scriptKey`s
+  (oneOf when multiple) and preserves local `$defs`/`$ref`; propagates the
+  internal artifact API's live-authorization failure verbatim; fails closed
+  on input/output JSON Schema violations; derives a deterministic
+  `scriptInvocationKey` from `requestId:toolCallId:scriptVersionId`;
+  distinguishes `blocked` from `skipped`; maps mid-execution `AbortError` to
+  `user_stopped`. Production `SCRIPT_TOOL_CODE` re-derives Scenario-scoped
+  availability from live Skill state (all step `scriptRef`s for the active
+  Scenario, not only the current step); `refreshVolatilePrefix` keeps the
+  `script` tool while the Scenario still binds Scripts; projection also
+  requires `bundle.runtime.sandbox.enabled === true`.
+- **Admin Script draft seed + Scenario scriptRef UI**
+  (`apps/web/app/admin/scripts/page.test.tsx`,
+  `apps/web/app/admin/skills/page.test.tsx`): new draft create payload copies
+  the published version (not empty boilerplate); Scenario create/update
+  payloads round-trip `scriptRef` and never force `null` over authored
+  bindings.
 - **Post-tool receipt and observation projection**
   (`apps/runtime/test/turn-execution.service.test.ts` and
   `apps/runtime/test/project-tool-exchanges-for-model.test.ts`): a completed

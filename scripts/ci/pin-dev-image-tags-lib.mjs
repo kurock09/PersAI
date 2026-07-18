@@ -63,7 +63,12 @@ export function analyzePinableServiceImageTags(fileText) {
       inImageBlock = false;
     }
 
-    if (inImageBlock && /^    tag:\s*/u.test(line)) {
+    if (inImageBlock && /^\s+tag:\s*/u.test(line)) {
+      // Exact pin-script shape only (`    tag: <value>`). Any other indent is
+      // an indentation trick / non-pin mutation → fail closed (not pin-pure).
+      if (!/^    tag:\s*/u.test(line)) {
+        return { tags: new Map(), normalized: "", ok: false };
+      }
       const value = line.replace(/^    tag:\s*/u, "").replace(/\s+$/u, "");
       tags.set(currentSection, value);
       normalizedLines[index] = `${PIN_DEV_IMAGE_TAG_LINE_PREFIX} ${PINABLE_TAG_SENTINEL}`;

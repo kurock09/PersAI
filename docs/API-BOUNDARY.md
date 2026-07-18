@@ -239,14 +239,16 @@ retired fail-closed on cleanup-proof failure. Sessionless jobs still retire.
 mirror, hydrate, runtime manifest upsert, Files gallery, `files.list`, and
 `files.search`. Ordinary work-artifact persistence is unchanged.
 
-**ADR-151 (closed 2026-07-17):** the runtime
-boundary is one synchronous model-mediated `script.execute`, projected to the
-model as the tool name `script` (`{action:"execute", input:object}`) only
-when the exact current active Scenario step carries a materialized
-`scriptRef`; projection is re-verified (not trusted) immediately before
-dispatch by re-resolving the live Skill/Scenario/step and re-fetching the
-pinned artifact through the internal read boundary above. It resolves the
-exact immutable published version, validates the bounded mapped
+**ADR-151 (closed 2026-07-17) + Scenario-scoped Script follow-through:** the
+runtime boundary is one synchronous model-mediated `script.execute`, projected
+to the model as the tool name `script`
+(`{action:"execute", scriptKey:string, input:object}`) when the active
+Scenario binds at least one materialized step `scriptRef`. Availability is
+Scenario-scoped (any step of the active Scenario, not only the current
+operational step). Projection is re-verified (not trusted) immediately before
+dispatch by re-deriving Scenario membership from live Skill/Scenario state and
+re-fetching the pinned artifact through the internal read boundary above. It
+resolves the exact immutable published version, validates the bounded mapped
 input/result against the published input/output JSON Schemas, derives a
 server-only `scriptInvocationKey`, and uses the existing `SandboxJob`
 lifecycle (`RuntimeSandboxJobRequest.scriptVersionId` /

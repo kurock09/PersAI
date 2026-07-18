@@ -7,10 +7,11 @@ import {
   canonicalizeJsonForHash,
   type ProviderGatewayToolCall,
   type LocalBrowserBridgeDeviceKind,
+  type RuntimeBundleSkillScenarioScriptRef,
   type RuntimeScriptInputSource,
   type RuntimeScriptToolResult
 } from "@persai/runtime-contract";
-import type { ResolvedActiveScenarioStep } from "./build-active-scenario-block.service";
+import type { ResolvedActiveScenarioScripts } from "./build-active-scenario-block.service";
 import { PersaiInternalApiClientService } from "./persai-internal-api.client.service";
 import { SandboxClientService } from "./sandbox-client.service";
 import type { TurnToolProgressSink } from "./tool-progress-sink";
@@ -20,6 +21,11 @@ export interface RuntimeScriptToolExecutionResult {
   payload: RuntimeScriptToolResult;
   isError: boolean;
 }
+
+type ParsedScriptToolCall = {
+  scriptKey: string;
+  input: Record<string, unknown>;
+};
 
 const AJV_ERROR_MESSAGE_MAX_COUNT = 5;
 const AJV_ERROR_MESSAGE_MAX_CHARS = 600;
@@ -33,15 +39,16 @@ const ajv = new Ajv2020({
 });
 
 /**
- * ADR-151 — dispatch for the provider-facing `script` tool's `execute`
- * action. Projection (`native-tool-projection.ts`) is not authorization: this
- * service re-resolves the exact current active Scenario step from live
- * decision state immediately before doing anything, re-fetches the pinned
- * `ScriptVersion` artifact through the internal API's live authorization
- * gate, maps inputs from exactly the three authored sources, validates the
- * mapped object against the published input JSON Schema, derives a
- * server-only idempotency key, and executes through the exact existing warm
- * session sandbox path (`SandboxClientService` → `script.execute`).
+ * Dispatch for the provider-facing `script` tool's `execute` action.
+ * Projection (`native-tool-projection.ts`) is not authorization: this service
+ * authorizes via active Skill + active Scenario membership (the requested
+ * `scriptKey` must appear on some step of that Scenario), re-fetches the
+ * pinned `ScriptVersion` artifact through the internal API's live
+ * authorization gate, maps inputs from exactly the three authored sources,
+ * validates the mapped object against the published input JSON Schema,
+ * derives a server-only idempotency key, and executes through the exact
+ * existing warm session sandbox path (`SandboxClientService` →
+ * `script.execute`).
  */
 @Injectable()
 export class RuntimeScriptToolService {
@@ -56,7 +63,7 @@ export class RuntimeScriptToolService {
   async executeToolCall(params: {
     bundle: AssistantRuntimeBundle;
     toolCall: ProviderGatewayToolCall;
-    activeScenarioStep: ResolvedActiveScenarioStep | null;
+    availableScenarioScripts: ResolvedActiveScenarioScripts | null;
     sessionId: string;
     requestId: string;
     currentUserMessageText: string | null;
@@ -68,9 +75,11 @@ export class RuntimeScriptToolService {
     abortSignal?: AbortSignal;
     toolProgressSink?: TurnToolProgressSink;
   }): Promise<RuntimeScriptToolExecutionResult> {
-    const scriptRef = params.activeScenarioStep?.step.scriptRef ?? null;
-    if (params.activeScenarioStep === null || scriptRef === null) {
-      return this.skipped("script_not_active", "No Script is bound to the current Scenario step.");
+    if (
+      params.availableScenarioScripts === null ||
+      params.availableScenarioScripts.scriptRefs.length === 0
+    ) {
+      return this.skipped("script_not_active", "No Script is bound to the active Skill Scenario.");
     }
     if (
       !this.sandboxClientService.isConfigured() ||
@@ -85,17 +94,27 @@ export class RuntimeScriptToolService {
       );
     }
 
-    const artifactInput = this.parseToolCallArguments(params.toolCall);
-    if (artifactInput === null) {
+    const parsed = this.parseToolCallArguments(params.toolCall);
+    if (parsed === null) {
       return this.skipped(
         "invalid_arguments",
-        'The "script" tool requires {action:"execute", input: object}.'
+        'The "script" tool requires {action:"execute", scriptKey: string, input: object}.'
+      );
+    }
+    const scriptRef = this.resolveAuthorizedScriptRef(
+      params.availableScenarioScripts.scriptRefs,
+      parsed.scriptKey
+    );
+    if (scriptRef === null) {
+      return this.skipped(
+        "script_not_authorized",
+        `Script "${parsed.scriptKey}" is not bound to the active Skill Scenario.`
       );
     }
 
     const artifact = await this.persaiInternalApiClientService.fetchScriptVersionArtifact({
       assistantId: params.bundle.metadata.assistantId,
-      skillId: params.activeScenarioStep.skillId,
+      skillId: params.availableScenarioScripts.skillId,
       scriptKey: scriptRef.scriptKey,
       scriptVersionId: scriptRef.scriptVersionId,
       contentHash: scriptRef.contentHash
@@ -115,7 +134,7 @@ export class RuntimeScriptToolService {
 
     const mappedInput = this.buildMappedInput(
       scriptRef.inputMapping,
-      artifactInput,
+      parsed.input,
       params.currentUserMessageText
     );
     const inputValidation = this.validateAgainstSchema(artifact.inputSchema, mappedInput);
@@ -231,7 +250,7 @@ export class RuntimeScriptToolService {
             policy: params.bundle.runtime.sandbox ?? DEFAULT_RUNTIME_SANDBOX_POLICY,
             args: { input: mappedInput },
             scriptVersionId: artifact.scriptVersionId,
-            scriptSkillId: params.activeScenarioStep.skillId,
+            scriptSkillId: params.availableScenarioScripts.skillId,
             scriptContentHash: artifact.contentHash,
             scriptInvocationKey,
             scriptBrowserBroker: browserBroker?.binding ?? null
@@ -368,15 +387,14 @@ export class RuntimeScriptToolService {
   }
 
   /**
-   * ADR-151 — the model must supply exactly `{action, input}`.
+   * The model must supply exactly `{action, scriptKey, input}`.
    */
-  private parseToolCallArguments(
-    toolCall: ProviderGatewayToolCall
-  ): Record<string, unknown> | null {
+  private parseToolCallArguments(toolCall: ProviderGatewayToolCall): ParsedScriptToolCall | null {
     const argumentKeys = Object.keys(toolCall.arguments);
     if (
-      argumentKeys.length !== 2 ||
+      argumentKeys.length !== 3 ||
       !Object.prototype.hasOwnProperty.call(toolCall.arguments, "action") ||
+      !Object.prototype.hasOwnProperty.call(toolCall.arguments, "scriptKey") ||
       !Object.prototype.hasOwnProperty.call(toolCall.arguments, "input")
     ) {
       return null;
@@ -384,11 +402,28 @@ export class RuntimeScriptToolService {
     if (toolCall.arguments.action !== "execute") {
       return null;
     }
+    const rawScriptKey = toolCall.arguments.scriptKey;
+    if (typeof rawScriptKey !== "string") {
+      return null;
+    }
+    const scriptKey = rawScriptKey.trim();
+    if (scriptKey.length === 0 || scriptKey !== rawScriptKey) {
+      // Reject padded keys fail-closed so authorization cannot depend on trim
+      // coincidences against the exact authored/materialized scriptKey.
+      return null;
+    }
     const input = toolCall.arguments.input;
     if (input === null || typeof input !== "object" || Array.isArray(input)) {
       return null;
     }
-    return input as Record<string, unknown>;
+    return { scriptKey, input: input as Record<string, unknown> };
+  }
+
+  private resolveAuthorizedScriptRef(
+    scriptRefs: readonly RuntimeBundleSkillScenarioScriptRef[],
+    scriptKey: string
+  ): RuntimeBundleSkillScenarioScriptRef | null {
+    return scriptRefs.find((ref) => ref.scriptKey === scriptKey) ?? null;
   }
 
   /**

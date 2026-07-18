@@ -3,6 +3,7 @@ import type { AssistantRuntimeBundle } from "@persai/runtime-bundle";
 import type {
   ProviderGatewayTextMessage,
   RuntimeBundleSkillScenario,
+  RuntimeBundleSkillScenarioScriptRef,
   RuntimeBundleSkillScenarioStep,
   RuntimeSkillDecisionState,
   RuntimeTodoItem
@@ -164,6 +165,63 @@ export function resolveActiveScenarioStep(params: {
     return null;
   }
   return { skillId: skill.id, scenarioKey: scenario.key, scenario, step, stepIndex };
+}
+
+/**
+ * Scenario-scoped Script availability: while a Scenario is active, every
+ * materialized `scriptRef` on any of its steps is available for the whole
+ * Scenario period (not only the current operational step). Unique by
+ * `scriptKey` (first step wins for pin/mapping). Returns `null` when there
+ * is no active Scenario in the bundle or the Scenario binds zero Scripts.
+ */
+export type ResolvedActiveScenarioScripts = {
+  skillId: string;
+  scenarioKey: string;
+  scenario: RuntimeBundleSkillScenario;
+  scriptRefs: RuntimeBundleSkillScenarioScriptRef[];
+};
+
+export function resolveActiveScenarioScriptRefs(params: {
+  bundle: AssistantRuntimeBundle;
+  skillDecisionState: RuntimeSkillDecisionState | null | undefined;
+}): ResolvedActiveScenarioScripts | null {
+  const state = params.skillDecisionState;
+  if (
+    state === null ||
+    state === undefined ||
+    state.activeScenarioKey === null ||
+    state.activeSkillId === null
+  ) {
+    return null;
+  }
+  const enabledSkills = params.bundle.skills?.enabled ?? [];
+  const skill = enabledSkills.find((s) => s.id === state.activeSkillId) ?? null;
+  if (skill === null) {
+    return null;
+  }
+  const scenario = (skill.scenarios ?? []).find((s) => s.key === state.activeScenarioKey) ?? null;
+  if (scenario === null) {
+    return null;
+  }
+  const byKey = new Map<string, RuntimeBundleSkillScenarioScriptRef>();
+  for (const step of scenario.steps) {
+    const ref = step.scriptRef;
+    if (ref === null) {
+      continue;
+    }
+    if (!byKey.has(ref.scriptKey)) {
+      byKey.set(ref.scriptKey, ref);
+    }
+  }
+  if (byKey.size === 0) {
+    return null;
+  }
+  return {
+    skillId: skill.id,
+    scenarioKey: scenario.key,
+    scenario,
+    scriptRefs: [...byKey.values()]
+  };
 }
 
 function escapeXml(text: string): string {

@@ -20,7 +20,9 @@ import {
 import type {
   AdminCreateSkillScenarioRequest,
   AdminSkillScenario,
+  AdminSkillScenarioStep,
   AdminUpdateSkillScenarioRequest,
+  SkillScenarioScriptRef,
   SkillScenarioStatus
 } from "@persai/contracts";
 import {
@@ -36,6 +38,7 @@ import {
   createAdminSkillKnowledgeCard,
   deleteAdminSkillDocument,
   generateAdminSkillAuthoringDraft,
+  getAdminSkillScripts,
   getAdminSkills,
   reindexAdminSkillKnowledgeCard,
   reindexAdminSkillDocument,
@@ -48,7 +51,8 @@ import {
   type SkillKnowledgeCardState,
   type SkillAuthoringDraftKnowledgeCardProposal,
   type SkillAuthoringDraftProposalState,
-  type SkillDocumentState
+  type SkillDocumentState,
+  type SkillScriptLinkState
 } from "@/app/app/assistant-api-client";
 
 type SkillDraft = {
@@ -93,6 +97,18 @@ type SkillKnowledgeCardDraft = {
   provenanceKind: "manual" | "assistant_generated";
 };
 
+type ScriptInputMappingEntryDraft = {
+  fieldName: string;
+  source: "literal" | "current_user_message" | "tool_input";
+  literalValueJson: string;
+  toolInputName: string;
+};
+
+type ScenarioStepScriptRefDraft = {
+  scriptKey: string;
+  mappingEntries: ScriptInputMappingEntryDraft[];
+};
+
 type ScenarioStepDraft = {
   number: number;
   directive: string;
@@ -107,6 +123,8 @@ type ScenarioStepDraft = {
   recoveryGuidance: string;
   /** ADR-119 Slice 10 — step 1 only: overrides auto-derived catalog first_step_preview (≤200 chars). */
   firstStepPreview: string;
+  /** ADR-151 — authored Script binding for this step; null when unbound. */
+  scriptRef: ScenarioStepScriptRefDraft | null;
 };
 
 type ScenarioDraft = {
@@ -198,8 +216,86 @@ const EMPTY_SCENARIO_STEP_DRAFT: ScenarioStepDraft = {
   expectedUserResponse: "",
   nextStepTrigger: "",
   recoveryGuidance: "",
-  firstStepPreview: ""
+  firstStepPreview: "",
+  scriptRef: null
 };
+
+export function scriptRefToDraft(
+  scriptRef: AdminSkillScenarioStep["scriptRef"] | null | undefined
+): ScenarioStepScriptRefDraft | null {
+  if (scriptRef === null || scriptRef === undefined) {
+    return null;
+  }
+  return {
+    scriptKey: scriptRef.scriptKey,
+    mappingEntries: Object.entries(scriptRef.inputMapping).map(([fieldName, source]) => {
+      if (source.source === "literal") {
+        return {
+          fieldName,
+          source: "literal" as const,
+          literalValueJson: JSON.stringify(source.value ?? null, null, 2),
+          toolInputName: ""
+        };
+      }
+      if (source.source === "tool_input") {
+        return {
+          fieldName,
+          source: "tool_input" as const,
+          literalValueJson: "null",
+          toolInputName: source.name
+        };
+      }
+      return {
+        fieldName,
+        source: "current_user_message" as const,
+        literalValueJson: "null",
+        toolInputName: ""
+      };
+    })
+  };
+}
+
+export function draftToScriptRef(
+  draft: ScenarioStepScriptRefDraft | null
+): SkillScenarioScriptRef | null {
+  if (draft === null) {
+    return null;
+  }
+  const scriptKey = draft.scriptKey.trim();
+  if (!/^[a-z][a-z0-9_]{1,63}$/.test(scriptKey)) {
+    throw new Error("Scenario Script key is invalid.");
+  }
+  const inputMapping: SkillScenarioScriptRef["inputMapping"] = {};
+  for (const entry of draft.mappingEntries) {
+    const fieldName = entry.fieldName.trim();
+    if (!fieldName) {
+      throw new Error("Script input mapping field name cannot be empty.");
+    }
+    if (Object.prototype.hasOwnProperty.call(inputMapping, fieldName)) {
+      throw new Error(`Duplicate Script input mapping field: ${fieldName}.`);
+    }
+    if (entry.source === "literal") {
+      let value: unknown;
+      try {
+        value = JSON.parse(entry.literalValueJson) as unknown;
+      } catch {
+        throw new Error(`Literal JSON for "${fieldName}" is invalid.`);
+      }
+      inputMapping[fieldName] = { source: "literal", value };
+      continue;
+    }
+    if (entry.source === "tool_input") {
+      const name = entry.toolInputName.trim();
+      if (!/^[A-Za-z_][A-Za-z0-9_.-]{0,127}$/.test(name)) {
+        throw new Error(`tool_input name for "${fieldName}" is invalid.`);
+      }
+      inputMapping[fieldName] = { source: "tool_input", name };
+      continue;
+    }
+    inputMapping[fieldName] = { source: "current_user_message" };
+  }
+  return { scriptKey, inputMapping };
+}
 
 const EMPTY_SCENARIO_DRAFT: ScenarioDraft = {
   key: "",
@@ -561,7 +657,8 @@ export function scenarioToDraft(scenario: AdminSkillScenario | null): ScenarioDr
       expectedUserResponse: step.expectedUserResponse ?? "",
       nextStepTrigger: step.nextStepTrigger ?? "",
       recoveryGuidance: step.recoveryGuidance ?? "",
-      firstStepPreview: index === 0 ? (scenario.firstStepPreview ?? "") : ""
+      firstStepPreview: index === 0 ? (scenario.firstStepPreview ?? "") : "",
+      scriptRef: scriptRefToDraft(step.scriptRef)
     }))
   };
 }
@@ -601,6 +698,14 @@ export function validateScenarioDraft(draft: ScenarioDraft): {
     }
     if (i === 0 && step.firstStepPreview.length > 200) {
       errors["step_0_first_step_preview"] = "≤200 chars";
+    }
+    if (step.scriptRef !== null) {
+      try {
+        draftToScriptRef(step.scriptRef);
+      } catch (error) {
+        errors[`step_${String(i)}_script_ref`] =
+          error instanceof Error ? error.message : "Script reference is invalid.";
+      }
     }
   });
 
@@ -648,8 +753,7 @@ export function scenarioDraftToCreatePayload(
       nextStepTrigger: step.nextStepTrigger.trim() || null,
       recoveryGuidance: step.recoveryGuidance.trim() || null,
       firstStepPreview: index === 0 ? step.firstStepPreview.trim() || null : null,
-      /** ADR-151 — this editor does not author Script references; always canonicalizes to null. */
-      scriptRef: null
+      scriptRef: draftToScriptRef(step.scriptRef)
     })),
     firstStepPreview: draft.steps[0]?.firstStepPreview.trim() || null,
     recommendedTools: draft.recommendedTools,
@@ -688,8 +792,7 @@ export function scenarioDraftToUpdatePayload(
       nextStepTrigger: step.nextStepTrigger.trim() || null,
       recoveryGuidance: step.recoveryGuidance.trim() || null,
       firstStepPreview: index === 0 ? step.firstStepPreview.trim() || null : null,
-      /** ADR-151 — this editor does not author Script references; always canonicalizes to null. */
-      scriptRef: null
+      scriptRef: draftToScriptRef(step.scriptRef)
     })),
     firstStepPreview: draft.steps[0]?.firstStepPreview.trim() || null,
     recommendedTools: draft.recommendedTools,
@@ -854,6 +957,7 @@ export default function AdminSkillsPage() {
   const { getToken } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const scenarioPreviewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const skillScriptLoadGenerationRef = useRef(0);
   const [skills, setSkills] = useState<AdminSkillState[]>([]);
   const [selectedSkillId, setSelectedSkillId] = useState<string | null>(null);
   const [draft, setDraft] = useState<SkillDraft>(() => skillToDraft(null));
@@ -880,6 +984,8 @@ export default function AdminSkillsPage() {
   // Scenarios state
   const [scenarios, setScenarios] = useState<AdminSkillScenario[]>([]);
   const [loadingScenarios, setLoadingScenarios] = useState(false);
+  const [skillScriptLinks, setSkillScriptLinks] = useState<SkillScriptLinkState[]>([]);
+  const [loadingSkillScripts, setLoadingSkillScripts] = useState(false);
   const [showArchivedScenarios, setShowArchivedScenarios] = useState(false);
   const [selectedScenarioKey, setSelectedScenarioKey] = useState<string | null>(null);
   const [scenarioDraft, setScenarioDraft] = useState<ScenarioDraft>(() => scenarioToDraft(null));
@@ -975,6 +1081,39 @@ export default function AdminSkillsPage() {
     [getToken]
   );
 
+  const loadSkillScripts = useCallback(
+    async (skillId: string) => {
+      const loadGeneration = ++skillScriptLoadGenerationRef.current;
+      const token = await getToken();
+      if (!token) return;
+      setLoadingSkillScripts(true);
+      try {
+        const links = await getAdminSkillScripts(token, skillId);
+        if (loadGeneration !== skillScriptLoadGenerationRef.current) {
+          return;
+        }
+        setSkillScriptLinks(
+          links
+            .filter((link) => link.script.status === "published")
+            .sort((a, b) => a.displayOrder - b.displayOrder)
+        );
+      } catch {
+        if (loadGeneration === skillScriptLoadGenerationRef.current) {
+          setSkillScriptLinks([]);
+        }
+      }
+      if (loadGeneration === skillScriptLoadGenerationRef.current) {
+        setLoadingSkillScripts(false);
+      }
+    },
+    [getToken]
+  );
+
+  const publishedSkillScripts = useMemo(
+    () => skillScriptLinks.map((link) => link.script),
+    [skillScriptLinks]
+  );
+
   useEffect(() => {
     void load();
   }, [load]);
@@ -993,14 +1132,16 @@ export default function AdminSkillsPage() {
 
   useEffect(() => {
     setScenarios([]);
+    setSkillScriptLinks([]);
     setScenarioEditorOpen(false);
     setSelectedScenarioKey(null);
     setScenarioDraft(scenarioToDraft(null));
     setScenarioFeedback(null);
     if (selectedSkillId !== null) {
       void loadScenarios(selectedSkillId);
+      void loadSkillScripts(selectedSkillId);
     }
-  }, [selectedSkillId, loadScenarios]);
+  }, [selectedSkillId, loadScenarios, loadSkillScripts]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -2829,6 +2970,273 @@ export default function AdminSkillsPage() {
                                     placeholder="What to do if the user response is off-script (≤400 chars). Optional."
                                   />
                                 </Field>
+                                <Field
+                                  label="Script (published, linked to this Skill)"
+                                  error={
+                                    scenarioValidation.errors[`step_${String(stepIdx)}_script_ref`]
+                                  }
+                                >
+                                  <select
+                                    value={step.scriptRef?.scriptKey ?? ""}
+                                    disabled={loadingSkillScripts}
+                                    onChange={(e) => {
+                                      const nextKey = e.target.value;
+                                      setScenarioDraft((prev) => ({
+                                        ...prev,
+                                        steps: prev.steps.map((s, i) => {
+                                          if (i !== stepIdx) return s;
+                                          if (!nextKey) {
+                                            return { ...s, scriptRef: null };
+                                          }
+                                          if (s.scriptRef?.scriptKey === nextKey) {
+                                            return s;
+                                          }
+                                          return {
+                                            ...s,
+                                            scriptRef: {
+                                              scriptKey: nextKey,
+                                              mappingEntries: []
+                                            }
+                                          };
+                                        })
+                                      }));
+                                    }}
+                                    className={FIELD_CLASS}
+                                  >
+                                    <option value="">(none)</option>
+                                    {publishedSkillScripts.map((script) => (
+                                      <option key={script.id} value={script.key}>
+                                        {script.key}
+                                        {script.name.ru || script.name.en
+                                          ? ` — ${script.name.ru || script.name.en}`
+                                          : ""}
+                                      </option>
+                                    ))}
+                                    {step.scriptRef !== null &&
+                                    !publishedSkillScripts.some(
+                                      (script) => script.key === step.scriptRef?.scriptKey
+                                    ) ? (
+                                      <option value={step.scriptRef.scriptKey}>
+                                        {step.scriptRef.scriptKey} (not linked / unpublished)
+                                      </option>
+                                    ) : null}
+                                  </select>
+                                </Field>
+                                {step.scriptRef !== null && (
+                                  <div>
+                                    <div className="mb-1.5 flex items-center justify-between">
+                                      <span className="text-[11px] font-medium text-text-muted">
+                                        Script input mapping
+                                      </span>
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          setScenarioDraft((prev) => ({
+                                            ...prev,
+                                            steps: prev.steps.map((s, i) =>
+                                              i === stepIdx && s.scriptRef !== null
+                                                ? {
+                                                    ...s,
+                                                    scriptRef: {
+                                                      ...s.scriptRef,
+                                                      mappingEntries: [
+                                                        ...s.scriptRef.mappingEntries,
+                                                        {
+                                                          fieldName: "",
+                                                          source: "literal",
+                                                          literalValueJson: "null",
+                                                          toolInputName: ""
+                                                        }
+                                                      ]
+                                                    }
+                                                  }
+                                                : s
+                                            )
+                                          }))
+                                        }
+                                        className="inline-flex items-center gap-1 rounded-lg border border-border bg-background px-2 py-1 text-[10px] text-text-muted hover:text-text"
+                                      >
+                                        <Plus className="h-3 w-3" />
+                                        Добавить
+                                      </button>
+                                    </div>
+                                    <div className="space-y-2">
+                                      {step.scriptRef.mappingEntries.map((entry, entryIdx) => (
+                                        <div
+                                          key={entryIdx}
+                                          className="space-y-1 rounded-lg border border-border/50 bg-background p-2"
+                                        >
+                                          <div className="flex items-center gap-2">
+                                            <input
+                                              value={entry.fieldName}
+                                              onChange={(e) =>
+                                                setScenarioDraft((prev) => ({
+                                                  ...prev,
+                                                  steps: prev.steps.map((s, i) =>
+                                                    i === stepIdx && s.scriptRef !== null
+                                                      ? {
+                                                          ...s,
+                                                          scriptRef: {
+                                                            ...s.scriptRef,
+                                                            mappingEntries:
+                                                              s.scriptRef.mappingEntries.map(
+                                                                (row, ri) =>
+                                                                  ri === entryIdx
+                                                                    ? {
+                                                                        ...row,
+                                                                        fieldName: e.target.value
+                                                                      }
+                                                                    : row
+                                                              )
+                                                          }
+                                                        }
+                                                      : s
+                                                  )
+                                                }))
+                                              }
+                                              className={FIELD_CLASS}
+                                              placeholder="Script field name"
+                                            />
+                                            <select
+                                              value={entry.source}
+                                              onChange={(e) => {
+                                                const source = e.target.value as
+                                                  | "literal"
+                                                  | "current_user_message"
+                                                  | "tool_input";
+                                                setScenarioDraft((prev) => ({
+                                                  ...prev,
+                                                  steps: prev.steps.map((s, i) =>
+                                                    i === stepIdx && s.scriptRef !== null
+                                                      ? {
+                                                          ...s,
+                                                          scriptRef: {
+                                                            ...s.scriptRef,
+                                                            mappingEntries:
+                                                              s.scriptRef.mappingEntries.map(
+                                                                (row, ri) =>
+                                                                  ri === entryIdx
+                                                                    ? { ...row, source }
+                                                                    : row
+                                                              )
+                                                          }
+                                                        }
+                                                      : s
+                                                  )
+                                                }));
+                                              }}
+                                              className={FIELD_CLASS}
+                                            >
+                                              <option value="literal">literal</option>
+                                              <option value="current_user_message">
+                                                current_user_message
+                                              </option>
+                                              <option value="tool_input">tool_input</option>
+                                            </select>
+                                            <button
+                                              type="button"
+                                              onClick={() =>
+                                                setScenarioDraft((prev) => ({
+                                                  ...prev,
+                                                  steps: prev.steps.map((s, i) =>
+                                                    i === stepIdx && s.scriptRef !== null
+                                                      ? {
+                                                          ...s,
+                                                          scriptRef: {
+                                                            ...s.scriptRef,
+                                                            mappingEntries:
+                                                              s.scriptRef.mappingEntries.filter(
+                                                                (_, ri) => ri !== entryIdx
+                                                              )
+                                                          }
+                                                        }
+                                                      : s
+                                                  )
+                                                }))
+                                              }
+                                              className="rounded-lg border border-destructive/40 bg-destructive/10 p-1.5 text-destructive hover:bg-destructive/15"
+                                            >
+                                              <X className="h-3 w-3" />
+                                            </button>
+                                          </div>
+                                          {entry.source === "literal" ? (
+                                            <textarea
+                                              value={entry.literalValueJson}
+                                              onChange={(e) =>
+                                                setScenarioDraft((prev) => ({
+                                                  ...prev,
+                                                  steps: prev.steps.map((s, i) =>
+                                                    i === stepIdx && s.scriptRef !== null
+                                                      ? {
+                                                          ...s,
+                                                          scriptRef: {
+                                                            ...s.scriptRef,
+                                                            mappingEntries:
+                                                              s.scriptRef.mappingEntries.map(
+                                                                (row, ri) =>
+                                                                  ri === entryIdx
+                                                                    ? {
+                                                                        ...row,
+                                                                        literalValueJson:
+                                                                          e.target.value
+                                                                      }
+                                                                    : row
+                                                              )
+                                                          }
+                                                        }
+                                                      : s
+                                                  )
+                                                }))
+                                              }
+                                              rows={2}
+                                              className={`${FIELD_CLASS} resize-y font-mono`}
+                                              placeholder='JSON literal, e.g. "hello" or 10'
+                                            />
+                                          ) : null}
+                                          {entry.source === "tool_input" ? (
+                                            <input
+                                              value={entry.toolInputName}
+                                              onChange={(e) =>
+                                                setScenarioDraft((prev) => ({
+                                                  ...prev,
+                                                  steps: prev.steps.map((s, i) =>
+                                                    i === stepIdx && s.scriptRef !== null
+                                                      ? {
+                                                          ...s,
+                                                          scriptRef: {
+                                                            ...s.scriptRef,
+                                                            mappingEntries:
+                                                              s.scriptRef.mappingEntries.map(
+                                                                (row, ri) =>
+                                                                  ri === entryIdx
+                                                                    ? {
+                                                                        ...row,
+                                                                        toolInputName:
+                                                                          e.target.value
+                                                                      }
+                                                                    : row
+                                                              )
+                                                          }
+                                                        }
+                                                      : s
+                                                  )
+                                                }))
+                                              }
+                                              className={FIELD_CLASS}
+                                              placeholder="Model-facing tool_input name"
+                                            />
+                                          ) : null}
+                                        </div>
+                                      ))}
+                                      {step.scriptRef.mappingEntries.length === 0 ? (
+                                        <p className="text-[10px] text-text-muted">
+                                          No mapped fields — Script runs with an empty mapped input
+                                          object unless you add rows.
+                                        </p>
+                                      ) : null}
+                                    </div>
+                                  </div>
+                                )}
                                 {stepIdx === 0 && (
                                   <Field
                                     label="First step preview (catalog)"

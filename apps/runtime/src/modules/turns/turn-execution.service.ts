@@ -124,7 +124,7 @@ import { RuntimeMemoryWriteToolService } from "./runtime-memory-write-tool.servi
 import { RuntimeTodoWriteToolService } from "./runtime-todo-write-tool.service";
 import {
   BuildActiveScenarioBlockService,
-  resolveActiveScenarioStep
+  resolveActiveScenarioScriptRefs
 } from "./build-active-scenario-block.service";
 import { BuildSystemReminderBlocksService } from "./build-system-reminder-blocks.service";
 import { RuntimeSkillToolService, type RuntimeSkillToolResult } from "./runtime-skill-tool.service";
@@ -864,13 +864,11 @@ export class TurnExecutionService {
       skillDecisionState: input.skillStateContext?.decision ?? null,
       chatPlanTodos: chatPlan?.todos ?? null
     });
-    // ADR-151 — the exact same resolver `buildBlock` renders from, so the
-    // `script` tool's projection gate can never disagree with what the
-    // volatile `<persai_active_scenario>` block shows the model this turn.
-    const activeScenarioStep = resolveActiveScenarioStep({
+    // Scenario-scoped Scripts: every scriptRef on the active Scenario is
+    // available for the whole Scenario period (not only the current step).
+    const availableScenarioScripts = resolveActiveScenarioScriptRefs({
       bundle: bundleEntry.parsedBundle,
-      skillDecisionState: input.skillStateContext?.decision ?? null,
-      chatPlanTodos: chatPlan?.todos ?? null
+      skillDecisionState: input.skillStateContext?.decision ?? null
     });
     // ADR-119 Slice 5 + ADR-125 follow-up: build system-reminder blocks using
     // an initial empty tool budget snapshot. The snapshot is empty at
@@ -928,7 +926,7 @@ export class TurnExecutionService {
       allowModelToolExposure: options?.allowModelToolExposure ?? true,
       allowedKnowledgeSearchSources: knowledgeSourcePolicy.searchSources,
       allowedKnowledgeFetchSources: knowledgeSourcePolicy.fetchSources,
-      activeScriptRef: activeScenarioStep?.step.scriptRef ?? null
+      activeScenarioScriptRefs: availableScenarioScripts?.scriptRefs ?? null
     };
     const projectedTools = this.applyExcludedToolNames(
       projectRuntimeNativeTools(bundleEntry.parsedBundle, nativeToolProjectionOptions),
@@ -3756,20 +3754,17 @@ export class TurnExecutionService {
         return this.createToolExecutionOutcome(toolCall, result.payload, result.isError);
       }
       case SCRIPT_TOOL_CODE: {
-        // ADR-151 — projection is not authorization: re-resolve the exact
-        // current active Scenario step from live decision state + the
-        // live chat plan immediately before execution, never trusting the
-        // step that was true when this turn's tools were first projected.
-        const chatPlan = await this.turnContextHydrationService.buildChatPlanBlock(input);
-        const activeScenarioStep = resolveActiveScenarioStep({
+        // Projection is not authorization: re-derive Scenario-scoped Script
+        // availability from live decision state immediately before execution,
+        // never trusting the set that was true when tools were first projected.
+        const availableScenarioScripts = resolveActiveScenarioScriptRefs({
           bundle: execution.bundle,
-          skillDecisionState: execution.currentSkillDecisionState,
-          chatPlanTodos: chatPlan?.todos ?? null
+          skillDecisionState: execution.currentSkillDecisionState
         });
         const result = await this.runtimeScriptToolService.executeToolCall({
           bundle: execution.bundle,
           toolCall,
-          activeScenarioStep,
+          availableScenarioScripts,
           sessionId: acceptedTurn.session.sessionId,
           requestId: acceptedTurn.receipt.requestId,
           currentUserMessageText: input.message.text,
@@ -6665,19 +6660,16 @@ export class TurnExecutionService {
       messages: [...newPrefix, ...base]
     };
     execution.volatilePrefixLength = newPrefix.length;
-    // ADR-151 — the active Scenario step (and therefore its scriptRef) can
-    // change from exactly the same tools that trigger this refresh
-    // (todo_write advancing the plan, skill.engage/release). Re-derive the
-    // projection gate from the identical resolver + re-project the `script`
-    // tool in lockstep with the volatile block so they never disagree.
-    const activeScenarioStep = resolveActiveScenarioStep({
+    // skill.engage/release (and Scenario changes) can change which Scripts
+    // are Scenario-scoped. Re-derive availability + re-project the `script`
+    // tool in lockstep with the volatile active-scenario block.
+    const availableScenarioScripts = resolveActiveScenarioScriptRefs({
       bundle: execution.bundle,
-      skillDecisionState: execution.currentSkillDecisionState,
-      chatPlanTodos: chatPlan?.todos ?? null
+      skillDecisionState: execution.currentSkillDecisionState
     });
     execution.nativeToolProjectionOptions = {
       ...execution.nativeToolProjectionOptions,
-      activeScriptRef: activeScenarioStep?.step.scriptRef ?? null
+      activeScenarioScriptRefs: availableScenarioScripts?.scriptRefs ?? null
     };
     const projectedTools = this.applyExcludedToolNames(
       projectRuntimeNativeTools(execution.bundle, {

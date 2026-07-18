@@ -1,5 +1,23 @@
 # SESSION-HANDOFF
 
+## 2026-07-18 — Script draft / Scenario scriptRef / Scenario-scoped runtime
+
+Status: **Local CI-like gate green; commit/push in flight on `main`.** No new
+ADR. Baseline was clean `main` `4e83edcc`. (1) Admin Scripts draft create seeds
+from the current published version; editor shows published content when no
+draft exists; existing draft is never overwritten. (2) Admin Skills Scenario
+editor loads/saves `scriptRef` with Skill-linked published Script select +
+input mapping editor (literal / current_user_message / tool_input). (3) Runtime
+`script` tool is Scenario-scoped: all step `scriptRef`s available while the
+Scenario is active; tool args require `{action, scriptKey, input}`; authorize
+via active Skill + Scenario membership. Audit repairs + pin-classifier fix:
+multi-Script `type:object`+`oneOf`; padded `scriptKey` rejected; values-dev
+indentation-trick fail-closed in `analyzePinableServiceImageTags` (shared SHA
+substring bug in the detect-affected test also fixed). Gate: lint+format:check,
+full typecheck, full `pnpm test`, `test:step2`, `test:adr146-slice5`,
+`test:ci-detect-affected`, helm lint/template, build. Deploy/live acceptance
+still open after push.
+
 ## 2026-07-18 — ADR-152 await/job/cap pushed to main
 
 Status: **Pushed `main` `845ea6c7`.** CLEAN-for-local-implementation

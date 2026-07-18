@@ -580,19 +580,37 @@ export async function runNativeToolProjectionTest(): Promise<void> {
     false
   );
   assert.equal(JSON.stringify(awaitTool.inputSchema).includes("notify"), true);
-  const activeScriptRef = {
-    scriptKey: "projection_script",
-    scriptId: "script-projection",
-    scriptVersionId: "script-version-projection",
-    versionNumber: 1,
-    contentHash: "a".repeat(64),
-    inputMapping: {},
-    inputSchema: {
-      type: "object",
-      properties: {},
-      additionalProperties: false
+  const activeScenarioScriptRefs = [
+    {
+      scriptKey: "projection_script",
+      scriptId: "script-projection",
+      scriptVersionId: "script-version-projection",
+      versionNumber: 1,
+      contentHash: "a".repeat(64),
+      inputMapping: {},
+      inputSchema: {
+        type: "object",
+        properties: {},
+        additionalProperties: false
+      }
+    },
+    {
+      scriptKey: "second_projection_script",
+      scriptId: "script-projection-2",
+      scriptVersionId: "script-version-projection-2",
+      versionNumber: 2,
+      contentHash: "b".repeat(64),
+      inputMapping: {
+        query: { source: "tool_input" as const, name: "query" }
+      },
+      inputSchema: {
+        type: "object",
+        properties: { query: { type: "string" } },
+        required: ["query"],
+        additionalProperties: false
+      }
     }
-  };
+  ];
   const sandboxEnabledBundle = {
     ...artifact.bundle,
     runtime: {
@@ -613,18 +631,35 @@ export async function runNativeToolProjectionTest(): Promise<void> {
       }
     }
   } as typeof artifact.bundle;
+  const projectedScript = projectRuntimeNativeTools(sandboxEnabledBundle, {
+    activeScenarioScriptRefs
+  }).tools.find((tool) => tool.name === "script");
   assert.ok(
-    projectRuntimeNativeTools(sandboxEnabledBundle, { activeScriptRef }).tools.some(
-      (tool) => tool.name === "script"
-    ),
-    "script must be projected for an active scriptRef when sandbox is enabled"
+    projectedScript,
+    "script must be projected for Scenario-scoped refs when sandbox is enabled"
   );
+  const multiSchema = projectedScript.inputSchema as {
+    type?: string;
+    additionalProperties?: boolean;
+    oneOf?: unknown[];
+  };
+  assert.equal(multiSchema.type, "object");
+  assert.equal(multiSchema.additionalProperties, false);
+  assert.equal(Array.isArray(multiSchema.oneOf), true);
+  assert.equal(multiSchema.oneOf?.length, 2);
+  assert.equal(JSON.stringify(projectedScript.inputSchema).includes("scriptKey"), true);
+  assert.equal(JSON.stringify(projectedScript.inputSchema).includes("projection_script"), true);
   assert.equal(
-    projectRuntimeNativeTools(sandboxDisabledBundle, { activeScriptRef }).tools.some(
+    JSON.stringify(projectedScript.inputSchema).includes("second_projection_script"),
+    true
+  );
+  assert.match(projectedScript.description ?? "", /Available scriptKeys/);
+  assert.equal(
+    projectRuntimeNativeTools(sandboxDisabledBundle, { activeScenarioScriptRefs }).tools.some(
       (tool) => tool.name === "script"
     ),
     false,
-    "script must be omitted when sandbox is disabled even with an active scriptRef"
+    "script must be omitted when sandbox is disabled even with Scenario-scoped refs"
   );
   const webSearch = projected.tools.find((tool) => tool.name === "web_search");
   const files = projected.tools.find((tool) => tool.name === "files");

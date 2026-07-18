@@ -52,13 +52,14 @@ export type NativeToolProjectionOptions = {
   /** ADR-135 S3 — catalog tools described this turn project as full on wire. */
   wireExpandedCatalogToolCodes?: ReadonlySet<string>;
   /**
-   * ADR-151 — the pinned Script reference for the exact current active
-   * Scenario step, or `null`/absent when the current step has no Script.
-   * The `script` tool is projected only when this is present; projection
-   * is not authorization — execution re-resolves and re-authorizes from
-   * live decision state immediately before `script.execute`.
+   * Scenario-scoped Script availability — every pinned Script referenced by
+   * any step of the active Scenario (unique by `scriptKey`), or
+   * `null`/absent when the Scenario binds none. The `script` tool is
+   * projected only when this list is non-empty; projection is not
+   * authorization — execution re-resolves and re-authorizes from live
+   * decision state immediately before `script.execute`.
    */
-  activeScriptRef?: RuntimeBundleSkillScenarioScriptRef | null;
+  activeScenarioScriptRefs?: readonly RuntimeBundleSkillScenarioScriptRef[] | null;
 };
 
 /** ADR-135 — catalog-tier tools may expose read-only family actions on the stub wire. */
@@ -414,12 +415,16 @@ export function projectRuntimeNativeTools(
   if (skillToolPolicy !== null && enabledSkills.length > 0) {
     projectedTools.push(createSkillToolDefinition(skillToolPolicy));
   }
-  // ADR-151 — script tool is projected only when the exact current active
-  // Scenario step carries a materialized scriptRef and this bundle has the
-  // sandbox enabled. No policy/catalog row: Scripts are a Skill/Scenario
-  // capability, not an operator plan toggle.
-  if (bundle.runtime.sandbox?.enabled === true && options?.activeScriptRef) {
-    projectedTools.push(createScriptToolDefinition(options.activeScriptRef));
+  // Scenario-scoped Scripts: project when the active Scenario binds at least
+  // one Script and this bundle has the sandbox enabled. No policy/catalog
+  // row: Scripts are a Skill/Scenario capability, not an operator plan toggle.
+  const activeScenarioScriptRefs = options?.activeScenarioScriptRefs ?? null;
+  if (
+    bundle.runtime.sandbox?.enabled === true &&
+    activeScenarioScriptRefs !== null &&
+    activeScenarioScriptRefs.length > 0
+  ) {
+    projectedTools.push(createScriptToolDefinition(activeScenarioScriptRefs));
   }
   projectedTools.push(createAwaitToolDefinition());
 
@@ -2039,30 +2044,65 @@ function isJsonObject(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * ADR-151 — provider-facing tool name is `script` for cross-provider name
- * compatibility; the exact Script identity/version stays server-side and is
- * never exposed here. No modelExposure/catalog projection: dynamic
- * per-active-step projection already keeps this tool absent whenever it is
- * not relevant, which the catalog tier exists to approximate for other tools.
+ * Provider-facing tool name is `script` for cross-provider name compatibility;
+ * the exact Script identity/version stays server-side. Dynamic Scenario-scoped
+ * projection keeps this tool absent whenever the active Scenario binds no
+ * Scripts. The model must name an explicit `scriptKey` from the available set.
  */
 function createScriptToolDefinition(
-  scriptRef: RuntimeBundleSkillScenarioScriptRef
+  scriptRefs: readonly RuntimeBundleSkillScenarioScriptRef[]
 ): ProviderGatewayToolDefinition {
+  const scriptKeys = scriptRefs.map((ref) => ref.scriptKey);
+  const description = `Run a Script bound to the active Skill Scenario. Available scriptKeys: ${scriptKeys.join(", ")}. Any Scenario-bound Script may be called while the Scenario is active — not only the current step. Call with action="execute", an explicit scriptKey, and an input object containing only the tool_input fields for that Script — literal and current_user_message inputs are supplied by the workflow.`;
+  if (scriptRefs.length === 1) {
+    const scriptRef = scriptRefs[0]!;
+    return {
+      name: "script",
+      description,
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["action", "scriptKey", "input"],
+        properties: {
+          action: {
+            type: "string",
+            enum: ["execute"],
+            description: 'Must be "execute".'
+          },
+          scriptKey: {
+            type: "string",
+            enum: [scriptRef.scriptKey],
+            description: `Must be "${scriptRef.scriptKey}".`
+          },
+          input: buildScriptToolInputSchema(scriptRef)
+        }
+      }
+    };
+  }
+  // Match the document-tool shape: parent `type:"object"` + `oneOf` branches
+  // (provider-portable). Each branch pins one scriptKey and its tool_input schema.
   return {
     name: "script",
-    description: `Run the "${scriptRef.scriptKey}" Script for the current Skill workflow step. Call with action="execute" and an input object containing only the fields listed in its schema — other Script inputs are already supplied by the workflow itself.`,
+    description,
     inputSchema: {
       type: "object",
       additionalProperties: false,
-      required: ["action", "input"],
-      properties: {
-        action: {
-          type: "string",
-          enum: ["execute"],
-          description: 'Must be "execute".'
-        },
-        input: buildScriptToolInputSchema(scriptRef)
-      }
+      oneOf: scriptRefs.map((scriptRef) => ({
+        required: ["action", "scriptKey", "input"],
+        properties: {
+          action: {
+            type: "string",
+            enum: ["execute"],
+            description: 'Must be "execute".'
+          },
+          scriptKey: {
+            type: "string",
+            enum: [scriptRef.scriptKey],
+            description: `Must be "${scriptRef.scriptKey}".`
+          },
+          input: buildScriptToolInputSchema(scriptRef)
+        }
+      }))
     }
   };
 }

@@ -7,6 +7,7 @@ import type {
 } from "@persai/runtime-contract";
 import {
   BuildActiveScenarioBlockService,
+  resolveActiveScenarioScriptRefs,
   resolveActiveScenarioStep,
   resolveCurrentStepIndex
 } from "../src/modules/turns/build-active-scenario-block.service";
@@ -266,6 +267,60 @@ export async function runBuildActiveScenarioBlockServiceTest(): Promise<void> {
       chatPlanTodos: null
     });
     assert.equal(revoked, null);
+  }
+
+  {
+    const stepOneRef = {
+      scriptKey: "first_script",
+      scriptId: "script-1",
+      scriptVersionId: "version-1",
+      versionNumber: 1,
+      contentHash: "a".repeat(64),
+      inputMapping: {},
+      inputSchema: { type: "object", properties: {}, additionalProperties: false }
+    };
+    const stepTwoRef = {
+      scriptKey: "second_script",
+      scriptId: "script-2",
+      scriptVersionId: "version-2",
+      versionNumber: 1,
+      contentHash: "b".repeat(64),
+      inputMapping: {},
+      inputSchema: { type: "object", properties: {}, additionalProperties: false }
+    };
+    const scenarioWithScripts: RuntimeBundleSkillScenario = {
+      ...CAROUSEL_SCENARIO,
+      steps: [
+        { ...CAROUSEL_SCENARIO.steps[0]!, scriptRef: stepOneRef },
+        { ...CAROUSEL_SCENARIO.steps[1]!, scriptRef: stepTwoRef }
+      ]
+    };
+    const bundle = createBundle([
+      { id: "skill-marketer", name: "Marketer", scenarios: [scenarioWithScripts] }
+    ]);
+    const available = resolveActiveScenarioScriptRefs({
+      bundle,
+      skillDecisionState: {
+        ...activeStateWithScenario,
+        activeSkillId: "skill-marketer",
+        activeScenarioKey: "instagram_carousel"
+      }
+    });
+    assert.deepEqual(
+      available?.scriptRefs.map((ref) => ref.scriptKey),
+      ["first_script", "second_script"]
+    );
+    const none = resolveActiveScenarioScriptRefs({
+      bundle: createBundle([
+        { id: "skill-marketer", name: "Marketer", scenarios: [CAROUSEL_SCENARIO] }
+      ]),
+      skillDecisionState: {
+        ...activeStateWithScenario,
+        activeSkillId: "skill-marketer",
+        activeScenarioKey: "instagram_carousel"
+      }
+    });
+    assert.equal(none, null);
   }
 
   // (a) Null state → no block

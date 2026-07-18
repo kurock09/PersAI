@@ -260,6 +260,66 @@ export function versionToDraft(version: ScriptVersionState | null): VersionDraft
   };
 }
 
+/** Prefer the Script's current published pin; otherwise newest published row. */
+export function findPublishedScriptVersion(
+  versions: readonly ScriptVersionState[],
+  currentPublishedVersionId: string | null
+): ScriptVersionState | null {
+  if (currentPublishedVersionId !== null) {
+    const pinned =
+      versions.find(
+        (version) => version.id === currentPublishedVersionId && version.status === "published"
+      ) ?? null;
+    if (pinned !== null) {
+      return pinned;
+    }
+  }
+  return (
+    versions
+      .filter((version) => version.status === "published")
+      .sort((a, b) => b.version - a.version)[0] ?? null
+  );
+}
+
+/**
+ * Editor seed: existing draft wins; else last published content so the form
+ * shows real current code; else empty first-draft boilerplate. Never invents
+ * a second draft over an existing one.
+ */
+export function resolveVersionEditorSeed(
+  versions: readonly ScriptVersionState[],
+  currentPublishedVersionId: string | null
+): VersionDraft {
+  const draftRow = versions.find((version) => version.status === "draft") ?? null;
+  if (draftRow !== null) {
+    return versionToDraft(draftRow);
+  }
+  const published = findPublishedScriptVersion(versions, currentPublishedVersionId);
+  if (published !== null) {
+    return versionToDraft(published);
+  }
+  return { ...EMPTY_VERSION_DRAFT };
+}
+
+/** Create-draft payload seed: copy published executable fields, strip identity. */
+export function seedDraftCreateFromPublished(
+  versions: readonly ScriptVersionState[],
+  currentPublishedVersionId: string | null
+): VersionDraft {
+  const published = findPublishedScriptVersion(versions, currentPublishedVersionId);
+  if (published === null) {
+    return { ...EMPTY_VERSION_DRAFT };
+  }
+  return {
+    ...versionToDraft(published),
+    id: null,
+    status: null,
+    revision: null,
+    contentHash: null,
+    publishedAt: null
+  };
+}
+
 function parseVersionDraftPayload(draft: VersionDraft): AdminScriptVersionCreateRequest {
   if (
     !/^\d+$/.test(draft.timeoutMs.trim()) ||
@@ -466,7 +526,12 @@ export default function AdminScriptsPage() {
         const selected = nextScripts.find((script) => script.id === draft.id) ?? null;
         setDraft(scriptToDraft(selected));
         if (selected) {
-          await loadVersions(token, selected.id);
+          await loadVersions(
+            token,
+            selected.id,
+            scriptSelectionGenerationRef.current,
+            selected.currentPublishedVersionId
+          );
         }
       }
     } catch (error) {
@@ -483,7 +548,8 @@ export default function AdminScriptsPage() {
   async function loadVersions(
     token: string,
     scriptId: string,
-    selectionGeneration = scriptSelectionGenerationRef.current
+    selectionGeneration = scriptSelectionGenerationRef.current,
+    currentPublishedVersionId: string | null = null
   ): Promise<boolean> {
     const nextVersions = await getAdminScriptVersions(token, scriptId);
     if (
@@ -494,8 +560,7 @@ export default function AdminScriptsPage() {
       return false;
     }
     setVersions(nextVersions);
-    const draftRow = nextVersions.find((version) => version.status === "draft") ?? null;
-    setVersionDraft(versionToDraft(draftRow));
+    setVersionDraft(resolveVersionEditorSeed(nextVersions, currentPublishedVersionId));
     return true;
   }
 
@@ -534,7 +599,7 @@ export default function AdminScriptsPage() {
       return;
     }
     try {
-      await loadVersions(token, script.id, selectionGeneration);
+      await loadVersions(token, script.id, selectionGeneration, script.currentPublishedVersionId);
     } catch (error) {
       if (mountedRef.current && selectionGeneration === scriptSelectionGenerationRef.current) {
         setVersionFeedback(
@@ -682,17 +747,38 @@ export default function AdminScriptsPage() {
         setFeedback(t("errors.notSignedIn"));
         return;
       }
+      // Create-draft is only reachable when no draft row exists; the editor
+      // already holds the published seed (or empty first-draft boilerplate),
+      // including any operator edits. Strip identity so create never mutates
+      // a published row. Fall back to an explicit published copy only if the
+      // editor somehow still carries draft identity without a draft row.
+      const createSeed =
+        versionDraft.status === "draft" && versionDraft.id !== null
+          ? seedDraftCreateFromPublished(versions, draft.currentPublishedVersionId)
+          : {
+              ...versionDraft,
+              id: null,
+              status: null,
+              revision: null,
+              contentHash: null,
+              publishedAt: null
+            };
       const created = await createAdminScriptVersion(
         token,
         draft.id,
-        draftToVersionWritePayload(versionDraft)
+        draftToVersionWritePayload(createSeed)
       );
       if (!isCurrentScriptSelection(mutationContext)) {
         return;
       }
       setVersionDraft(versionToDraft(created));
       setVersionFeedback(t("versions.draftCreated"));
-      await loadVersions(token, draft.id, mutationContext.generation);
+      await loadVersions(
+        token,
+        draft.id,
+        mutationContext.generation,
+        draft.currentPublishedVersionId
+      );
     } catch (error) {
       if (!isCurrentScriptSelection(mutationContext)) {
         return;
@@ -755,7 +841,12 @@ export default function AdminScriptsPage() {
     if (code === "admin_script_version_revision_conflict" && draft.id !== null) {
       const token = await getAdminSessionToken(getToken).catch(() => null);
       if (token) {
-        await loadVersions(token, draft.id, mutationContext.generation);
+        await loadVersions(
+          token,
+          draft.id,
+          mutationContext.generation,
+          draft.currentPublishedVersionId
+        );
       }
       if (!isCurrentScriptSelection(mutationContext)) {
         return;
@@ -880,10 +971,12 @@ export default function AdminScriptsPage() {
         return;
       }
       setDraft(scriptToDraft(published.script));
-      setVersionDraft({ ...EMPTY_VERSION_DRAFT });
+      setVersionDraft(versionToDraft(published.version));
       setVersions((current) => {
-        const withoutPublishedVersion = current.filter((item) => item.id !== published.version.id);
-        return [published.version, ...withoutPublishedVersion].sort(
+        const withoutDraftOrPublished = current.filter(
+          (item) => item.status !== "draft" && item.id !== published.version.id
+        );
+        return [published.version, ...withoutDraftOrPublished].sort(
           (a, b) => b.version - a.version
         );
       });
