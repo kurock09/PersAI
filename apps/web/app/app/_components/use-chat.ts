@@ -96,6 +96,8 @@ export interface ChatMessage {
   role: ChatMessageRole;
   content: string;
   status: ChatMessageStatus;
+  /** Server/optimistic chronology; required for stable merge order without F5. */
+  createdAt?: string;
   attachments?: ChatAttachment[] | undefined;
   platformNotice?: ChatPlatformNotice | undefined;
   thought?: string;
@@ -766,6 +768,7 @@ function toCommittedChatMessage(message: ChatHistoryMessage): ChatMessage | null
     role: message.author === "system" ? "assistant" : message.author,
     content: message.content,
     status: "committed",
+    createdAt: message.createdAt,
     ...(message.platformNotice ? { platformNotice: message.platformNotice } : {}),
     ...(Array.isArray(message.workingNotes) && message.workingNotes.length > 0
       ? { workingNotes: message.workingNotes }
@@ -912,6 +915,26 @@ function isPassiveStreamDisconnect(error: unknown): boolean {
   }
   return false;
 }
+function sortChatMessagesChronologically(messages: ChatMessage[]): ChatMessage[] {
+  return messages
+    .map((message, index) => ({ message, index }))
+    .sort((left, right) => {
+      const leftMs = Date.parse(left.message.createdAt ?? "");
+      const rightMs = Date.parse(right.message.createdAt ?? "");
+      const leftFinite = Number.isFinite(leftMs);
+      const rightFinite = Number.isFinite(rightMs);
+      if (leftFinite && rightFinite && leftMs !== rightMs) {
+        return leftMs - rightMs;
+      }
+      if (leftFinite !== rightFinite) {
+        return leftFinite ? -1 : 1;
+      }
+      // Stable fallback: keep prior merge order (never lexicographic id order).
+      return left.index - right.index;
+    })
+    .map(({ message }) => message);
+}
+
 function mergeChatMessagesById(...groups: ChatMessage[][]): ChatMessage[] {
   const messagesById = new Map<string, ChatMessage>();
   for (const group of groups) {
@@ -919,7 +942,16 @@ function mergeChatMessagesById(...groups: ChatMessage[][]): ChatMessage[] {
       messagesById.set(message.id, message);
     }
   }
-  return Array.from(messagesById.values());
+  return sortChatMessagesChronologically(Array.from(messagesById.values()));
+}
+
+function jobHasActiveNotifyWait(notifyState: string | undefined): boolean {
+  return (
+    notifyState === "subscribed" ||
+    notifyState === "ready" ||
+    notifyState === "claimed" ||
+    notifyState === "dispatched"
+  );
 }
 function committedHistoryHasActiveTurnResult(
   loaded: ChatMessage[],
@@ -2078,13 +2110,30 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
               return [message];
             });
             const nextIds = new Set(next.map((message) => message.id));
-            const missing =
-              activeSnapshot !== undefined && !shouldReplaceActiveTurn
-                ? []
-                : loaded.filter((message) => !nextIds.has(message.id));
-            const merged = [...next, ...missing];
+            const missing = loaded.filter((message) => !nextIds.has(message.id));
+            // Absorb new server rows so notify continuations appear without F5.
+            // While a live turn is still open, only absorb messages that sit
+            // after the live user in the loaded page — never dump an unrelated
+            // pagination window that omitted the live turn entirely.
+            let missingToAbsorb = missing;
+            if (activeSnapshot !== undefined && !shouldReplaceActiveTurn) {
+              const liveUserIdForAbsorb = activeSnapshot.liveUserMessageId;
+              const liveUserIndexInLoaded =
+                liveUserIdForAbsorb !== null && !liveUserIdForAbsorb.startsWith("local-user-")
+                  ? loaded.findIndex((message) => message.id === liveUserIdForAbsorb)
+                  : -1;
+              if (liveUserIndexInLoaded >= 0) {
+                const afterLiveIds = new Set(
+                  loaded.slice(liveUserIndexInLoaded + 1).map((message) => message.id)
+                );
+                missingToAbsorb = missing.filter((message) => afterLiveIds.has(message.id));
+              } else {
+                missingToAbsorb = [];
+              }
+            }
+            const merged = sortChatMessagesChronologically([...next, ...missingToAbsorb]);
             if (activeSnapshot !== undefined) {
-              const liveTurnIds = new Set<string>(
+              const activeLiveTurnIds = new Set<string>(
                 [activeSnapshot.liveUserMessageId, activeSnapshot.liveAssistantMessageId].filter(
                   (value): value is string => typeof value === "string"
                 )
@@ -2092,7 +2141,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
               const loadedIds = new Set(loaded.map((message) => message.id));
               return merged.filter(
                 (message) =>
-                  liveTurnIds.has(message.id) ||
+                  activeLiveTurnIds.has(message.id) ||
                   !currentBaseMessageIds.has(message.id) ||
                   loadedIds.has(message.id)
               );
@@ -5078,17 +5127,26 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
       chatId === null ||
       (activeMediaJobs.length === 0 &&
         activeDocumentJobs.length === 0 &&
-        activeSandboxJobs.length === 0) ||
-      isStreaming
+        activeSandboxJobs.length === 0)
     ) {
       return;
     }
+    const hasNotifyWait =
+      activeMediaJobs.some((job) => jobHasActiveNotifyWait(job.notifyState)) ||
+      activeDocumentJobs.some((job) => jobHasActiveNotifyWait(job.notifyState)) ||
+      activeSandboxJobs.some((job) => jobHasActiveNotifyWait(job.notifyState));
+    // Keep polling while notify is armed even if another turn is streaming —
+    // continuation rows land in DB without an open SSE and must surface ASAP.
+    if (isStreaming && !hasNotifyWait) {
+      return;
+    }
+    const pollMs = hasNotifyWait ? 2_000 : 10_000;
     const timer = window.setInterval(() => {
       if (typeof document !== "undefined" && document.visibilityState === "hidden") {
         return;
       }
       void refreshLatestHistory(chatId, { targetThreadKey: currentThreadKeyRef.current });
-    }, 10_000);
+    }, pollMs);
     return () => window.clearInterval(timer);
   }, [
     activeDocumentJobs,

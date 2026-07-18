@@ -644,59 +644,96 @@ export function ChatArea({
                   <Loader2 className="h-4 w-4 animate-spin text-text-subtle" />
                 </div>
               )}
-              {chat.entries.map((entry, index) => {
-                const previousEntry = chat.entries[index - 1];
-                const nextEntry = chat.entries[index + 1];
-                const previousUserIsSending =
-                  previousEntry?.kind === "message" &&
-                  previousEntry.message.role === "user" &&
-                  (previousEntry.message.status === "sending" ||
-                    previousEntry.message.status === "reconciling");
-                const preResponseStatus =
-                  entry.kind === "message" &&
-                  entry.message.role === "assistant" &&
-                  entry.message.status === "streaming" &&
-                  !previousUserIsSending
-                    ? nextEntry?.kind === "activity"
-                      ? { kind: "activity" as const, event: nextEntry.event }
-                      : { kind: "thinking" as const }
-                    : undefined;
+              {(() => {
+                const notifyCount = !chat.isStreaming
+                  ? (chat.activeMediaJobs ?? []).filter(
+                      (job) =>
+                        job.notifyState !== undefined &&
+                        job.notifyState !== "none" &&
+                        ["subscribed", "ready", "claimed", "dispatched"].includes(job.notifyState)
+                    ).length +
+                    (chat.activeDocumentJobs ?? []).filter(
+                      (job) =>
+                        job.notifyState !== undefined &&
+                        job.notifyState !== "none" &&
+                        ["subscribed", "ready", "claimed", "dispatched"].includes(job.notifyState)
+                    ).length +
+                    (chat.activeSandboxJobs ?? []).filter((job) =>
+                      ["subscribed", "ready", "claimed", "dispatched"].includes(job.notifyState)
+                    ).length
+                  : 0;
+                const backgroundWaitFooter =
+                  notifyCount === 0
+                    ? null
+                    : notifyCount === 1
+                      ? t("waitingForBackgroundJob")
+                      : t("waitingForBackgroundJobs", { count: notifyCount });
+                let lastAssistantMessageId: string | null = null;
+                for (let i = chat.entries.length - 1; i >= 0; i -= 1) {
+                  const entry = chat.entries[i];
+                  if (entry?.kind === "message" && entry.message.role === "assistant") {
+                    lastAssistantMessageId = entry.message.id;
+                    break;
+                  }
+                }
 
-                return entry.kind === "message" ? (
-                  <ChatMessageBubble
-                    key={entry.message.id}
-                    chatId={chat.chatId}
-                    message={entry.message}
-                    preResponseStatus={preResponseStatus}
-                    showShadowRoutingLabel={showShadowRoutingBadge}
-                    assistantAvatarUrl={assistantAvatarUrl}
-                    assistantAvatarEmoji={assistantAvatarEmoji}
-                    showAssistantAvatar={showAssistantAvatars}
-                    onAssistantAction={handleAssistantAction}
-                    onDocumentJobAccepted={onDocumentJobAccepted}
-                    onDoNotRemember={
-                      entry.message.role === "assistant" &&
-                      entry.message.status === "committed" &&
-                      !forgottenIds.has(entry.message.id)
-                        ? handleDoNotRememberClick
-                        : undefined
-                    }
-                    forgotten={forgottenIds.has(entry.message.id)}
-                    onRetryPendingSend={
-                      entry.message.role === "user" &&
-                      entry.message.status.startsWith("send_failed")
-                        ? handleRetryPendingSend
-                        : undefined
-                    }
-                    onCancelPendingSend={
-                      entry.message.role === "user" &&
-                      entry.message.status.startsWith("send_failed")
-                        ? handleCancelPendingSend
-                        : undefined
-                    }
-                  />
-                ) : null;
-              })}
+                return chat.entries.map((entry, index) => {
+                  const previousEntry = chat.entries[index - 1];
+                  const nextEntry = chat.entries[index + 1];
+                  const previousUserIsSending =
+                    previousEntry?.kind === "message" &&
+                    previousEntry.message.role === "user" &&
+                    (previousEntry.message.status === "sending" ||
+                      previousEntry.message.status === "reconciling");
+                  const preResponseStatus =
+                    entry.kind === "message" &&
+                    entry.message.role === "assistant" &&
+                    entry.message.status === "streaming" &&
+                    !previousUserIsSending
+                      ? nextEntry?.kind === "activity"
+                        ? { kind: "activity" as const, event: nextEntry.event }
+                        : { kind: "thinking" as const }
+                      : undefined;
+
+                  return entry.kind === "message" ? (
+                    <ChatMessageBubble
+                      key={entry.message.id}
+                      chatId={chat.chatId}
+                      message={entry.message}
+                      preResponseStatus={preResponseStatus}
+                      showShadowRoutingLabel={showShadowRoutingBadge}
+                      assistantAvatarUrl={assistantAvatarUrl}
+                      assistantAvatarEmoji={assistantAvatarEmoji}
+                      showAssistantAvatar={showAssistantAvatars}
+                      onAssistantAction={handleAssistantAction}
+                      onDocumentJobAccepted={onDocumentJobAccepted}
+                      backgroundWaitFooter={
+                        entry.message.id === lastAssistantMessageId ? backgroundWaitFooter : null
+                      }
+                      onDoNotRemember={
+                        entry.message.role === "assistant" &&
+                        entry.message.status === "committed" &&
+                        !forgottenIds.has(entry.message.id)
+                          ? handleDoNotRememberClick
+                          : undefined
+                      }
+                      forgotten={forgottenIds.has(entry.message.id)}
+                      onRetryPendingSend={
+                        entry.message.role === "user" &&
+                        entry.message.status.startsWith("send_failed")
+                          ? handleRetryPendingSend
+                          : undefined
+                      }
+                      onCancelPendingSend={
+                        entry.message.role === "user" &&
+                        entry.message.status.startsWith("send_failed")
+                          ? handleCancelPendingSend
+                          : undefined
+                      }
+                    />
+                  ) : null;
+                });
+              })()}
               <div ref={bottomRef} />
             </div>
           )}
@@ -1164,37 +1201,6 @@ export function ChatArea({
                 </div>
               </div>
             ) : null}
-            {!chat.isStreaming &&
-              (() => {
-                const notifyCount =
-                  (chat.activeMediaJobs ?? []).filter(
-                    (job) =>
-                      job.notifyState !== undefined &&
-                      job.notifyState !== "none" &&
-                      ["subscribed", "ready", "claimed", "dispatched"].includes(job.notifyState)
-                  ).length +
-                  (chat.activeDocumentJobs ?? []).filter(
-                    (job) =>
-                      job.notifyState !== undefined &&
-                      job.notifyState !== "none" &&
-                      ["subscribed", "ready", "claimed", "dispatched"].includes(job.notifyState)
-                  ).length +
-                  (chat.activeSandboxJobs ?? []).filter((job) =>
-                    ["subscribed", "ready", "claimed", "dispatched"].includes(job.notifyState)
-                  ).length;
-                if (notifyCount === 0) return null;
-                return (
-                  <div
-                    role="status"
-                    aria-live="polite"
-                    className="mb-3 px-2 text-sm text-text-muted"
-                  >
-                    {notifyCount === 1
-                      ? t("waitingForBackgroundJob")
-                      : t("waitingForBackgroundJobs", { count: notifyCount })}
-                  </div>
-                );
-              })()}
             <ChatInput
               ref={chatInputRef}
               onSend={(text, files, options) => {

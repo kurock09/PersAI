@@ -119,12 +119,13 @@ export function ChatWorkingJobsPill({
       aria-live="polite"
       onPointerDownCapture={() => setInteractionVersion((version) => version + 1)}
       className={cn(
+        // Match composer shell height (min-h-11 / h-11 + p-[3px] + same border).
         // Grow left from the right-edge pill; list opens upward via flex-col-reverse.
-        "ml-auto overflow-hidden border border-border/40 bg-surface-raised transition-[width,border-color,background-color,box-shadow] duration-300 ease-out",
+        "ml-auto overflow-hidden border border-border/45 bg-surface-raised transition-[width,border-color,background-color,box-shadow] duration-300 ease-out",
         countsCollapsed
           ? "h-11 w-11 @[500px]:h-11 @[500px]:w-auto @[500px]:min-w-[7.5rem]"
-          : "w-full",
-        expanded ? "rounded-[1.375rem]" : "rounded-full",
+          : "h-11 w-full",
+        expanded ? "h-auto rounded-[1.375rem]" : "rounded-full",
         className
       )}
     >
@@ -134,19 +135,19 @@ export function ChatWorkingJobsPill({
             <button
               type="button"
               data-testid="chat-working-mobile-circle"
-              className="flex h-11 w-11 flex-col items-center justify-center gap-0.5 whitespace-nowrap text-text @[500px]:hidden"
+              className="flex h-full w-full items-center justify-center gap-1 whitespace-nowrap p-[3px] text-text @[500px]:hidden"
               onClick={handleHeaderClick}
               aria-label={t("workingJobs", { count })}
             >
+              <WorkingBounceDots size="sm" />
               <span className="text-[10px] font-semibold leading-none tabular-nums text-text-muted">
                 {count}
               </span>
-              <WorkingBounceDots size="sm" />
             </button>
             <button
               type="button"
               data-testid="chat-working-collapsed-chip"
-              className="hidden h-11 w-full items-center justify-center gap-2 whitespace-nowrap px-3.5 @[500px]:flex"
+              className="hidden h-full w-full items-center justify-center gap-1.5 whitespace-nowrap p-[3px] px-3.5 @[500px]:flex"
               onClick={handleHeaderClick}
               aria-label={t("workingJobs", { count })}
             >
@@ -161,7 +162,7 @@ export function ChatWorkingJobsPill({
           <div className="flex h-11 items-center gap-1.5 p-[3px] pl-3">
             <button
               type="button"
-              className="group flex min-w-0 flex-1 items-center gap-2 text-left"
+              className="group flex min-w-0 flex-1 items-center gap-1.5 text-left"
               onClick={handleHeaderClick}
               aria-expanded={expanded}
               aria-controls={bodyId}

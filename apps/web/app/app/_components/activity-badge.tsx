@@ -321,9 +321,17 @@ export function ActivityBadge({
   const [nowMs, setNowMs] = useState(() => Date.now());
   useEffect(() => {
     if (awaitDeadlineMs === null) return;
+    let active = true;
     setNowMs(Date.now());
-    const timer = window.setInterval(() => setNowMs(Date.now()), 250);
-    return () => window.clearInterval(timer);
+    const timer = globalThis.setInterval(() => {
+      // Vitest may tear down jsdom before effect cleanup runs.
+      if (!active || typeof window === "undefined") return;
+      setNowMs(Date.now());
+    }, 250);
+    return () => {
+      active = false;
+      globalThis.clearInterval(timer);
+    };
   }, [awaitDeadlineMs]);
   const { label, detail, shellCommand, shellProgressLines } = getActivityDisplayParts(
     event,

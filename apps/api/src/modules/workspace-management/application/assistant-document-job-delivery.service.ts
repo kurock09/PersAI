@@ -277,26 +277,49 @@ export class AssistantDocumentJobDeliveryService {
         currentPayload.externalDeliveryCommitted !== true &&
         completionAssistantMessageId === null
       ) {
-        const placeholderLocale = inferAssistantDocumentJobLocale({
-          preferredLocale: null,
-          sourceText: this.readSourceUserMessageText(currentPayload)
-        });
-        const completionMessage = await this.assistantChatRepository.createMessage({
-          chatId: job.chatId,
-          assistantId: job.assistantId,
-          author: "assistant",
-          content: buildAssistantDocumentJobPreparingMessage(placeholderLocale)
-        });
-        completionAssistantMessageId = completionMessage.id;
+        const sourceUserMessageId = this.readSourceUserMessageId(currentPayload);
+        const reusedTurnMessage =
+          sourceUserMessageId === "unknown"
+            ? null
+            : await this.prisma.assistantChatMessage.findFirst({
+                where: {
+                  chatId: job.chatId,
+                  assistantId: job.assistantId,
+                  author: "assistant",
+                  metadata: {
+                    path: ["sourceUserMessageId"],
+                    equals: sourceUserMessageId
+                  }
+                },
+                orderBy: { createdAt: "desc" },
+                select: { id: true }
+              });
+        if (reusedTurnMessage !== null) {
+          completionAssistantMessageId = reusedTurnMessage.id;
+        } else {
+          const placeholderLocale = inferAssistantDocumentJobLocale({
+            preferredLocale: null,
+            sourceText: this.readSourceUserMessageText(currentPayload)
+          });
+          const completionMessage = await this.assistantChatRepository.createMessage({
+            chatId: job.chatId,
+            assistantId: job.assistantId,
+            author: "assistant",
+            content: buildAssistantDocumentJobPreparingMessage(placeholderLocale)
+          });
+          completionAssistantMessageId = completionMessage.id;
+        }
         const remembered = await this.rememberCompletionMessage(
           job,
           currentPayload,
           completionAssistantMessageId
         );
         if (!remembered) {
-          await this.assistantChatRepository
-            .deleteMessage(completionAssistantMessageId, job.assistantId)
-            .catch(() => {});
+          if (reusedTurnMessage === null && completionAssistantMessageId !== null) {
+            await this.assistantChatRepository
+              .deleteMessage(completionAssistantMessageId, job.assistantId)
+              .catch(() => {});
+          }
           return;
         }
         currentPayload = {
@@ -408,15 +431,30 @@ export class AssistantDocumentJobDeliveryService {
         deliveredAttachmentCount: deliveredAttachments.length,
         deliveredAttachmentFilenames: []
       });
-      await this.assistantChatRepository
-        .updateMessageContent(completionAssistantMessageId, job.assistantId, finalText)
-        .catch((error) => {
-          this.logger.warn(
-            `Document delivery finalized for ${job.id}, but success text update failed: ${
-              error instanceof Error ? error.message : String(error)
-            }`
-          );
-        });
+      const existingDeliveryMessage =
+        await this.assistantChatRepository.findMessageByIdForAssistant(
+          completionAssistantMessageId,
+          job.assistantId
+        );
+      const existingDeliveryText = existingDeliveryMessage?.content.trim() ?? "";
+      // When delivery reuses the source-turn assistant bubble, never replace
+      // chat-model narration with system success fallback copy.
+      const shouldWriteSuccessText =
+        finalText.trim().length > 0 &&
+        (existingDeliveryText.length === 0 ||
+          existingDeliveryText === buildAssistantDocumentJobPreparingMessage(finalLocale) ||
+          finalAssistantText.length > 0);
+      if (shouldWriteSuccessText) {
+        await this.assistantChatRepository
+          .updateMessageContent(completionAssistantMessageId, job.assistantId, finalText)
+          .catch((error) => {
+            this.logger.warn(
+              `Document delivery finalized for ${job.id}, but success text update failed: ${
+                error instanceof Error ? error.message : String(error)
+              }`
+            );
+          });
+      }
     } catch (error) {
       if (currentPayload?.externalDeliveryCommitted === true) {
         await this.deferRetry(

@@ -8703,6 +8703,19 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
         callOffset + 3,
         "self-check adds one extra provider call after substantive work with open todos"
       );
+      const selfCheckCall = providerGatewayClient.calls[callOffset + 2] as {
+        toolFollowUpUserContent?: unknown;
+        tools?: Array<{ name: string }>;
+      };
+      assert.equal(
+        selfCheckCall.toolFollowUpUserContent,
+        undefined,
+        "self-check must not reuse perception toolFollowUpUserContent"
+      );
+      assert.ok(
+        (selfCheckCall.tools ?? []).every((tool) => tool.name === "todo_write"),
+        "self-check tools must be todo_write-only"
+      );
     }
 
     // Test B — self-check skipped when the fresh plan is clean/empty.

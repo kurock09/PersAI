@@ -1573,15 +1573,29 @@ export class TurnExecutionService {
                     trace?.build("ok"),
                     { workingNotes: [], answerText: terminalStaticAssistantText }
                   );
-                  completionFinalizationAttempted = true;
-                  const finalizedResult = await this.finalizeAcceptedTurnWithPostTurnEffects({
-                    acceptedTurn,
-                    result,
-                    input,
-                    bundle: execution.bundle,
-                    turnState
-                  });
-                  yield { type: "completed", result: finalizedResult };
+                  try {
+                    const finalizedResult = await this.finalizeAcceptedTurnWithPostTurnEffects({
+                      acceptedTurn,
+                      result,
+                      input,
+                      bundle: execution.bundle,
+                      turnState
+                    });
+                    completionFinalizationAttempted = true;
+                    yield { type: "completed", result: finalizedResult };
+                  } catch (finalizeError) {
+                    this.logger.error(
+                      `[turn-stream-finalize-failed] requestId=${acceptedTurn.receipt.requestId} error=${this.formatLogError(finalizeError)}`
+                    );
+                    const failed = await this.failAcceptedTurnQuietly(
+                      acceptedTurn,
+                      finalizeError,
+                      trace?.build("failed"),
+                      turnState
+                    );
+                    completionFinalizationAttempted = true;
+                    yield failed;
+                  }
                   return;
                 }
                 if (durableCompactionExecuted) {
@@ -1735,18 +1749,32 @@ export class TurnExecutionService {
                   trace?.build("ok"),
                   { workingNotes, answerText }
                 );
-                completionFinalizationAttempted = true;
-                const finalizedResult = await this.finalizeAcceptedTurnWithPostTurnEffects({
-                  acceptedTurn,
-                  result,
-                  input,
-                  bundle: execution.bundle,
-                  turnState
-                });
-                yield {
-                  type: "completed",
-                  result: finalizedResult
-                };
+                try {
+                  const finalizedResult = await this.finalizeAcceptedTurnWithPostTurnEffects({
+                    acceptedTurn,
+                    result,
+                    input,
+                    bundle: execution.bundle,
+                    turnState
+                  });
+                  completionFinalizationAttempted = true;
+                  yield {
+                    type: "completed",
+                    result: finalizedResult
+                  };
+                } catch (finalizeError) {
+                  this.logger.error(
+                    `[turn-stream-finalize-failed] requestId=${acceptedTurn.receipt.requestId} error=${this.formatLogError(finalizeError)}`
+                  );
+                  const failed = await this.failAcceptedTurnQuietly(
+                    acceptedTurn,
+                    finalizeError,
+                    trace?.build("failed"),
+                    turnState
+                  );
+                  completionFinalizationAttempted = true;
+                  yield failed;
+                }
                 return;
               }
 
@@ -6249,13 +6277,31 @@ export class TurnExecutionService {
         cacheRole: "volatile_context",
         volatileKind: "system_reminder"
       };
+      // Never reuse perception toolFollowUpUserContent or the full tool surface.
+      // Post-await image perception leaves multimodal follow-up blocks on
+      // providerRequest; DeepSeek/text-only PG rejects that with 400 and the
+      // stream path must still finalize cleanly.
+      const {
+        toolFollowUpUserContent: _omitPerceptionFollowUp,
+        tools: providerTools,
+        toolChoice: _omitToolChoice,
+        ...selfCheckRequestBase
+      } = input.execution.providerRequest;
+      void _omitPerceptionFollowUp;
+      void _omitToolChoice;
+      const todoWriteTools = (providerTools ?? []).filter(
+        (tool) => tool.name === TODO_WRITE_TOOL_CODE
+      );
       const selfCheckBaseRequest: ProviderGatewayTextGenerateRequest = {
-        ...input.execution.providerRequest,
+        ...selfCheckRequestBase,
         messages: [
           ...input.execution.providerRequest.messages,
           { role: "assistant", content: originalText },
           reminderMessage
         ],
+        ...(todoWriteTools.length > 0
+          ? { tools: todoWriteTools, toolChoice: "auto" as const }
+          : { tools: [], toolChoice: "none" as const }),
         requestMetadata: this.createSelfCheckProviderRequestMetadata(input.acceptedTurn)
       };
 
@@ -6342,6 +6388,9 @@ export class TurnExecutionService {
         ? this.withAssistantText(finalResult, finalText)
         : input.providerResult;
     } catch (error) {
+      if (this.isAbortError(error)) {
+        throw error;
+      }
       this.logger.warn(
         `[self-check] failed requestId=${input.acceptedTurn.receipt.requestId}: ${this.formatLogError(error)}`
       );

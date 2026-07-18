@@ -764,6 +764,97 @@ describe("AssistantAsyncJobHandleStateService", () => {
     assert.equal(row.state, "ready");
   });
 
+  test("observeForCurrentTurn refreshes detached sandbox before reading canonical", async () => {
+    const canonicalJobId = "00000000-0000-4000-8000-000000000010";
+    const sandboxOwned = {
+      jobRef: "jr1.sandbox.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      assistantId: owned.assistantId,
+      workspaceId: owned.workspaceId,
+      chatId: owned.chatId,
+      channel: "web" as const,
+      threadKey: "thread-1"
+    };
+    let sandboxStatus: "detached" | "completed" = "detached";
+    const inspected: string[] = [];
+    const row = {
+      id: "00000000-0000-4000-8000-000000000005",
+      kind: "sandbox" as const,
+      canonicalJobId,
+      state: "none",
+      narrationOwner: null as "current_turn" | null,
+      narrationDecision: null as string | null,
+      sourceFinalizedAt: null as Date | null,
+      runtimeSessionId: "00000000-0000-4000-8000-000000000008",
+      continuationDepth: 0,
+      continuationClientTurnId: null as string | null,
+      claimToken: null as string | null,
+      retryCount: 0,
+      maxRetries: 8,
+      lastErrorCode: null as string | null
+    };
+    const prisma = {
+      assistantAsyncJobHandle: {
+        findFirst: async () => ({ canonicalJobId })
+      },
+      sandboxJob: {
+        findMany: async () =>
+          sandboxStatus === "detached" ? [{ id: canonicalJobId }] : ([] as Array<{ id: string }>),
+        findUnique: async () => ({
+          status: sandboxStatus,
+          toolCode: "shell",
+          resultPayload:
+            sandboxStatus === "completed"
+              ? { exitCode: 0, stdout: "done", stderr: "", producedFiles: [] }
+              : null,
+          assistantId: owned.assistantId,
+          workspaceId: owned.workspaceId,
+          runtimeSessionId: row.runtimeSessionId
+        })
+      },
+      $transaction: async <T>(callback: (tx: typeof tx) => Promise<T>) => callback(tx)
+    };
+    const tx = {
+      $queryRaw: async () => [row],
+      assistantAsyncJobHandle: {
+        update: async ({ data }: { data: Record<string, unknown> }) => {
+          Object.assign(row, data);
+          return row;
+        }
+      },
+      sandboxJob: {
+        findUnique: async () => ({
+          status: sandboxStatus,
+          toolCode: "shell",
+          resultPayload:
+            sandboxStatus === "completed"
+              ? { exitCode: 0, stdout: "done", stderr: "", producedFiles: [] }
+              : null,
+          assistantId: owned.assistantId,
+          workspaceId: owned.workspaceId,
+          runtimeSessionId: row.runtimeSessionId
+        })
+      }
+    };
+    const service = new AssistantAsyncJobHandleStateService(
+      prisma as never,
+      {
+        inspectJob: async (jobId: string) => {
+          inspected.push(jobId);
+          sandboxStatus = "completed";
+          return true;
+        }
+      } as never
+    );
+
+    const observed = await service.observeForCurrentTurn(sandboxOwned);
+    assert.deepEqual(inspected, [canonicalJobId]);
+    assert.equal(observed.outcome, "claimed_current_turn");
+    if (observed.outcome === "claimed_current_turn") {
+      assert.equal(observed.status, "completed");
+      assert.equal(observed.kind, "sandbox");
+    }
+  });
+
   test("registerSandboxJob accepts detached SandboxJob", async () => {
     const tx = {
       $queryRaw: async () => [{ count: 0n }],

@@ -113,12 +113,32 @@ export class AssistantAsyncJobContinuationSchedulerService
       select: { canonicalJobId: true }
     });
     for (const row of rows) {
-      await this.sandboxControlPlane.inspectJob(row.canonicalJobId);
+      const inspected = await this.sandboxControlPlane.inspectJob(row.canonicalJobId);
+      if (!inspected) {
+        this.logger.warn(
+          `async_sandbox_reconcile_inspect_failed canonicalJobId=${row.canonicalJobId}`
+        );
+      }
       const job = await this.prisma.sandboxJob.findUnique({
         where: { id: row.canonicalJobId },
         select: { status: true, resultPayload: true }
       });
       if (job === null || !["completed", "failed", "blocked", "cancelled"].includes(job.status)) {
+        // Rotate fairness: touch updatedAt so a stuck detached row cannot
+        // monopolize the oldest-first reconcile window forever.
+        if (
+          typeof (this.prisma.assistantAsyncJobHandle as { updateMany?: unknown }).updateMany ===
+          "function"
+        ) {
+          await this.prisma.assistantAsyncJobHandle.updateMany({
+            where: {
+              kind: "sandbox",
+              canonicalJobId: row.canonicalJobId,
+              state: { in: ["none", "subscribed"] }
+            },
+            data: { updatedAt: new Date() }
+          });
+        }
         continue;
       }
       const terminalStatus =

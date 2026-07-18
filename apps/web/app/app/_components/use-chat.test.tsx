@@ -1110,6 +1110,90 @@ describe("useChat", () => {
     vi.useRealTimers();
   });
 
+  it("surfaces notify continuation bubbles promptly in chronological order without F5", async () => {
+    vi.useFakeTimers();
+    const baseMessages = [
+      {
+        id: "user-msg-1",
+        chatId: "chat-1",
+        assistantId: "assistant-1",
+        author: "user",
+        content: "run bg",
+        attachments: [],
+        createdAt: "2026-07-19T01:00:00.000Z"
+      },
+      {
+        id: "assistant-msg-1",
+        chatId: "chat-1",
+        assistantId: "assistant-1",
+        author: "assistant",
+        content: "subscribed",
+        attachments: [],
+        createdAt: "2026-07-19T01:00:05.000Z"
+      }
+    ];
+    const continuationMessage = {
+      id: "assistant-msg-continuation",
+      chatId: "chat-1",
+      assistantId: "assistant-1",
+      author: "assistant",
+      content: "FIVE_MIN_DONE",
+      attachments: [],
+      createdAt: "2026-07-19T01:05:00.000Z"
+    };
+    const sandboxJob = {
+      jobRef: "jr1.sandbox.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      toolCode: "shell" as const,
+      status: "detached" as const,
+      notifyState: "subscribed" as const,
+      createdAt: "2026-07-19T01:00:01.000Z",
+      startedAt: "2026-07-19T01:00:01.000Z",
+      updatedAt: "2026-07-19T01:00:01.000Z"
+    };
+    assistantApiMocks.getChatMessages
+      .mockResolvedValueOnce({
+        nextCursor: null,
+        activeTurn: null,
+        activeSandboxJobs: [sandboxJob],
+        messages: baseMessages
+      })
+      .mockResolvedValue({
+        nextCursor: null,
+        activeTurn: null,
+        activeSandboxJobs: [sandboxJob],
+        messages: [...baseMessages, continuationMessage]
+      });
+
+    const { result } = renderHook(() => useChat("thread-1"), {
+      wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+    });
+
+    await act(async () => {
+      await result.current.loadHistory("chat-1");
+    });
+    expect(result.current.activeSandboxJobs).toHaveLength(1);
+    expect(result.current.messages.map((message) => message.id)).toEqual([
+      "user-msg-1",
+      "assistant-msg-1"
+    ]);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000);
+    });
+
+    expect(result.current.messages.map((message) => message.id)).toEqual([
+      "user-msg-1",
+      "assistant-msg-1",
+      "assistant-msg-continuation"
+    ]);
+    expect(result.current.messages.map((message) => message.content)).toEqual([
+      "run bg",
+      "subscribed",
+      "FIVE_MIN_DONE"
+    ]);
+    vi.useRealTimers();
+  });
+
   it("clears the local streaming bubble when focus history already contains the completed turn", async () => {
     Object.defineProperty(document, "visibilityState", {
       configurable: true,

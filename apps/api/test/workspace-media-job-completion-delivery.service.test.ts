@@ -71,6 +71,7 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
             }
           }),
         assistantMediaJob: {
+          findFirst: async () => null,
           updateMany: async (input: Record<string, unknown>) => {
             finalUpdates.push(input);
             return { count: 1 };
@@ -84,6 +85,14 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
           assistantId: "assistant-1",
           content: "Your image is ready.",
           createdAt: new Date("2026-05-05T09:10:00.000Z")
+        }),
+        findMessageByIdForAssistant: async () => ({
+          id: "msg",
+          content: "",
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          author: "assistant" as const,
+          createdAt: new Date()
         }),
         updateMessageContent: async (messageId: string, assistantId: string, content: string) => {
           messageUpdates.push({ messageId, assistantId, content });
@@ -186,6 +195,7 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
             }
           }),
         assistantMediaJob: {
+          findFirst: async () => null,
           updateMany: async (input: Record<string, unknown>) => {
             finalUpdates.push(input);
             return { count: 1 };
@@ -214,6 +224,14 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
           lastMessageAt: null,
           createdAt: new Date("2026-05-05T09:00:00.000Z"),
           updatedAt: new Date("2026-05-05T09:00:00.000Z")
+        }),
+        findMessageByIdForAssistant: async () => ({
+          id: "msg",
+          content: "",
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          author: "assistant" as const,
+          createdAt: new Date()
         }),
         updateMessageContent: async () => null
       } as never,
@@ -315,6 +333,7 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
             }
           }),
         assistantMediaJob: {
+          findFirst: async () => null,
           updateMany: async (input: Record<string, unknown>) => {
             finalUpdates.push(input);
             return { count: 1 };
@@ -333,6 +352,14 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
           content:
             "Request accepted. I am generating the image and will send it separately when it is ready.",
           createdAt: new Date("2026-05-05T09:10:00.000Z")
+        }),
+        findMessageByIdForAssistant: async () => ({
+          id: "msg",
+          content: "",
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          author: "assistant" as const,
+          createdAt: new Date()
         }),
         updateMessageContent: async (messageId: string, assistantId: string, content: string) => {
           messageUpdates.push({ messageId, assistantId, content });
@@ -429,6 +456,7 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
             }
           }),
         assistantMediaJob: {
+          findFirst: async () => null,
           updateMany: async (input: Record<string, unknown>) => {
             finalUpdates.push(input);
             return { count: 1 };
@@ -439,6 +467,14 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
         createMessage: async () => {
           throw new Error("createMessage should not run when completion message already exists");
         },
+        findMessageByIdForAssistant: async () => ({
+          id: "msg",
+          content: "",
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          author: "assistant" as const,
+          createdAt: new Date()
+        }),
         updateMessageContent: async (messageId: string, assistantId: string, content: string) => {
           messageUpdates.push({ messageId, assistantId, content });
           return null;
@@ -524,6 +560,7 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
             assistantMediaJob: { update: async () => undefined }
           }),
         assistantMediaJob: {
+          findFirst: async () => null,
           updateMany: async (input: Record<string, unknown>) => {
             finalUpdates.push(input);
             return { count: 1 };
@@ -534,6 +571,14 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
         createMessage: async () => {
           throw new Error("createMessage should not run when completion message already exists");
         },
+        findMessageByIdForAssistant: async () => ({
+          id: "msg",
+          content: "",
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          author: "assistant" as const,
+          createdAt: new Date()
+        }),
         updateMessageContent: async (messageId: string, assistantId: string, content: string) => {
           messageUpdates.push({ messageId, assistantId, content });
           return null;
@@ -627,6 +672,7 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
             assistantMediaJob: { update: async () => undefined }
           }),
         assistantMediaJob: {
+          findFirst: async () => null,
           updateMany: async (input: Record<string, unknown>) => {
             finalUpdates.push(input);
             return { count: 1 };
@@ -637,6 +683,14 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
         createMessage: async () => {
           throw new Error("createMessage should not run when completion message already exists");
         },
+        findMessageByIdForAssistant: async () => ({
+          id: "msg",
+          content: "",
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          author: "assistant" as const,
+          createdAt: new Date()
+        }),
         updateMessageContent: async (messageId: string, assistantId: string, content: string) => {
           messageUpdates.push({ messageId, assistantId, content });
           return null;
@@ -722,6 +776,7 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
             assistantMediaJob: { update: async () => undefined }
           }),
         assistantMediaJob: {
+          findFirst: async () => null,
           updateMany: async (input: Record<string, unknown>) => {
             finalUpdates.push(input);
             return { count: 1 };
@@ -735,6 +790,14 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
           assistantId: "assistant-1",
           content: "failed",
           createdAt: new Date("2026-05-05T09:10:00.000Z")
+        }),
+        findMessageByIdForAssistant: async () => ({
+          id: "msg",
+          content: "",
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          author: "assistant" as const,
+          createdAt: new Date()
         }),
         updateMessageContent: async () => null
       } as never,
@@ -835,6 +898,7 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
             assistantMediaJob: { update: async () => undefined }
           }),
         assistantMediaJob: {
+          findFirst: async () => null,
           updateMany: async (input: Record<string, unknown>) => {
             finalUpdates.push(input);
             return { count: 1 };
@@ -848,6 +912,14 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
           assistantId: "assistant-1",
           content: "Here is your edited image.",
           createdAt: new Date("2026-05-31T09:10:00.000Z")
+        }),
+        findMessageByIdForAssistant: async () => ({
+          id: "msg",
+          content: "",
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          author: "assistant" as const,
+          createdAt: new Date()
         }),
         updateMessageContent: async () => null
       } as never,
@@ -944,6 +1016,7 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
             assistantMediaJob: { update: async () => undefined }
           }),
         assistantMediaJob: {
+          findFirst: async () => null,
           updateMany: async (input: Record<string, unknown>) => {
             finalUpdates.push(input);
             return { count: 1 };
@@ -957,6 +1030,14 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
           assistantId: "assistant-1",
           content: "Here are your 2 edited images.",
           createdAt: new Date("2026-05-31T09:10:00.000Z")
+        }),
+        findMessageByIdForAssistant: async () => ({
+          id: "msg",
+          content: "",
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          author: "assistant" as const,
+          createdAt: new Date()
         }),
         updateMessageContent: async () => null
       } as never,
@@ -1034,6 +1115,7 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
             assistantMediaJob: { update: async () => undefined }
           }),
         assistantMediaJob: {
+          findFirst: async () => null,
           updateMany: async () => ({ count: 1 })
         }
       } as never,
@@ -1044,6 +1126,14 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
           assistantId: "assistant-1",
           content: "failed",
           createdAt: new Date("2026-05-31T09:10:00.000Z")
+        }),
+        findMessageByIdForAssistant: async () => ({
+          id: "msg",
+          content: "",
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          author: "assistant" as const,
+          createdAt: new Date()
         }),
         updateMessageContent: async () => null
       } as never,
@@ -1143,6 +1233,7 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
             assistantMediaJob: { update: async () => undefined }
           }),
         assistantMediaJob: {
+          findFirst: async () => null,
           updateMany: async () => ({ count: 1 })
         }
       } as never,
@@ -1153,6 +1244,14 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
           assistantId: "assistant-1",
           content: "Here are your images.",
           createdAt: new Date("2026-05-31T10:10:00.000Z")
+        }),
+        findMessageByIdForAssistant: async () => ({
+          id: "msg",
+          content: "",
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          author: "assistant" as const,
+          createdAt: new Date()
         }),
         updateMessageContent: async (messageId: string, assistantId: string, content: string) => {
           messageUpdates.push({ messageId, assistantId, content });
@@ -1259,6 +1358,7 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
             assistantMediaJob: { update: async () => undefined }
           }),
         assistantMediaJob: {
+          findFirst: async () => null,
           updateMany: async () => ({ count: 1 })
         }
       } as never,
@@ -1284,6 +1384,14 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
           lastMessageAt: null,
           createdAt: new Date("2026-05-31T10:00:00.000Z"),
           updatedAt: new Date("2026-05-31T10:00:00.000Z")
+        }),
+        findMessageByIdForAssistant: async () => ({
+          id: "msg",
+          content: "",
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          author: "assistant" as const,
+          createdAt: new Date()
         }),
         updateMessageContent: async (messageId: string, assistantId: string, content: string) => {
           messageUpdates.push({ messageId, assistantId, content });
@@ -1409,6 +1517,7 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
             assistantMediaJob: { update: async () => undefined }
           }),
         assistantMediaJob: {
+          findFirst: async () => null,
           updateMany: async () => ({ count: 1 })
         }
       } as never,
@@ -1419,6 +1528,14 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
           assistantId: "assistant-1",
           content: "Here are 2 images.",
           createdAt: new Date("2026-05-31T10:10:00.000Z")
+        }),
+        findMessageByIdForAssistant: async () => ({
+          id: "msg",
+          content: "",
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          author: "assistant" as const,
+          createdAt: new Date()
         }),
         updateMessageContent: async (messageId: string, assistantId: string, content: string) => {
           messageUpdates.push({ messageId, assistantId, content });
@@ -1494,6 +1611,7 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
             assistantMediaJob: { update: async () => undefined }
           }),
         assistantMediaJob: {
+          findFirst: async () => null,
           updateMany: async () => ({ count: 1 })
         }
       } as never,
@@ -1504,6 +1622,14 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
           assistantId: "assistant-1",
           content: "failed",
           createdAt: new Date("2026-05-31T10:10:00.000Z")
+        }),
+        findMessageByIdForAssistant: async () => ({
+          id: "msg",
+          content: "",
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          author: "assistant" as const,
+          createdAt: new Date()
         }),
         updateMessageContent: async (messageId: string, assistantId: string, content: string) => {
           messageUpdates.push({ messageId, assistantId, content });
@@ -1593,6 +1719,7 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
             assistantMediaJob: { update: async () => undefined }
           }),
         assistantMediaJob: {
+          findFirst: async () => null,
           updateMany: async (input: Record<string, unknown>) => {
             finalUpdates.push(input);
             return { count: 1 };
@@ -1606,6 +1733,14 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
           assistantId: "assistant-1",
           content: "Your image is ready.",
           createdAt: new Date("2026-05-05T09:10:00.000Z")
+        }),
+        findMessageByIdForAssistant: async () => ({
+          id: "msg",
+          content: "",
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          author: "assistant" as const,
+          createdAt: new Date()
         }),
         updateMessageContent: async () => null
       } as never,
@@ -1683,6 +1818,7 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
             assistantMediaJob: { update: async () => undefined }
           }),
         assistantMediaJob: {
+          findFirst: async () => null,
           updateMany: async () => ({ count: 1 })
         }
       } as never,
@@ -1693,6 +1829,14 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
           assistantId: "assistant-1",
           content: "failed",
           createdAt: new Date("2026-06-13T09:10:00.000Z")
+        }),
+        findMessageByIdForAssistant: async () => ({
+          id: "msg",
+          content: "",
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          author: "assistant" as const,
+          createdAt: new Date()
         }),
         updateMessageContent: async () => null
       } as never,
@@ -1771,6 +1915,7 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
             assistantMediaJob: { update: async () => undefined }
           }),
         assistantMediaJob: {
+          findFirst: async () => null,
           updateMany: async (input: Record<string, unknown>) => {
             finalUpdates.push(input);
             return { count: 1 };
@@ -1781,6 +1926,14 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
         createMessage: async () => {
           throw new Error("createMessage should not run when completion message already exists");
         },
+        findMessageByIdForAssistant: async () => ({
+          id: "msg",
+          content: "",
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          author: "assistant" as const,
+          createdAt: new Date()
+        }),
         updateMessageContent: async (messageId: string, assistantId: string, content: string) => {
           messageUpdates.push({ messageId, assistantId, content });
           return null;

@@ -47,6 +47,7 @@ type ClaimedCompletionPendingMediaJob = {
   resultText: string | null;
   artifactsJson: unknown;
   completionAssistantMessageId: string | null;
+  assistantAcknowledgementMessageId: string | null;
   lastErrorCode: string | null;
   lastErrorMessage: string | null;
   attemptCount: number;
@@ -199,6 +200,7 @@ export class AssistantMediaJobCompletionDeliveryService {
           resultText: string | null;
           artifactsJson: unknown;
           completionAssistantMessageId: string | null;
+          assistantAcknowledgementMessageId: string | null;
           lastErrorCode: string | null;
           lastErrorMessage: string | null;
           attemptCount: number;
@@ -218,6 +220,7 @@ export class AssistantMediaJobCompletionDeliveryService {
           "result_text" AS "resultText",
           "artifacts_json" AS "artifactsJson",
           "completion_assistant_message_id" AS "completionAssistantMessageId",
+          "assistant_acknowledgement_message_id" AS "assistantAcknowledgementMessageId",
           "last_error_code" AS "lastErrorCode",
           "last_error_message" AS "lastErrorMessage",
           "attempt_count" AS "attemptCount",
@@ -253,6 +256,7 @@ export class AssistantMediaJobCompletionDeliveryService {
         });
         claimed.push({
           ...row,
+          assistantAcknowledgementMessageId: row.assistantAcknowledgementMessageId ?? null,
           attemptCount: row.attemptCount + 1,
           claimToken
         });
@@ -338,11 +342,11 @@ export class AssistantMediaJobCompletionDeliveryService {
       });
       const messageId = await this.ensureCompletionMessage(job, completionAssistantText);
       if (completionAssistantText.shouldUpdateExistingMessage) {
-        await this.assistantChatRepository.updateMessageContent(
+        await this.safeUpdateDeliveryMessageContent({
           messageId,
-          job.assistantId,
-          completionAssistantText.text
-        );
+          assistantId: job.assistantId,
+          nextText: completionAssistantText.text
+        });
       }
 
       if (job.surface === "telegram") {
@@ -390,11 +394,11 @@ export class AssistantMediaJobCompletionDeliveryService {
       }
 
       if (completionAssistantText.text !== finalText) {
-        await this.assistantChatRepository.updateMessageContent(
+        await this.safeUpdateDeliveryMessageContent({
           messageId,
-          job.assistantId,
-          finalText
-        );
+          assistantId: job.assistantId,
+          nextText: finalText
+        });
       }
 
       const terminalStatus = delivered.attachments.length > 0 ? "delivered" : "failed";
@@ -449,9 +453,11 @@ export class AssistantMediaJobCompletionDeliveryService {
   }): Promise<CompletionAssistantTextResolution> {
     const rawAssistantText = input.job.resultText?.trim() ?? "";
     let existingContent = "";
-    if (input.job.completionAssistantMessageId !== null) {
+    const existingMessageId =
+      input.job.completionAssistantMessageId ?? input.job.assistantAcknowledgementMessageId ?? null;
+    if (existingMessageId !== null) {
       const existing = await this.assistantChatRepository.findMessageByIdForAssistant(
-        input.job.completionAssistantMessageId,
+        existingMessageId,
         input.job.assistantId
       );
       existingContent = existing?.content.trim() ?? "";
@@ -511,7 +517,9 @@ export class AssistantMediaJobCompletionDeliveryService {
     return {
       text: completionText,
       shouldUpdateExistingMessage:
-        input.job.completionAssistantMessageId !== null && completionText !== existingContent
+        existingMessageId !== null &&
+        completionText.trim().length > 0 &&
+        completionText !== existingContent
     };
   }
 
@@ -768,9 +776,41 @@ export class AssistantMediaJobCompletionDeliveryService {
     job: ClaimedCompletionPendingMediaJob,
     assistantText: CompletionAssistantTextResolution
   ): Promise<string> {
-    if (job.completionAssistantMessageId !== null) {
-      return job.completionAssistantMessageId;
+    let pinnedId =
+      job.completionAssistantMessageId ?? job.assistantAcknowledgementMessageId ?? null;
+    if (pinnedId === null) {
+      const siblingPin = await this.prisma.assistantMediaJob.findFirst({
+        where: {
+          assistantId: job.assistantId,
+          sourceUserMessageId: job.sourceUserMessageId,
+          OR: [
+            { completionAssistantMessageId: { not: null } },
+            { assistantAcknowledgementMessageId: { not: null } }
+          ]
+        },
+        orderBy: { updatedAt: "desc" },
+        select: {
+          completionAssistantMessageId: true,
+          assistantAcknowledgementMessageId: true
+        }
+      });
+      pinnedId =
+        siblingPin?.completionAssistantMessageId ??
+        siblingPin?.assistantAcknowledgementMessageId ??
+        null;
     }
+
+    if (pinnedId !== null) {
+      if (job.completionAssistantMessageId !== pinnedId) {
+        await this.prisma.assistantMediaJob.updateMany({
+          where: { id: job.id, schedulerClaimToken: job.claimToken },
+          data: { completionAssistantMessageId: pinnedId }
+        });
+        job.completionAssistantMessageId = pinnedId;
+      }
+      return pinnedId;
+    }
+
     const message = await this.assistantChatRepository.createMessage({
       chatId: job.chatId,
       assistantId: job.assistantId,
@@ -783,7 +823,35 @@ export class AssistantMediaJobCompletionDeliveryService {
         completionAssistantMessageId: message.id
       }
     });
+    job.completionAssistantMessageId = message.id;
     return message.id;
+  }
+
+  /**
+   * ADR-157: delivery must never wipe chat-model narration with empty
+   * skip_legacy_frame / honesty text when attaching into the turn bubble.
+   */
+  private async safeUpdateDeliveryMessageContent(input: {
+    messageId: string;
+    assistantId: string;
+    nextText: string;
+  }): Promise<void> {
+    const existing = await this.assistantChatRepository.findMessageByIdForAssistant(
+      input.messageId,
+      input.assistantId
+    );
+    const existingText = existing?.content ?? "";
+    if (input.nextText.trim().length === 0 && existingText.trim().length > 0) {
+      return;
+    }
+    if (input.nextText === existingText) {
+      return;
+    }
+    await this.assistantChatRepository.updateMessageContent(
+      input.messageId,
+      input.assistantId,
+      input.nextText
+    );
   }
 
   private async processTelegramCompletionPendingJob(params: {

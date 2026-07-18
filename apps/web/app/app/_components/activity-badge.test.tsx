@@ -196,7 +196,7 @@ describe("ActivityBadge", () => {
 
   it("formats await-deadline detail as a decreasing countdown label", () => {
     const deadlineMs = Date.now() + 12_500;
-    render(
+    const view = render(
       <ActivityBadge
         event={{
           id: "activity-await",
@@ -209,5 +209,6 @@ describe("ActivityBadge", () => {
 
     expect(screen.getByText(/awaitCountdown/)).toBeInTheDocument();
     expect(screen.queryByText(/await-deadline:/)).toBeNull();
+    view.unmount();
   });
 });

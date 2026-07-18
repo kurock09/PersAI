@@ -1,5 +1,35 @@
 # SESSION-HANDOFF
 
+## 2026-07-19 — Stale sandbox Working/await + late chat bubbles + self-check crash
+
+Status: **Gate green locally; push SHA recorded after push. Deploy still open.**
+
+Founder live near «все по пизде пошло» (~23:06–23:09 UTC 2026-07-18):
+- `Router classifier failed … Provider gateway rejected … status 400`
+- `[self-check] failed requestId=ce61ad9e… Provider gateway rejected … 400`
+  (short turn, 1 tool — not only perception path)
+- then `runtime_turn_busy` (`5f0747bb` / idempotency `1a44faeb`) while long
+  turn `4bad13e1…` still running
+Phrase text itself is not in runtime logs (user message content); turn errors
+above sit in that window.
+
+Repairs in this push:
+1. **Self-check crash:** omit `toolFollowUpUserContent`, todo_write-only tools;
+   abort rethrows; stream finalize → terminal `failed` instead of hang.
+2. **Same-turn embed:** media/document delivery + `persistAssistantMessage`
+   converge on one assistant bubble; never wipe narration with empty text.
+3. **Detached sandbox refresh on read path:** observe/subscribe/snapshot/
+   Working list poke sandbox `inspectJob` before treating `detached` as
+   pending; reconciler warns on inspect miss + rotates fairness.
+4. **Web history merge:** keep `createdAt`, absorb new server rows on refresh,
+   chronological sort, 2s poll while notify armed; italic background-wait
+   footer inside last assistant bubble.
+5. ADR-157 D4.1 honesty: wait/sync same bubble; notify → new continuation.
+
+Local gate before push: recursive lint, format:check, api/web/runtime/sandbox
+typecheck, full `pnpm test`, `test:ci-detect-affected`, `test:step2`.
+Next: deploy / image pin → re-smoke Working/await + self-check path.
+
 ## 2026-07-19 — ScriptRef isolation (broken Script ≠ dead chat)
 
 Status: **Pushed `main` `e4b9ebae`.** Rebased over gitops pin `d4766776`

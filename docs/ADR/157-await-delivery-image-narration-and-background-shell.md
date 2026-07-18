@@ -103,6 +103,20 @@ Model-facing `shell` / `exec`:
 Plan Process-timeout remains a bound for synchronous execution and safety; it
 is not the only door into background.
 
+### D4.1 — Honest chat bubbles (same-turn vs notify)
+
+Founder-accepted product truth (not auto-subscribe):
+
+| Path | User-visible bubble |
+|---|---|
+| In-turn `await.wait` (or sync tool) while the streaming assistant reply is still open | **Same** assistant bubble: model text + queued attachments/shell outputs embed into that reply |
+| Explicit `await.notify` after the source turn is finalized | **New** assistant bubble via continuation scheduler (new logical turn) |
+| Background job still open; user may send ordinary messages between enqueue and wake | Interleaved user bubbles are first-class; wake remains a **new** assistant bubble, never a patch onto an old one |
+
+`await.notify` stays explicit and durable. No silent auto-subscribe of every
+`background:true` job. Continuation is “agent gets another turn”, not
+“append to the previous message”.
+
 ### D5 — Working pill ops
 
 Web Working media pills accept only OpenAPI operations

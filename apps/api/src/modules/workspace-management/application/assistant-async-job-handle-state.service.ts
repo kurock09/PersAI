@@ -1,11 +1,12 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { Injectable } from "@nestjs/common";
+import { Injectable, Optional } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import {
   assertActiveBackgroundJobCap,
   type AssertActiveBackgroundJobCapOptions
 } from "./assert-active-background-job-cap";
+import { SandboxControlPlaneClientService } from "./sandbox-control-plane.client.service";
 import { toWebNotifyState, type AssistantWebChatActiveSandboxJobState } from "./web-chat.types";
 
 export const MAX_ASYNC_CONTINUATION_DEPTH = 4;
@@ -103,7 +104,11 @@ export type SubscribePendingOutcome =
 
 @Injectable()
 export class AssistantAsyncJobHandleStateService {
-  constructor(private readonly prisma: WorkspaceManagementPrismaService) {}
+  constructor(
+    private readonly prisma: WorkspaceManagementPrismaService,
+    @Optional()
+    private readonly sandboxControlPlane?: SandboxControlPlaneClientService
+  ) {}
 
   async listOwnedSnapshotJobRefs(input: {
     assistantId: string;
@@ -140,6 +145,9 @@ export class AssistantAsyncJobHandleStateService {
         sourceClientTurnId: true
       }
     });
+    await this.refreshSandboxJobs(
+      rows.filter((row) => row.kind === "sandbox").map((row) => row.canonicalJobId)
+    );
     const nonCurrent = rows.filter((row) => row.sourceClientTurnId !== input.sourceClientTurnId);
     const openCanonicalKeys = await this.selectCurrentlyOpenCanonicalKeys(nonCurrent);
     const filtered = rows.filter(
@@ -184,6 +192,10 @@ export class AssistantAsyncJobHandleStateService {
         canonicalJobId: true
       }
     });
+    // Detached SandboxJob rows stay pending in DB until sandbox poll/inspect
+    // finalizes them. Refresh on Working/history reads so the pill cannot
+    // linger after the pod process is already gone.
+    await this.refreshSandboxJobs(rows.map((row) => row.canonicalJobId));
     const jobs = await this.prisma.sandboxJob.findMany({
       where: {
         id: { in: rows.map((row) => row.canonicalJobId) },
@@ -333,6 +345,9 @@ export class AssistantAsyncJobHandleStateService {
     channel: "web" | "telegram";
     threadKey: string;
   }): Promise<ObserveTerminalOutcome> {
+    // Refresh before the ownership transaction so await wait/status sees
+    // post-exit detached→terminal truth instead of stale pending forever.
+    await this.refreshOwnedSandboxJob(input);
     return this.prisma.$transaction(async (tx) => {
       const row = await this.lockOwned(tx, input);
       if (row === null) return { outcome: "not_found" };
@@ -393,6 +408,7 @@ export class AssistantAsyncJobHandleStateService {
     channel: "web" | "telegram";
     threadKey: string;
   }): Promise<SubscribePendingOutcome> {
+    await this.refreshOwnedSandboxJob(input);
     return this.prisma.$transaction(async (tx) => {
       const row = await this.lockOwned(tx, input);
       if (row === null) return { outcome: "not_found" };
@@ -1131,6 +1147,50 @@ export class AssistantAsyncJobHandleStateService {
       FOR UPDATE
     `);
     return rows[0] ?? null;
+  }
+
+  /**
+   * Ask sandbox to poll/refresh detached supervisors before reading DB
+   * canonical status. Best-effort: missing control-plane config or network
+   * failure leaves the prior row untouched (scheduler may still catch up).
+   */
+  private async refreshOwnedSandboxJob(input: {
+    jobRef: string;
+    assistantId: string;
+    workspaceId: string;
+    chatId: string;
+    channel: "web" | "telegram";
+    threadKey: string;
+  }): Promise<void> {
+    if (this.sandboxControlPlane === undefined) return;
+    const handle = await this.prisma.assistantAsyncJobHandle.findFirst({
+      where: {
+        jobRef: input.jobRef,
+        assistantId: input.assistantId,
+        workspaceId: input.workspaceId,
+        chatId: input.chatId,
+        channel: input.channel,
+        threadKey: input.threadKey,
+        kind: "sandbox"
+      },
+      select: { canonicalJobId: true }
+    });
+    if (handle === null) return;
+    await this.refreshSandboxJobs([handle.canonicalJobId]);
+  }
+
+  private async refreshSandboxJobs(canonicalJobIds: string[]): Promise<void> {
+    if (this.sandboxControlPlane === undefined || canonicalJobIds.length === 0) return;
+    const uniqueIds = [...new Set(canonicalJobIds)];
+    const open = await this.prisma.sandboxJob.findMany({
+      where: {
+        id: { in: uniqueIds },
+        status: { in: ["queued", "running", "detached"] }
+      },
+      select: { id: true }
+    });
+    if (open.length === 0) return;
+    await Promise.all(open.map((job) => this.sandboxControlPlane!.inspectJob(job.id)));
   }
 
   /**

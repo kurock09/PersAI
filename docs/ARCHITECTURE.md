@@ -71,9 +71,12 @@ ADR-109 and ADR-111 add one bounded HeyGen-backed product seam inside the active
   is a real timer (`0..300000`); delivery-visible media/document bytes must
   not defer on narration; image user text is chat-model owned (no image
   ghostwriter framing); explicit background shell returns `jobRef` and stays
-  visible until warm pod idle TTL. Each dispatched turn admits 20
-  replay-deduped waits. Notify remains durable and non-terminal. No runtime
-  Prisma access or parallel job registry is introduced.
+  visible until warm pod idle TTL. Honest bubbles (ADR-157 D4.1): in-turn
+  wait/sync embed into the open assistant reply; explicit notify wake is a
+  **new** continuation bubble (user may interleave). Notify stays explicit —
+  no silent auto-subscribe of every background job. Each dispatched turn
+  admits 20 replay-deduped waits. No runtime Prisma access or parallel job
+  registry is introduced.
 
 ### Provider plane
 

@@ -152,6 +152,7 @@ describe("ADR-149 tool_progress touchRunningAttempt", () => {
       } as never,
       {
         attachAcknowledgementMessageId: async () => 0,
+        findPinnedDeliveryMessageId: async () => null,
         listOpenJobsForChatContext: async () => [],
         listOpenJobsForWebChat: async () => []
       } as never,

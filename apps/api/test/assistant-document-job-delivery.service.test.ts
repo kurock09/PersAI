@@ -1440,6 +1440,9 @@ describe("AssistantDocumentJobDeliveryService", () => {
 
     const service = new AssistantDocumentJobDeliveryService(
       {
+        assistantChatMessage: {
+          findFirst: async () => null
+        },
         assistantDocumentRenderJob: {
           updateMany: async (input: Record<string, unknown>) => {
             renderJobUpdates.push(input);
@@ -1474,6 +1477,14 @@ describe("AssistantDocumentJobDeliveryService", () => {
       {
         createMessage: async () => ({
           id: "assistant-message-llm-1",
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          author: "assistant" as const,
+          content: "Preparing your document...",
+          createdAt: new Date("2026-05-15T16:00:00.000Z")
+        }),
+        findMessageByIdForAssistant: async (messageId: string) => ({
+          id: messageId,
           chatId: "chat-1",
           assistantId: "assistant-1",
           author: "assistant" as const,
@@ -1588,6 +1599,9 @@ describe("AssistantDocumentJobDeliveryService", () => {
 
     const service = new AssistantDocumentJobDeliveryService(
       {
+        assistantChatMessage: {
+          findFirst: async () => null
+        },
         assistantDocumentRenderJob: {
           updateMany: async (input: Record<string, unknown>) => {
             renderJobUpdates.push(input);
@@ -1632,6 +1646,14 @@ describe("AssistantDocumentJobDeliveryService", () => {
             "createMessage must not be called when completionAssistantMessageId exists"
           );
         },
+        findMessageByIdForAssistant: async (messageId: string) => ({
+          id: messageId,
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          author: "assistant" as const,
+          content: "Preparing your document...",
+          createdAt: new Date("2026-05-15T16:00:00.000Z")
+        }),
         updateMessageContent: async (messageId: string, assistantId: string, content: string) => {
           messageUpdates.push({ messageId, assistantId, content });
           return null;
@@ -1727,6 +1749,9 @@ describe("AssistantDocumentJobDeliveryService", () => {
 
     const service = new AssistantDocumentJobDeliveryService(
       {
+        assistantChatMessage: {
+          findFirst: async () => null
+        },
         assistantDocumentRenderJob: {
           updateMany: async (input: Record<string, unknown>) => {
             renderJobUpdates.push(input);
@@ -1759,6 +1784,14 @@ describe("AssistantDocumentJobDeliveryService", () => {
       {
         createMessage: async () => ({
           id: "assistant-message-cache-2",
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          author: "assistant" as const,
+          content: "Preparing your document...",
+          createdAt: new Date("2026-05-15T16:00:00.000Z")
+        }),
+        findMessageByIdForAssistant: async (messageId: string) => ({
+          id: messageId,
           chatId: "chat-1",
           assistantId: "assistant-1",
           author: "assistant" as const,

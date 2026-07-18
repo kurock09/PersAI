@@ -5,6 +5,24 @@
 
 ## 2026-07-19
 
+- **Fix: stale sandbox Working / await pending + late chat bubbles +
+  self-check crash (push SHA in handoff).** Detached `SandboxJob` rows stayed
+  `pending` in await/Working until a rare scheduler inspect. `await
+  wait|notify`, snapshot, and Working list now refresh detached jobs via
+  sandbox control-plane poll before reading canonical truth; reconciler logs
+  inspect failures and rotates fairness. Background-wait copy moves into the
+  last assistant bubble as italic footer. Web chat preserves `createdAt`,
+  always merges new server rows on refresh (notify continuations no longer
+  wait for F5), sorts chronologically, and polls every 2s while notify is
+  armed. Post-final self-check no longer hangs the turn after PG 400 (omit
+  `toolFollowUpUserContent`, todo_write-only tools; abort rethrows; finalize
+  → terminal `failed`). Same-turn media/document delivery +
+  `persistAssistantMessage` converge on one assistant bubble (never wipe
+  narration with empty skip_legacy_frame text). ADR-157 D4.1: wait/sync same
+  bubble; notify → new continuation. Cluster window near founder chaos:
+  self-check PG 400 (`ce61ad9e…`) then `runtime_turn_busy`. AGENTS + CI-like
+  gate green before push. Deploy still open.
+
 - **ScriptRef isolation pushed to `main` (`e4b9ebae`).** Bundle materialization
   degrades an unresolvable / schema-incompatible Scenario step `scriptRef` to
   `null` instead of failing the whole assistant rematerialize (which previously

@@ -356,6 +356,12 @@ interface ChatMessageBubbleProps {
   onRetryPendingSend?: (() => void) | undefined;
   onCancelPendingSend?: (() => void) | undefined;
   onDocumentJobAccepted?: (() => void) | undefined;
+  /**
+   * ADR-157 D4.1 — while subscribed/background notify jobs are open, show a
+   * quiet italic line under this assistant reply (not a free-floating status
+   * above the composer).
+   */
+  backgroundWaitFooter?: string | null | undefined;
 }
 
 function CopyButton({ text }: { text: string }) {
@@ -2107,7 +2113,8 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
   onCancelPendingSend,
   onDocumentJobAccepted,
   preResponseStatus,
-  showShadowRoutingLabel
+  showShadowRoutingLabel,
+  backgroundWaitFooter
 }: ChatMessageBubbleProps) {
   const t = useTranslations("chat");
   const tSend = useTranslations("send");
@@ -2371,6 +2378,18 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
                 onDocumentJobAccepted={onDocumentJobAccepted}
               />
             )}
+            {backgroundWaitFooter !== undefined &&
+            backgroundWaitFooter !== null &&
+            backgroundWaitFooter.length > 0 ? (
+              <p
+                role="status"
+                aria-live="polite"
+                data-testid="background-wait-footer"
+                className="mt-2 text-sm text-text-muted italic"
+              >
+                {backgroundWaitFooter}
+              </p>
+            ) : null}
           </div>
         )}
 

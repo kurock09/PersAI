@@ -481,6 +481,50 @@ export class AssistantMediaJobService {
         assistantAcknowledgementMessageId: input.assistantAcknowledgementMessageId
       }
     });
+    // Pin delivery target so mid-turn completion attaches into the same
+    // assistant bubble that holds (or will hold) chat-model narration.
+    await this.prisma.assistantMediaJob.updateMany({
+      where: {
+        assistantId: input.assistantId,
+        sourceUserMessageId: input.sourceUserMessageId,
+        completionAssistantMessageId: null,
+        status: {
+          in: ["queued", "running", "completion_pending", "delivered"]
+        }
+      },
+      data: {
+        completionAssistantMessageId: input.assistantAcknowledgementMessageId
+      }
+    });
     return updated.count;
+  }
+
+  /**
+   * ADR-157: prefer an already-pinned delivery/acknowledgement message so
+   * persist and completion delivery converge on one assistant bubble.
+   */
+  async findPinnedDeliveryMessageId(input: {
+    assistantId: string;
+    sourceUserMessageId: string;
+  }): Promise<string | null> {
+    const row = await this.prisma.assistantMediaJob.findFirst({
+      where: {
+        assistantId: input.assistantId,
+        sourceUserMessageId: input.sourceUserMessageId,
+        OR: [
+          { completionAssistantMessageId: { not: null } },
+          { assistantAcknowledgementMessageId: { not: null } }
+        ]
+      },
+      orderBy: { updatedAt: "desc" },
+      select: {
+        completionAssistantMessageId: true,
+        assistantAcknowledgementMessageId: true
+      }
+    });
+    if (row === null) {
+      return null;
+    }
+    return row.completionAssistantMessageId ?? row.assistantAcknowledgementMessageId ?? null;
   }
 }

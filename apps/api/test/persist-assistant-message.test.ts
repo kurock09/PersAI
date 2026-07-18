@@ -18,9 +18,18 @@ async function run(): Promise<void> {
             metadata: input.metadata ?? null,
             createdAt: new Date("2026-05-25T18:00:00.000Z")
           };
+        },
+        async updateMessageContent() {
+          return null;
+        },
+        async findMessageByIdForAssistant() {
+          return null;
         }
       },
       assistantMediaJobService: {
+        async findPinnedDeliveryMessageId() {
+          return null;
+        },
         async attachAcknowledgementMessageId(input) {
           ackCalls.push(input as unknown as Record<string, unknown>);
           return 1;
@@ -64,6 +73,74 @@ async function run(): Promise<void> {
 
   {
     const createdMessages: Array<Record<string, unknown>> = [];
+    const contentUpdates: Array<Record<string, unknown>> = [];
+    const ackCalls: Array<Record<string, unknown>> = [];
+    const assistantMessage = await persistAssistantMessage({
+      chatRepository: {
+        async createMessage(input) {
+          createdMessages.push(input as unknown as Record<string, unknown>);
+          return {
+            id: "assistant-message-should-not-create",
+            chatId: input.chatId,
+            assistantId: input.assistantId,
+            author: input.author,
+            content: input.content,
+            metadata: input.metadata ?? null,
+            createdAt: new Date("2026-05-25T18:00:00.500Z")
+          };
+        },
+        async updateMessageContent(messageId, assistantId, content) {
+          contentUpdates.push({ messageId, assistantId, content });
+          return {
+            id: messageId,
+            chatId: "chat-1b",
+            assistantId,
+            author: "assistant",
+            content,
+            metadata: null,
+            createdAt: new Date("2026-05-25T17:59:00.000Z")
+          };
+        },
+        async findMessageByIdForAssistant() {
+          return null;
+        }
+      },
+      assistantMediaJobService: {
+        async findPinnedDeliveryMessageId() {
+          return "delivery-message-1";
+        },
+        async attachAcknowledgementMessageId(input) {
+          ackCalls.push(input as unknown as Record<string, unknown>);
+          return 1;
+        }
+      },
+      chatId: "chat-1b",
+      assistantId: "assistant-1b",
+      content: "Готово — картинка ниже.",
+      deferredMediaJobCount: 1,
+      sourceUserMessageId: "user-message-1b"
+    });
+
+    assert.equal(assistantMessage.id, "delivery-message-1");
+    assert.equal(createdMessages.length, 0);
+    assert.deepEqual(contentUpdates, [
+      {
+        messageId: "delivery-message-1",
+        assistantId: "assistant-1b",
+        content: "Готово — картинка ниже."
+      }
+    ]);
+    assert.deepEqual(ackCalls, [
+      {
+        assistantId: "assistant-1b",
+        sourceUserMessageId: "user-message-1b",
+        assistantAcknowledgementMessageId: "delivery-message-1"
+      }
+    ]);
+  }
+
+  {
+    const createdMessages: Array<Record<string, unknown>> = [];
     let ackCalled = false;
     await persistAssistantMessage({
       chatRepository: {
@@ -78,9 +155,18 @@ async function run(): Promise<void> {
             metadata: input.metadata ?? null,
             createdAt: new Date("2026-05-25T18:00:01.000Z")
           };
+        },
+        async updateMessageContent() {
+          return null;
+        },
+        async findMessageByIdForAssistant() {
+          return null;
         }
       },
       assistantMediaJobService: {
+        async findPinnedDeliveryMessageId() {
+          return null;
+        },
         async attachAcknowledgementMessageId() {
           ackCalled = true;
           return 0;
@@ -123,6 +209,12 @@ async function run(): Promise<void> {
             metadata: input.metadata ?? null,
             createdAt: new Date("2026-06-23T00:00:00.000Z")
           };
+        },
+        async updateMessageContent() {
+          return null;
+        },
+        async findMessageByIdForAssistant() {
+          return null;
         }
       },
       chatId: "chat-3",
@@ -151,6 +243,12 @@ async function run(): Promise<void> {
             metadata: input.metadata ?? null,
             createdAt: new Date("2026-06-23T00:00:01.000Z")
           };
+        },
+        async updateMessageContent() {
+          return null;
+        },
+        async findMessageByIdForAssistant() {
+          return null;
         }
       },
       chatId: "chat-4",
@@ -177,6 +275,12 @@ async function run(): Promise<void> {
             metadata: input.metadata ?? null,
             createdAt: new Date("2026-06-23T00:00:02.000Z")
           };
+        },
+        async updateMessageContent() {
+          return null;
+        },
+        async findMessageByIdForAssistant() {
+          return null;
         }
       },
       chatId: "chat-5",
@@ -212,6 +316,12 @@ async function run(): Promise<void> {
             metadata: input.metadata ?? null,
             createdAt: new Date("2026-07-02T18:00:00.000Z")
           };
+        },
+        async updateMessageContent() {
+          return null;
+        },
+        async findMessageByIdForAssistant() {
+          return null;
         }
       },
       chatId: "chat-6",
