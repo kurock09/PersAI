@@ -223,14 +223,14 @@ direct MCP execution boundary, no browser/Tool SDK/async `jobRef`/`wait`/
 Until ADR-153, code/input credentials are unmanaged values with no promised
 redaction, TTL, revoke, or log-history protection.
 
-**ADR-152 (approved, not implemented):** adds no public execute endpoint.
-Runtime will project one model tool, `await`, over server-minted opaque
+**ADR-152 (checkpoint 3 implemented; first audit DIRTY, repairs landed, founder-directed re-audit closed residual docs P2):**
+adds no public execute endpoint. Runtime projects one model tool, `await`, over server-minted opaque
 assistant-owned job refs. `await({action:"wait",jobRef,timeoutMs})` resolves
 terminal state first, caps waits at 60 seconds, permits one blocking wait per
 job/turn, and does not cancel the canonical job. `notify` writes durable
 same-row subscription state and ends the current provider loop; a terminal
 completion later re-enters only the original active chat/channel with fresh
-runtime hydration and no duplicated attachment delivery. A future internal
+runtime hydration and no duplicated attachment delivery. The internal
 runtime/API boundary resolves handles against canonical owned
 `assistant_media_jobs` and `assistant_document_render_jobs` only, returning
 foreign/tampered handles as not found. It will revalidate ownership,
@@ -240,7 +240,7 @@ The adapter boundary is extensible to later canonical long jobs, but current
 therefore deliberately deferred until that prerequisite exists; recurring
 `assistant_background_tasks` rows never qualify as `jobRef`s.
 
-The only Script browser boundary is a capability-gated
+The only Script browser boundary is an immutable-manifest capability-gated
 `{browser:{actions:["snapshot","act"]}}` request through the existing
 `RuntimeBrowserToolService` and ADR-140 profile/bridge seams. A structured
 profile input is mandatory; Script code cannot list profiles, start login,
@@ -249,6 +249,24 @@ or receive bridge/internal credentials. Telegram and unavailable/foreign
 profiles preserve existing fail-closed or `open_in_app` responses. The
 job-scoped broker is ephemeral live-exec stdin/stdout coordination, not a
 public browser service or a durable Script resume API.
+The runtime supplies an unguessable, expiring broker binding only on the
+bearer-protected runtime-to-sandbox request. It is not persisted in the
+SandboxJob payload. Sandbox and runtime exchange bounded strict Redis envelopes;
+sandbox strips broker id, auth token, job id, device, and internal routing before
+writing the SDK response to inherited FD 4. SDK requests leave through inherited
+FD 3 while ordinary Script stdout/stderr and result-marker parsing retain their
+existing boundary. Only the runtime consumer calls `RuntimeBrowserToolService`
+with original turn ownership/channel/device/abort/progress context. Ordinary
+Scripts use the previous buffered exec path and never initialize broker Redis.
+Before broker registration, runtime may call the bearer-protected read-only
+`POST /api/v1/jobs/script-terminal-replay`; sandbox returns a job only when the
+assistant, server-derived invocation key, immutable Script version/content hash,
+canonical input hash, and terminal state all match. This seam cannot create or
+admit work. Broker transport payloads are not automatically persisted/logged,
+but a Script can deliberately include SDK-derived data in ordinary authored
+output, which remains persisted `SandboxJob` output.
+Checkpoint 4 Admin/MCP manifest authoring is still pending; checkpoint 3 is
+not deployed or live-accepted.
 
 - The web client performs a best-effort latest-history refresh on `focus`, `visibilitychange` back to visible, and `pageshow`, so a passive disconnect that already committed server-side is reconciled without requiring a manual page reload.
 - the hard-stop route is idempotent with explicit outcomes. Terminal attempt `errorCode: "user_stopped"` on successful Stop; next-turn hydration includes explicit user-stop fact.

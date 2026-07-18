@@ -417,7 +417,7 @@ export class ManageAdminScriptsService {
   } {
     return {
       code: input.code,
-      manifest: input.manifest as Prisma.InputJsonValue,
+      manifest: input.manifest as unknown as Prisma.InputJsonValue,
       inputSchema: input.inputSchema as Prisma.InputJsonValue,
       outputSchema: input.outputSchema as Prisma.InputJsonValue,
       runtime: input.runtime,

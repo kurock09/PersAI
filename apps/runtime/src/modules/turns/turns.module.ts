@@ -36,6 +36,7 @@ import { RuntimeMediaJobRunService } from "./runtime-media-job-run.service";
 import { RuntimeScheduledActionToolService } from "./runtime-scheduled-action-tool.service";
 import { RuntimeSandboxToolService } from "./runtime-sandbox-tool.service";
 import { RuntimeScriptToolService } from "./runtime-script-tool.service";
+import { RuntimeScriptBrowserBrokerService } from "./runtime-script-browser-broker.service";
 import {
   DEFAULT_RUNTIME_AWAIT_CLOCK,
   RUNTIME_AWAIT_CLOCK,
@@ -97,6 +98,7 @@ import { TurnRoutingService } from "./turn-routing.service";
     RuntimeBundleAutoRefreshService,
     RuntimeScheduledActionToolService,
     RuntimeSandboxToolService,
+    RuntimeScriptBrowserBrokerService,
     RuntimeScriptToolService,
     RuntimeAwaitToolService,
     { provide: RUNTIME_AWAIT_CLOCK, useValue: DEFAULT_RUNTIME_AWAIT_CLOCK },
@@ -145,6 +147,7 @@ import { TurnRoutingService } from "./turn-routing.service";
     RuntimeBundleAutoRefreshService,
     RuntimeScheduledActionToolService,
     RuntimeSandboxToolService,
+    RuntimeScriptBrowserBrokerService,
     RuntimeScriptToolService,
     RuntimeAwaitToolService,
     RuntimeGrepGlobToolService,

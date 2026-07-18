@@ -134,6 +134,8 @@ function createSandboxObservabilityService(): SandboxObservabilityService {
   return new SandboxObservabilityService();
 }
 
+const TEST_SCRIPT_BROWSER_BROKER = {} as never;
+
 async function run(): Promise<void> {
   const completedService = new SandboxService(
     {
@@ -173,7 +175,8 @@ async function run(): Promise<void> {
     createSandboxObservabilityService(),
     createSandboxConfig(),
     {} as never,
-    {} as never
+    {} as never,
+    TEST_SCRIPT_BROWSER_BROKER
   );
   const completedJob = await completedService.pollJob("job-completed-1");
   assert.equal(completedJob.status, "completed");
@@ -225,7 +228,8 @@ async function run(): Promise<void> {
     createSandboxObservabilityService(),
     createSandboxConfig(),
     {} as never,
-    {} as never
+    {} as never,
+    TEST_SCRIPT_BROWSER_BROKER
   );
 
   const blockedJob = await blockedService.submitJob({
@@ -294,7 +298,8 @@ async function run(): Promise<void> {
     createSandboxObservabilityService(),
     createSandboxConfig({ SANDBOX_MAX_PENDING_JOBS: 1 }),
     {} as never,
-    {} as never
+    {} as never,
+    TEST_SCRIPT_BROWSER_BROKER
   );
   const backlogJob = await backlogService.submitJob({
     assistantId: "assistant-1",
@@ -354,7 +359,8 @@ async function run(): Promise<void> {
     staleObservability,
     createSandboxConfig({ SANDBOX_QUEUED_JOB_STALE_AFTER_MS: 1_000 }),
     {} as never,
-    {} as never
+    {} as never,
+    TEST_SCRIPT_BROWSER_BROKER
   );
   const staleResult = await staleService.pollJob("job-stale-queued-1", 25);
   assert.equal(staleResult.status, "failed");
@@ -445,7 +451,8 @@ test("SandboxService: saveSessionWorkspaceSnapshot writes to GCS with session ke
     new SandboxObservabilityService(),
     createSandboxConfig(),
     {} as never,
-    {} as never
+    {} as never,
+    TEST_SCRIPT_BROWSER_BROKER
   );
   const access = service as unknown as SandboxServiceTestAccess;
 
@@ -496,7 +503,8 @@ test("SandboxService: restoreSessionSnapshotOverlay is a no-op when no snapshot 
     new SandboxObservabilityService(),
     createSandboxConfig(),
     {} as never,
-    {} as never
+    {} as never,
+    TEST_SCRIPT_BROWSER_BROKER
   );
   const access = service as unknown as SandboxServiceTestAccess;
 
@@ -545,7 +553,8 @@ test("SandboxService: session snapshot round-trip — save then restore adds eph
     new SandboxObservabilityService(),
     createSandboxConfig(),
     {} as never,
-    {} as never
+    {} as never,
+    TEST_SCRIPT_BROWSER_BROKER
   );
   const access = service as unknown as SandboxServiceTestAccess;
 
@@ -617,7 +626,8 @@ test("SandboxService: control-plane workspace write can hydrate bytes from works
           }
         };
       }
-    } as never
+    } as never,
+    TEST_SCRIPT_BROWSER_BROKER
   );
 
   const result = await service.writeWorkspaceFileControlPlane({
@@ -688,7 +698,8 @@ test("SandboxService: control-plane workspace write forwards replace for explici
           }
         };
       }
-    } as never
+    } as never,
+    TEST_SCRIPT_BROWSER_BROKER
   );
 
   const result = await service.writeWorkspaceFileControlPlane({
@@ -779,7 +790,8 @@ test("SandboxService: render_html_to_pdf runs weasyprint command and removes tra
         return { podName: "exec-render", retired: true };
       }
     } as never,
-    {} as never
+    {} as never,
+    TEST_SCRIPT_BROWSER_BROKER
   );
 
   const access = service as unknown as SandboxServiceTestAccess;
@@ -940,7 +952,8 @@ test("SandboxService: execute_document_code mounts sources, runs python3, and cl
         return { podName: "ses-code", retired: true };
       }
     } as never,
-    {} as never
+    {} as never,
+    TEST_SCRIPT_BROWSER_BROKER
   );
 
   const access = service as unknown as SandboxServiceTestAccess;
@@ -1064,7 +1077,8 @@ function buildGrepGlobService(
         return { podName: "ses-grep-test", retired: false };
       }
     } as never,
-    {} as never
+    {} as never,
+    TEST_SCRIPT_BROWSER_BROKER
   );
   return service;
 }
@@ -1164,7 +1178,8 @@ test("SandboxService: shell tool invokes /bin/bash -lc (not /bin/sh)", async () 
         return { podName: "exec-shell", retired: true };
       }
     } as never,
-    {} as never
+    {} as never,
+    TEST_SCRIPT_BROWSER_BROKER
   );
 
   const access = service as unknown as SandboxServiceTestAccess;
@@ -1227,7 +1242,8 @@ test("SandboxService: warm-pool fires-and-forgets when runtimeSessionId is set a
         return { podName: "ses-warm-test", retired: true };
       }
     } as never,
-    {} as never
+    {} as never,
+    TEST_SCRIPT_BROWSER_BROKER
   );
 
   const access = service as unknown as SandboxServiceTestAccess;
@@ -1316,7 +1332,8 @@ test("SandboxService: shell cwd accepts full /workspace/... path without doublin
         return { podName: "ses-cwd-test", retired: true };
       }
     } as never,
-    {} as never
+    {} as never,
+    TEST_SCRIPT_BROWSER_BROKER
   );
 
   const access = service as unknown as SandboxServiceTestAccess;
@@ -1453,7 +1470,8 @@ test("SandboxService: pod retirement follows terminal persistence and precedes l
           return { podName: `exec-${outcome}`, podUid: `uid-${outcome}`, retired: true };
         }
       } as never,
-      {} as never
+      {} as never,
+      TEST_SCRIPT_BROWSER_BROKER
     );
 
     await (service as unknown as SandboxServiceTestAccess).executeQueuedJob(`job-${outcome}`, {
@@ -1568,7 +1586,8 @@ test("SandboxService: session pod cleanup follows terminal persistence and prece
         return { podName: "ses-clean-session", podUid: "uid-clean-session", retired: true };
       }
     } as never,
-    {} as never
+    {} as never,
+    TEST_SCRIPT_BROWSER_BROKER
   );
 
   await (service as unknown as SandboxServiceTestAccess).executeQueuedJob("job-clean-session", {
@@ -1668,7 +1687,8 @@ test("SandboxService: failed session pod cleanup falls back to retirement before
         return { podName: "ses-cleanup-fallback", podUid: "uid-cleanup-fallback", retired: true };
       }
     } as never,
-    {} as never
+    {} as never,
+    TEST_SCRIPT_BROWSER_BROKER
   );
 
   await (service as unknown as SandboxServiceTestAccess).executeQueuedJob("job-cleanup-fallback", {
@@ -1698,7 +1718,8 @@ test("SandboxService: dependency contour permits large session package trees wit
     new SandboxObservabilityService(),
     createSandboxConfig(),
     {} as never,
-    {} as never
+    {} as never,
+    TEST_SCRIPT_BROWSER_BROKER
   );
   const access = service as unknown as {
     assertWorkspacePolicySnapshot(
@@ -1748,7 +1769,8 @@ test("SandboxService: dependency contour still rejects abusive dependency tree g
     new SandboxObservabilityService(),
     createSandboxConfig(),
     {} as never,
-    {} as never
+    {} as never,
+    TEST_SCRIPT_BROWSER_BROKER
   );
   const access = service as unknown as {
     assertWorkspacePolicySnapshot(
@@ -1860,7 +1882,8 @@ test("SandboxService: final retirement RV conflict withholds lease release", asy
         throw Object.assign(new Error("resourceVersion precondition conflict"), { code: 409 });
       }
     } as never,
-    {} as never
+    {} as never,
+    TEST_SCRIPT_BROWSER_BROKER
   );
 
   await (service as unknown as SandboxServiceTestAccess).executeQueuedJob("job-retire-fail", {
@@ -1904,7 +1927,8 @@ test("SandboxService: lease acquisition failure never retires a pod", async () =
         throw new Error("must not be called");
       }
     } as never,
-    {} as never
+    {} as never,
+    TEST_SCRIPT_BROWSER_BROKER
   );
   (
     service as unknown as {
@@ -1955,7 +1979,8 @@ test("SandboxService: stale recovery terminal truth cannot be overwritten by old
     new SandboxObservabilityService(),
     createSandboxConfig(),
     {} as never,
-    {} as never
+    {} as never,
+    TEST_SCRIPT_BROWSER_BROKER
   );
   const guard = {
     handle: {
@@ -2005,7 +2030,8 @@ test("SandboxService: exact active lease can terminalize running job", async () 
     new SandboxObservabilityService(),
     createSandboxConfig(),
     {} as never,
-    {} as never
+    {} as never,
+    TEST_SCRIPT_BROWSER_BROKER
   );
   const guard = {
     handle: {

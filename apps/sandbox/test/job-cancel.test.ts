@@ -58,7 +58,8 @@ function createSandboxService(
       SANDBOX_RUNNING_JOB_GRACE_MS: 1_000
     } as never,
     (bridge ?? null) as never,
-    null as never
+    null as never,
+    {} as never
   );
 }
 

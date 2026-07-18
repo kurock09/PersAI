@@ -120,6 +120,16 @@ COPY apps/sandbox/exec-image/requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir -r /tmp/requirements.txt \
   && rm /tmp/requirements.txt
 
+# ADR-152 checkpoint 3 — platform-owned, narrow Script browser SDK. The CLI
+# speaks only over inherited FDs 3/4 supplied by the Script wrapper; it has no
+# Redis, bridge, bearer, device, or internal URL configuration.
+COPY apps/sandbox/exec-image/script-browser-sdk/ /opt/persai-script-browser/
+RUN chmod 0555 /opt/persai-script-browser/persai-browser-cli.js \
+  && ln -s /opt/persai-script-browser/persai-browser-cli.js /usr/local/bin/persai-browser \
+  && mkdir -p /usr/local/lib/node_modules/@persai/script-sdk \
+  && ln -s /opt/persai-script-browser/node-index.js /usr/local/lib/node_modules/@persai/script-sdk/index.js \
+  && ln -s /opt/persai-script-browser/persai_browser.py /usr/local/lib/python3.11/site-packages/persai_browser.py
+
 # ── make the venv authoritative for LOGIN shells too ─────────────────────────
 # The image ENV PATH above only survives in non-login shells and direct exec.
 # A login shell (`sh -lc`, which the model's shell tool uses) sources
@@ -184,6 +194,8 @@ RUN rg --version \
   && soffice --version \
   && node --version \
   && npm --version \
+  && node -e "const sdk=require('/usr/local/lib/node_modules/@persai/script-sdk'); if(typeof sdk.browser.snapshot!=='function'||typeof sdk.browser.act!=='function')process.exit(1)" \
+  && python3 -c "import persai_browser; assert callable(persai_browser.snapshot) and callable(persai_browser.act)" \
   && bash --version \
   && bash -c '[[ "$(echo {a,b,c})" = "a b c" ]] && echo bash_brace_ok' \
   && bash -c 'set -o pipefail; true | true && echo bash_pipefail_ok' \

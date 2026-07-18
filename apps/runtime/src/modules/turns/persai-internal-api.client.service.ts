@@ -1110,6 +1110,11 @@ export class PersaiInternalApiClientService {
           schemaVersion: 1;
           workingDirectory: string | null;
           environment: Record<string, string>;
+          capabilities?: {
+            browser: {
+              actions: ["snapshot", "act"];
+            };
+          };
         };
         inputSchema: Record<string, unknown>;
         outputSchema: Record<string, unknown>;
@@ -1166,6 +1171,11 @@ export class PersaiInternalApiClientService {
             schemaVersion: 1;
             workingDirectory: string | null;
             environment: Record<string, string>;
+            capabilities?: {
+              browser: {
+                actions: ["snapshot", "act"];
+              };
+            };
           },
           inputSchema: payload.inputSchema as Record<string, unknown>,
           outputSchema: payload.outputSchema as Record<string, unknown>,

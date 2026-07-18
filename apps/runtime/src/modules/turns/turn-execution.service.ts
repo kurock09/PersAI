@@ -3754,6 +3754,11 @@ export class TurnExecutionService {
           sessionId: acceptedTurn.session.sessionId,
           requestId: acceptedTurn.receipt.requestId,
           currentUserMessageText: input.message.text,
+          chatId: currentChatId,
+          transportSurface: acceptedTurn.session.conversation.channel,
+          bridgeDeviceId: input.channelContext?.web?.localBrowserBridgeDeviceId ?? null,
+          bridgeDeviceKind: input.channelContext?.web?.localBrowserBridgeDeviceKind ?? null,
+          sourceUserMessageCreatedAt: new Date().toISOString(),
           ...(abortSignal === undefined ? {} : { abortSignal }),
           ...(toolProgressSink === undefined ? {} : { toolProgressSink })
         });

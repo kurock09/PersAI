@@ -260,6 +260,7 @@ function createScriptExecuteHarness(
     new SandboxObservabilityService(),
     createSandboxConfig(input.blockPreflight === true ? { SANDBOX_MAX_PENDING_JOBS: 0 } : {}),
     (input.execPodBridgeService ?? {}) as never,
+    {} as never,
     {} as never
   );
 
@@ -409,6 +410,178 @@ void test("submitJob(script.execute): a same-key retry against an already-termin
   assert.equal(submitted.content, '{"result":"ok"}');
   assert.equal(jobsById.size, 1, "no second job row must ever be created for the same key");
   assert.equal(getCreateCallCount(), 1, "the pre-seeded terminal row must not be re-created");
+});
+
+void test("findTerminalScriptReplay returns only an exact pinned terminal result", async () => {
+  const { service, jobsById, jobsByKey } = createScriptExecuteHarness({});
+  const scriptInputHash = computeScriptInputHash({ query: "hello" });
+  jobsById.set("job-terminal-lookup", {
+    id: "job-terminal-lookup",
+    assistantId,
+    workspaceId,
+    scriptVersionId: scriptVersionId1,
+    scriptInvocationKey: "invocation-key-fixed",
+    status: "completed",
+    policySnapshot: {
+      scriptInputHash,
+      scriptContentHash: expectedContentHash
+    },
+    resultPayload: {
+      reason: null,
+      warning: null,
+      exitCode: 0,
+      stdout: null,
+      stderr: null,
+      content: '{"result":"persisted"}'
+    },
+    violationCode: null,
+    violationMessage: null,
+    createdAt: new Date(),
+    startedAt: new Date(),
+    completedAt: new Date(),
+    toolCode: "script.execute"
+  });
+  jobsByKey.set(`${assistantId}:invocation-key-fixed`, "job-terminal-lookup");
+
+  const replay = await service.findTerminalScriptReplay({
+    assistantId,
+    scriptInvocationKey: "invocation-key-fixed",
+    scriptVersionId: scriptVersionId1,
+    scriptContentHash: expectedContentHash,
+    scriptInputHash
+  });
+  assert.equal(replay?.content, '{"result":"persisted"}');
+  assert.equal(
+    await service.findTerminalScriptReplay({
+      assistantId,
+      scriptInvocationKey: "invocation-key-fixed",
+      scriptVersionId: scriptVersionId1,
+      scriptContentHash: "f".repeat(64),
+      scriptInputHash
+    }),
+    null
+  );
+});
+
+void test("findTerminalScriptReplay returns null when the pinned scriptVersionId does not match the persisted terminal row", async () => {
+  const { service, jobsById, jobsByKey } = createScriptExecuteHarness({});
+  const scriptInputHash = computeScriptInputHash({ query: "hello" });
+  jobsById.set("job-version-mismatch", {
+    id: "job-version-mismatch",
+    assistantId,
+    workspaceId,
+    scriptVersionId: scriptVersionId1,
+    scriptInvocationKey: "invocation-key-version-mismatch",
+    status: "completed",
+    policySnapshot: {
+      scriptInputHash,
+      scriptContentHash: expectedContentHash
+    },
+    resultPayload: {
+      reason: null,
+      warning: null,
+      exitCode: 0,
+      stdout: null,
+      stderr: null,
+      content: '{"result":"persisted"}'
+    },
+    violationCode: null,
+    violationMessage: null,
+    createdAt: new Date(),
+    startedAt: new Date(),
+    completedAt: new Date(),
+    toolCode: "script.execute"
+  });
+  jobsByKey.set(`${assistantId}:invocation-key-version-mismatch`, "job-version-mismatch");
+
+  // Same assistant, same invocation key, same content/input hash — only the
+  // caller-pinned scriptVersionId differs from the persisted row's own
+  // scriptVersionId. A published new version must never silently replay a
+  // terminal result minted under a different, immutable ScriptVersion.
+  assert.equal(
+    await service.findTerminalScriptReplay({
+      assistantId,
+      scriptInvocationKey: "invocation-key-version-mismatch",
+      scriptVersionId: scriptVersionId2,
+      scriptContentHash: expectedContentHash,
+      scriptInputHash
+    }),
+    null
+  );
+  assert.equal(
+    (
+      await service.findTerminalScriptReplay({
+        assistantId,
+        scriptInvocationKey: "invocation-key-version-mismatch",
+        scriptVersionId: scriptVersionId1,
+        scriptContentHash: expectedContentHash,
+        scriptInputHash
+      })
+    )?.content,
+    '{"result":"persisted"}',
+    "the exact pinned scriptVersionId must still replay"
+  );
+});
+
+void test("findTerminalScriptReplay is invisible across assistants: a different assistantId never resolves another assistant's terminal row", async () => {
+  const { service, jobsById, jobsByKey } = createScriptExecuteHarness({});
+  const scriptInputHash = computeScriptInputHash({ query: "hello" });
+  const otherAssistantId = "assistant-script-other";
+  jobsById.set("job-owned-by-assistant-one", {
+    id: "job-owned-by-assistant-one",
+    assistantId,
+    workspaceId,
+    scriptVersionId: scriptVersionId1,
+    scriptInvocationKey: "invocation-key-shared-across-assistants",
+    status: "completed",
+    policySnapshot: {
+      scriptInputHash,
+      scriptContentHash: expectedContentHash
+    },
+    resultPayload: {
+      reason: null,
+      warning: null,
+      exitCode: 0,
+      stdout: null,
+      stderr: null,
+      content: '{"result":"owned-by-assistant-one"}'
+    },
+    violationCode: null,
+    violationMessage: null,
+    createdAt: new Date(),
+    startedAt: new Date(),
+    completedAt: new Date(),
+    toolCode: "script.execute"
+  });
+  jobsByKey.set(`${assistantId}:invocation-key-shared-across-assistants`, "job-owned-by-assistant-one");
+
+  // A different assistant reusing the exact same invocation key, version,
+  // content hash, and input hash must not see the first assistant's row: the
+  // lookup is keyed by the compound (assistantId, scriptInvocationKey), so a
+  // foreign assistantId is indistinguishable from "no terminal row exists".
+  assert.equal(
+    await service.findTerminalScriptReplay({
+      assistantId: otherAssistantId,
+      scriptInvocationKey: "invocation-key-shared-across-assistants",
+      scriptVersionId: scriptVersionId1,
+      scriptContentHash: expectedContentHash,
+      scriptInputHash
+    }),
+    null
+  );
+  assert.equal(
+    (
+      await service.findTerminalScriptReplay({
+        assistantId,
+        scriptInvocationKey: "invocation-key-shared-across-assistants",
+        scriptVersionId: scriptVersionId1,
+        scriptContentHash: expectedContentHash,
+        scriptInputHash
+      })
+    )?.content,
+    '{"result":"owned-by-assistant-one"}',
+    "the owning assistant must still see its own terminal row"
+  );
 });
 
 void test("submitJob(script.execute): a same-key retry against an already-terminal job with a DIFFERENT input still fails closed with idempotency_conflict rather than replaying a mismatched result", async () => {

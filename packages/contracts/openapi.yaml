@@ -7777,6 +7777,43 @@ components:
           additionalProperties:
             type: string
             maxLength: 4096
+        capabilities:
+          type: object
+          description: When present, inputSchema must require a string profile property.
+          additionalProperties: false
+          required:
+            - browser
+          properties:
+            browser:
+              type: object
+              additionalProperties: false
+              required:
+                - actions
+              properties:
+                actions:
+                  type: array
+                  description: >-
+                    Must be exactly [snapshot, act] in this order. OpenAPI
+                    3.0.3 (this document's pinned dialect) has no `items`
+                    array/`prefixItems` tuple form, and a whole-array `enum`
+                    constraint is accepted by the spec but silently dropped by
+                    the pinned orval v7 TypeScript model generator (verified:
+                    regenerating with a `enum: [[snapshot, act]]` constraint on
+                    this property produced a byte-identical generated model).
+                    Exact order is therefore enforced only at the application
+                    boundary (API `script-management.types.ts` and sandbox
+                    `parseSandboxScriptManifest`), not in the generated
+                    contract type; this schema encodes the tightest
+                    orval-representable constraint (exact 2-element set from a
+                    2-value enum).
+                  minItems: 2
+                  maxItems: 2
+                  uniqueItems: true
+                  items:
+                    type: string
+                    enum:
+                      - snapshot
+                      - act
     ScriptLimits:
       type: object
       additionalProperties: false

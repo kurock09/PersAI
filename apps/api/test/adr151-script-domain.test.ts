@@ -97,6 +97,71 @@ void test("Script publish hash is stable over canonical executable fields", () =
   assert.equal(second, first);
 });
 
+void test("Script browser capability is exact, immutable-hash-bearing, and fail-closed", () => {
+  const authorized = parseScriptVersionCreateInput({
+    ...executable,
+    inputSchema: {
+      ...executable.inputSchema,
+      required: ["profile"],
+      properties: {
+        ...executable.inputSchema.properties,
+        profile: { type: "string", minLength: 1 }
+      }
+    },
+    manifest: {
+      ...executable.manifest,
+      capabilities: { browser: { actions: ["snapshot", "act"] } }
+    }
+  });
+  assert.deepEqual(authorized.manifest.capabilities, {
+    browser: { actions: ["snapshot", "act"] }
+  });
+  assert.notEqual(
+    computeScriptContentHash(authorized),
+    computeScriptContentHash(parseScriptVersionCreateInput(executable))
+  );
+  assert.throws(
+    () =>
+      parseScriptVersionCreateInput({
+        ...executable,
+        manifest: {
+          ...executable.manifest,
+          capabilities: { browser: { actions: ["snapshot", "act"] } }
+        }
+      }),
+    /must require a string profile/
+  );
+  for (const actions of [
+    ["act", "snapshot"],
+    ["snapshot"],
+    ["snapshot", "act", "act"],
+    ["snapshot", "open_live"]
+  ]) {
+    assert.throws(
+      () =>
+        parseScriptVersionCreateInput({
+          ...executable,
+          manifest: {
+            ...executable.manifest,
+            capabilities: { browser: { actions } }
+          }
+        }),
+      /exactly \["snapshot", "act"\]/
+    );
+  }
+  assert.throws(
+    () =>
+      parseScriptVersionCreateInput({
+        ...executable,
+        manifest: {
+          ...executable.manifest,
+          capabilities: { browser: { actions: ["snapshot", "act"], login: true } }
+        }
+      }),
+    /unknown fields/
+  );
+});
+
 void test("Skill Script replacement preserves order and rejects duplicates", () => {
   const first = "00000000-0000-4000-8000-000000000151";
   const second = "00000000-0000-4000-8000-000000000152";

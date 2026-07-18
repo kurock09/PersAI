@@ -4,7 +4,9 @@ import Ajv2020 from "ajv/dist/2020.js";
 import type { AssistantRuntimeBundle } from "@persai/runtime-bundle";
 import {
   DEFAULT_RUNTIME_SANDBOX_POLICY,
+  canonicalizeJsonForHash,
   type ProviderGatewayToolCall,
+  type LocalBrowserBridgeDeviceKind,
   type RuntimeScriptInputSource,
   type RuntimeScriptToolResult
 } from "@persai/runtime-contract";
@@ -12,6 +14,7 @@ import type { ResolvedActiveScenarioStep } from "./build-active-scenario-block.s
 import { PersaiInternalApiClientService } from "./persai-internal-api.client.service";
 import { SandboxClientService } from "./sandbox-client.service";
 import type { TurnToolProgressSink } from "./tool-progress-sink";
+import { RuntimeScriptBrowserBrokerService } from "./runtime-script-browser-broker.service";
 
 export interface RuntimeScriptToolExecutionResult {
   payload: RuntimeScriptToolResult;
@@ -46,7 +49,8 @@ export class RuntimeScriptToolService {
 
   constructor(
     private readonly sandboxClientService: SandboxClientService,
-    private readonly persaiInternalApiClientService: PersaiInternalApiClientService
+    private readonly persaiInternalApiClientService: PersaiInternalApiClientService,
+    private readonly scriptBrowserBrokerService: RuntimeScriptBrowserBrokerService
   ) {}
 
   async executeToolCall(params: {
@@ -56,6 +60,11 @@ export class RuntimeScriptToolService {
     sessionId: string;
     requestId: string;
     currentUserMessageText: string | null;
+    chatId?: string | null;
+    transportSurface?: string | null;
+    bridgeDeviceId?: string | null;
+    bridgeDeviceKind?: LocalBrowserBridgeDeviceKind | null;
+    sourceUserMessageCreatedAt?: string | null;
     abortSignal?: AbortSignal;
     toolProgressSink?: TurnToolProgressSink;
   }): Promise<RuntimeScriptToolExecutionResult> {
@@ -119,39 +128,113 @@ export class RuntimeScriptToolService {
       toolCallId: params.toolCall.id,
       scriptVersionId: artifact.scriptVersionId
     });
+    const scriptInputHash = createHash("sha256")
+      .update(canonicalizeJsonForHash(mappedInput))
+      .digest("hex");
 
-    try {
-      const job = await this.sandboxClientService.waitForCompletion(
-        {
+    const browserCapability = this.browserCapabilityStatus(artifact.manifest);
+    if (browserCapability === "invalid") {
+      return this.skipped(
+        "script_browser_capability_invalid",
+        "The immutable Script browser capability is malformed."
+      );
+    }
+    const browserEnabled = browserCapability === "authorized";
+    const structuredProfile = browserEnabled ? mappedInput.profile : undefined;
+    if (
+      browserEnabled &&
+      (typeof structuredProfile !== "string" || structuredProfile.trim().length === 0)
+    ) {
+      return this.skipped(
+        "script_browser_profile_required",
+        "Browser-capable Script input requires a non-empty profile."
+      );
+    }
+    let browserBroker:
+      | Awaited<ReturnType<RuntimeScriptBrowserBrokerService["register"]>>
+      | undefined;
+    let terminalReplay = browserEnabled
+      ? await this.findTerminalReplay({
           assistantId: params.bundle.metadata.assistantId,
-          assistantHandle: params.bundle.metadata.assistantHandle,
-          siblingHandles: params.bundle.metadata.siblingAssistantHandles,
-          workspaceId: params.bundle.metadata.workspaceId,
-          runtimeRequestId: params.requestId,
-          runtimeSessionId: params.sessionId,
-          toolCode: "script.execute",
-          policy: params.bundle.runtime.sandbox ?? DEFAULT_RUNTIME_SANDBOX_POLICY,
-          args: { input: mappedInput },
+          scriptInvocationKey,
           scriptVersionId: artifact.scriptVersionId,
-          scriptSkillId: params.activeScenarioStep.skillId,
           scriptContentHash: artifact.contentHash,
-          scriptInvocationKey
-        },
-        {
-          ...(params.abortSignal === undefined ? {} : { signal: params.abortSignal }),
+          scriptInputHash
+        })
+      : null;
+    if (browserEnabled && terminalReplay === null) {
+      try {
+        browserBroker = await this.scriptBrowserBrokerService.register({
+          bundle: params.bundle,
+          sessionId: params.sessionId,
+          chatId: params.chatId ?? null,
+          transportSurface: params.transportSurface ?? null,
+          bridgeDeviceId: params.bridgeDeviceId ?? null,
+          bridgeDeviceKind: params.bridgeDeviceKind ?? null,
+          sourceUserMessageText: params.currentUserMessageText,
+          sourceUserMessageCreatedAt: params.sourceUserMessageCreatedAt ?? null,
+          allowedProfile: typeof structuredProfile === "string" ? structuredProfile.trim() : "",
+          ttlMs: Math.min(31 * 60_000, artifact.limits.timeoutMs),
+          ...(params.abortSignal === undefined ? {} : { abortSignal: params.abortSignal }),
           ...(params.toolProgressSink === undefined
             ? {}
-            : {
-                onPoll: (polledJob) => {
-                  params.toolProgressSink?.trackSandboxPoll({
-                    toolCallId: params.toolCall.id,
-                    toolName: params.toolCall.name,
-                    job: polledJob
-                  });
-                }
-              })
+            : { toolProgressSink: params.toolProgressSink })
+        });
+      } catch {
+        terminalReplay = await this.findTerminalReplay({
+          assistantId: params.bundle.metadata.assistantId,
+          scriptInvocationKey,
+          scriptVersionId: artifact.scriptVersionId,
+          scriptContentHash: artifact.contentHash,
+          scriptInputHash
+        });
+        if (terminalReplay !== null) {
+          browserBroker = undefined;
+        } else {
+          return this.skipped(
+            "script_browser_broker_unavailable",
+            "The browser-capable Script could not start its ephemeral browser broker."
+          );
         }
-      );
+      }
+    }
+
+    try {
+      const job =
+        terminalReplay ??
+        (await this.sandboxClientService.waitForCompletion(
+          {
+            assistantId: params.bundle.metadata.assistantId,
+            assistantHandle: params.bundle.metadata.assistantHandle,
+            siblingHandles: params.bundle.metadata.siblingAssistantHandles,
+            workspaceId: params.bundle.metadata.workspaceId,
+            runtimeRequestId: params.requestId,
+            runtimeSessionId: params.sessionId,
+            toolCode: "script.execute",
+            policy: params.bundle.runtime.sandbox ?? DEFAULT_RUNTIME_SANDBOX_POLICY,
+            args: { input: mappedInput },
+            scriptVersionId: artifact.scriptVersionId,
+            scriptSkillId: params.activeScenarioStep.skillId,
+            scriptContentHash: artifact.contentHash,
+            scriptInvocationKey,
+            scriptBrowserBroker: browserBroker?.binding ?? null
+          },
+          {
+            ...(params.abortSignal === undefined ? {} : { signal: params.abortSignal }),
+            ...(params.toolProgressSink === undefined
+              ? {}
+              : {
+                  onPoll: (polledJob) => {
+                    params.toolProgressSink?.trackSandboxPoll({
+                      toolCallId: params.toolCall.id,
+                      toolName: params.toolCall.name,
+                      job: polledJob
+                    });
+                  }
+                })
+          }
+        ));
+      browserBroker?.bindSandboxJob(job.jobId);
 
       if (job.status !== "completed") {
         const reason = job.reason ?? job.violationCode ?? "script_execution_failed";
@@ -216,6 +299,8 @@ export class RuntimeScriptToolService {
         );
       }
       return this.skipped("script_execution_failed", "Script execution failed.");
+    } finally {
+      browserBroker?.close();
     }
   }
 
@@ -370,5 +455,42 @@ export class RuntimeScriptToolService {
       .update(`${input.requestId}:${input.toolCallId}:${input.scriptVersionId}`)
       .digest("hex")
       .slice(0, 48);
+  }
+
+  private async findTerminalReplay(input: {
+    assistantId: string;
+    scriptInvocationKey: string;
+    scriptVersionId: string;
+    scriptContentHash: string;
+    scriptInputHash: string;
+  }) {
+    try {
+      return await this.sandboxClientService.findTerminalScriptReplay(input);
+    } catch {
+      return null;
+    }
+  }
+
+  private browserCapabilityStatus(manifest: {
+    capabilities?: unknown;
+  }): "absent" | "authorized" | "invalid" {
+    const capabilities = manifest.capabilities;
+    if (capabilities === undefined) return "absent";
+    if (capabilities === null || typeof capabilities !== "object" || Array.isArray(capabilities)) {
+      return "invalid";
+    }
+    const row = capabilities as Record<string, unknown>;
+    if (Object.keys(row).length !== 1 || row.browser === null || typeof row.browser !== "object") {
+      return "invalid";
+    }
+    const browser = row.browser as Record<string, unknown>;
+    const actions = browser.actions;
+    return Object.keys(browser).length === 1 &&
+      Array.isArray(actions) &&
+      actions.length === 2 &&
+      actions[0] === "snapshot" &&
+      actions[1] === "act"
+      ? "authorized"
+      : "invalid";
   }
 }

@@ -607,6 +607,10 @@ sandbox:
     DATABASE_URL:
       secretName: persai-api-secrets
       secretKey: DATABASE_URL
+    SCRIPT_BROWSER_BROKER_REDIS_URL:
+      secretName: persai-runtime-secrets
+      secretKey: PERSAI_RUNTIME_SPEC_STORE_REDIS_URL
+      optional: true
   replicaCount: 2
   revisionHistoryLimit: 2
   minReadySeconds: 5

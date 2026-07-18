@@ -99,6 +99,10 @@ const TESTS: Array<{ modulePath: string; exportName: string }> = [
     exportName: "runRuntimeScriptToolServiceTest"
   },
   {
+    modulePath: "./runtime-script-browser-broker.service.test.ts",
+    exportName: "runRuntimeScriptBrowserBrokerServiceTest"
+  },
+  {
     modulePath: "./build-active-scenario-block.service.test.ts",
     exportName: "runBuildActiveScenarioBlockServiceTest"
   },

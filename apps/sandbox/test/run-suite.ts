@@ -5,3 +5,6 @@ import "./workspace-file-bridge.service.test";
 import "./shared-outbound-basename.test";
 import "./script-execute-idempotency.test";
 import "./script-execution-support.test";
+import "./script-browser-frame.test";
+import "./script-browser-broker.service.test";
+import "./script-browser-os-fd-roundtrip.test";

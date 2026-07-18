@@ -140,6 +140,13 @@ export type PodExecResult = {
   execPodBinding?: ExecPodJobBinding;
 };
 
+export type InteractiveExecStreams = {
+  stdin: Readable;
+  wrapStdout: (ordinaryStdout: Writable) => Writable;
+  finalizeStdout?: () => void;
+  getError?: () => Error | null;
+};
+
 export type PodFileReadResult = {
   bytes: Buffer;
   durationMs: number;
@@ -338,6 +345,12 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
     signal?: AbortSignal;
     /** Fired once the pod is bound to this job so cancel can TERM/KILL mid-flight. */
     onBound?: (binding: ExecPodJobBinding) => void;
+    /**
+     * ADR-152 checkpoint 3 — narrow live duplex extension used only by an
+     * authorized browser-capable Script. Ordinary runInPod callers omit it and
+     * retain the existing buffered, stdin-less behavior.
+     */
+    interactive?: InteractiveExecStreams;
   }): Promise<PodExecResult> {
     const namespace = this.config.SANDBOX_EXEC_NAMESPACE;
     const startedAt = Date.now();
@@ -730,6 +743,7 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
     visibleWorkspacePaths?: readonly string[];
     signal?: AbortSignal;
     onBound?: (binding: ExecPodJobBinding) => void;
+    interactive?: InteractiveExecStreams;
     namespace: string;
     startedAt: number;
   }): Promise<PodExecResult> {
@@ -832,6 +846,7 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
         options.runtimeSessionId === null
           ? null
           : buildSessionRuntimeEnvironmentPaths(assistantId, options.runtimeSessionId),
+      ...(options.interactive === undefined ? {} : { interactive: options.interactive }),
       ...(options.signal === undefined ? {} : { signal: options.signal })
     });
     await this.pullWorkspace(podName, namespace, options.workspaceRoot, {
@@ -867,6 +882,7 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
     signal?: AbortSignal;
     onBound?: (binding: ExecPodJobBinding) => void;
     stagingFiles?: ReadonlyArray<SessionPodStagingFile>;
+    interactive?: InteractiveExecStreams;
     namespace: string;
     startedAt: number;
   }): Promise<PodExecResult> {
@@ -950,6 +966,7 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
       podCwd,
       policy: options.policy,
       runtimeEnvironment: null,
+      ...(options.interactive === undefined ? {} : { interactive: options.interactive }),
       ...(options.signal === undefined ? {} : { signal: options.signal })
     });
     await this.pullWorkspace(podName, namespace, options.workspaceRoot, {
@@ -2764,6 +2781,7 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
       shellPreamble?: readonly string[];
       skipIdentityAssertion?: boolean;
       signal?: AbortSignal;
+      interactive?: InteractiveExecStreams;
     }
   ): Promise<{ exitCode: number | null; stdout: string; stderr: string }> {
     if (options.skipIdentityAssertion !== true) {
@@ -2795,11 +2813,26 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
       `Sandbox stderr exceeded ${String(options.policy.maxStderrBytes)} bytes.`
     );
 
+    if (options.stdin !== undefined && options.interactive !== undefined) {
+      throw createBridgeError(
+        "sandbox_failed",
+        "Buffered and interactive stdin cannot be combined.",
+        true
+      );
+    }
     const stdinPayload = options.stdin ?? null;
     const stdinStream =
-      stdinPayload === null
+      options.interactive?.stdin ??
+      (stdinPayload === null
         ? null
-        : this.readBufferInChunks(stdinPayload, WORKSPACE_PUSH_CHUNK_BYTES);
+        : this.readBufferInChunks(stdinPayload, WORKSPACE_PUSH_CHUNK_BYTES));
+    const stdoutSink = options.interactive?.wrapStdout(stdoutCollector) ?? stdoutCollector;
+    let interactiveStreamError: Error | null = null;
+    if (stdoutSink !== stdoutCollector) {
+      stdoutSink.on("error", (error) => {
+        interactiveStreamError = error;
+      });
+    }
 
     let activeWebSocket: { close?: () => void } | null = null;
     const resultPromise = new Promise<{ exitCode: number | null; stdout: string; stderr: string }>(
@@ -2812,12 +2845,23 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
             podName,
             "exec",
             execArgs,
-            stdoutCollector,
+            stdoutSink,
             stderrCollector,
             stdinStream,
             false,
             (status: V1Status) => {
               statusReceived.value = true;
+              try {
+                options.interactive?.finalizeStdout?.();
+              } catch (error) {
+                reject(error instanceof Error ? error : new Error(String(error)));
+                return;
+              }
+              const streamError = interactiveStreamError ?? options.interactive?.getError?.();
+              if (streamError !== null && streamError !== undefined) {
+                reject(streamError);
+                return;
+              }
               const limitErr = stdoutCollector.limitError ?? stderrCollector.limitError;
               if (limitErr !== null) {
                 reject(limitErr);
@@ -4080,6 +4124,7 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
       policy: RuntimeSandboxPolicy;
       runtimeEnvironment: ReturnType<typeof buildSessionRuntimeEnvironmentPaths> | null;
       signal?: AbortSignal;
+      interactive?: InteractiveExecStreams;
     }
   ): Promise<{ exitCode: number | null; stdout: string; stderr: string }> {
     this.logger.log(
@@ -4098,6 +4143,7 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
         args: options.args,
         podCwd: options.podCwd,
         policy: options.policy,
+        ...(options.interactive === undefined ? {} : { interactive: options.interactive }),
         ...(options.signal === undefined ? {} : { signal: options.signal })
       });
     }
@@ -4107,6 +4153,7 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
       podCwd: options.podCwd,
       policy: options.policy,
       shellPreamble: this.buildRuntimeEnvironmentShellPreamble(options.runtimeEnvironment),
+      ...(options.interactive === undefined ? {} : { interactive: options.interactive }),
       ...(options.signal === undefined ? {} : { signal: options.signal })
     });
   }

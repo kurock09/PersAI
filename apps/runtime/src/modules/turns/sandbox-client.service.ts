@@ -50,6 +50,32 @@ export class SandboxClientService {
     return this.parseJobResponse(response);
   }
 
+  async findTerminalScriptReplay(input: {
+    assistantId: string;
+    scriptInvocationKey: string;
+    scriptVersionId: string;
+    scriptContentHash: string;
+    scriptInputHash: string;
+  }): Promise<RuntimeSandboxJobResult | null> {
+    const response = await this.fetchJson("/api/v1/jobs/script-terminal-replay", {
+      method: "POST",
+      headers: this.buildHeaders(),
+      body: JSON.stringify(input)
+    });
+    if (
+      !response.ok ||
+      response.body === null ||
+      typeof response.body !== "object" ||
+      Array.isArray(response.body) ||
+      Object.keys(response.body).join(",") !== "job"
+    ) {
+      throw new BadGatewayException("Sandbox service returned an invalid Script replay response.");
+    }
+    const job = (response.body as { job?: unknown }).job;
+    if (job === null) return null;
+    return this.parseJobResponse({ ok: true, status: response.status, body: job });
+  }
+
   async waitForCompletion(
     request: RuntimeSandboxJobRequest,
     options?: { signal?: AbortSignal; onPoll?: (job: RuntimeSandboxJobResult) => void }

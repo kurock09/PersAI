@@ -324,7 +324,65 @@ export interface RuntimeSandboxJobRequest {
    * `null` for every other tool.
    */
   scriptInvocationKey: string | null;
+  /**
+   * ADR-152 checkpoint 3 — ephemeral, server-minted routing capability for the
+   * narrow Script browser broker. It is carried only on the trusted
+   * runtime-to-sandbox request and is never persisted in SandboxJob payloads or
+   * exposed to Script code. Null for ordinary Scripts and every non-Script job.
+   */
+  scriptBrowserBroker?: RuntimeScriptBrowserBrokerBinding | null;
 }
+
+export const RUNTIME_SCRIPT_BROWSER_ACTIONS = ["snapshot", "act"] as const;
+export type RuntimeScriptBrowserAction = (typeof RUNTIME_SCRIPT_BROWSER_ACTIONS)[number];
+
+export interface RuntimeScriptBrowserCapability {
+  browser: {
+    actions: ["snapshot", "act"];
+  };
+}
+
+export interface RuntimeScriptBrowserBrokerBinding {
+  brokerId: string;
+  authToken: string;
+  expiresAt: string;
+}
+
+export interface RuntimeScriptBrowserSdkRequest {
+  version: 1;
+  requestId: string;
+  action: RuntimeScriptBrowserAction;
+  profile: string;
+  arguments: Record<string, unknown>;
+}
+
+export interface RuntimeScriptBrowserBrokerRequestEnvelope {
+  version: 1;
+  brokerId: string;
+  authToken: string;
+  sandboxJobId: string;
+  request: RuntimeScriptBrowserSdkRequest;
+}
+
+export interface RuntimeScriptBrowserBrokerResponseEnvelope {
+  version: 1;
+  brokerId: string;
+  authToken: string;
+  sandboxJobId: string;
+  requestId: string;
+  ok: boolean;
+  result?: RuntimeBrowserToolResult;
+  error?: {
+    code: string;
+    message: string;
+  };
+}
+
+export const SCRIPT_BROWSER_REQUEST_FRAME_PREFIX = "___PERSAI_BROWSER_REQUEST_V1___";
+export const SCRIPT_BROWSER_RESPONSE_FRAME_PREFIX = "___PERSAI_BROWSER_RESPONSE_V1___";
+export const SCRIPT_BROWSER_BROKER_REQUEST_CHANNEL = "persai:script-browser:requests:v1";
+export const MAX_SCRIPT_BROWSER_REQUEST_BYTES = 64 * 1024;
+export const MAX_SCRIPT_BROWSER_RESPONSE_BYTES = 1024 * 1024;
 
 export interface RuntimeSandboxDocumentSyncOutcome {
   path: string;

@@ -188,7 +188,7 @@ export class InternalRuntimeScriptArtifactService {
       contentHash: input.contentHash,
       runtime: version.runtime,
       entryCommand: version.entryCommand,
-      manifest: version.manifest as ScriptManifest,
+      manifest: version.manifest as unknown as ScriptManifest,
       inputSchema: version.inputSchema as Record<string, unknown>,
       outputSchema: version.outputSchema as Record<string, unknown>,
       limits: version.limits as ScriptLimits

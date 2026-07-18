@@ -3,6 +3,57 @@
 > Archive: detailed historical entries from 2026-06-05 and earlier moved to `docs/CHANGELOG.archive-2026-06-05-details-and-earlier.md`; entries from 2026-05-19 and earlier remain in `docs/CHANGELOG.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: current entries plus concise recent summaries only.
 
+## 2026-07-18
+
+- **ADR-152 checkpoint 3 implemented (not deployed or live-accepted).** Added
+  exact immutable Script manifest
+  capability parsing for ordered `snapshot`/`act`; a runtime-owned unguessable
+  TTL Redis consumer that invokes only existing `RuntimeBrowserToolService`
+  with original turn ownership/channel/device/abort/progress context; and a
+  sandbox relay with strict bounded correlated envelopes and one in-flight
+  request/job. Extended the existing Kubernetes exec seam with a
+  browser-capability-only interactive option. Inherited FDs keep SDK frames
+  separate from Script diagnostics and final result framing; ordinary Scripts
+  retain buffered execution and no broker Redis dependency. Added a platform
+  CLI and narrow Node/Python image wrappers with no infrastructure
+  credentials. Sandbox strips broker/auth/job routing before SDK responses;
+  the transport does not automatically persist/log browser payloads, while
+  intentional SDK-derived Script output retains ordinary `SandboxJob`
+  persistence semantics. A first independent read-only Sonnet audit of this
+  checkpoint returned **DIRTY (3 P1, 4 P2, no P0)**. All findings were
+  repaired locally: the runtime and sandbox brokers now dispose only the
+  exact current cached Redis client/connection-pair generation on terminal
+  `end`/reconnect exhaustion (a stale event from an already-superseded
+  client/pair can never clobber a live replacement, and a failed initial
+  `connect()` clears its cached promise so the next call actually retries);
+  Kubernetes exec stdin response/failure frames are now split into
+  serialized, backpressure-honoring <=64 KiB writes instead of one
+  ~1.4 MB write (with a real local OS-FD round-trip integration test
+  proving fragmented round-trip and result-marker separation); the dead
+  runtime Helm `SCRIPT_BROWSER_BROKER_REDIS_URL` mapping was removed
+  (runtime uses `RUNTIME_STATE_REDIS_URL`; the sandbox mapping is
+  unchanged); `findTerminalScriptReplay` gained scriptVersion-mismatch and
+  cross-assistant-invisibility tests; the OpenAPI `actions` schema now
+  documents, with verified evidence, that this repository's pinned OpenAPI
+  3.0.3/orval v7 dialect cannot represent an exact `[snapshot, act]` tuple
+  constraint (exact order stays enforced at the application boundary); and
+  `exec 3>&1`/`exec 4<&0` are now gated behind `browserEnabled` so ordinary
+  Scripts keep the prior wrapper bytes unchanged. Publisher/zero-receiver/
+  oversized-result failures still contain at one no-throw runtime subscriber
+  boundary, sandbox pending requests still close without write-after-end
+  races, both broker dependencies are still required, identifiers/expiry/
+  response unions stay strictly bound, and the read-only exact terminal
+  replay lookup before broker registration is unchanged. No second browser
+  runtime, headless fallback, new pod/image/NetworkPolicy contour, Document
+  SDK, managed secrets, or durable Script resume was added. A founder-directed
+  independent re-audit on Cursor Grok 4.5 found all prior code P1/P2 closed
+  and one residual ARCHITECTURE status contradiction (P2), which was corrected
+  before commit. Authored-output persistence remains a founder-owned wording
+  residual. Checkpoint 4 Admin/MCP authoring, deploy, and live acceptance
+  remain pending. ADR-152 stays open. Complete sandbox/runtime suites,
+  focused API domain tests, all required typechecks, repository lint/format,
+  Helm lint/template, contract generation, and diff integrity pass.
+
 ## 2026-07-17
 
 - **ADR-152 checkpoint 2 locally complete and final independent Sonnet re-audit

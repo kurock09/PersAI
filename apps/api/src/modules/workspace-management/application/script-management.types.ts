@@ -1,7 +1,10 @@
 import { createHash } from "node:crypto";
 import Ajv2020 from "ajv/dist/2020.js";
 import type { Script, ScriptVersion, SkillScript } from "@prisma/client";
-import { canonicalizeJsonForHash } from "@persai/runtime-contract";
+import {
+  canonicalizeJsonForHash,
+  type RuntimeScriptBrowserCapability
+} from "@persai/runtime-contract";
 
 export type LocalizedScriptText = { ru: string; en: string };
 export type ScriptStatus = "draft" | "published" | "archived";
@@ -10,6 +13,7 @@ export type ScriptManifest = {
   schemaVersion: 1;
   workingDirectory: string | null;
   environment: Record<string, string>;
+  capabilities?: RuntimeScriptBrowserCapability;
 };
 export type ScriptLimits = {
   timeoutMs: number;
@@ -167,6 +171,25 @@ export function validateExecutableContract(input: ScriptVersionWriteInput): void
   if (input.inputSchema.type !== "object") {
     throw new Error("inputSchema.type must be object for Scenario input mapping.");
   }
+  if (input.manifest.capabilities !== undefined) {
+    const properties = input.inputSchema.properties;
+    const required = input.inputSchema.required;
+    const profileSchema =
+      properties !== null &&
+      typeof properties === "object" &&
+      !Array.isArray(properties) &&
+      (properties as Record<string, unknown>).profile;
+    if (
+      profileSchema === null ||
+      typeof profileSchema !== "object" ||
+      Array.isArray(profileSchema) ||
+      (profileSchema as Record<string, unknown>).type !== "string" ||
+      !Array.isArray(required) ||
+      !required.includes("profile")
+    ) {
+      throw new Error("Browser-capable Script inputSchema must require a string profile property.");
+    }
+  }
   validateJsonSchema(input.outputSchema, "outputSchema");
 }
 
@@ -204,7 +227,7 @@ export function toScriptVersionState(row: ScriptVersion): ScriptVersionState {
     version: row.version,
     status: row.status,
     code: row.code,
-    manifest: row.manifest as ScriptManifest,
+    manifest: row.manifest as unknown as ScriptManifest,
     inputSchema: row.inputSchema as Record<string, unknown>,
     outputSchema: row.outputSchema as Record<string, unknown>,
     runtime: row.runtime,
@@ -260,7 +283,12 @@ function parseVersionCore(row: Record<string, unknown>): ScriptVersionWriteInput
 
 function manifest(value: unknown): ScriptManifest {
   const row = object(value, "manifest");
-  exact(row, ["schemaVersion", "workingDirectory", "environment"], "manifest");
+  exactOptional(
+    row,
+    ["schemaVersion", "workingDirectory", "environment"],
+    ["capabilities"],
+    "manifest"
+  );
   if (row.schemaVersion !== 1) throw new Error("manifest.schemaVersion must be 1.");
   const environmentRow = object(row.environment, "manifest.environment");
   if (Object.keys(environmentRow).length > 64)
@@ -274,11 +302,33 @@ function manifest(value: unknown): ScriptManifest {
     }
     environment[key] = text(val, `manifest.environment.${key}`, 0, 4_096, false);
   }
-  return {
+  const result: ScriptManifest = {
     schemaVersion: 1,
     workingDirectory: nullableText(row.workingDirectory, "manifest.workingDirectory", 512),
     environment
   };
+  if (Object.prototype.hasOwnProperty.call(row, "capabilities")) {
+    result.capabilities = browserCapabilities(row.capabilities);
+  }
+  return result;
+}
+
+function browserCapabilities(value: unknown): RuntimeScriptBrowserCapability {
+  const capabilities = object(value, "manifest.capabilities");
+  exact(capabilities, ["browser"], "manifest.capabilities");
+  const browser = object(capabilities.browser, "manifest.capabilities.browser");
+  exact(browser, ["actions"], "manifest.capabilities.browser");
+  if (
+    !Array.isArray(browser.actions) ||
+    browser.actions.length !== 2 ||
+    browser.actions[0] !== "snapshot" ||
+    browser.actions[1] !== "act"
+  ) {
+    throw new Error(
+      'manifest.capabilities.browser.actions must be exactly ["snapshot", "act"] in that order.'
+    );
+  }
+  return { browser: { actions: ["snapshot", "act"] } };
 }
 
 function limits(value: unknown): ScriptLimits {
@@ -354,6 +404,20 @@ function exact(row: Record<string, unknown>, keys: readonly string[], path: stri
   const allowed = new Set(keys);
   const unknown = Object.keys(row).filter((key) => !allowed.has(key));
   const missing = keys.filter((key) => !Object.prototype.hasOwnProperty.call(row, key));
+  if (unknown.length > 0)
+    throw new Error(`${path} contains unknown fields: ${unknown.sort().join(", ")}.`);
+  if (missing.length > 0) throw new Error(`${path} is missing fields: ${missing.join(", ")}.`);
+}
+
+function exactOptional(
+  row: Record<string, unknown>,
+  requiredKeys: readonly string[],
+  optionalKeys: readonly string[],
+  path: string
+): void {
+  const allowed = new Set([...requiredKeys, ...optionalKeys]);
+  const unknown = Object.keys(row).filter((key) => !allowed.has(key));
+  const missing = requiredKeys.filter((key) => !Object.prototype.hasOwnProperty.call(row, key));
   if (unknown.length > 0)
     throw new Error(`${path} contains unknown fields: ${unknown.sort().join(", ")}.`);
   if (missing.length > 0) throw new Error(`${path} is missing fields: ${missing.join(", ")}.`);

@@ -7,6 +7,7 @@ import { SandboxObjectStorageService } from "./sandbox-object-storage.service";
 import { SandboxObservabilityService } from "./sandbox-observability.service";
 import { SandboxPrismaService } from "./sandbox-prisma.service";
 import { SandboxService } from "./sandbox.service";
+import { ScriptBrowserBrokerService } from "./script-browser-broker.service";
 import { WorkspaceAuditService } from "./workspace-audit.service";
 import { WorkspaceFileBridgeService } from "./workspace-file-bridge.service";
 import { WorkspaceGcService } from "./workspace-gc.service";
@@ -23,6 +24,7 @@ import { WorkspaceGcService } from "./workspace-gc.service";
     WorkspaceAuditService,
     WorkspaceFileBridgeService,
     WorkspaceGcService,
+    ScriptBrowserBrokerService,
     SandboxService
   ]
 })

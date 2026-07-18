@@ -3,14 +3,17 @@ import { spawn } from "node:child_process";
 import { promises as fs } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import { join, extname, basename, isAbsolute, relative, resolve, sep } from "node:path";
+import { PassThrough } from "node:stream";
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import Ajv2020 from "ajv/dist/2020.js";
 import type { SandboxConfig } from "@persai/config";
-import type {
-  RuntimeSandboxJobRequest,
-  RuntimeSandboxJobResult,
-  RuntimeSandboxPolicy,
-  RuntimeSandboxProducedFile
+import {
+  SCRIPT_BROWSER_RESPONSE_FRAME_PREFIX,
+  type RuntimeSandboxJobRequest,
+  type RuntimeSandboxJobResult,
+  type RuntimeSandboxPolicy,
+  type RuntimeSandboxProducedFile,
+  type RuntimeScriptBrowserSdkRequest
 } from "@persai/runtime-contract";
 import {
   classifyVisibleWorkspacePath,
@@ -55,11 +58,15 @@ import {
   computeScriptExecutableContentHash,
   computeScriptInputHash,
   parseScriptExecutionResultJson,
+  parseSandboxScriptManifest,
   reconcileScriptSandboxPolicy,
   resolveEffectiveScriptOutputBytes,
   splitScriptExecutionStdout,
   type SandboxScriptVersionArtifact
 } from "./script-execution-support";
+import { ScriptBrowserBrokerService } from "./script-browser-broker.service";
+import { ScriptBrowserFrameDecoder } from "./script-browser-frame";
+import { ScriptBrowserResponseLifecycle } from "./script-browser-response-lifecycle";
 
 const scriptSchemaValidator = new Ajv2020({
   strict: true,
@@ -160,7 +167,8 @@ export class SandboxService {
     private readonly sandboxObservabilityService: SandboxObservabilityService,
     @Inject(SANDBOX_CONFIG) private readonly config: SandboxConfig,
     private readonly execPodBridgeService: ExecPodBridgeService,
-    private readonly workspaceFileBridgeService: WorkspaceFileBridgeService
+    private readonly workspaceFileBridgeService: WorkspaceFileBridgeService,
+    private readonly scriptBrowserBrokerService: ScriptBrowserBrokerService
   ) {}
 
   /**
@@ -499,7 +507,7 @@ export class SandboxService {
       code: row.code,
       runtime: row.runtime,
       entryCommand: row.entryCommand,
-      manifest: row.manifest as SandboxScriptVersionArtifact["manifest"],
+      manifest: parseSandboxScriptManifest(row.manifest),
       inputSchema: row.inputSchema as Record<string, unknown>,
       outputSchema: row.outputSchema as Record<string, unknown>,
       limits: row.limits as SandboxScriptVersionArtifact["limits"],
@@ -676,6 +684,43 @@ export class SandboxService {
       content: this.readNullableString(payload.content),
       files: producedFiles
     };
+  }
+
+  async findTerminalScriptReplay(input: {
+    assistantId: string;
+    scriptInvocationKey: string;
+    scriptVersionId: string;
+    scriptContentHash: string;
+    scriptInputHash: string;
+  }): Promise<RuntimeSandboxJobResult | null> {
+    const existing = await this.prisma.sandboxJob.findUnique({
+      where: {
+        assistantId_scriptInvocationKey: {
+          assistantId: input.assistantId,
+          scriptInvocationKey: input.scriptInvocationKey
+        }
+      }
+    });
+    if (
+      existing === null ||
+      !this.isTerminalJobStatus(existing.status) ||
+      existing.scriptVersionId !== input.scriptVersionId
+    ) {
+      return null;
+    }
+    const snapshot =
+      existing.policySnapshot !== null &&
+      typeof existing.policySnapshot === "object" &&
+      !Array.isArray(existing.policySnapshot)
+        ? (existing.policySnapshot as Record<string, unknown>)
+        : {};
+    if (
+      snapshot.scriptContentHash !== input.scriptContentHash ||
+      snapshot.scriptInputHash !== input.scriptInputHash
+    ) {
+      return null;
+    }
+    return this.pollJob(existing.id);
   }
 
   async ready(): Promise<boolean> {
@@ -1503,7 +1548,8 @@ export class SandboxService {
           scriptVersionId,
           input.request.scriptInvocationKey ?? null,
           input.request.scriptSkillId,
-          input.request.scriptContentHash
+          input.request.scriptContentHash,
+          input.request.scriptBrowserBroker ?? null
         );
       }
       default:
@@ -1634,7 +1680,8 @@ export class SandboxService {
     scriptVersionId: string,
     scriptInvocationKey: string | null,
     scriptSkillId: string | null,
-    expectedContentHash: string | null
+    expectedContentHash: string | null,
+    scriptBrowserBroker: RuntimeSandboxJobRequest["scriptBrowserBroker"]
   ): Promise<SandboxToolExecutionResult> {
     if (scriptSkillId === null || expectedContentHash === null || scriptInvocationKey === null) {
       this.throwPolicy("script_execute_missing_pin", "The Script capability pin is incomplete.");
@@ -1680,7 +1727,8 @@ export class SandboxService {
       invocationKey: scriptInvocationKey,
       manifestEnvironment: artifact.manifest.environment,
       resultMarker,
-      maxOutputBytes: effectiveOutputBytes
+      maxOutputBytes: effectiveOutputBytes,
+      browserEnabled: artifact.manifest.capabilities !== undefined
     });
 
     const absoluteCwd = this.resolveShellExecCwdPath(
@@ -1692,6 +1740,28 @@ export class SandboxService {
     let boundScriptPod: ExecPodJobBinding | null = null;
     let result: Awaited<ReturnType<ExecPodBridgeService["runInPod"]>> | null = null;
     let executionError: unknown = null;
+    const browserCapabilityEnabled = artifact.manifest.capabilities !== undefined;
+    const brokerBinding = browserCapabilityEnabled
+      ? this.requireScriptBrowserBrokerBinding(scriptBrowserBroker)
+      : null;
+    if (!browserCapabilityEnabled && scriptBrowserBroker != null) {
+      this.throwPolicy(
+        "script_browser_capability_absent",
+        "The immutable Script manifest does not authorize browser access."
+      );
+    }
+    const brokerSession =
+      brokerBinding === null
+        ? null
+        : await this.scriptBrowserBrokerService.openSession({
+            binding: brokerBinding,
+            sandboxJobId: jobId,
+            deadlineAtMs: Date.now() + policy.maxProcessRuntimeMs
+          });
+    const interactiveStdin = brokerSession === null ? null : new PassThrough();
+    let frameDecoder: ScriptBrowserFrameDecoder | null = null;
+    const browserResponseLifecycle =
+      interactiveStdin === null ? null : new ScriptBrowserResponseLifecycle(interactiveStdin);
     try {
       result = await this.execPodBridgeService.runInPod({
         jobId,
@@ -1708,6 +1778,25 @@ export class SandboxService {
         args: ["-lc", wrapperScript],
         policy,
         stagingFiles,
+        ...(brokerSession === null || interactiveStdin === null
+          ? {}
+          : {
+              interactive: {
+                stdin: interactiveStdin,
+                wrapStdout: (ordinaryStdout) => {
+                  frameDecoder = new ScriptBrowserFrameDecoder((request) => {
+                    browserResponseLifecycle?.dispatch({
+                      requestResponse: () => brokerSession.request(request),
+                      failureResponse: (error) =>
+                        this.buildScriptBrowserFailureFrame(request, error)
+                    });
+                  }, ordinaryStdout);
+                  return frameDecoder;
+                },
+                finalizeStdout: () => frameDecoder?.flushRemainder(),
+                getError: () => frameDecoder?.failure ?? null
+              }
+            }),
         signal,
         onBound: (binding) => {
           boundScriptPod = binding;
@@ -1722,6 +1811,10 @@ export class SandboxService {
       boundScriptPod = result.execPodBinding ?? boundScriptPod;
     } catch (error) {
       executionError = error;
+    } finally {
+      await browserResponseLifecycle?.close(async () => {
+        await brokerSession?.close();
+      });
     }
     const cleanupBinding = boundScriptPod ?? leaseGuard.podBinding;
     if (cleanupBinding !== null) {
@@ -1798,6 +1891,66 @@ export class SandboxService {
       execPodName: result.execPodName,
       execPodBinding: result.execPodBinding
     };
+  }
+
+  private requireScriptBrowserBrokerBinding(binding: unknown) {
+    const brokerId =
+      binding !== null && typeof binding === "object" && !Array.isArray(binding)
+        ? (binding as Record<string, unknown>).brokerId
+        : undefined;
+    const authToken =
+      binding !== null && typeof binding === "object" && !Array.isArray(binding)
+        ? (binding as Record<string, unknown>).authToken
+        : undefined;
+    const expiresAt =
+      binding !== null && typeof binding === "object" && !Array.isArray(binding)
+        ? (binding as Record<string, unknown>).expiresAt
+        : undefined;
+    if (
+      binding === null ||
+      typeof binding !== "object" ||
+      Array.isArray(binding) ||
+      Object.keys(binding).sort().join(",") !== "authToken,brokerId,expiresAt" ||
+      typeof brokerId !== "string" ||
+      !/^[A-Za-z0-9_-]{32}$/.test(brokerId) ||
+      typeof authToken !== "string" ||
+      !/^[A-Za-z0-9_-]{43}$/.test(authToken) ||
+      typeof expiresAt !== "string" ||
+      !Number.isFinite(Date.parse(expiresAt))
+    ) {
+      this.throwPolicy(
+        "script_browser_broker_missing",
+        "Browser-capable Script execution requires an active platform broker."
+      );
+    }
+    return binding as {
+      brokerId: string;
+      authToken: string;
+      expiresAt: string;
+    };
+  }
+
+  private buildScriptBrowserFailureFrame(
+    request: RuntimeScriptBrowserSdkRequest,
+    error: unknown
+  ): string {
+    const code =
+      error instanceof Error && /^[a-z0-9_]{1,128}$/.test(error.message)
+        ? error.message
+        : "script_browser_broker_failed";
+    const response = {
+      version: 1,
+      requestId: request.requestId,
+      ok: false,
+      error: {
+        code,
+        message: "The platform browser broker could not complete the request."
+      }
+    };
+    return `${SCRIPT_BROWSER_RESPONSE_FRAME_PREFIX}${Buffer.from(
+      JSON.stringify(response),
+      "utf8"
+    ).toString("base64url")}\n`;
   }
 
   private async collectVisibleProducedFileSnapshots(

@@ -3,6 +3,7 @@ import { test } from "node:test";
 import { promises as fs } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { PassThrough, type Writable } from "node:stream";
 
 const RETRYABLE_WINDOWS_RM_CODES = new Set(["EBUSY", "ENOTEMPTY", "EPERM"]);
 
@@ -26,11 +27,13 @@ async function removePathWithRetries(path: string): Promise<void> {
 import type { SandboxConfig } from "@persai/config";
 import { DEFAULT_RUNTIME_SANDBOX_POLICY } from "@persai/runtime-contract";
 import type { CoreV1Api, V1Pod } from "@kubernetes/client-node";
+import { SCRIPT_BROWSER_REQUEST_FRAME_PREFIX } from "@persai/runtime-contract";
 import {
   ExecPodBridgeService,
   LimitedCollector,
   WORKSPACE_MOUNT_HYDRATE_CONCURRENCY
 } from "../src/exec-pod-bridge.service";
+import { ScriptBrowserFrameDecoder } from "../src/script-browser-frame";
 
 // A valid, empty tar archive: two+ all-zero 512-byte blocks signal end-of-archive.
 // The control plane's workspace pull (`tar -cf - -C /workspace .`) always produces a
@@ -189,6 +192,56 @@ type MockK8sContext = {
   execCallCount: number;
   execCommands: string[][];
 };
+
+test("interactive exec reserves streaming stdin and strips broker frames from stdout", async () => {
+  const request = {
+    version: 1,
+    requestId: "request_12345678",
+    action: "snapshot",
+    profile: "Work",
+    arguments: { url: "https://example.com" }
+  };
+  const encoded = `${SCRIPT_BROWSER_REQUEST_FRAME_PREFIX}${Buffer.from(
+    JSON.stringify(request),
+    "utf8"
+  ).toString("base64url")}\nordinary-result`;
+  const ctx: MockK8sContext = {
+    createdPods: [],
+    podPhaseSequence: [],
+    execResponses: [{ exitCode: 0, stdout: encoded, stderr: "" }],
+    deletedPods: [],
+    execCallCount: 0,
+    execCommands: []
+  };
+  const bridge = buildMockBridge(ctx);
+  const frames: unknown[] = [];
+  let decoder: ScriptBrowserFrameDecoder | null = null;
+  const result = await (
+    bridge as unknown as {
+      execCommand(
+        podName: string,
+        namespace: string,
+        options: Record<string, unknown>
+      ): Promise<{ stdout: string }>;
+    }
+  ).execCommand("pod", "namespace", {
+    command: "/bin/sh",
+    args: ["-c", "true"],
+    podCwd: "/",
+    policy: { ...DEFAULT_RUNTIME_SANDBOX_POLICY, enabled: true },
+    skipIdentityAssertion: true,
+    interactive: {
+      stdin: new PassThrough(),
+      wrapStdout: (ordinaryStdout: Writable) => {
+        decoder = new ScriptBrowserFrameDecoder((frame) => frames.push(frame), ordinaryStdout);
+        return decoder;
+      },
+      finalizeStdout: () => decoder?.flushRemainder()
+    }
+  });
+  assert.deepEqual(frames, [request]);
+  assert.equal(result.stdout, "ordinary-result");
+});
 
 function buildMockBridge(ctx: MockK8sContext): ExecPodBridgeService {
   let phaseIndex = 0;

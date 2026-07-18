@@ -187,7 +187,7 @@ promise. Release `f0944d31` / GitOps pin `95c7d68d`, the deployed `5fb61f3c`
 allowed-model audit, strict model-driven Script smoke, and approved-account
 Admin Scripts UI founder acceptance. ADR-151 is closed.
 
-**ADR-152 (checkpoint 2 locally implemented):** checkpoint 1, the
+**ADR-152 (checkpoint 3 locally implemented; first audit DIRTY, repairs landed, founder-directed re-audit closed residual docs P2):** checkpoint 1, the
 API/data/delivery ownership core, exact `wait|notify` terminal control,
 source-turn finalization, and serialized same-chat continuation are implemented
 locally. A SchedulerLease-backed API worker now validates and claims ready
@@ -205,9 +205,8 @@ child-job enqueue/depth inheritance. Row depth names the creating turn;
 scheduler depth is `rowDepth + 1`. Persisted continuation output finalizes only
 children keyed by its client-turn id, with receipt/message reconciliation for
 lost completion. Internal runtime responses are strictly validated before
-scheduler dereference. Checkpoint-2 audits were DIRTY; repairs await confirming
-independent re-audit and make no CLEAN claim. The bounded architecture adds
-only a Script browser SDK and durable canonical-job observation. Script browser
+scheduler dereference. Checkpoint 2 received a final CLEAN independent re-audit.
+Checkpoint 3 adds only the bounded Script browser SDK. Script browser
 capability is exactly `{browser:{actions:["snapshot","act"]}}`: a required
 structured profile input reaches the existing `RuntimeBrowserToolService`, API
 local bridge, and exact user device with existing affinity, observer lock,
@@ -216,7 +215,25 @@ browser list/login/open-live/user-action SDK methods, or Script-visible bridge
 credentials/identifiers. A narrow job-scoped TTL Redis broker extends live-exec
 stdin/stdout framing; it is not a second browser runtime, permits one
 outstanding request/job, and fails an active Script closed on loss/restart.
-Browser page payloads never persist to Postgres, SandboxJob, GCS, or logs.
+The broker transport does not automatically persist or log browser request or
+response payloads. A Script may deliberately copy useful SDK-derived data into
+its authored output, which remains ordinary persisted `SandboxJob` output;
+preventing that would require out-of-scope content inspection/redaction and is
+an explicit founder/audit wording residual.
+The capability-authorized wrapper reserves inherited FDs over the existing
+Kubernetes exec stream, leaving entry diagnostics and the final Script result
+marker separate. Runtime registers an unguessable TTL consumer before submit;
+sandbox Redis relays strict envelopes and removes all broker routing credentials
+before returning SDK responses. Ordinary Scripts retain the buffered exec path
+and do not depend on broker Redis. A bearer-protected, read-only exact terminal
+replay lookup checks assistant, server-derived invocation identity, immutable
+Script version/content hash, and canonical input hash before broker
+registration; only terminal persisted output can bypass live broker readiness,
+while new execution still fails closed unless its subscriber is ready.
+Checkpoint 3 is uncommitted. A first independent audit returned DIRTY; code
+repairs landed; a founder-directed independent re-audit found only this
+ARCHITECTURE status contradiction as residual P2 (now corrected). It is not
+deployed or live-accepted.
 
 The universal model-visible `await` tool will observe only owned canonical
 media/document jobs through opaque server-minted `jr1` handles mapped by one

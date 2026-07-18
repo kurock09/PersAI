@@ -1,5 +1,8 @@
 import { createHash } from "node:crypto";
-import type { RuntimeSandboxPolicy } from "@persai/runtime-contract";
+import type {
+  RuntimeSandboxPolicy,
+  RuntimeScriptBrowserCapability
+} from "@persai/runtime-contract";
 import { canonicalizeJsonForHash } from "@persai/runtime-contract";
 
 /**
@@ -13,6 +16,7 @@ export type SandboxScriptManifest = {
   schemaVersion: 1;
   workingDirectory: string | null;
   environment: Record<string, string>;
+  capabilities?: RuntimeScriptBrowserCapability;
 };
 
 export type SandboxScriptLimits = {
@@ -50,7 +54,11 @@ export const PERSAI_SCRIPT_RESERVED_ENV_KEYS = [
   "PERSAI_SCRIPT_ENTRY_PATH",
   "PERSAI_SCRIPT_INPUT_PATH",
   "PERSAI_SCRIPT_OUTPUT_PATH",
-  "PERSAI_SCRIPT_INVOCATION_KEY"
+  "PERSAI_SCRIPT_INVOCATION_KEY",
+  "PERSAI_SCRIPT_BROWSER_CLI",
+  "PERSAI_SCRIPT_BROWSER_ENABLED",
+  "NODE_PATH",
+  "PYTHONPATH"
 ] as const;
 
 /**
@@ -154,6 +162,7 @@ export function buildScriptExecutionShellCommand(input: {
   manifestEnvironment: Record<string, string>;
   resultMarker: string;
   maxOutputBytes: number;
+  browserEnabled?: boolean;
 }): string {
   const reserved = new Set<string>(PERSAI_SCRIPT_RESERVED_ENV_KEYS);
   const lines: string[] = [
@@ -166,6 +175,20 @@ export function buildScriptExecutionShellCommand(input: {
     `export PERSAI_SCRIPT_OUTPUT_PATH=${scriptShellSingleQuote(`${input.scriptDir}/output.json`)}`,
     `export PERSAI_SCRIPT_INVOCATION_KEY=${scriptShellSingleQuote(input.invocationKey ?? "")}`
   ];
+  if (input.browserEnabled === true) {
+    lines.push(
+      // Only browser-capable Scripts need the outer stdout/stdin duplicated
+      // onto inherited FDs 3/4 for the browser CLI's request/response
+      // framing; ordinary Scripts never read/write those FDs, so they keep
+      // the plain wrapper bytes without the extra dup lines.
+      "exec 3>&1",
+      "exec 4<&0",
+      "export PERSAI_SCRIPT_BROWSER_ENABLED=1",
+      "export PERSAI_SCRIPT_BROWSER_CLI=/usr/local/bin/persai-browser",
+      "export NODE_PATH=/usr/local/lib/node_modules",
+      "export PYTHONPATH=/usr/local/lib/python3.11/site-packages"
+    );
+  }
   for (const [key, value] of Object.entries(input.manifestEnvironment)) {
     if (reserved.has(key)) {
       continue;
@@ -180,6 +203,65 @@ export function buildScriptExecutionShellCommand(input: {
     'exit "$entry_exit"'
   );
   return lines.join("\n");
+}
+
+export function parseSandboxScriptManifest(value: unknown): SandboxScriptManifest {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Script manifest must be an object.");
+  }
+  const row = value as Record<string, unknown>;
+  const allowed = new Set(["schemaVersion", "workingDirectory", "environment", "capabilities"]);
+  if (Object.keys(row).some((key) => !allowed.has(key))) {
+    throw new Error("Script manifest contains unknown fields.");
+  }
+  if (
+    row.schemaVersion !== 1 ||
+    !(row.workingDirectory === null || typeof row.workingDirectory === "string") ||
+    row.environment === null ||
+    typeof row.environment !== "object" ||
+    Array.isArray(row.environment)
+  ) {
+    throw new Error("Script manifest core fields are invalid.");
+  }
+  const environment: Record<string, string> = {};
+  for (const [key, item] of Object.entries(row.environment as Record<string, unknown>)) {
+    if (typeof item !== "string") {
+      throw new Error("Script manifest environment is invalid.");
+    }
+    environment[key] = item;
+  }
+  const manifest: SandboxScriptManifest = {
+    schemaVersion: 1,
+    workingDirectory: row.workingDirectory,
+    environment
+  };
+  if (Object.prototype.hasOwnProperty.call(row, "capabilities")) {
+    const capabilities = row.capabilities;
+    if (capabilities === null || typeof capabilities !== "object" || Array.isArray(capabilities)) {
+      throw new Error("Script manifest capabilities are invalid.");
+    }
+    const capabilityRow = capabilities as Record<string, unknown>;
+    if (Object.keys(capabilityRow).length !== 1 || !("browser" in capabilityRow)) {
+      throw new Error("Script manifest capabilities must contain only browser.");
+    }
+    const browser = capabilityRow.browser;
+    if (browser === null || typeof browser !== "object" || Array.isArray(browser)) {
+      throw new Error("Script browser capability is invalid.");
+    }
+    const browserRow = browser as Record<string, unknown>;
+    const actions = browserRow.actions;
+    if (
+      Object.keys(browserRow).length !== 1 ||
+      !Array.isArray(actions) ||
+      actions.length !== 2 ||
+      actions[0] !== "snapshot" ||
+      actions[1] !== "act"
+    ) {
+      throw new Error('Script browser actions must be exactly ["snapshot", "act"].');
+    }
+    manifest.capabilities = { browser: { actions: ["snapshot", "act"] } };
+  }
+  return manifest;
 }
 
 /**

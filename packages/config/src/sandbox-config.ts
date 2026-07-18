@@ -21,6 +21,7 @@ const baseSandboxConfigSchema = z.object({
   // ADR-127 D9 (2026-06-25): default changed from "assistant-media" to "fs".
   PERSAI_MEDIA_OBJECT_PREFIX: z.string().min(1).default("fs"),
   PERSAI_INTERNAL_API_TOKEN: optionalNonEmptyString,
+  SCRIPT_BROWSER_BROKER_REDIS_URL: optionalNonEmptyString,
   SANDBOX_MAX_PENDING_JOBS: z.coerce.number().int().positive().default(16),
   SANDBOX_MAX_PENDING_JOBS_PER_WORKSPACE: z.coerce.number().int().positive().default(4),
   SANDBOX_MAX_POLL_WAIT_MS: z.coerce.number().int().positive().default(1_500),

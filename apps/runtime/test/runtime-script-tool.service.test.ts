@@ -95,11 +95,17 @@ const successArtifact = () => ({
 function buildService(input: {
   fetchArtifact?: (args: unknown) => Promise<unknown>;
   waitForCompletion?: (request: Record<string, unknown>) => Promise<unknown>;
+  findTerminalScriptReplay?: (request: Record<string, unknown>) => Promise<unknown>;
   sandboxConfigured?: boolean;
+  registerBroker?: (args: Record<string, unknown>) => Promise<unknown>;
 }) {
   const submittedRequests: Array<Record<string, unknown>> = [];
+  const brokerRegistrations: Array<Record<string, unknown>> = [];
   const sandboxClientService = {
     isConfigured: () => input.sandboxConfigured ?? true,
+    async findTerminalScriptReplay(request: Record<string, unknown>) {
+      return (await input.findTerminalScriptReplay?.(request)) ?? null;
+    },
     async waitForCompletion(request: Record<string, unknown>) {
       submittedRequests.push(request);
       return (
@@ -118,11 +124,28 @@ function buildService(input: {
   const persaiInternalApiClientService = {
     fetchScriptVersionArtifact: input.fetchArtifact ?? (async () => successArtifact())
   };
+  const scriptBrowserBrokerService = {
+    async register(args: Record<string, unknown>) {
+      brokerRegistrations.push(args);
+      return (
+        (await input.registerBroker?.(args)) ?? {
+          binding: {
+            brokerId: "broker-id",
+            authToken: "broker-token",
+            expiresAt: "2099-01-01T00:00:00.000Z"
+          },
+          bindSandboxJob: () => undefined,
+          close: () => undefined
+        }
+      );
+    }
+  };
   const service = new RuntimeScriptToolService(
     sandboxClientService as never,
-    persaiInternalApiClientService as never
+    persaiInternalApiClientService as never,
+    scriptBrowserBrokerService as never
   );
-  return { service, submittedRequests };
+  return { service, submittedRequests, brokerRegistrations };
 }
 
 function baseParams(overrides: Record<string, unknown> = {}) {
@@ -251,6 +274,153 @@ export async function runRuntimeScriptToolServiceTest(): Promise<void> {
       }
     );
     assert.equal(Object.getPrototypeOf(mapped), null);
+  });
+
+  await test("browser-capable immutable manifest registers and forwards only an ephemeral broker binding", async () => {
+    const browserStep = activeStep({
+      inputMapping: {
+        ...scriptRef().inputMapping,
+        profile: { source: "literal", value: "Work" }
+      },
+      inputSchema: {
+        type: "object",
+        properties: {
+          query: { type: "string" },
+          limit: { type: "number" },
+          format: { type: "string" },
+          profile: { type: "string" }
+        },
+        required: ["query", "limit", "profile"],
+        additionalProperties: false
+      }
+    });
+    const { service, submittedRequests, brokerRegistrations } = buildService({
+      fetchArtifact: async () => ({
+        ...successArtifact(),
+        manifest: {
+          ...successArtifact().manifest,
+          capabilities: { browser: { actions: ["snapshot", "act"] } }
+        },
+        inputSchema: browserStep.step.scriptRef?.inputSchema ?? {}
+      })
+    });
+    await service.executeToolCall(
+      baseParams({
+        activeScenarioStep: browserStep,
+        chatId: "chat-1",
+        transportSurface: "web",
+        bridgeDeviceId: "device-1",
+        bridgeDeviceKind: "desktop_extension"
+      }) as never
+    );
+    assert.equal(brokerRegistrations.length, 1);
+    assert.equal(brokerRegistrations[0]?.allowedProfile, "Work");
+    assert.deepEqual(submittedRequests[0]?.scriptBrowserBroker, {
+      brokerId: "broker-id",
+      authToken: "broker-token",
+      expiresAt: "2099-01-01T00:00:00.000Z"
+    });
+    assert.equal(JSON.stringify(submittedRequests[0]?.args).includes("broker-token"), false);
+  });
+
+  await test("ordinary Script execution does not touch the browser broker", async () => {
+    const { service, submittedRequests, brokerRegistrations } = buildService({});
+    await service.executeToolCall(baseParams() as never);
+    assert.equal(brokerRegistrations.length, 0);
+    assert.equal(submittedRequests[0]?.scriptBrowserBroker, null);
+  });
+
+  await test("browser-capable Script fails closed before sandbox submit when Redis broker registration fails", async () => {
+    const browserStep = activeStep({
+      inputMapping: {
+        ...scriptRef().inputMapping,
+        profile: { source: "literal", value: "Work" }
+      },
+      inputSchema: {
+        type: "object",
+        properties: {
+          query: { type: "string" },
+          limit: { type: "number" },
+          format: { type: "string" },
+          profile: { type: "string" }
+        },
+        required: ["query", "limit", "profile"],
+        additionalProperties: false
+      }
+    });
+    const { service, submittedRequests } = buildService({
+      fetchArtifact: async () => ({
+        ...successArtifact(),
+        manifest: {
+          ...successArtifact().manifest,
+          capabilities: { browser: { actions: ["snapshot", "act"] } }
+        },
+        inputSchema: browserStep.step.scriptRef?.inputSchema ?? {}
+      }),
+      registerBroker: async () => {
+        throw new Error("redis unavailable");
+      }
+    });
+    const result = await service.executeToolCall(
+      baseParams({ activeScenarioStep: browserStep }) as never
+    );
+    assert.equal(result.payload.reason, "script_browser_broker_unavailable");
+    assert.equal(submittedRequests.length, 0);
+  });
+
+  await test("terminal browser Script replay returns persisted output without a live broker", async () => {
+    const browserStep = activeStep({
+      inputMapping: {
+        ...scriptRef().inputMapping,
+        profile: { source: "literal", value: "Work" }
+      },
+      inputSchema: {
+        type: "object",
+        properties: {
+          query: { type: "string" },
+          limit: { type: "number" },
+          format: { type: "string" },
+          profile: { type: "string" }
+        },
+        required: ["query", "limit", "profile"],
+        additionalProperties: false
+      }
+    });
+    const replayLookups: Array<Record<string, unknown>> = [];
+    const { service, submittedRequests, brokerRegistrations } = buildService({
+      fetchArtifact: async () => ({
+        ...successArtifact(),
+        manifest: {
+          ...successArtifact().manifest,
+          capabilities: { browser: { actions: ["snapshot", "act"] } }
+        },
+        inputSchema: browserStep.step.scriptRef?.inputSchema ?? {}
+      }),
+      findTerminalScriptReplay: async (request) => {
+        replayLookups.push(request);
+        return {
+          jobId: "persisted-job",
+          status: "completed",
+          reason: null,
+          warning: null,
+          violationCode: null,
+          violationMessage: null,
+          content: JSON.stringify({ result: "persisted" })
+        };
+      },
+      registerBroker: async () => {
+        throw new Error("redis unavailable");
+      }
+    });
+    const result = await service.executeToolCall(
+      baseParams({ activeScenarioStep: browserStep }) as never
+    );
+    assert.equal(result.isError, false);
+    assert.deepEqual(result.payload.output, { result: "persisted" });
+    assert.equal(replayLookups.length, 1);
+    assert.match(String(replayLookups[0]?.scriptInputHash), /^[0-9a-f]{64}$/);
+    assert.equal(brokerRegistrations.length, 0);
+    assert.equal(submittedRequests.length, 0);
   });
 
   await test("dynamic provider input schema preserves local refs and combines shared model fields", () => {

@@ -61,6 +61,63 @@ export class SandboxController {
     return this.sandboxService.submitJob(body);
   }
 
+  @Post("/api/v1/jobs/script-terminal-replay")
+  async findTerminalScriptReplay(
+    @Headers("authorization") authorization: string | undefined,
+    @Body() body: unknown
+  ) {
+    this.assertAuthorized(authorization);
+    if (body === null || typeof body !== "object" || Array.isArray(body)) {
+      throw new ServiceUnavailableException("Request body must be an object.");
+    }
+    const row = body as Record<string, unknown>;
+    if (
+      Object.keys(row).sort().join(",") !==
+      "assistantId,scriptContentHash,scriptInputHash,scriptInvocationKey,scriptVersionId"
+    ) {
+      throw new ServiceUnavailableException("Script replay lookup body is invalid.");
+    }
+    const assistantId = this.requireBoundedPattern(
+      row.assistantId,
+      /^[0-9a-f-]{36}$/i,
+      36,
+      "assistantId"
+    );
+    const scriptInvocationKey = this.requireBoundedPattern(
+      row.scriptInvocationKey,
+      /^[0-9a-f]{48}$/,
+      48,
+      "scriptInvocationKey"
+    );
+    const scriptVersionId = this.requireBoundedPattern(
+      row.scriptVersionId,
+      /^[0-9a-f-]{36}$/i,
+      36,
+      "scriptVersionId"
+    );
+    const scriptContentHash = this.requireBoundedPattern(
+      row.scriptContentHash,
+      /^[0-9a-f]{64}$/,
+      64,
+      "scriptContentHash"
+    );
+    const scriptInputHash = this.requireBoundedPattern(
+      row.scriptInputHash,
+      /^[0-9a-f]{64}$/,
+      64,
+      "scriptInputHash"
+    );
+    return {
+      job: await this.sandboxService.findTerminalScriptReplay({
+        assistantId,
+        scriptInvocationKey,
+        scriptVersionId,
+        scriptContentHash,
+        scriptInputHash
+      })
+    };
+  }
+
   /**
    * ADR-128 Slice 4 — control-plane workspace bytes-push.
    * The api calls this from `manage-chat-media.stageForWebThread` right after
@@ -241,6 +298,23 @@ export class SandboxController {
       throw new ServiceUnavailableException(`Field "${field}" must be a non-empty string.`);
     }
     return value.trim();
+  }
+
+  private requireBoundedPattern(
+    value: unknown,
+    pattern: RegExp,
+    maxLength: number,
+    field: string
+  ): string {
+    if (
+      typeof value !== "string" ||
+      value.length === 0 ||
+      value.length > maxLength ||
+      !pattern.test(value)
+    ) {
+      throw new ServiceUnavailableException(`${field} is invalid.`);
+    }
+    return value;
   }
 
   private parseOptionalNullableNumber(value: unknown): number | null {

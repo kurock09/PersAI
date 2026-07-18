@@ -4,7 +4,7 @@ This document defines the current verification baseline for the active PersAI-na
 
 ADR-072 is closed as the historical native migration ADR. Current continuation work should be checked against `docs/ADR/078-consolidated-follow-through-program.md`. `Step 15a` is cancelled and is not an active verification track. ADR-087 defines the unified quota-advisory and paid light-mode target state. ADR-088 defines the unified notification platform target state.
 
-## ADR-152 Browser Script SDK and Durable Job Wait/Notify (checkpoint 2 local)
+## ADR-152 Browser Script SDK and Durable Job Wait/Notify (checkpoint 3 local)
 
 Before one coordinated deploy, implementation must prove all 18 approved
 founder gates enumerated in
@@ -27,7 +27,7 @@ reported current, then inserted a minimal owned graph plus one media and one
 document canonical job. Both triggers produced exactly one correctly shaped,
 owned `jr1` handle; duplicate `(kind, canonicalJobId)` insertion failed unique.
 The disposable container was removed.
-Deployment/live acceptance and every browser gate remain pending.
+Deployment/live acceptance remain pending.
 
 Checkpoint 2 Pass A adds executable API state tests for idempotent subscription,
 terminal current-turn ownership, source-finalization preservation, depth-4
@@ -70,8 +70,32 @@ seconds), complete runtime isolated suite (exit `0`), API/runtime
 typecheck+lint, Prisma format/validate/generate, root format, and diff check.
 The clean disposable pgvector proof had already applied all 192 migrations and
 passed trigger, CAS, and depth checks. Checkpoint 2 is locally complete but not
-deployed or live-accepted. Browser Script SDK is the next checkpoint; ADR-152
-is not closed.
+deployed or live-accepted.
+
+Checkpoint-3 local coverage proves exact ordered manifest capability parsing and
+hash participation; absence leaves ordinary Script execution and buffered exec
+unchanged. Focused sandbox tests cover fragmented/malformed/oversized/
+unterminated frame handling, broker-frame/result separation, inherited-FD image
+assets for Node and Python, and stripping Redis routing credentials before a
+response reaches Script. Runtime tests cover broker registration only for an
+authorized immutable manifest, original browser-dispatch context, snapshot/act
+argument narrowing, one in-flight request, and rejection of unsupported action,
+missing profile, and internal fields. Audit-repair coverage additionally proves
+publisher throw/zero receivers/oversized dispatcher output cannot escape the
+runtime subscriber boundary, publish failure clears sandbox pending state,
+close/timeout/frame-then-exit do not write after stdin end, strict broker/
+response unions reject malformed routing, and exact terminal replay returns
+persisted output without broker registration while a new execution still fails
+closed when broker registration fails. API/runtime/sandbox typechecks and focused
+tests are required in this checkpoint. The first independent Sonnet audit
+returned DIRTY (3 P1, 4 P2); repair coverage now includes identity-checked
+Redis reconnect dispose, serialized <=64 KiB stdin chunk writes, a POSIX-only
+real OS-FD wrapper/CLI round-trip for fragmented >64 KiB responses with
+result-marker separation, FD-dup gating behind `browserEnabled`,
+scriptVersion/assistant replay invisibility, and OpenAPI tuple-constraint
+evidence. Independent **re-audit**, real Redis cross-replica proof, exact-image
+Node/Python smoke, deploy, and live browser acceptance remain pending.
+Checkpoint 4 Admin/MCP authoring is also pending; ADR-152 is not closed.
 
 1. `await wait` returns already-terminal facts without blocking, clamps to 60s,
    allows only one blocking wait/job/turn, returns pending on timeout without
@@ -98,9 +122,13 @@ is not closed.
    affinity, abort, quota/policy/progress/telemetry behavior all fail closed or
    preserve current `open_in_app` semantics. No headless fallback is exercised.
 7. Broker tests prove one outstanding request/job, TTL routing across replicas,
-   page payload exclusion from Postgres/SandboxJob/GCS/logs, and Redis outage
-   fails the active browser Script closed while ordinary Script execution stays
-   unaffected.
+   and that the transport does not automatically persist/log browser request or
+   response payloads. Script-authored output may intentionally contain
+   SDK-derived data and is persisted under ordinary `SandboxJob` output
+   semantics; prohibiting that would require out-of-scope content inspection
+   and remains a founder/audit wording residual. Redis outage fails a new or
+   active browser Script closed while ordinary Script execution and exact
+   terminal replay remain unaffected.
 8. Independent second allowed-model audits are required for wait/notify,
    browser, and final integration, followed by the full repository gate, one
    push, exact-image deploy, and founder live acceptance. Document SDK,

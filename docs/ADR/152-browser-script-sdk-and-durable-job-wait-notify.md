@@ -4,10 +4,10 @@
 
 **Approved architecture checkpoint, open for staged implementation.** Checkpoint
 1 (opaque media/document handles, owned canonical resolver, and bounded
-`await.wait`) is implemented locally and independently audited CLEAN; it is not
-deployed or live-accepted. Checkpoint 2 is now implemented locally and
-uncommitted. After the repair rounds, the final independent Sonnet re-audit
-returned **CLEAN with no P0/P1/P2 findings**. Same-row narration/continuation state,
+`await.wait`) is implemented and independently audited CLEAN; it is not
+deployed or live-accepted. Checkpoint 2 is implemented and, after repair
+rounds, independently re-audited **CLEAN with no P0/P1/P2 findings**
+(committed as `252f3460`). Same-row narration/continuation state,
 canonical-under-lock observe/subscribe operations, delivery arbitration,
 `await wait|notify` terminal control, source-turn finalization, and a same-chat
 continuation runtime entry seam are implemented. API persistence proves
@@ -21,8 +21,15 @@ prevention. Parent verification reran the complete API suite (exit `0`, about
 431 seconds), complete runtime isolated suite (exit `0`), API/runtime
 typecheck+lint, Prisma format/validate/generate, and root format/diff checks.
 The clean disposable pgvector proof had already applied all 192 migrations and
-passed trigger/CAS/depth checks. Checkpoint 2 is not deployed or live-accepted;
-the Browser Script SDK checkpoint remains next. ADR-152 remains open.
+passed trigger/CAS/depth checks. Checkpoint 3, the Browser Script SDK and
+ephemeral broker, is implemented. A first independent Sonnet audit returned
+**DIRTY (3 P1, 4 P2, no P0)**; all code findings were repaired. A
+founder-directed independent re-audit on Cursor Grok 4.5 found all prior code
+P1/P2 closed and one residual ARCHITECTURE docs contradiction (P2), which was
+corrected before commit. Authored-output persistence remains a founder-owned
+wording residual only. Checkpoint 3 is not deployed or live-accepted.
+Checkpoint 4 Admin/MCP manifest authoring remains pending. ADR-152 remains
+open.
 
 ## Decision
 
@@ -155,10 +162,27 @@ The transport is a narrow ephemeral broker, not a second browser runtime. It
 extends live-exec stdin/stdout framing. `apps/sandbox` and runtime coordinate
 job-scoped TTL Redis messages following ADR-140’s cross-replica pattern; Redis
 is new to `apps/sandbox`. Only one browser request may be outstanding per job.
-Browser page payloads never enter Postgres, `SandboxJob`, GCS, or logs. Small
-platform Node/Python wrappers and a CLI live in the existing sandbox image:
+The broker transport does not automatically persist or log browser request or
+response payloads in Postgres, `SandboxJob`, GCS, or application logs. A Script
+can intentionally include useful SDK-derived data in its authored output, and
+that ordinary Script output is persisted in `SandboxJob` under the existing
+output contract. Preventing a Script from copying SDK results would require
+content inspection/redaction, is not implemented, and remains a founder/audit
+wording residual if “never enter SandboxJob” was intended to prohibit explicit
+authored output. Small platform Node/Python wrappers and a CLI live in the existing sandbox image:
 there is no new image contour, pod, or NetworkPolicy. Broker loss/restart fails
 the active Script closed; arbitrary-code execution never durably resumes.
+
+Checkpoint-3 implementation reserves Kubernetes exec stdin and a bounded
+stdout frame prefix only for capability-authorized Scripts. The Script wrapper
+duplicates those streams to inherited FDs 4/3, keeps entry stdout/stderr on the
+existing diagnostics path, and emits the ordinary final result marker after
+entry exit. Runtime registers an unguessable TTL broker before sandbox submit;
+the sandbox relays strict request/response envelopes through Redis and strips
+broker/job/auth routing fields before returning a response to Script. The
+runtime consumer invokes only `RuntimeBrowserToolService` with the original
+turn context. Ordinary Scripts keep the existing buffered `runInPod` path and
+do not connect to broker Redis.
 
 ## Document SDK NO-GO
 

@@ -6,6 +6,7 @@
  */
 import type { ScriptManifestSchemaVersion } from "./scriptManifestSchemaVersion";
 import type { ScriptManifestEnvironment } from "./scriptManifestEnvironment";
+import type { ScriptManifestCapabilities } from "./scriptManifestCapabilities";
 
 export interface ScriptManifest {
   schemaVersion: ScriptManifestSchemaVersion;
@@ -15,4 +16,6 @@ export interface ScriptManifest {
    */
   workingDirectory: string | null;
   environment: ScriptManifestEnvironment;
+  /** When present, inputSchema must require a string profile property. */
+  capabilities?: ScriptManifestCapabilities;
 }

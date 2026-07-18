@@ -99,6 +99,32 @@ test("exec image self-check verifies bash brace expansion + pipefail + npm", asy
   assert.match(dockerfile, /npm --version/, "self-check must verify npm is present");
 });
 
+test("exec image carries narrow Node/Python browser SDK wrappers without infrastructure credentials", async () => {
+  const cli = await readFile(
+    join(process.cwd(), "exec-image", "script-browser-sdk", "persai-browser-cli.js"),
+    "utf8"
+  );
+  const nodeWrapper = await readFile(
+    join(process.cwd(), "exec-image", "script-browser-sdk", "node-index.js"),
+    "utf8"
+  );
+  const pythonWrapper = await readFile(
+    join(process.cwd(), "exec-image", "script-browser-sdk", "persai_browser.py"),
+    "utf8"
+  );
+  for (const source of [cli, nodeWrapper, pythonWrapper]) {
+    assert.doesNotMatch(source, /REDIS|bridgeDeviceId|bearer|internalApi/i);
+    assert.doesNotMatch(source, /open_live|request_user_action|start_login/);
+  }
+  assert.match(nodeWrapper, /snapshot/);
+  assert.match(nodeWrapper, /\bact\b/);
+  assert.match(pythonWrapper, /def snapshot/);
+  assert.match(pythonWrapper, /def act/);
+  assert.match(pythonWrapper, /pass_fds=\(3, 4\)/);
+  assert.match(cli, /writeSync\(3/);
+  assert.match(cli, /readLine\(4\)/);
+});
+
 test("exec image preinstalls curated document/data/image system and python baseline", async () => {
   const dockerfile = await readFile(join(process.cwd(), "exec-image", "Dockerfile"), "utf8");
   const requirements = await readFile(

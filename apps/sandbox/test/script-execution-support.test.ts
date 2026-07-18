@@ -191,6 +191,63 @@ test("buildScriptExecutionShellCommand emits the per-invocation marker and insta
   assert.match(script, /trap cleanup_script_dir EXIT HUP INT TERM/);
 });
 
+test("buildScriptExecutionShellCommand omits the FD 3/4 dup lines and browser env for an ordinary (non-browser) Script", () => {
+  const script = buildScriptExecutionShellCommand({
+    scriptDir: "/tmp/persai-script/job-6",
+    entryCommand: "true",
+    invocationKey: "key",
+    manifestEnvironment: {},
+    resultMarker: RESULT_MARKER,
+    maxOutputBytes: 1_024
+  });
+  assert.ok(
+    !script.includes("exec 3>&1"),
+    "an ordinary Script must not pay for the unused FD-3 stdout dup"
+  );
+  assert.ok(
+    !script.includes("exec 4<&0"),
+    "an ordinary Script must not pay for the unused FD-4 stdin dup"
+  );
+  assert.ok(!script.includes("PERSAI_SCRIPT_BROWSER_ENABLED"));
+  assert.ok(!script.includes("PERSAI_SCRIPT_BROWSER_CLI"));
+});
+
+test("buildScriptExecutionShellCommand keeps the FD 3/4 dup lines and browser env only when browserEnabled is true, without changing the rest of the wrapper bytes", () => {
+  const baseInput = {
+    scriptDir: "/tmp/persai-script/job-7",
+    entryCommand: "true",
+    invocationKey: "key",
+    manifestEnvironment: {},
+    resultMarker: RESULT_MARKER,
+    maxOutputBytes: 1_024
+  };
+  const ordinary = buildScriptExecutionShellCommand(baseInput);
+  const browserScript = buildScriptExecutionShellCommand({ ...baseInput, browserEnabled: true });
+
+  assert.match(browserScript, /(^|\n)exec 3>&1(\n|$)/);
+  assert.match(browserScript, /(^|\n)exec 4<&0(\n|$)/);
+  assert.match(browserScript, /export PERSAI_SCRIPT_BROWSER_ENABLED=1/);
+  // Platform paths contain no shell metacharacters, so the wrapper exports
+  // them unquoted (same form as reserved PERSAI_SCRIPT_* paths that do use
+  // scriptShellSingleQuote only when the value is dynamic).
+  assert.match(browserScript, /export PERSAI_SCRIPT_BROWSER_CLI=\/usr\/local\/bin\/persai-browser/);
+  assert.match(browserScript, /export NODE_PATH=\/usr\/local\/lib\/node_modules/);
+  assert.match(browserScript, /export PYTHONPATH=\/usr\/local\/lib\/python3\.11\/site-packages/);
+
+  // Every ordinary-wrapper line must still appear byte-for-byte in the
+  // browser-enabled variant; only the browser-only lines are additive.
+  const browserOnlyLines = new Set([
+    "exec 3>&1",
+    "exec 4<&0",
+    "export PERSAI_SCRIPT_BROWSER_ENABLED=1",
+    "export PERSAI_SCRIPT_BROWSER_CLI=/usr/local/bin/persai-browser",
+    "export NODE_PATH=/usr/local/lib/node_modules",
+    "export PYTHONPATH=/usr/local/lib/python3.11/site-packages"
+  ]);
+  const browserScriptLines = browserScript.split("\n").filter((line) => !browserOnlyLines.has(line));
+  assert.deepEqual(browserScriptLines, ordinary.split("\n"));
+});
+
 // ---------------------------------------------------------------------------
 // splitScriptExecutionStdout
 // ---------------------------------------------------------------------------

@@ -1,5 +1,116 @@
 # SESSION-HANDOFF
 
+## 2026-07-18 — ADR-152 checkpoint 3 committed
+
+Status: **Browser Script SDK and ephemeral broker are committed. A first
+independent Sonnet audit returned DIRTY (3 P1, 4 P2, no P0); code repairs
+landed. Founder-directed independent re-audit on Cursor Grok 4.5 found all
+prior code P1/P2 closed and one residual ARCHITECTURE docs P2, which was
+corrected before commit. Authored-output persistence remains a founder-owned
+wording residual only. This checkpoint is not deployed or live-accepted.
+ADR-152 remains open; checkpoint 4 Admin/MCP manifest authoring is next.**
+
+- Baseline before commit: `252f346072baf2b3aeccc9a99ff0ef439cd694c7`.
+- Script manifests may carry only the exact optional ordered capability
+  `{browser:{actions:["snapshot","act"]}}`; parser normalization participates
+  in the immutable content hash. Sandbox reloads and strictly parses the
+  published manifest before enabling the browser path.
+- Runtime registers an unguessable expiring broker consumer before sandbox
+  submission only for the authorized capability. The consumer preserves the
+  original turn channel, profile ownership, device affinity, Stop/deadline,
+  progress, policy/quota, and telemetry by invoking only the existing
+  `RuntimeBrowserToolService`.
+- The existing Kubernetes exec seam has a separate bounded interactive option.
+  The Script wrapper duplicates outer stdout/stdin to inherited FDs 3/4; entry
+  stdout/stderr remain diagnostics and the existing result marker remains on
+  ordinary stdout after entry exit. Ordinary Scripts retain the previous
+  buffered `runInPod` path.
+- Sandbox and runtime relay strict request-id-correlated envelopes through the
+  shared runtime Redis. One request may be in flight per job; frame/request/
+  response sizes, TTL, mismatch, close-without-status, timeout, and abort paths
+  fail closed. Broker id/token/job routing is stripped before the SDK response
+  reaches Script. The transport does not automatically persist/log browser
+  payloads; a Script can intentionally place SDK-derived data in its ordinary
+  persisted output. Preventing that would require out-of-scope content
+  inspection and remains a founder/audit wording residual.
+- The first independent read-only audit contained a centralized no-throw
+  runtime subscriber boundary, publish/close/timeout/frame-exit lifecycle
+  containment, strict bounded broker identifiers and exact response unions,
+  and required broker constructor dependencies. A read-only exact terminal
+  replay lookup validates assistant, invocation, immutable version/content,
+  and canonical input before broker registration; it cannot admit work, and
+  new browser execution still requires a ready broker.
+- The existing sandbox image now includes one platform CLI plus narrow Node and
+  Python wrappers exposing only `snapshot` and `act`; they receive no Redis,
+  bridge, bearer, device, or internal URL configuration. No pod, image,
+  NetworkPolicy, browser runtime, headless fallback, Document SDK, or durable
+  Script-resume contour was added.
+- **First independent audit returned DIRTY (3 P1, 4 P2, no P0); all findings
+  repaired; founder-directed re-audit closed residual docs P2:**
+  - P1 Redis reconnect exhaustion: the runtime broker's publisher/subscriber
+    pair and the sandbox broker's publisher client are now cached and
+    disposed as one identity-checked generation. A terminal `end` (either an
+    intentional `quit()` or the bounded `reconnectStrategy`'s terminal
+    exhaustion) only clears the cache and quits the paired client(s) when the
+    disposing client/pair is still the exact one currently cached, so a
+    stale event from an already-superseded generation can never clobber a
+    live replacement; and a failed initial `connect()` clears its cached
+    promise so the next `register()`/`openSession()` actually retries
+    instead of replaying the same failure forever.
+  - P1 large response frame writes: `ScriptBrowserResponseLifecycle` now
+    splits every response/failure frame into <=64 KiB chunks written through
+    one serialized `writeQueue` (so concurrently dispatched frames' chunks
+    can never interleave), honors Node's own `write()`/`drain` backpressure
+    signal, stops writing once the stream is no longer writable, and
+    `close()` awaits the write queue's tail before ending stdin so it cannot
+    race an in-flight write or hang. A real local OS-FD round-trip
+    integration test (POSIX-only; skipped on Windows) launches the actual
+    Script wrapper/CLI over real pipes/fds and proves a fragmented >64 KiB
+    response round-trips byte-for-byte with the result marker still cleanly
+    separated.
+  - P2 removed the dead runtime Helm `SCRIPT_BROWSER_BROKER_REDIS_URL`
+    mapping from `infra/helm/values.yaml` (runtime only ever reads
+    `RUNTIME_STATE_REDIS_URL`); the sandbox `values.yaml`/`values-dev.yaml`
+    `SCRIPT_BROWSER_BROKER_REDIS_URL` mapping is unchanged.
+  - P2 added `findTerminalScriptReplay` tests for a `scriptVersionId`
+    mismatch and for a different `assistantId`, proving replay is invisible
+    across script versions and across assistants, not only across content
+    hash.
+  - P2 investigated exact ordered-tuple `[snapshot, act]` encodings
+    (`prefixItems`, whole-array `enum`) against this repository's pinned
+    OpenAPI 3.0.3 + orval v7 dialect. Neither is representable: OpenAPI 3.0.3
+    has no tuple `items`/`prefixItems` form, and a whole-array `enum`
+    constraint is silently dropped by the pinned orval TypeScript model
+    generator (verified by regenerating with it added — byte-identical
+    output). The `ScriptManifest.actions` schema keeps its tightest
+    orval-representable constraint (`minItems`/`maxItems: 2`, `uniqueItems`,
+    2-value `enum`) with a description documenting this evidence and that
+    exact order is enforced at the application boundary
+    (`script-management.types.ts` and sandbox
+    `parseSandboxScriptManifest`).
+  - P2 gated `exec 3>&1`/`exec 4<&0` behind `browserEnabled` in
+    `buildScriptExecutionShellCommand`; ordinary Scripts keep the prior
+    wrapper bytes unchanged (no FD dup, no browser env), and only
+    browser-enabled Scripts get the dup lines plus browser CLI env.
+- Focused manifest, framing, interactive-exec, SDK asset, credential stripping,
+  broker-dispatch, one-in-flight, profile-binding, ordinary-Script, broker
+  reconnect-lifecycle, chunked-write, and FD-gating tests were added/updated.
+  Contract generation, complete sandbox and runtime suites, focused API
+  domain tests, API/runtime/sandbox/web typechecks, repository lint and format,
+  Helm lint/template, and `git diff --check` pass.
+
+Parent closed the post-repair gap after the prior repair subagent hit an API
+limit: the POSIX-only real OS-FD wrapper/CLI round-trip test now exists at
+`apps/sandbox/test/script-browser-os-fd-roundtrip.test.ts` (skipped on
+Windows); ADR/ARCHITECTURE/API-BOUNDARY/TEST-PLAN audit-status wording was
+reconciled to DIRTY → repairs → pending re-audit (not CLEAN); and a real
+lifecycle defect was fixed — `close()` no longer flips `accepting` in a way
+that aborts already-dispatched chunked stdin writes (new dispatches still
+fail closed after close begins).
+
+Next recommended step: checkpoint 4 Admin/MCP manifest authoring and
+contracts. Do not deploy until the ADR-152 final gate.
+
 ## 2026-07-18 — ADR-152 checkpoint 2 implemented locally
 
 Status: **Durable wait/notify ownership and serialized same-chat continuation
