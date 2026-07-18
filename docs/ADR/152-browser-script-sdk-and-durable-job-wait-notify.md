@@ -39,10 +39,10 @@ literal. All findings were repaired. Final frozen-tree independent GPT Terra
 and Sonnet re-audits returned **CLEAN with no P0/P1/P2 findings**, and the
 parent full repository gate passed lint, format, typecheck, tests, build,
 Prisma validation/generation, deterministic contracts, Helm deploy truth,
-rollout/affected-CI tests, and diff integrity. Checkpoint 5 remains local and
-uncommitted on baseline `439b89f2`; no push, deploy, or live acceptance has
-occurred. ADR-152 remains open only for parent commit, one founder-authorized
-push, exact-image deploy, and founder live acceptance.
+rollout/affected-CI tests, and diff integrity. Checkpoint 5 is committed at
+`e47964ed` (baseline `439b89f2`); no push, deploy, or live acceptance has
+occurred. ADR-152 remains open only for one founder-authorized push,
+exact-image deploy, and founder live acceptance.
 
 ## Decision
 

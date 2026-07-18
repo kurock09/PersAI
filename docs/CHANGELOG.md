@@ -5,8 +5,8 @@
 
 ## 2026-07-18
 
-- **ADR-152 checkpoint 5 local implementation and full gate CLEAN (uncommitted;
-  not pushed, deployed, or live-accepted).** Independent frozen-tree GPT Terra
+- **ADR-152 checkpoint 5 committed at `e47964ed`; full gate CLEAN (not pushed,
+  deployed, or live-accepted).** Independent frozen-tree GPT Terra
   and Sonnet re-audits returned CLEAN with no P0/P1/P2. Final repairs add
   enforced migration/API/compatibility-gate/runtime Argo ordering, fail-closed
   Helm contract declarations and mismatch tests, and a rollback-safe `/v1`
@@ -20,8 +20,8 @@
   regeneration, Helm lint/template, rollout/affected-CI tests, and diff
   integrity pass. One initial concurrent workspace-test run hit a transient
   Windows sandbox-temp `EPERM`; isolated sandbox and the subsequent complete
-  workspace rerun passed. ADR-152 remains open only for parent commit, one
-  founder-authorized push, exact-image deploy, and founder live acceptance.
+  workspace rerun passed. ADR-152 remains open only for one founder-authorized
+  push, exact-image deploy, and founder live acceptance.
 
 - **ADR-152 Sonnet final adversarial audit: DIRTY (2 P1, 2 P2); repairs
   landed locally, pending independent re-audit (do not claim CLEAN).**

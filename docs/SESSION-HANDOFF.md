@@ -4,8 +4,8 @@
 
 Status: **Final frozen-tree independent re-audits by GPT Terra and Sonnet
 returned CLEAN with no P0/P1/P2 findings. Parent full repository verification
-is green. Checkpoint-5 repairs remain local and uncommitted on baseline
-`439b89f2`; no push, deploy, or live acceptance has occurred. ADR-152 remains
+is green. Checkpoint-5 repairs are committed at `e47964ed` (baseline
+`439b89f2`); no push, deploy, or live acceptance has occurred. ADR-152 remains
 open for one founder-authorized push, exact-image deploy, and founder live
 acceptance.**
 
@@ -29,9 +29,9 @@ acceptance.**
   intentionally contain SDK-derived browser data under ordinary `SandboxJob`
   persistence; transport itself does not automatically persist/log payloads.
 
-Next recommended step: parent commit of the checkpoint-5 repair/closure diff,
-then one founder-authorized push, exact-image deploy in enforced order, and
-founder live acceptance against the ADR-152 production exit gates.
+Next recommended step: one founder-authorized push, exact-image deploy in
+enforced order, and founder live acceptance against the ADR-152 production
+exit gates.
 
 ## 2026-07-18 — ADR-152 Sonnet final adversarial audit DIRTY (2 P1, 2 P2); repairs landed locally
 
