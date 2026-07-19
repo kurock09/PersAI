@@ -54,6 +54,18 @@ function isContextWindowExceeded(message: string | null): boolean {
   );
 }
 
+function isTransientTransportFailure(normalized: string): boolean {
+  return includesAny(normalized, [
+    "terminated",
+    "fetch failed",
+    "socket hang up",
+    "connection reset",
+    "premature close",
+    "econnreset",
+    "und_err_socket"
+  ]);
+}
+
 function classifyProviderTextError(input: {
   status: number | null;
   code: string | null;
@@ -110,6 +122,9 @@ function classifyProviderTextError(input: {
     includesAny(normalized, ["rate limit", "rate_limit", "too many requests"])
   ) {
     return "rate_limit";
+  }
+  if (isTransientTransportFailure(normalized)) {
+    return "server_error";
   }
   if (
     input.status === 400 ||

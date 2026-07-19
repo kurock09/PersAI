@@ -2,7 +2,7 @@
 
 ## Status
 
-**Open 2026-07-20 — web live acceptance passed; Telegram remains pending.**
+**Open 2026-07-20 — web discovery/reattach passed; end-to-end and Telegram remain pending.**
 The scheduler SQL, exact `JOB_CATCHUP` projection, logical-receipt ambiguity
 fence, and live web continuation discovery repairs are deployed. Current
 accepted releases are runtime continuation repair `ca0780dc`, web discovery
@@ -19,6 +19,19 @@ during active work immediately restored Working and delivered the final
 continuation without another refresh. ADR-159 remains open until Telegram
 background continuation acceptance passes and final documentation is
 reconciled. Do not reopen or implement the discarded ADR-160 draft.
+
+**Later end-to-end correction (local, not shipped):** discovery/reattach was
+accepted, but a later three-media-job run was not green. All three canonical
+files delivered and FIFO dispatch continued, while the first catch-up failed:
+DeepSeek's post-headers stream terminated before model output with bare
+`terminated`. Provider-gateway mapped that to unknown
+`provider_request_failed`, so runtime's existing retry/fallback gate rejected
+it. The bounded repair classifies known transport disconnect signatures as
+retryable `server_error`; if configured fallback is unavailable or resolves to
+the same provider/model, runtime may retry that exact provider once, only
+before any provider output. It never same-provider retries invalid request,
+auth, billing, or post-output failures. Repeat three-job live acceptance is
+required; do not treat the earlier discovery pass as full ADR-159 green.
 
 **Post-deploy live-web regression repair (deployed and web-accepted):** Slice 2's
 canonical-nonterminal-only Working truth remains unchanged. The browser had

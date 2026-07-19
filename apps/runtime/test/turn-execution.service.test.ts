@@ -5187,6 +5187,91 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     );
   }
 
+  const sameProviderRetryOffset = providerGatewayClient.streamCalls.length;
+  const sameProviderRetryRequest = createRuntimeTurnRequest();
+  sameProviderRetryRequest.bundle.bundleHash = request.bundle.bundleHash;
+  const previousBundleEntry = bundleRegistry.entry;
+  const sameProviderBundleEntry = createBundleEntry();
+  const sameProviderRouting = sameProviderBundleEntry.parsedBundle.runtime
+    .runtimeProviderRouting as {
+    fallbackMatrix: Array<{
+      trigger: string;
+      strategy: string;
+      target: { providerKey: string; modelKey: string };
+      eligible: boolean;
+      blockedBy: string[];
+    }>;
+  };
+  assert.ok(sameProviderRouting);
+  sameProviderBundleEntry.parsedBundle.runtime.runtimeProviderRouting = {
+    ...sameProviderRouting,
+    fallbackMatrix: sameProviderRouting.fallbackMatrix.map((entry) =>
+      entry.trigger === "provider_failure_or_timeout"
+        ? {
+            ...entry,
+            target: {
+              providerKey: "openai",
+              modelKey: "gpt-5.4"
+            }
+          }
+        : entry
+    )
+  };
+  bundleRegistry.entry = sameProviderBundleEntry;
+  providerGatewayClient.streamEventsQueue = [
+    [
+      {
+        type: "failed",
+        code: "provider_server_error",
+        message: "terminated",
+        providerErrorKind: "server_error",
+        providerErrorCode: null,
+        providerErrorType: null,
+        providerErrorStatus: null
+      }
+    ],
+    [
+      {
+        type: "text_delta",
+        delta: "retry ",
+        accumulatedText: "retry "
+      },
+      {
+        type: "completed",
+        result: {
+          provider: "openai",
+          model: "gpt-5.4",
+          text: "retry succeeded",
+          respondedAt: "2026-04-11T12:00:04.500Z",
+          usage: {
+            providerKey: "openai",
+            modelKey: "gpt-5.4",
+            inputTokens: 9,
+            outputTokens: 5,
+            totalTokens: 14
+          },
+          stopReason: "completed",
+          toolCalls: []
+        }
+      }
+    ]
+  ];
+  turnAcceptanceService.result = createAcceptedTurn();
+  (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
+    sameProviderRetryRequest.bundle.bundleHash;
+  const sameProviderRetryStream = await service.streamTurn(sameProviderRetryRequest);
+  const sameProviderRetryEvents = await collectStreamEvents(sameProviderRetryStream);
+  assert.deepEqual(
+    sameProviderRetryEvents.map((event) => event.type),
+    ["started", "text_delta", "completed"]
+  );
+  assert.deepEqual(
+    providerGatewayClient.streamCalls.slice(sameProviderRetryOffset).map((call) => call.provider),
+    ["openai", "openai"],
+    "a pre-output transient stream termination must retry once when fallback resolves to the same provider"
+  );
+  bundleRegistry.entry = previousBundleEntry;
+
   const projectFallbackOffset = providerGatewayClient.streamCalls.length;
   const projectFallbackRequest = createRuntimeTurnRequest();
   projectFallbackRequest.bundle.bundleHash = request.bundle.bundleHash;

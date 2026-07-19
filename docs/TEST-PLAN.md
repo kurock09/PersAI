@@ -76,6 +76,16 @@ Completed focused coverage plus S5 shipping coverage (no intermediate deploy unt
   while canonical work is active; and F5 while work is active followed by
   replay plus live completion without a second refresh. These three paths
   passed on releases `687876a7` / `d62de2ee` with GitOps pin `b71904b9`.
+- **Post-discovery end-to-end transport regression:** reproduce three
+  sequential ready catch-ups where the first provider stream ends after
+  headers but before any text/tool output with bare `terminated`. Provider
+  classification must emit retryable `server_error`; runtime must use a
+  distinct configured fallback or, when the fallback resolves to the same
+  provider/model, retry that provider exactly once in the same logical
+  iteration. Invalid request/auth/billing and any post-output failure must not
+  use the same-provider retry. The failed first catch-up must not block FIFO
+  siblings. Exact-image live acceptance must prove three successful
+  continuations and no generic failed-turn banner.
 - **S4 purge + CLEAN repair (local):** no production `claimReady` /
   `requeueBusyNotStarted`; finalize returns `autoSubscribed` (no
   `legacyChosen`); pre-accept busy uses `releaseClaimToReady` without retry

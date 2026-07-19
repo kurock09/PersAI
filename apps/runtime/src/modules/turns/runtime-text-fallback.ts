@@ -88,3 +88,16 @@ export function isRetryableRuntimeTextStreamFailure(
   }
   return RETRYABLE_LEGACY_STREAM_FAILURE_CODES.has(event.code);
 }
+
+export function isRetryableSameProviderTextStreamFailure(
+  event: Pick<ProviderGatewayTextFailedEvent, "code" | "providerErrorKind"> | null | undefined
+): boolean {
+  if (event === null || event === undefined) {
+    return false;
+  }
+  return (
+    event.providerErrorKind === "timeout" ||
+    event.providerErrorKind === "server_error" ||
+    RETRYABLE_LEGACY_STREAM_FAILURE_CODES.has(event.code)
+  );
+}

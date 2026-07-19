@@ -491,4 +491,31 @@ async function runDeepSeekReasoningContentRoundTripTest(
     toolCallsEvent?.type === "tool_calls" ? toolCallsEvent.result.reasoningContent : null,
     "Thinking about it."
   );
+
+  // Undici/OpenAI-compatible streams may reject with the bare message
+  // "terminated" and no status/code after headers. This is a transient
+  // transport failure, not an unknown permanent provider rejection.
+  (client as unknown as { client: unknown }).client = {
+    chat: {
+      completions: {
+        create: async () => ({
+          [Symbol.asyncIterator]() {
+            return {
+              async next() {
+                throw new Error("terminated");
+              }
+            };
+          }
+        })
+      }
+    }
+  };
+  const terminatedEvents = await collectStream(await client.streamText(createRequest()));
+  const terminated = terminatedEvents.find((event) => event.type === "failed");
+  assert.ok(terminated, "terminated transport must emit one failed event");
+  if (terminated?.type === "failed") {
+    assert.equal(terminated.code, "provider_server_error");
+    assert.equal(terminated.message, "terminated");
+    assert.equal(terminated.providerErrorKind, "server_error");
+  }
 }

@@ -6,6 +6,7 @@ import {
 } from "../src/modules/turns/provider-gateway.client.service";
 import {
   isRetryableRuntimeTextFailure,
+  isRetryableSameProviderTextStreamFailure,
   isRetryableRuntimeTextStreamFailure
 } from "../src/modules/turns/runtime-text-fallback";
 
@@ -144,6 +145,35 @@ export async function runRuntimeTextFallbackTest(): Promise<void> {
       })
     ),
     true
+  );
+  assert.equal(
+    isRetryableRuntimeTextStreamFailure(
+      createFailedEvent({
+        code: "provider_server_error",
+        message: "terminated",
+        providerErrorKind: "server_error"
+      })
+    ),
+    true
+  );
+  assert.equal(
+    isRetryableSameProviderTextStreamFailure(
+      createFailedEvent({
+        code: "provider_server_error",
+        message: "terminated",
+        providerErrorKind: "server_error"
+      })
+    ),
+    true
+  );
+  assert.equal(
+    isRetryableSameProviderTextStreamFailure(
+      createFailedEvent({
+        code: "insufficient_quota",
+        providerErrorKind: "billing_quota"
+      })
+    ),
+    false
   );
   assert.equal(
     isRetryableRuntimeTextStreamFailure(

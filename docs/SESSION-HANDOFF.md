@@ -1,5 +1,30 @@
 # SESSION-HANDOFF
 
+## 2026-07-20 — ADR-159 three-job live failure diagnosed; transport repair local
+
+Status: **Live acceptance is not green; local repair on clean baseline
+`f16bd46e`, pending push, deploy, and acceptance.** Founder evidence
+from chat `b1be30a7-fefc-4e40-b799-2148c9ee621a` showed three media jobs whose
+files all delivered, but the first synthetic catch-up failed visibly. Cluster
+and durable turn evidence identified exact attempt
+`async-cont:b7f29bbcfe5b9a5027dc2fec6413474ad9e18df5`: DeepSeek's stream ended
+after headers and before model output with bare `terminated`; provider-gateway
+classified it as unknown `provider_request_failed`, so runtime did not enter
+its retry/fallback path. The other two FIFO catch-ups completed.
+
+The local repair classifies bounded transport disconnect signatures
+(`terminated`, reset/socket/premature-close variants) as retryable
+`server_error`, adds structured failure classification to DeepSeek logs, and
+permits exactly one same-provider retry only when a retryable stream failure
+occurs before any provider output and configured fallback is absent or resolves
+to the same provider/model. Invalid request, auth, billing, and post-output
+failures are not same-provider retried. Focused DeepSeek classification,
+runtime fallback, turn execution tests, and provider/runtime typechecks pass.
+Next: full gate, commit/push, exact provider-gateway/runtime rollout, then repeat
+the three-job FIFO acceptance. The earlier discovery/reattach acceptance
+remains valid evidence, but it did not prove end-to-end continuation success.
+Do not claim ADR-159 green or closed.
+
 ## 2026-07-20 — Working pill visual refinement deployed
 
 Status: **Deployed and web-live-accepted.** Release `8cb96de8`; GitOps pin

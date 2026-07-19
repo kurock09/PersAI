@@ -235,6 +235,16 @@ ambiguous and remains dispatched. Its authenticated `/status` subroute proves
 the exact receipt and accepted-turn marker before an ambiguous dispatched
 handle may be requeued.
 
+Provider-stream resilience is bounded at the runtime/provider-gateway seam.
+Known transport disconnect signatures such as a bare post-headers
+`terminated` are classified as retryable `server_error`. Before any provider
+text or tool output, runtime may route once to the configured distinct
+fallback; when that fallback is absent or resolves to the same provider/model,
+it may retry the same selection exactly once. Invalid request, auth, billing,
+and post-output failures do not use this same-provider retry. This applies
+equally to ordinary web turns and synthetic async continuations; it changes no
+public chat payload or durable receipt identity.
+
 ### Native Tool Runtime instruction ownership
 
 ADR-117 defines one owner per model/provider instruction concern:

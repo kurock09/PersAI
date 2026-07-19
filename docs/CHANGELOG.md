@@ -5,6 +5,19 @@
 
 ## 2026-07-20
 
+- **Repair (ADR-159 three-job live failure; local):** corrected the prior
+  incomplete green claim. All three media files delivered, but the first
+  synthetic catch-up failed because a post-headers/pre-output DeepSeek stream
+  ended with bare `terminated`. Provider-gateway had classified that transport
+  disconnect as unknown `provider_request_failed`, preventing runtime fallback.
+  Known transport disconnect signatures now classify as retryable
+  `server_error`; DeepSeek logs include safe structured classification; runtime
+  performs at most one same-provider retry only before any provider output when
+  the configured fallback is absent or resolves to the same provider/model.
+  Schema/auth/billing and post-output failures remain non-retried on the same
+  provider. Focused provider/runtime tests and typechecks pass. Baseline
+  `f16bd46e`; pending push, deploy, and live acceptance.
+
 - **Web UI (deployed and accepted):** restored only the founder-requested
   Working pill visual refinements from the pre-ADR-159 stash: separate centered
   44×44 chevron cap, larger mobile resting dots with count above, vertically

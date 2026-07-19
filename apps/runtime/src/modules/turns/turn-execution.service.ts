@@ -103,6 +103,7 @@ import { PersaiInternalApiClientService } from "./persai-internal-api.client.ser
 import { ProviderGatewayClientService } from "./provider-gateway.client.service";
 import {
   isRetryableRuntimeTextFailure,
+  isRetryableSameProviderTextStreamFailure,
   isRetryableRuntimeTextStreamFailure,
   resolveRuntimeTextFallbackSelection,
   sameProviderSelection,
@@ -1321,6 +1322,7 @@ export class TurnExecutionService {
           let advancedToNextIteration = false;
           let providerOutputSeen = false;
           let streamFallbackAttempted = false;
+          let sameProviderStreamRetryAttempted = false;
 
           while (true) {
             this.logger.log(
@@ -1896,6 +1898,18 @@ export class TurnExecutionService {
                     restartProviderAttempt = true;
                     break;
                   }
+                }
+                if (
+                  !providerOutputSeen &&
+                  !sameProviderStreamRetryAttempted &&
+                  isRetryableSameProviderTextStreamFailure(event)
+                ) {
+                  sameProviderStreamRetryAttempted = true;
+                  this.logger.warn(
+                    `[runtime-text-same-provider-retry] surface=turn_stream requestId=${acceptedTurn.receipt.requestId} classification=${providerRequest.requestMetadata?.classification ?? "unknown"} attempt=tool_loop:${String(iteration)} role=${execution.selectedModelRole} provider=${providerRequest.provider} model=${providerRequest.model} errorCode=${event.code ?? "unknown"} errorMessage=${event.message ?? "Provider stream failed."}`
+                  );
+                  restartProviderAttempt = true;
+                  break;
                 }
                 if (
                   event.code === "provider_context_window_exceeded" &&

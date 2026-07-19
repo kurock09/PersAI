@@ -212,13 +212,13 @@ export class DeepSeekProviderClient implements ProviderWarmableClient {
       };
       yield completedEvent;
     } catch (error) {
-      this.logger.warn(
-        `[deepseek-stream-failed] requestId=${input.requestMetadata?.runtimeRequestId ?? "unknown"} model=${input.model}`
-      );
       const failedEvent: ProviderGatewayTextFailedEvent = toProviderTextFailedEvent(
         "deepseek",
         error,
         "DeepSeek text stream failed."
+      );
+      this.logger.warn(
+        `[deepseek-stream-failed] requestId=${input.requestMetadata?.runtimeRequestId ?? "unknown"} model=${input.model} code=${failedEvent.code} kind=${failedEvent.providerErrorKind ?? "unknown"} status=${failedEvent.providerErrorStatus ?? "unknown"}`
       );
       yield failedEvent;
     } finally {
