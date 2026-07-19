@@ -19,6 +19,7 @@ import {
   postAssistantMemoryItemCloseOpenLoop,
   postAssistantTelegramDisconnect,
   reattachAssistantWebChatTurnStream,
+  streamAssistantWebChatContinuationDiscovery,
   REATTACH_STREAM_IDLE_TIMEOUT_MS,
   toWebChatUxIssue,
   putAdminRuntimeProviderSettings,
@@ -1670,6 +1671,34 @@ describe("video persona cloned voice forwarding", () => {
 });
 
 describe("reattachAssistantWebChatTurnStream", () => {
+  it("forwards replayed started, delta, tool, progress, and terminal events", async () => {
+    const handlers = {
+      onStarted: vi.fn(),
+      onDelta: vi.fn(),
+      onTool: vi.fn(),
+      onToolProgress: vi.fn(),
+      onCompleted: vi.fn()
+    };
+    global.fetch = vi
+      .fn()
+      .mockResolvedValue(
+        createSseResponse([
+          `event: started\ndata: ${JSON.stringify({ chat: { id: "chat-1" }, userMessage: null })}\n\n`,
+          `event: delta\ndata: ${JSON.stringify({ delta: "hi" })}\n\n`,
+          `event: tool\ndata: ${JSON.stringify({ phase: "start", toolName: "shell", toolCallId: "t1", isError: false })}\n\n`,
+          `event: tool_progress\ndata: ${JSON.stringify({ toolName: "shell", toolCallId: "t1", kind: "stdout_line", line: "work", seq: 1 })}\n\n`,
+          `event: completed\ndata: ${JSON.stringify({ transport: null })}\n\n`
+        ])
+      ) as typeof fetch;
+
+    await reattachAssistantWebChatTurnStream("token-1", "async-cont:1", handlers);
+    expect(handlers.onStarted).toHaveBeenCalledOnce();
+    expect(handlers.onDelta).toHaveBeenCalledWith({ delta: "hi" });
+    expect(handlers.onTool).toHaveBeenCalledOnce();
+    expect(handlers.onToolProgress).toHaveBeenCalledOnce();
+    expect(handlers.onCompleted).toHaveBeenCalledOnce();
+  });
+
   it("flushes the trailing SSE block when the connection closes without a final blank line", async () => {
     // Pre-fix the reattach reader exited the read loop on `done=true`
     // without flushing the in-buffer last block, so a server-sent
@@ -1736,6 +1765,36 @@ describe("reattachAssistantWebChatTurnStream", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("streamAssistantWebChatContinuationDiscovery", () => {
+  it("delivers bounded identities with replay cursor and ignores duplicate sequence", async () => {
+    const onDiscovery = vi.fn();
+    global.fetch = vi
+      .fn()
+      .mockResolvedValue(
+        createSseResponse([
+          `id: 4\nevent: continuation\ndata: ${JSON.stringify({ clientTurnId: "async-cont:older" })}\n\n`,
+          `id: 5\nevent: continuation\ndata: ${JSON.stringify({ clientTurnId: "async-cont:new" })}\n\n`,
+          `id: 5\nevent: continuation\ndata: ${JSON.stringify({ clientTurnId: "async-cont:new" })}\n\n`
+        ])
+      ) as typeof fetch;
+
+    await expect(
+      streamAssistantWebChatContinuationDiscovery(
+        "token-1",
+        "chat-1",
+        4,
+        onDiscovery,
+        AbortSignal.abort()
+      )
+    ).resolves.toBeUndefined();
+    expect(onDiscovery).toHaveBeenCalledTimes(1);
+    expect(onDiscovery).toHaveBeenNthCalledWith(1, {
+      clientTurnId: "async-cont:new",
+      cursor: 5
+    });
   });
 });
 

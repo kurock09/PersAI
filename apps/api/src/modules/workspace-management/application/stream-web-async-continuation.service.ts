@@ -9,6 +9,7 @@ import {
 } from "./internal-runtime-async-continuation.client.service";
 import { ChatWakeCoordinator } from "./chat-wake-coordinator.service";
 import { WebChatTurnAttemptService } from "./web-chat-turn-attempt.service";
+import { WebChatContinuationDiscoveryService } from "./web-chat-continuation-discovery.service";
 import { WebChatTurnStopDispatchService } from "./web-chat-turn-stop-dispatch.service";
 import { WebChatTurnStreamRegistry } from "./web-chat-turn-stream-registry.service";
 
@@ -88,7 +89,9 @@ export class StreamWebAsyncContinuationService {
     private readonly webChatTurnAttemptService: WebChatTurnAttemptService,
     private readonly webChatTurnStreamRegistry: WebChatTurnStreamRegistry,
     private readonly webChatTurnStopDispatchService: WebChatTurnStopDispatchService,
-    @Optional() private readonly chatWakeCoordinator?: ChatWakeCoordinator
+    @Optional() private readonly chatWakeCoordinator?: ChatWakeCoordinator,
+    @Optional()
+    private readonly continuationDiscovery?: WebChatContinuationDiscoveryService
   ) {}
 
   async processWebClaim(input: {
@@ -183,6 +186,13 @@ export class StreamWebAsyncContinuationService {
         controller: abortController
       });
       await this.webChatTurnStreamRegistry.register(registryIdentity);
+      // The exact per-turn Redis stream now exists. Only now may the chat-level
+      // discovery channel tell an already-open browser to attach to it.
+      await this.continuationDiscovery?.publishReady({
+        ...registryIdentity,
+        chatId: context.handle.chatId,
+        threadKey
+      });
     } catch (error) {
       await this.webChatTurnAttemptService.abandonPreAcceptanceAttempt({
         assistantId: context.handle.assistantId,

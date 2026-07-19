@@ -21,6 +21,19 @@ until exact API/runtime images pass fresh web and Telegram background-job
 acceptance without duplicate execution, missing narration, zombie Working, or
 reload-only visibility.
 
+**Post-deploy live-web regression repair (local, not deployed):** Slice 2's
+canonical-nonterminal-only Working truth remains unchanged. The browser had
+also depended on those rows to discover `continuationClientTurnId`, so a
+terminal job could become ready/claimed and stream a persisted continuation
+without an already-open chat learning its synthetic turn id. A separate
+assistant/user/chat/thread-scoped Redis replay channel now announces only
+`{clientTurnId}` after the exact ADR-158 stream is registered. One
+authenticated chat-level SSE subscription uses cursor replay and teardown;
+the browser deduplicates discovery and attaches to the unchanged per-turn
+stream for the complete lifecycle. History remains fallback/reconciliation,
+not normal live delivery. This is a repair within ADR-158/159 boundaries, not
+a new job-state or Working model.
+
 **Slice 2 final repair:** Working projections now include only
 canonical nonterminal media/document/sandbox jobs; terminal continuation facts
 remain history/catch-up input but no longer render as active work. Legacy

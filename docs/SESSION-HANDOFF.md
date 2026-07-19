@@ -1,5 +1,27 @@
 # SESSION-HANDOFF
 
+## 2026-07-19 — live web continuation discovery repair local
+
+Status: **Implemented and focused-tested locally; not committed, pushed,
+deployed, or live-accepted.** ADR-159's honest Working projection correctly
+removed terminal canonical jobs, but that projection had also been the
+browser's only way to discover a newly created synthetic `async-cont:*` turn.
+The continuation still persisted and published its complete ADR-158 event
+stream; an already-open chat simply never learned the stream identity, while
+reload exposed the persisted message through history.
+
+The API now publishes a minimal owner/chat/thread-scoped discovery envelope
+only after the exact per-turn stream is registered. Discovery uses the same
+Redis-backed replay store as ADR-158 and has a dedicated authenticated
+chat-level SSE route with cursor replay, heartbeat, and teardown. The mounted
+web chat keeps one abortable subscription, deduplicates discoveries, and
+attaches through the existing per-turn reattach path; raw `started` is now
+forwarded alongside deltas, tool events/progress, and terminal events.
+Terminal jobs remain absent from Working. Focused API tests pass 17/17, focused
+web tests pass 190/190, and API/Web typechecks pass. Next: recursive lint,
+format check, final diff audit, then parent review/commit/deploy/live
+cross-replica acceptance.
+
 ## 2026-07-19 — ADR-159 post-deploy continuation repair local
 
 Status: **Local implementation on GitOps baseline `5243a1a1`; not committed,

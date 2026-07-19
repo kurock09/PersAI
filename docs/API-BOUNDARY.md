@@ -218,12 +218,17 @@ revalidation. Web notify dispatch prefers the stream path plus an
 `WebChatTurnStreamBusService`) / Stop registration keyed by
 `continuationClientTurnId` (`async-cont:…`) so the browser reattaches via
 ordinary `GET /assistant/chat/web/turns/:clientTurnId/stream` on any API pod
-when coordination Redis is configured (ADR-158); Working active-job
-projections expose that id while notify is
-`subscribed|ready|claimed|dispatched` (aligned with media/document/sandbox
-Working list projection). Continuation attempts `markRunning` with null
-`userMessageId`. It persists output without a fake user message, then
-finalizes children keyed by that continuation client-turn id.
+when coordination Redis is configured (ADR-158). A mounted chat discovers a
+new synthetic turn independently of Working through authenticated
+`GET /assistant/chats/web/:chatId/continuations/stream`: only after the exact
+per-turn stream is registered, API appends `{clientTurnId}` to an
+assistant/user/chat/thread-scoped Redis replay channel. SSE ids provide cursor
+resume; heartbeat and disconnect teardown keep one bounded mounted
+subscription. The browser deduplicates discovery/replay and then consumes the
+full existing per-turn lifecycle. Working remains canonical-nonterminal only
+and never reintroduces terminal jobs as fake progress. Continuation attempts
+`markRunning` with null `userMessageId`. It persists output without a fake user
+message, then finalizes children keyed by that continuation client-turn id.
 The API client accepts only exact busy/duplicate, safe failed, or essential
 completed-result response shapes for the blocking path; malformed 2xx is
 ambiguous and remains dispatched. Its authenticated `/status` subroute proves
@@ -253,6 +258,7 @@ Canonical model-facing names are `knowledge_search`, `knowledge_fetch`, and `quo
 - sync route: `POST /api/v1/assistant/chat/web`
 - stream route: `POST /api/v1/assistant/chat/web/stream`
 - stream reattach route: `GET /api/v1/assistant/chat/web/turns/:clientTurnId/stream`. **ADR-158:** SSE `reattached` sets `live: true` when the durable turn-stream bus can replay buffered events and follow live appends on this pod (Redis coordination store, or same-process memory). Soft-detach still does not Stop (ADR-149). Ordinary `POST …/stream` keeps writing the primary SSE response as today while also publishing every SSE-facing event onto the bus.
+- continuation discovery route: `GET /api/v1/assistant/chats/web/:chatId/continuations/stream?cursor=<seq>`; owner/chat authorization is revalidated before SSE opens. It carries only synthetic `clientTurnId` discovery and does not replace the per-turn event stream or Working truth.
 - hard-stop route: `POST /api/v1/assistant/chat/web/stop` (body: `{ "clientTurnId": string }`). **ADR-149 S1:** response `200` with `{ status: "stopped" | "already_done", clientTurnId }`, `404` `{ code: "turn_not_found" }`, or `403` `{ code: "stop_forbidden" }`. Durable Redis dispatch (`WebChatTurnStopDispatchService`) replaces the deleted in-memory registry; uses `PERSAI_TURN_COORDINATION_REDIS_URL` with fallback to `BROWSER_BRIDGE_REDIS_URL`. **ADR-158** uses the same Redis URL family for the ephemeral web turn stream bus (`WebChatTurnStreamBusService` behind `WebChatTurnStreamRegistry`; stream key `${assistantId}:${userId}:${clientTurnId}`); Postgres `AssistantWebChatTurnAttempt` remains status/terminal authority.
 - turn-status route: `GET /api/v1/assistant/chat/web/turns/:clientTurnId` returns the durable logical-turn state (`unknown`, `accepted`, `running`, `completed`, `failed`, `interrupted`) plus committed user/assistant payloads where available; web/Capacitor clients use it before retrying ambiguous sends
 - accepted generated-media requests on the web sync/stream routes may now complete quickly with an acknowledgement assistant message plus a durable `assistant_media_jobs` enqueue, instead of holding the request open until final artifact delivery

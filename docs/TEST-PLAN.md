@@ -59,6 +59,18 @@ Completed focused coverage plus S5 shipping coverage (no intermediate deploy unt
   uses two real PostgreSQL clients and different request ids for one
   `(conversation,idempotencyKey)` to prove one authoritative receipt, logical
   lookup across exact-id mismatch, and no second accepted execution authority.
+- **Live web continuation discovery repair:** after the ordinary source stream
+  is terminal and terminal canonical work is absent from Working, register the
+  synthetic `async-cont:*` stream and prove a publisher on API replica B wakes
+  an owner-scoped chat subscription on replica A. Cursor replay and repeated
+  discovery must attach once; unrelated user/chat/thread subscriptions receive
+  nothing. Reattach must forward raw `started`, deltas, tool lifecycle,
+  `tool_progress`, completion/failure, and reconcile the transient bubble to
+  one persisted message. Chat switch/unmount aborts the discovery stream.
+  Focused fixtures:
+  `web-chat-continuation-discovery.service.test.ts`,
+  `stream-web-async-continuation.service.test.ts`,
+  `assistant-api-client.test.ts`, and `use-chat.test.tsx`.
 - **S4 purge + CLEAN repair (local):** no production `claimReady` /
   `requeueBusyNotStarted`; finalize returns `autoSubscribed` (no
   `legacyChosen`); pre-accept busy uses `releaseClaimToReady` without retry

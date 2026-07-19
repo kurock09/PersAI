@@ -34,6 +34,7 @@ import { SendWebChatTurnService } from "../../application/send-web-chat-turn.ser
 import { ManageWebChatListService } from "../../application/manage-web-chat-list.service";
 import { StreamWebChatTurnService } from "../../application/stream-web-chat-turn.service";
 import { WebChatTurnStopDispatchService } from "../../application/web-chat-turn-stop-dispatch.service";
+import { WebChatContinuationDiscoveryService } from "../../application/web-chat-continuation-discovery.service";
 import { WebChatTurnStreamRegistry } from "../../application/web-chat-turn-stream-registry.service";
 import {
   WebChatTurnAttemptService,
@@ -117,6 +118,7 @@ export class AssistantController {
     private readonly manageWebChatListService: ManageWebChatListService,
     private readonly streamWebChatTurnService: StreamWebChatTurnService,
     private readonly webChatTurnStopDispatchService: WebChatTurnStopDispatchService,
+    private readonly webChatContinuationDiscoveryService: WebChatContinuationDiscoveryService,
     private readonly webChatTurnStreamRegistry: WebChatTurnStreamRegistry,
     private readonly updateAssistantDraftService: UpdateAssistantDraftService,
     private readonly previewAssistantSetupService: PreviewAssistantSetupService,
@@ -991,6 +993,75 @@ export class AssistantController {
       currentEngagement: result.currentEngagement,
       pendingBrowserLogin: result.pendingBrowserLogin
     };
+  }
+
+  @Get("assistant/chats/web/:chatId/continuations/stream")
+  async streamWebChatContinuationDiscovery(
+    @Req() req: RequestWithPlatformContext,
+    @Res() res: ResponseWithPlatformContext,
+    @Param("chatId") chatId: string,
+    @Query("cursor") cursorParam?: string
+  ): Promise<void> {
+    const userId = this.resolveRequestUserId(req);
+    const chat = await this.prisma.assistantChat.findFirst({
+      where: {
+        id: chatId,
+        userId,
+        surface: "web"
+      },
+      select: { assistantId: true, surfaceThreadKey: true }
+    });
+    if (chat?.surfaceThreadKey === null || chat === null) {
+      throw new NotFoundException("Chat not found.");
+    }
+    const parsedCursor = Number.parseInt(cursorParam ?? "0", 10);
+    const fromSeq = Number.isSafeInteger(parsedCursor) && parsedCursor >= 0 ? parsedCursor : 0;
+
+    res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no");
+
+    let closed = false;
+    let detach: (() => void) | null = null;
+    const sendDiscovery = (discovery: { seq: number; clientTurnId: string }): void => {
+      if (closed) return;
+      res.write(
+        `id: ${discovery.seq}\nevent: continuation\ndata: ${JSON.stringify({
+          clientTurnId: discovery.clientTurnId
+        })}\n\n`
+      );
+      const flushable = res as unknown as { flush?: () => void };
+      flushable.flush?.();
+    };
+    const heartbeat = setInterval(() => {
+      if (!closed) res.write(": keepalive\n\n");
+    }, WEB_CHAT_STREAM_HEARTBEAT_INTERVAL_MS);
+    const cleanup = (): void => {
+      if (closed) return;
+      closed = true;
+      clearInterval(heartbeat);
+      detach?.();
+      detach = null;
+    };
+    req.on("aborted", cleanup);
+    res.on("close", cleanup);
+
+    try {
+      const attached = await this.webChatContinuationDiscoveryService.attach({
+        assistantId: chat.assistantId,
+        userId,
+        chatId,
+        threadKey: chat.surfaceThreadKey,
+        fromSeq,
+        onDiscovery: sendDiscovery
+      });
+      if (closed) attached();
+      else detach = attached;
+    } catch {
+      cleanup();
+      if (!res.writableEnded) res.end();
+    }
   }
 
   @Get("assistant/chats/web/:chatId/compaction")

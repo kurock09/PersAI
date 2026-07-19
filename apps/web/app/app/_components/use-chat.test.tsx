@@ -15,6 +15,7 @@ const assistantApiMocks = vi.hoisted(() => ({
   getChatMessages: vi.fn(),
   getAssistantWebChatPlan: vi.fn(),
   reattachAssistantWebChatTurnStream: vi.fn(),
+  streamAssistantWebChatContinuationDiscovery: vi.fn(),
   stageWebChatAttachment: vi.fn(),
   uploadAssistantKnowledgeSource: vi.fn(),
   streamAssistantWebChatTurn: vi.fn(),
@@ -48,6 +49,8 @@ vi.mock("../assistant-api-client", async () => {
     getChatMessages: assistantApiMocks.getChatMessages,
     getAssistantWebChatPlan: assistantApiMocks.getAssistantWebChatPlan,
     reattachAssistantWebChatTurnStream: assistantApiMocks.reattachAssistantWebChatTurnStream,
+    streamAssistantWebChatContinuationDiscovery:
+      assistantApiMocks.streamAssistantWebChatContinuationDiscovery,
     stageWebChatAttachment: assistantApiMocks.stageWebChatAttachment,
     uploadAssistantKnowledgeSource: assistantApiMocks.uploadAssistantKnowledgeSource,
     streamAssistantWebChatTurn: assistantApiMocks.streamAssistantWebChatTurn,
@@ -114,6 +117,7 @@ describe("useChat", () => {
     assistantApiMocks.getChatMessages.mockReset();
     assistantApiMocks.getAssistantWebChatPlan.mockReset();
     assistantApiMocks.reattachAssistantWebChatTurnStream.mockReset();
+    assistantApiMocks.streamAssistantWebChatContinuationDiscovery.mockReset();
     assistantApiMocks.stageWebChatAttachment.mockReset();
     assistantApiMocks.uploadAssistantKnowledgeSource.mockReset();
     assistantApiMocks.streamAssistantWebChatTurn.mockReset();
@@ -145,6 +149,7 @@ describe("useChat", () => {
         handlers.onTurnStatus?.({ turn });
       }
     );
+    assistantApiMocks.streamAssistantWebChatContinuationDiscovery.mockResolvedValue(undefined);
     assistantApiMocks.stopAssistantWebChatTurn.mockResolvedValue(undefined);
     assistantApiMocks.getAssistantWebChatPlan.mockResolvedValue({
       requestId: "r0",
@@ -1193,6 +1198,168 @@ describe("useChat", () => {
       "FIVE_MIN_DONE"
     ]);
     vi.useRealTimers();
+  });
+
+  it("discovers a later continuation with no terminal job in Working and renders it once", async () => {
+    const continuationClientTurnId = "async-cont:chat-discovery-1";
+    const sourceMessages = [
+      {
+        id: "user-msg-discovery",
+        chatId: "chat-1",
+        assistantId: "assistant-1",
+        author: "user" as const,
+        content: "run background work",
+        attachments: [],
+        createdAt: "2026-07-19T01:00:00.000Z"
+      },
+      {
+        id: "assistant-msg-source",
+        chatId: "chat-1",
+        assistantId: "assistant-1",
+        author: "assistant" as const,
+        content: "Started.",
+        attachments: [],
+        createdAt: "2026-07-19T01:00:01.000Z"
+      }
+    ];
+    const persistedContinuation = {
+      id: "assistant-msg-discovered-continuation",
+      chatId: "chat-1",
+      assistantId: "assistant-1",
+      author: "assistant" as const,
+      content: "Live continuation",
+      attachments: [],
+      createdAt: "2026-07-19T01:01:00.000Z"
+    };
+    assistantApiMocks.getChatMessages
+      .mockResolvedValueOnce({
+        nextCursor: null,
+        activeTurn: null,
+        activeMediaJobs: [],
+        activeDocumentJobs: [],
+        activeSandboxJobs: [],
+        messages: sourceMessages
+      })
+      .mockResolvedValue({
+        nextCursor: null,
+        activeTurn: null,
+        activeMediaJobs: [],
+        activeDocumentJobs: [],
+        activeSandboxJobs: [],
+        messages: [...sourceMessages, persistedContinuation]
+      });
+
+    let emitDiscovery: ((event: { clientTurnId: string; cursor: number }) => void) | undefined;
+    assistantApiMocks.streamAssistantWebChatContinuationDiscovery.mockImplementation(
+      async (
+        _token: string,
+        _chatId: string,
+        _cursor: number,
+        onDiscovery: (event: { clientTurnId: string; cursor: number }) => void,
+        signal: AbortSignal
+      ) => {
+        emitDiscovery = onDiscovery;
+        await new Promise<void>((resolve) => signal.addEventListener("abort", () => resolve()));
+      }
+    );
+    let releaseTerminal!: () => void;
+    const terminalHold = new Promise<void>((resolve) => {
+      releaseTerminal = resolve;
+    });
+    assistantApiMocks.reattachAssistantWebChatTurnStream.mockImplementation(
+      async (
+        _token: string,
+        _clientTurnId: string,
+        handlers: {
+          onTurnStatus?: (payload: unknown) => void;
+          onStarted?: (payload: unknown) => void;
+          onDelta?: (payload: { delta: string }) => void;
+          onTool?: (payload: unknown) => void;
+          onToolProgress?: (payload: unknown) => void;
+          onCompleted?: () => Promise<void>;
+        }
+      ) => {
+        handlers.onTurnStatus?.({
+          turn: {
+            status: "running",
+            chat: {
+              id: "chat-1",
+              assistantId: "assistant-1",
+              surface: "web",
+              surfaceThreadKey: "thread-1",
+              title: null,
+              chatMode: "normal",
+              deepModeEnabled: false,
+              skillDecisionState: null,
+              archivedAt: null,
+              lastMessageAt: null,
+              createdAt: "2026-07-19T01:00:00.000Z",
+              updatedAt: "2026-07-19T01:00:00.000Z"
+            },
+            userMessage: null,
+            assistantMessage: null,
+            currentActivity: null,
+            runtime: null,
+            error: null
+          }
+        });
+        handlers.onStarted?.({ chat: { id: "chat-1" }, userMessage: null });
+        handlers.onTool?.({
+          phase: "start",
+          toolName: "shell",
+          toolCallId: "tool-1",
+          isError: false
+        });
+        handlers.onToolProgress?.({
+          toolName: "shell",
+          toolCallId: "tool-1",
+          kind: "stdout",
+          line: "working"
+        });
+        handlers.onDelta?.({ delta: "Live continuation" });
+        await terminalHold;
+        await handlers.onCompleted?.();
+      }
+    );
+
+    const { result, unmount } = renderHook(() => useChat("thread-1"), {
+      wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+    });
+    await act(async () => {
+      await result.current.loadHistory("chat-1");
+    });
+    await waitFor(() => expect(emitDiscovery).toBeTypeOf("function"));
+    await act(async () => {
+      emitDiscovery?.({ clientTurnId: continuationClientTurnId, cursor: 1 });
+      emitDiscovery?.({ clientTurnId: continuationClientTurnId, cursor: 1 });
+    });
+    await waitFor(() =>
+      expect(
+        result.current.messages.some((message) => message.content === "Live continuation")
+      ).toBe(true)
+    );
+    expect(result.current.activeMediaJobs).toEqual([]);
+    expect(result.current.activeDocumentJobs).toEqual([]);
+    expect(result.current.activeSandboxJobs).toEqual([]);
+    expect(
+      assistantApiMocks.reattachAssistantWebChatTurnStream.mock.calls.filter(
+        (call) => call[1] === continuationClientTurnId
+      )
+    ).toHaveLength(1);
+
+    await act(async () => releaseTerminal());
+    await waitFor(() => {
+      const bubbles = result.current.messages.filter(
+        (message) => message.content === "Live continuation"
+      );
+      expect(bubbles).toHaveLength(1);
+      expect(bubbles[0]?.id).toBe(persistedContinuation.id);
+    });
+    unmount();
+    const discoverySignal =
+      assistantApiMocks.streamAssistantWebChatContinuationDiscovery.mock.calls[0]?.[4];
+    expect(discoverySignal).toBeInstanceOf(AbortSignal);
+    expect((discoverySignal as AbortSignal).aborted).toBe(true);
   });
 
   it("reattaches the continuation clientTurnId when notify is claimed with continuationClientTurnId", async () => {

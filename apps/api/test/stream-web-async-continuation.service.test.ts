@@ -196,6 +196,7 @@ describe("StreamWebAsyncContinuationService", () => {
     let released = false;
     let stopRegistered = false;
     let stopReleased = false;
+    let discoveryPublishedAfterRegistration = false;
     let markRunningUserMessageId: string | null | undefined = undefined;
 
     const service = new StreamWebAsyncContinuationService(
@@ -277,7 +278,14 @@ describe("StreamWebAsyncContinuationService", () => {
         onRelease: () => {
           stopReleased = true;
         }
-      })
+      }),
+      undefined,
+      {
+        publishReady: async (input: { clientTurnId: string }) => {
+          discoveryPublishedAfterRegistration =
+            registered && input.clientTurnId === "async-cont:handle-1";
+        }
+      } as never
     );
 
     await service.processWebClaim({
@@ -295,6 +303,7 @@ describe("StreamWebAsyncContinuationService", () => {
     assert.equal(released, true);
     assert.equal(stopRegistered, true);
     assert.equal(stopReleased, true);
+    assert.equal(discoveryPublishedAfterRegistration, true);
     assert.equal(markRunningUserMessageId, null);
     assert.deepEqual(attemptCalls.slice(0, 3), ["claim", "markRunning", "markCompleted"]);
     assert.ok(published.some((row) => row.event === "delta"));

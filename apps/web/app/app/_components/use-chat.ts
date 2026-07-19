@@ -10,6 +10,7 @@ import {
   getChatMessages,
   getChatCompactionState,
   reattachAssistantWebChatTurnStream,
+  streamAssistantWebChatContinuationDiscovery,
   stageWebChatAttachment,
   stopAssistantWebChatTurn,
   streamAssistantWebChatTurn,
@@ -1450,6 +1451,8 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
   const historyRefreshInFlightByKeyRef = useRef<Map<string, Promise<boolean>>>(new Map());
   /** ADR-152 — sticky dedupe so notify reattach does not storm when handler identity churns. */
   const continuationReattachStartedRef = useRef<Set<string>>(new Set());
+  const continuationDiscoveryCursorByChatRef = useRef<Map<string, number>>(new Map());
+  const discoveredContinuationIdsRef = useRef<Set<string>>(new Set());
   const turnReattachInFlightByKeyRef = useRef<
     Map<string, Promise<"running" | "terminal" | "terminal_status" | "unknown">>
   >(new Map());
@@ -3018,6 +3021,12 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                 // Keep the thread marked busy, but do not force assistant
                 // status:"streaming" until live===true or the first delta.
                 markStreaming(targetThreadKey, true);
+              },
+              onStarted: () => {
+                // Reattach replay includes the canonical started event. Status
+                // establishes identity; started establishes that this is now a
+                // live token/tool stream.
+                promoteLiveAssistantStreaming((message) => message);
               },
               onTurnStatus: ({ turn }) => {
                 reattachState.latestResult = applyTurnStatusState(
@@ -5808,6 +5817,79 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
     // claimed) refreshes job arrays and re-runs this effect for recovery /
     // ordinary-owner release.
   }, [activeDocumentJobs, activeMediaJobs, activeSandboxJobs]);
+  // Chat-level discovery is independent of the source turn and Working rows.
+  // It carries only the exact synthetic turn id; the existing ADR-158
+  // per-turn stream remains the full replay/live event transport.
+  useEffect(() => {
+    if (chatId === null) return;
+    const discoveryChatId = chatId;
+    const targetThreadKey = currentThreadKeyRef.current;
+    const controller = new AbortController();
+    let reconnectTimer: number | null = null;
+    const attachRetryTimers = new Set<number>();
+    let stopped = false;
+
+    const attachDiscoveredTurn = (clientTurnId: string, attempt = 0): void => {
+      if (stopped) return;
+      if (discoveredContinuationIdsRef.current.has(clientTurnId) && attempt === 0) return;
+      discoveredContinuationIdsRef.current.add(clientTurnId);
+      while (discoveredContinuationIdsRef.current.size > 64) {
+        const oldest = discoveredContinuationIdsRef.current.values().next().value as
+          | string
+          | undefined;
+        if (oldest === undefined) break;
+        discoveredContinuationIdsRef.current.delete(oldest);
+      }
+      void startTurnReattachRef.current(targetThreadKey, clientTurnId).then((result) => {
+        if (stopped || result === "terminal" || result === "terminal_status") return;
+        if (result === "unknown" && attempt < 30) {
+          const timer = window.setTimeout(() => {
+            attachRetryTimers.delete(timer);
+            attachDiscoveredTurn(clientTurnId, attempt + 1);
+          }, 1_000);
+          attachRetryTimers.add(timer);
+        }
+      });
+    };
+
+    const connect = async (): Promise<void> => {
+      const token = await getToken({ skipCache: true });
+      if (!token || stopped) return;
+      try {
+        await streamAssistantWebChatContinuationDiscovery(
+          token,
+          discoveryChatId,
+          continuationDiscoveryCursorByChatRef.current.get(discoveryChatId) ?? 0,
+          ({ clientTurnId, cursor }) => {
+            continuationDiscoveryCursorByChatRef.current.set(discoveryChatId, cursor);
+            attachDiscoveredTurn(clientTurnId);
+          },
+          controller.signal
+        );
+      } catch (error) {
+        if (
+          stopped ||
+          controller.signal.aborted ||
+          (error instanceof DOMException && error.name === "AbortError")
+        ) {
+          return;
+        }
+        reconnectTimer = window.setTimeout(() => {
+          reconnectTimer = null;
+          void connect();
+        }, 1_000);
+      }
+    };
+    void connect();
+    return () => {
+      stopped = true;
+      controller.abort();
+      continuationDiscoveryCursorByChatRef.current.delete(discoveryChatId);
+      if (reconnectTimer !== null) window.clearTimeout(reconnectTimer);
+      for (const timer of attachRetryTimers) window.clearTimeout(timer);
+      attachRetryTimers.clear();
+    };
+  }, [chatId, getToken]);
   // Drop phantom "thinking" / blinking-cursor placeholders (ADR-158).
   const activeLiveTurnIdsForVisibility = (() => {
     const snapshot = activeTurnSnapshotsRef.current.get(assistantScopedThreadKey);

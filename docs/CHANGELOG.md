@@ -5,6 +5,19 @@
 
 ## 2026-07-19
 
+- **Repair (live web continuation discovery; local):** restored no-refresh
+  async continuation delivery without weakening ADR-159's canonical-
+  nonterminal-only Working projection. Once an `async-cont:*` per-turn stream
+  is registered, API publishes its bounded identity to a separate
+  assistant/user/chat/thread-scoped Redis replay channel. An authenticated
+  chat-level SSE subscription discovers that identity across API replicas;
+  the web client then uses the existing ADR-158 reattach stream for `started`,
+  deltas, tools, tool progress, and terminal events. Cursor replay, repeated
+  discovery dedupe, persisted-message reconciliation, heartbeat, chat-switch
+  abort, and owner/chat isolation have focused coverage. API focused tests
+  pass 17/17, web focused tests pass 190/190, and API/Web typechecks pass. Not
+  committed, pushed, deployed, or live-accepted.
+
 - **Repair (ADR-159 post-deploy continuation; local):** after deployed SQL
   hotfix `b07ff3dd` restored scheduler dispatch, live web evidence showed a
   catch-up repeat both completed shell jobs, lose A's terminal narration, and

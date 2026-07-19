@@ -1610,7 +1610,8 @@ export async function reattachAssistantWebChatTurnStream(
       })
     ]);
   const handleStreamEvent = (streamEvent: WebChatStreamEvent): void => {
-    if (streamEvent.event === "delta") handlers.onDelta?.(streamEvent.data);
+    if (streamEvent.event === "started") handlers.onStarted?.(streamEvent.data);
+    else if (streamEvent.event === "delta") handlers.onDelta?.(streamEvent.data);
     else if (streamEvent.event === "thinking") handlers.onThinking?.(streamEvent.data);
     else if (streamEvent.event === "tool") handlers.onTool?.(streamEvent.data);
     else if (streamEvent.event === "tool_progress") handlers.onToolProgress?.(streamEvent.data);
@@ -1694,6 +1695,80 @@ export async function reattachAssistantWebChatTurnStream(
 
   if (!sawTerminalEvent) {
     throw new Error("Stream closed before terminal event.");
+  }
+}
+
+export async function streamAssistantWebChatContinuationDiscovery(
+  token: string,
+  chatId: string,
+  cursor: number,
+  onDiscovery: (event: { clientTurnId: string; cursor: number }) => void,
+  signal?: AbortSignal
+): Promise<void> {
+  const requestInit: RequestInit = {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: "text/event-stream"
+    }
+  };
+  if (signal !== undefined) requestInit.signal = signal;
+  const response = await fetch(
+    `${getApiBaseUrl()}/assistant/chats/web/${encodeURIComponent(
+      chatId
+    )}/continuations/stream?cursor=${encodeURIComponent(String(cursor))}`,
+    requestInit
+  );
+  if (!response.ok) {
+    throw new Error("Failed to subscribe to continuation discovery.");
+  }
+  if (response.body === null) {
+    throw new Error("Continuation discovery response has no body.");
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let lastCursor = cursor;
+  const consumeBlock = (block: string): void => {
+    let eventName = "";
+    let eventId = "";
+    const dataLines: string[] = [];
+    for (const line of block.split(/\r?\n/)) {
+      if (line.startsWith("event:")) eventName = line.slice(6).trim();
+      else if (line.startsWith("id:")) eventId = line.slice(3).trim();
+      else if (line.startsWith("data:")) dataLines.push(line.slice(5).trimStart());
+    }
+    if (eventName !== "continuation" || dataLines.length === 0) return;
+    const nextCursor = Number.parseInt(eventId, 10);
+    if (!Number.isSafeInteger(nextCursor) || nextCursor <= lastCursor) return;
+    try {
+      const payload = JSON.parse(dataLines.join("\n")) as { clientTurnId?: unknown };
+      if (
+        typeof payload.clientTurnId === "string" &&
+        payload.clientTurnId.startsWith("async-cont:") &&
+        payload.clientTurnId.length <= 200
+      ) {
+        lastCursor = nextCursor;
+        onDiscovery({ clientTurnId: payload.clientTurnId, cursor: nextCursor });
+      }
+    } catch {
+      // Ignore malformed discovery frames; ownership remains server-side.
+    }
+  };
+
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const { blocks, rest } = resolveSseBlocks(buffer);
+    buffer = rest;
+    for (const block of blocks) consumeBlock(block);
+  }
+  buffer += decoder.decode();
+  if (buffer.trim().length > 0) consumeBlock(buffer.trim());
+  if (signal?.aborted !== true) {
+    throw new Error("Continuation discovery stream closed.");
   }
 }
 
