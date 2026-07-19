@@ -247,7 +247,12 @@ API/data/delivery ownership core, exact `wait|notify` terminal control,
 source-turn finalization, and serialized same-chat continuation are implemented
 locally. A SchedulerLease-backed API worker now validates and claims ready
 handle rows, dispatches through the ordinary runtime session lease/receipt seam,
-persists one Assistant output, and conservatively reconciles stale work. The
+persists one Assistant output, and conservatively reconciles stale work. Web
+notify continuation prefers the resumable ADR-149 stream path (turn attempt +
+in-process stream registry + Stop + client reattach on
+`continuationClientTurnId`, with null attempt `userMessageId` so history merge
+does not treat the source-user prior assistant as already-committed); Telegram
+keeps blocking JSON dispatch. The
 same `assistant_async_job_handles` row now owns source-finalization, narration,
 depth, claim/dispatch/receipt/retry, and terminal state. Both media and document
 delivery paths consult that decision before legacy framing while preserving

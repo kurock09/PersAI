@@ -9293,6 +9293,14 @@ export async function runAsyncContinuationAcceptanceTest(): Promise<void> {
   });
   const completionBlock = sections.find((section) => section.key === "async_completion");
   assert.ok(completionBlock?.content.includes('"status":"completed"'));
+  assert.ok(
+    completionBlock?.content.includes("Continue the prior task now"),
+    "notify wake must instruct the model to finish the prior task"
+  );
+  assert.ok(
+    completionBlock?.content.includes("facts.sandboxResult"),
+    "notify wake must tell the model to use sandboxResult like await wait"
+  );
   assert.equal(completionBlock?.content.includes("async-cont:turn-1"), false);
   assert.equal(completionBlock?.content.includes("00000000-0000-4000-8000-000000000123"), false);
   assert.deepEqual(
@@ -9326,6 +9334,32 @@ export async function runAsyncContinuationAcceptanceTest(): Promise<void> {
     }
   };
   assert.deepEqual(await service.createAsyncContinuation(request), { outcome: "duplicate" });
+
+  // ADR-152 resumable stream path: same validation + accept outcomes as blocking.
+  const invalidStream = await service.streamAsyncContinuation({
+    ...request,
+    continuation: {
+      ...request.continuation,
+      sourceClientTurnId: "mismatched-client-turn"
+    }
+  });
+  assert.deepEqual(invalidStream, { outcome: "failed", code: "invalid_continuation" });
+
+  (service as unknown as { turnAcceptanceService: unknown }).turnAcceptanceService = {
+    async acceptTurn(input: unknown) {
+      acceptedInput = input;
+      return { outcome: "busy" };
+    }
+  };
+  assert.deepEqual(await service.streamAsyncContinuation(request), { outcome: "busy" });
+  assert.equal(acceptedInput, request);
+
+  (service as unknown as { turnAcceptanceService: unknown }).turnAcceptanceService = {
+    async acceptTurn() {
+      return { outcome: "in_flight" };
+    }
+  };
+  assert.deepEqual(await service.streamAsyncContinuation(request), { outcome: "duplicate" });
 }
 
 function buildMinimalTurnExecutionService(runtimeAwaitToolService?: unknown): TurnExecutionService {

@@ -638,17 +638,9 @@ export class TurnExecutionService {
   async createAsyncContinuation(
     input: RuntimeTurnRequest
   ): Promise<RuntimeAsyncContinuationResult> {
-    if (
-      input.continuation === undefined ||
-      !Number.isInteger(input.continuation.depth) ||
-      input.continuation.depth < 1 ||
-      input.continuation.depth > 4 ||
-      !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-        input.continuation.sourceUserMessageId
-      ) ||
-      input.continuation.sourceClientTurnId !== input.idempotencyKey
-    ) {
-      return { outcome: "failed", code: "invalid_continuation" };
+    const invalid = this.validateAsyncContinuationRequest(input);
+    if (invalid !== null) {
+      return invalid;
     }
     this.assertSupportedTurnRequest(input, "createAsyncContinuation");
     const acceptedTurn = await this.turnAcceptanceService.acceptTurn(input);
@@ -687,6 +679,81 @@ export class TurnExecutionService {
       const failed = await this.failAcceptedTurnQuietly(acceptedTurn, error, undefined, turnState);
       return { outcome: "failed", code: failed.code };
     }
+  }
+
+  /**
+   * ADR-152 resumable web continuation: same acceptance/validation as
+   * `createAsyncContinuation`, same stream vocabulary as `streamTurn`.
+   * Early busy/duplicate/invalid stay typed outcomes (not HTTP throws) so the
+   * scheduler CAS path can requeue/fail without inventing a second protocol.
+   */
+  async streamAsyncContinuation(
+    input: RuntimeTurnRequest,
+    options?: { signal?: AbortSignal; traceEnabled?: boolean }
+  ): Promise<
+    | { outcome: "busy" | "duplicate" }
+    | { outcome: "failed"; code: string }
+    | { outcome: "stream"; events: AsyncGenerator<RuntimeTurnStreamEvent> }
+  > {
+    const invalid = this.validateAsyncContinuationRequest(input);
+    if (invalid !== null) {
+      return invalid;
+    }
+    this.assertSupportedTurnRequest(input, "streamAsyncContinuation");
+    const acceptedTurn = await this.turnAcceptanceService.acceptTurn(input);
+    if (acceptedTurn.outcome === "busy") return { outcome: "busy" };
+    if (acceptedTurn.outcome === "in_flight") return { outcome: "duplicate" };
+    if (acceptedTurn.outcome === "replayed") {
+      return {
+        outcome: "stream",
+        events: await this.replayStreamResult(acceptedTurn.receipt)
+      };
+    }
+    const trace = this.createRuntimeStreamTraceCollector();
+    trace.stage("accepted");
+    const execution = await this.prepareTurnExecution(input, {
+      allowModelToolExposure: true,
+      trace
+    });
+    const executionClass = this.classifyInteractiveExecutionClass(input, execution);
+    const turnState = this.createTurnExecutionState();
+    await this.initializeTurnDeliveryContext(turnState, input, execution.bundle);
+    this.applyPreparedTurnExecutionState(turnState, execution);
+    return {
+      outcome: "stream",
+      events: await this.runtimeExecutionAdmissionService.runStreamWithAdmission(
+        executionClass,
+        () => {
+          return this.streamAcceptedTurn(
+            acceptedTurn,
+            execution,
+            input,
+            turnState,
+            options?.signal,
+            trace,
+            options?.traceEnabled === true
+          );
+        }
+      )
+    };
+  }
+
+  private validateAsyncContinuationRequest(
+    input: RuntimeTurnRequest
+  ): { outcome: "failed"; code: "invalid_continuation" } | null {
+    if (
+      input.continuation === undefined ||
+      !Number.isInteger(input.continuation.depth) ||
+      input.continuation.depth < 1 ||
+      input.continuation.depth > 4 ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+        input.continuation.sourceUserMessageId
+      ) ||
+      input.continuation.sourceClientTurnId !== input.idempotencyKey
+    ) {
+      return { outcome: "failed", code: "invalid_continuation" };
+    }
+    return null;
   }
 
   async createBackgroundTaskToolRun(input: RuntimeTurnRequest): Promise<RuntimeTurnResult> {
@@ -2363,7 +2430,10 @@ export class TurnExecutionService {
         : [
             "## Async completion continuation",
             "This is a same-chat continuation after an asynchronous job reached a terminal state.",
-            "Use these volatile facts to answer naturally. Do not expose internal identifiers or claim that files are being delivered again.",
+            "Continue the prior task now and report the outcome to the user.",
+            "If facts.sandboxResult is present, treat exitCode/stdout/stderr/paths as the job result (same payload await wait would have returned) — summarize or quote them; do not invent numbers or claim the job is still running.",
+            "Do not ask the user to wait again for this job. Do not call await wait or await notify again for this same jobRef unless you start a new job.",
+            "Do not expose opaque jobRef identifiers or claim that files are being delivered again.",
             JSON.stringify(input.request.continuation.facts)
           ].join("\n");
     return this.createDeveloperInstructionSections([
@@ -3042,6 +3112,7 @@ export class TurnExecutionService {
       | "streamTurn"
       | "createBackgroundTaskToolRun"
       | "createAsyncContinuation"
+      | "streamAsyncContinuation"
   ): void {
     if (input.message.text.trim().length === 0) {
       throw new BadRequestException(

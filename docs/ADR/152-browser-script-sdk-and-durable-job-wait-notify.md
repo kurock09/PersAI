@@ -272,8 +272,49 @@ Before dispatch, the scheduler revalidates Assistant, workspace, user,
 plan/subscription entitlement, active chat, and channel binding. It dispatches
 only to the original chat; archived, deleted, or foreign targets fail closed.
 Passive SSE disconnect remains a soft detach. The continuation receives
-volatile structured completion facts, persists only assistant output, and does
-not manufacture a persisted user message or re-deliver files.
+volatile structured completion facts (including sandbox `sandboxResult` when
+present), persists only assistant output, and does not manufacture a persisted
+user message or re-deliver files.
+
+### Addendum — resumable web continuation (same chat)
+
+Founder-approved follow-through: web notify wake must use the **same resumable
+turn machinery** as ordinary web chat turns (ADR-149 soft-detach / reattach /
+`AssistantWebChatTurnAttempt` / `WebChatTurnStreamRegistry`). It is not a new
+stream protocol and not a third chat.
+
+Rules:
+
+1. **Same chat only.** Dispatch remains bound to the original `chatId` /
+   `threadKey`. D4.1 still opens a **new** assistant bubble (user may have
+   interleaved ordinary messages).
+2. **`continuationClientTurnId` is the web `clientTurnId`.** Before runtime
+   stream starts, API creates/claims an `AssistantWebChatTurnAttempt` with that
+   id, `markRunning` with the chat and **null** `userMessageId` (no new user
+   message row; avoids history-merge “already committed” heuristics keyed off
+   the source user), and registers the in-process stream registry + Stop
+   dispatch. Stop/abort finalizes interrupt; true post-accept ambiguity leaves
+   the handle dispatched for reconcile.
+3. **Runtime streams the continuation** (same event vocabulary as
+   `streamTurn`: delta / tool / tool_progress / completed / failed /
+   interrupted). Blocking JSON `createAsyncContinuation` remains for Telegram
+   and as a non-web fallback; web prefers the stream path.
+4. **Client reattach.** Working job projection exposes
+   `continuationClientTurnId` while notify is
+   `subscribed|ready|claimed|dispatched`. Web reattaches via existing
+   `GET …/turns/:clientTurnId/stream` — same as soft-detach resume. Async-cont
+   turns keep `liveUserMessageId` unbound so history poll cannot kill the live
+   bubble. History poll remains a safety net, not the primary live path.
+5. **Ordinary chat must not regress.** User-initiated POST stream turns keep
+   their existing prepare/claim/stream path unchanged. Session lease still
+   serializes user turns and continuations. Stop on a continuation
+   `clientTurnId` uses the same Stop endpoint.
+6. **Durable persist stays authoritative.** Scheduler CAS +
+   `persistOutputOnce` / attempt terminal write remain the reconnect truth if
+   the live registry is gone (other replica) or the client was offline.
+
+Out of scope for this addendum: auto-subscribe of every `background:true`,
+patching an old bubble, Telegram live seconds UI, new tables.
 
 After continuation output is durably persisted, the scheduler finalizes only
 child handles whose `sourceClientTurnId` equals that continuation's

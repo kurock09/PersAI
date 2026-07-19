@@ -1,8 +1,20 @@
 # SESSION-HANDOFF
 
+## 2026-07-19 — Notify resumable same-chat stream
+
+Status: **CLEAN + AGENTS/CI-like gate green; push SHA recorded after push.
+Deploy still open.** Baseline was `c404baa8`. ADR-152 addendum: web notify
+wake uses same-chat ADR-149 resumable turn (attempt + registry + reattach);
+Telegram keeps blocking execute; ordinary POST chat unchanged. Includes
+sandboxResult facts + prompt, audit P0/P1 repairs (null continuation
+userMessageId, Stop→interrupt, busy without failed toast). Independent
+re-audit CLEAN (P2 residuals only). Gate: recursive lint, format:check,
+api/web/runtime/sandbox typecheck, full `pnpm test`, `test:ci-detect-affected`,
+`test:step2`. Next after push: deploy → live smoke pure notify + BTC bg.
+
 ## 2026-07-19 — Stale sandbox Working/await + late chat bubbles + self-check crash
 
-Status: **Pushed `main` `b31adc71` (docs tip `fdd8f456`). Deploy still open.**
+Status: **Pushed `main` `b31adc71` (docs tip `c404baa8`). Deploy still open.**
 
 Founder live near «все по пизде пошло» (~23:06–23:09 UTC 2026-07-18):
 - `Router classifier failed … Provider gateway rejected … status 400`

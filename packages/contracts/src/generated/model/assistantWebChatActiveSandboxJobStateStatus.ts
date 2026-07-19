@@ -8,6 +8,7 @@
 export type AssistantWebChatActiveSandboxJobStateStatus =
   (typeof AssistantWebChatActiveSandboxJobStateStatus)[keyof typeof AssistantWebChatActiveSandboxJobStateStatus];
 
+// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AssistantWebChatActiveSandboxJobStateStatus = {
   queued: "queued",
   running: "running",

@@ -5,6 +5,21 @@
 
 ## 2026-07-19
 
+- **Feature (ADR-152 addendum): resumable web notify continuation + sandbox
+  facts (push SHA in handoff).** Web notify wake uses the same ADR-149
+  resumable turn path as ordinary chat: runtime `streamAsyncContinuation` +
+  `POST …/async-continuations/stream` (NDJSON; blocking JSON kept for
+  Telegram), API claims/registers `AssistantWebChatTurnAttempt` + stream
+  registry + Stop under `continuationClientTurnId`, publishes live
+  deltas/tools, then durable persist. Working jobs expose
+  `continuationClientTurnId` while notify is armed; web reattaches via
+  existing turn stream. Continuation facts include bounded `sandboxResult`;
+  async-completion prompt continues the prior task. Audit repairs: null
+  continuation `userMessageId`, Stop→interrupt (not Ambiguous swallow), busy
+  without failed toast, mid-stream attempt terminalize, unterminated
+  `failClaimVisibly`. Ordinary user POST chat unchanged. Independent re-audit
+  CLEAN; AGENTS + CI-like gate green before push. Deploy still open.
+
 - **Fix pushed to `main` (`b31adc71`): stale sandbox Working / await pending +
   late chat bubbles + self-check crash.** Detached `SandboxJob` rows stayed
   `pending` in await/Working until a rare scheduler inspect. `await

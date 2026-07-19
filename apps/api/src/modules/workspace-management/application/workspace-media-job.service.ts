@@ -352,15 +352,25 @@ export class AssistantMediaJobService {
         kind: "media",
         canonicalJobId: { in: rows.map((row) => row.id) }
       },
-      select: { canonicalJobId: true, state: true }
+      select: { canonicalJobId: true, state: true, continuationClientTurnId: true }
     });
-    const notifyStateByJobId = new Map(
-      handles.map((handle) => [handle.canonicalJobId, handle.state] as const)
+    const handleByJobId = new Map(
+      handles.map((handle) => [handle.canonicalJobId, handle] as const)
     );
     return rows.map((row) => {
       const requestedCount = extractRequestedCountFromRequestJson(row.requestJson);
-      const handleState = notifyStateByJobId.get(row.id);
+      const handle = handleByJobId.get(row.id);
+      const handleState = handle?.state;
       const openStatus = toWebOpenMediaJobStatus(row.status);
+      const continuationClientTurnId =
+        handle?.continuationClientTurnId !== null &&
+        handle?.continuationClientTurnId !== undefined &&
+        (handleState === "subscribed" ||
+          handleState === "ready" ||
+          handleState === "claimed" ||
+          handleState === "dispatched")
+          ? handle.continuationClientTurnId
+          : undefined;
       return {
         id: row.id,
         kind: row.kind,
@@ -376,7 +386,8 @@ export class AssistantMediaJobService {
         createdAt: row.createdAt.toISOString(),
         startedAt: row.startedAt?.toISOString() ?? null,
         updatedAt: row.updatedAt.toISOString(),
-        notifyState: toWebNotifyState(handleState)
+        notifyState: toWebNotifyState(handleState),
+        ...(continuationClientTurnId === undefined ? {} : { continuationClientTurnId })
       };
     });
   }

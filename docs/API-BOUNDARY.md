@@ -179,17 +179,26 @@ vision is perception-only for the next chat-model call. API message-persistence
 owners finalize with proof of persisted output; failed/Stopped turns release
 current-turn ownership.
 The runtime additionally exposes bearer-protected
-`POST /api/v1/internal/runtime/async-continuations`, which uses ordinary
-same-chat turn acceptance/session lease/receipt replay and returns typed
-completed/busy/duplicate/failed. Only the internal SchedulerLease-backed
-continuation worker calls it after canonical ownership/binding/entitlement
-revalidation; it persists output without a fake user message, then finalizes
-children keyed by that continuation client-turn id through the same in-process
-owner. The API client accepts only exact busy/duplicate, safe failed, or
-essential completed-result response shapes; malformed 2xx is ambiguous and
-remains dispatched. Its authenticated
-`/status` subroute proves the exact receipt and accepted-turn marker before an
-ambiguous dispatched handle may be requeued.
+`POST /api/v1/internal/runtime/async-continuations` (blocking JSON
+completed/busy/duplicate/failed for Telegram and fallback) and
+`POST /api/v1/internal/runtime/async-continuations/stream` (same early JSON
+outcomes, otherwise NDJSON `RuntimeTurnStreamEvent` vocabulary identical to
+`POST /api/v1/turns/stream`). Only the internal SchedulerLease-backed
+continuation worker calls these after canonical ownership/binding/entitlement
+revalidation. Web notify dispatch prefers the stream path plus an
+`AssistantWebChatTurnAttempt` / `WebChatTurnStreamRegistry` / Stop registration
+keyed by `continuationClientTurnId` (`async-cont:…`) so the browser reattaches
+via ordinary `GET /assistant/chat/web/turns/:clientTurnId/stream`; Working
+active-job projections expose that id while notify is
+`subscribed|ready|claimed|dispatched` (aligned with media/document/sandbox
+Working list projection). Continuation attempts `markRunning` with null
+`userMessageId`. It persists output without a fake user message, then
+finalizes children keyed by that continuation client-turn id.
+The API client accepts only exact busy/duplicate, safe failed, or essential
+completed-result response shapes for the blocking path; malformed 2xx is
+ambiguous and remains dispatched. Its authenticated `/status` subroute proves
+the exact receipt and accepted-turn marker before an ambiguous dispatched
+handle may be requeued.
 
 ### Native Tool Runtime instruction ownership
 

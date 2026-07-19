@@ -270,6 +270,8 @@ export interface AssistantWebChatActiveMediaJobState {
   startedAt: string | null;
   updatedAt: string;
   notifyState?: AssistantWebChatNotifyState;
+  /** ADR-152 — web reattach clientTurnId while notify continuation is armed. */
+  continuationClientTurnId?: string;
 }
 
 export type AssistantWebChatActiveDocumentJobStatus =
@@ -288,6 +290,8 @@ export interface AssistantWebChatActiveDocumentJobState {
   startedAt: string | null;
   updatedAt: string;
   notifyState?: AssistantWebChatNotifyState;
+  /** ADR-152 — web reattach clientTurnId while notify continuation is armed. */
+  continuationClientTurnId?: string;
 }
 
 export interface AssistantWebChatActiveSandboxJobState {
@@ -298,6 +302,8 @@ export interface AssistantWebChatActiveSandboxJobState {
   createdAt: string;
   startedAt: string | null;
   updatedAt: string;
+  /** ADR-152 — web reattach clientTurnId while notify continuation is armed. */
+  continuationClientTurnId?: string;
 }
 
 export interface AssistantWebChatCompactionState {

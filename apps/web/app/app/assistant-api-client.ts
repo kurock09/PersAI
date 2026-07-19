@@ -5168,6 +5168,7 @@ export type WebChatNotifyState =
 
 export type WebChatActiveMediaJobState = AssistantWebChatActiveMediaJobState & {
   notifyState?: WebChatNotifyState;
+  continuationClientTurnId?: string;
 };
 
 export type WebChatActiveDocumentJobState = {
@@ -5179,6 +5180,7 @@ export type WebChatActiveDocumentJobState = {
   startedAt: string | null;
   updatedAt: string;
   notifyState?: WebChatNotifyState;
+  continuationClientTurnId?: string;
 };
 
 export type WebChatActiveSandboxJobState = {
@@ -5189,6 +5191,7 @@ export type WebChatActiveSandboxJobState = {
   createdAt: string;
   startedAt: string | null;
   updatedAt: string;
+  continuationClientTurnId?: string;
 };
 
 export type WebChatTurnCurrentActivityState = {

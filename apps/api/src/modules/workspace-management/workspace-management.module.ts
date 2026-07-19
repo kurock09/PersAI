@@ -312,6 +312,7 @@ import { ResolveAssistantAsyncJobService } from "./application/resolve-assistant
 import { AssistantAsyncJobHandleStateService } from "./application/assistant-async-job-handle-state.service";
 import { AssistantAsyncJobContinuationSchedulerService } from "./application/assistant-async-job-continuation-scheduler.service";
 import { InternalRuntimeAsyncContinuationClientService } from "./application/internal-runtime-async-continuation.client.service";
+import { StreamWebAsyncContinuationService } from "./application/stream-web-async-continuation.service";
 import { CheckpointMediaJobAcceptedProviderTaskService } from "./application/checkpoint-media-job-accepted-provider-task.service";
 import { InternalRuntimeDocumentJobClientService } from "./application/internal-runtime-document-job.client.service";
 import { InternalRuntimeMediaJobClientService } from "./application/internal-runtime-media-job.client.service";
@@ -679,6 +680,7 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     ResolveAssistantAsyncJobService,
     AssistantAsyncJobHandleStateService,
     InternalRuntimeAsyncContinuationClientService,
+    StreamWebAsyncContinuationService,
     AssistantAsyncJobContinuationSchedulerService,
     CheckpointMediaJobAcceptedProviderTaskService,
     InternalRuntimeCompactionClientService,

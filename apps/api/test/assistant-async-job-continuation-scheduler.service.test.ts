@@ -340,6 +340,95 @@ describe("AssistantAsyncJobContinuationSchedulerService", () => {
     });
   }
 
+  test("loadAndValidateContext forwards sandboxResult into continuation facts for notify wake", async () => {
+    const sandboxResult = {
+      toolCode: "shell" as const,
+      exitCode: 0,
+      stdout: "BTC/USD 64788\n",
+      stderr: null,
+      paths: ["btc-samples.txt"]
+    };
+    const handle = {
+      id: "handle-sandbox-1",
+      state: "claimed",
+      threadKey: "thread-1",
+      continuationClientTurnId: "async-cont:sandbox-1",
+      sourceUserMessageId: "00000000-0000-4000-8000-000000000001",
+      continuationDepth: 0,
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      userId: "user-1",
+      chatId: "chat-1",
+      channel: "web" as const,
+      kind: "sandbox" as const,
+      jobRef: "jr1.sandbox.opaque",
+      canonicalJobId: "sandbox-job-1",
+      runtimeSessionId: "session-1",
+      chat: {
+        archivedAt: null,
+        assistantId: "assistant-1",
+        workspaceId: "workspace-1",
+        userId: "user-1",
+        surface: "web",
+        surfaceThreadKey: "thread-1"
+      },
+      assistant: {
+        workspaceId: "workspace-1",
+        userId: "user-1",
+        applyAppliedVersionId: "version-1"
+      }
+    };
+    const service = new AssistantAsyncJobContinuationSchedulerService(
+      {
+        assistantAsyncJobHandle: { findUnique: async () => handle },
+        runtimeSession: {
+          findFirst: async () => ({
+            id: "session-1",
+            assistantId: "assistant-1",
+            workspaceId: "workspace-1",
+            externalUserKey: "user-1",
+            mode: "direct"
+          })
+        },
+        assistantChatMessage: {
+          findFirst: async () => ({ id: "00000000-0000-4000-8000-000000000001" })
+        }
+      } as never,
+      {
+        readCanonicalTerminal: async () => ({
+          status: "completed",
+          errorCode: null,
+          message: "Sandbox job completed.",
+          sandboxResult
+        })
+      } as never,
+      {} as never,
+      {} as never,
+      { enforceInboundTurn: async () => undefined } as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      { findById: async () => handle.assistant } as never,
+      {} as never
+    );
+    const context = await (
+      service as unknown as {
+        loadAndValidateContext: (id: string) => Promise<{
+          facts: {
+            kind: string;
+            sandboxResult?: typeof sandboxResult;
+            jobRef?: string;
+          };
+        } | null>;
+      }
+    ).loadAndValidateContext(handle.id);
+    assert.ok(context !== null);
+    assert.equal(context.facts.kind, "sandbox");
+    assert.equal(context.facts.jobRef, "jr1.sandbox.opaque");
+    assert.deepEqual(context.facts.sandboxResult, sandboxResult);
+  });
+
   test("delivery-visible reconciler promotes subscribed media when attachment is visible", async () => {
     const completions: Array<Record<string, unknown>> = [];
     const service = new AssistantAsyncJobContinuationSchedulerService(

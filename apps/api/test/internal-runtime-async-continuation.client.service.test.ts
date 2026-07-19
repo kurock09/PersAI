@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, mock, test } from "node:test";
 import {
   AsyncContinuationDispatchAmbiguousError,
+  AsyncContinuationInterruptedError,
   InternalRuntimeAsyncContinuationClientService
 } from "../src/modules/workspace-management/application/internal-runtime-async-continuation.client.service";
 
@@ -45,6 +46,31 @@ describe("InternalRuntimeAsyncContinuationClientService", () => {
         error.message.includes("timed out")
     );
     assert.equal(signal?.aborted, true);
+  });
+
+  test("caller AbortSignal on stream throws InterruptedError not AmbiguousError", async () => {
+    const caller = new AbortController();
+    mock.method(globalThis, "fetch", async (_url, init) => {
+      const signal = init?.signal;
+      return new Promise<Response>((_resolve, reject) => {
+        signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")), {
+          once: true
+        });
+      });
+    });
+
+    const service = new InternalRuntimeAsyncContinuationClientService();
+    const streamPromise = service.stream({ requestId: "stream-abort-1" } as never, {
+      timeoutMs: 30_000,
+      signal: caller.signal
+    });
+    caller.abort();
+    await assert.rejects(
+      streamPromise,
+      (error: unknown) =>
+        error instanceof AsyncContinuationInterruptedError &&
+        error.message.includes("aborted by caller")
+    );
   });
 
   test("aborts a hung inspection at its deadline and returns the safe ambiguous fallback", async () => {

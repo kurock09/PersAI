@@ -1194,6 +1194,239 @@ describe("useChat", () => {
     vi.useRealTimers();
   });
 
+  it("reattaches the continuation clientTurnId when notify is claimed with continuationClientTurnId", async () => {
+    const continuationClientTurnId = "async-cont:handle-reattach-1";
+    assistantApiMocks.getChatMessages.mockResolvedValue({
+      nextCursor: null,
+      activeTurn: null,
+      activeSandboxJobs: [
+        {
+          jobRef: "jr1.sandbox.BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+          toolCode: "shell" as const,
+          status: "detached" as const,
+          notifyState: "claimed" as const,
+          continuationClientTurnId,
+          createdAt: "2026-07-19T01:00:01.000Z",
+          startedAt: "2026-07-19T01:00:01.000Z",
+          updatedAt: "2026-07-19T01:00:01.000Z"
+        }
+      ],
+      messages: [
+        {
+          id: "user-msg-1",
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          author: "user",
+          content: "run bg",
+          attachments: [],
+          createdAt: "2026-07-19T01:00:00.000Z"
+        }
+      ]
+    });
+    assistantApiMocks.getAssistantWebChatTurnStatus.mockResolvedValue({
+      status: "running",
+      chat: {
+        id: "chat-1",
+        assistantId: "assistant-1",
+        surface: "web",
+        surfaceThreadKey: "thread-1",
+        title: null,
+        chatMode: "normal",
+        deepModeEnabled: false,
+        skillDecisionState: null,
+        archivedAt: null,
+        lastMessageAt: null,
+        createdAt: "2026-07-19T00:00:00.000Z",
+        updatedAt: "2026-07-19T00:00:00.000Z"
+      },
+      // Server may still project a source user on older builds; client must ignore it.
+      userMessage: {
+        id: "user-msg-1",
+        chatId: "chat-1",
+        assistantId: "assistant-1",
+        author: "user",
+        content: "run bg",
+        attachments: [],
+        createdAt: "2026-07-19T01:00:00.000Z"
+      },
+      assistantMessage: null,
+      currentActivity: null,
+      runtime: null,
+      error: null
+    });
+
+    const { result } = renderHook(() => useChat("thread-1"), {
+      wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+    });
+
+    await act(async () => {
+      await result.current.loadHistory("chat-1");
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(assistantApiMocks.reattachAssistantWebChatTurnStream).toHaveBeenCalledWith(
+      "token-1",
+      continuationClientTurnId,
+      expect.any(Object),
+      expect.any(AbortSignal)
+    );
+    // Dedupe: effect re-runs must not storm reattach for the same clientTurnId.
+    const reattachCalls = assistantApiMocks.reattachAssistantWebChatTurnStream.mock.calls.filter(
+      (call) => call[1] === continuationClientTurnId
+    );
+    expect(reattachCalls.length).toBe(1);
+  });
+
+  it("keeps async-cont reattach live when history already has source user + prior assistant", async () => {
+    const continuationClientTurnId = "async-cont:handle-history-merge-1";
+    const historyPage = {
+      nextCursor: null,
+      activeTurn: null,
+      activeSandboxJobs: [
+        {
+          jobRef: "jr1.sandbox.CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+          toolCode: "shell" as const,
+          status: "detached" as const,
+          notifyState: "claimed" as const,
+          continuationClientTurnId,
+          createdAt: "2026-07-19T02:00:01.000Z",
+          startedAt: "2026-07-19T02:00:01.000Z",
+          updatedAt: "2026-07-19T02:00:01.000Z"
+        }
+      ],
+      messages: [
+        {
+          id: "user-msg-source",
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          author: "user" as const,
+          content: "run bg notify",
+          attachments: [],
+          createdAt: "2026-07-19T02:00:00.000Z"
+        },
+        {
+          id: "assistant-msg-prior",
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          author: "assistant" as const,
+          content: "subscribed — waiting",
+          attachments: [],
+          createdAt: "2026-07-19T02:00:00.500Z"
+        }
+      ]
+    };
+    assistantApiMocks.getChatMessages.mockResolvedValue(historyPage);
+    assistantApiMocks.getAssistantWebChatTurnStatus.mockResolvedValue({
+      status: "running",
+      chat: {
+        id: "chat-1",
+        assistantId: "assistant-1",
+        surface: "web",
+        surfaceThreadKey: "thread-1",
+        title: null,
+        chatMode: "normal",
+        deepModeEnabled: false,
+        skillDecisionState: null,
+        archivedAt: null,
+        lastMessageAt: null,
+        createdAt: "2026-07-19T00:00:00.000Z",
+        updatedAt: "2026-07-19T00:00:00.000Z"
+      },
+      // Legacy / mistaken projection of source user must not kill continuation.
+      userMessage: {
+        id: "user-msg-source",
+        chatId: "chat-1",
+        assistantId: "assistant-1",
+        author: "user",
+        content: "run bg notify",
+        attachments: [],
+        createdAt: "2026-07-19T02:00:00.000Z"
+      },
+      assistantMessage: null,
+      currentActivity: null,
+      runtime: null,
+      error: null
+    });
+
+    let resolveReattachHold: (() => void) | undefined;
+    const reattachHold = new Promise<void>((resolve) => {
+      resolveReattachHold = resolve;
+    });
+    assistantApiMocks.reattachAssistantWebChatTurnStream.mockImplementation(
+      async (
+        _token: string,
+        clientTurnId: string,
+        handlers: {
+          onHeadersOk?: () => void;
+          onTurnStatus?: (payload: { turn: unknown }) => void;
+          onDelta?: (payload: { delta: string }) => void;
+        }
+      ) => {
+        const turn = await assistantApiMocks.getAssistantWebChatTurnStatus("token-1", clientTurnId);
+        handlers.onHeadersOk?.();
+        handlers.onTurnStatus?.({ turn });
+        handlers.onDelta?.({ delta: "continuation live " });
+        await reattachHold;
+      }
+    );
+
+    vi.useFakeTimers();
+    const { result } = renderHook(() => useChat("thread-1"), {
+      wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+    });
+
+    await act(async () => {
+      await result.current.loadHistory("chat-1");
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(assistantApiMocks.reattachAssistantWebChatTurnStream).toHaveBeenCalledWith(
+      "token-1",
+      continuationClientTurnId,
+      expect.any(Object),
+      expect.any(AbortSignal)
+    );
+    expect(result.current.isStreaming).toBe(true);
+    expect(
+      result.current.messages.some(
+        (message) =>
+          message.role === "assistant" &&
+          message.status === "streaming" &&
+          message.content.includes("continuation live")
+      )
+    ).toBe(true);
+
+    // History poll while continuation is live must not treat prior assistant
+    // after source user as "already committed" and tear down the bubble.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000);
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(result.current.isStreaming).toBe(true);
+    expect(
+      result.current.messages.some(
+        (message) =>
+          message.role === "assistant" &&
+          message.status === "streaming" &&
+          message.content.includes("continuation live")
+      )
+    ).toBe(true);
+    expect(result.current.messages.map((message) => message.id)).toEqual(
+      expect.arrayContaining(["user-msg-source", "assistant-msg-prior"])
+    );
+
+    resolveReattachHold?.();
+    vi.useRealTimers();
+  });
+
   it("clears the local streaming bubble when focus history already contains the completed turn", async () => {
     Object.defineProperty(document, "visibilityState", {
       configurable: true,

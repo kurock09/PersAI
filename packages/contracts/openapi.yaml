@@ -14113,6 +14113,13 @@ components:
         updatedAt:
           type: string
           format: date-time
+        continuationClientTurnId:
+          type: string
+          description: >
+            ADR-152 — when notify continuation is armed
+            (`subscribed|ready|claimed|dispatched`), the deterministic web
+            `clientTurnId` (`async-cont:…`) for ADR-149 reattach. Omitted when
+            null or notify is idle/terminal.
     AssistantWebChatActiveDocumentJobState:
       type: object
       required:
@@ -14154,6 +14161,13 @@ components:
         updatedAt:
           type: string
           format: date-time
+        continuationClientTurnId:
+          type: string
+          description: >
+            ADR-152 — when notify continuation is armed
+            (`subscribed|ready|claimed|dispatched`), the deterministic web
+            `clientTurnId` (`async-cont:…`) for ADR-149 reattach. Omitted when
+            null or notify is idle/terminal.
     AssistantWebChatActiveSandboxJobState:
       type: object
       required:
@@ -14199,6 +14213,13 @@ components:
         updatedAt:
           type: string
           format: date-time
+        continuationClientTurnId:
+          type: string
+          description: >
+            ADR-152 — when notify continuation is armed
+            (`subscribed|ready|claimed|dispatched`), the deterministic web
+            `clientTurnId` (`async-cont:…`) for ADR-149 reattach. Omitted when
+            null or notify is idle/terminal.
     AssistantWebChatTurnStatusState:
       type: object
       required:

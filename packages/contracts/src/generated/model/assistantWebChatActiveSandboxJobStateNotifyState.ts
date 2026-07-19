@@ -8,6 +8,7 @@
 export type AssistantWebChatActiveSandboxJobStateNotifyState =
   (typeof AssistantWebChatActiveSandboxJobStateNotifyState)[keyof typeof AssistantWebChatActiveSandboxJobStateNotifyState];
 
+// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AssistantWebChatActiveSandboxJobStateNotifyState = {
   none: "none",
   subscribed: "subscribed",

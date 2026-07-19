@@ -254,7 +254,8 @@ export class WebChatTurnAttemptService {
     surfaceThreadKey: string;
     clientTurnId: string;
     chatId: string;
-    userMessageId: string;
+    /** Null for async continuations (no new user row; avoid history-merge heuristics). */
+    userMessageId: string | null;
     surfaceClient?: string | null;
   }): Promise<void> {
     await this.prisma.assistantWebChatTurnAttempt.update({
@@ -275,7 +276,49 @@ export class WebChatTurnAttemptService {
       }
     });
     this.logger.log(
-      `web_turn_attempt_running assistantId=${input.assistantId} threadKey=${input.surfaceThreadKey} clientTurnId=${input.clientTurnId} chatId=${input.chatId} userMessageId=${input.userMessageId}`
+      `web_turn_attempt_running assistantId=${input.assistantId} threadKey=${input.surfaceThreadKey} clientTurnId=${input.clientTurnId} chatId=${input.chatId} userMessageId=${input.userMessageId ?? "null"}`
+    );
+  }
+
+  /**
+   * ADR-152 — busy before acceptance must not leave the attempt `running`
+   * (duplicate_inflight) or terminal-failed (client toast). Reset to accepted
+   * so the scheduler reclaim can claim again after requeue.
+   */
+  async resetToAccepted(input: {
+    assistantId: string;
+    userId: string;
+    surfaceThreadKey: string;
+    clientTurnId: string;
+  }): Promise<void> {
+    const updated = await this.prisma.assistantWebChatTurnAttempt.updateMany({
+      where: {
+        assistantId: input.assistantId,
+        userId: input.userId,
+        surfaceThreadKey: input.surfaceThreadKey,
+        clientTurnId: input.clientTurnId,
+        status: { in: ["accepted", "running"] }
+      },
+      data: {
+        status: "accepted",
+        runningAt: null,
+        currentActivity: Prisma.DbNull,
+        errorCode: null,
+        errorMessage: null,
+        userMessageId: null,
+        assistantMessageId: null,
+        respondedAt: null,
+        terminalPayload: Prisma.DbNull
+      }
+    });
+    if (updated.count === 0) {
+      this.logger.log(
+        `web_turn_attempt_reset_accepted_ignored assistantId=${input.assistantId} threadKey=${input.surfaceThreadKey} clientTurnId=${input.clientTurnId} reason=already_terminal`
+      );
+      return;
+    }
+    this.logger.log(
+      `web_turn_attempt_reset_accepted assistantId=${input.assistantId} threadKey=${input.surfaceThreadKey} clientTurnId=${input.clientTurnId}`
     );
   }
 

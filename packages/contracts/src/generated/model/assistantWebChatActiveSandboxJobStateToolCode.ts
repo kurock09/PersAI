@@ -8,6 +8,7 @@
 export type AssistantWebChatActiveSandboxJobStateToolCode =
   (typeof AssistantWebChatActiveSandboxJobStateToolCode)[keyof typeof AssistantWebChatActiveSandboxJobStateToolCode];
 
+// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AssistantWebChatActiveSandboxJobStateToolCode = {
   shell: "shell",
   exec: "exec"

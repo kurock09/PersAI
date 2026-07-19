@@ -953,6 +953,25 @@ function jobHasActiveNotifyWait(notifyState: string | undefined): boolean {
     notifyState === "dispatched"
   );
 }
+
+/** ADR-152 — reattach only once notify has been claimed/dispatched with a clientTurnId. */
+function jobNeedsContinuationReattach(job: {
+  notifyState?: string | undefined;
+  continuationClientTurnId?: string | undefined;
+}): string | null {
+  if (job.notifyState !== "claimed" && job.notifyState !== "dispatched") {
+    return null;
+  }
+  const clientTurnId = job.continuationClientTurnId?.trim();
+  if (clientTurnId === undefined || clientTurnId.length === 0) {
+    return null;
+  }
+  return clientTurnId;
+}
+
+function isAsyncContinuationClientTurnId(clientTurnId: string): boolean {
+  return clientTurnId.startsWith("async-cont:");
+}
 function committedHistoryHasActiveTurnResult(
   loaded: ChatMessage[],
   activeTurn: WebChatActiveTurnState
@@ -992,6 +1011,15 @@ function committedHistoryHasActiveSnapshotResult(
 ): boolean {
   if (activeSnapshot === undefined) {
     return false;
+  }
+  // Async continuations have no new user row; prior assistants after a source
+  // user must not look like "this continuation already committed".
+  if (isAsyncContinuationClientTurnId(activeSnapshot.clientTurnId)) {
+    const liveAssistantId = activeSnapshot.liveAssistantMessageId;
+    return (
+      !isLocalScopedAssistantId(liveAssistantId) &&
+      loaded.some((message) => message.id === liveAssistantId)
+    );
   }
   const liveAssistantId = activeSnapshot.liveAssistantMessageId;
   if (
@@ -1142,10 +1170,12 @@ function mergeCommittedHistoryWithActiveTurn(input: {
     loaded[loaded.length - 1]?.role === "assistant" &&
     newLoadedUserMessages.length === 1 &&
     newLoadedAssistantMessages.length === 1;
+  // Continuations must not use user-tail "already committed" replace heuristics.
   const shouldReplaceActiveTurn =
-    loadedHasAssistantAfterActiveUser ||
-    loadedHasLiveAssistantId ||
-    loadedIntroducedCommittedTurnTail;
+    !isAsyncContinuationClientTurnId(activeSnapshot.clientTurnId) &&
+    (loadedHasAssistantAfterActiveUser ||
+      loadedHasLiveAssistantId ||
+      loadedIntroducedCommittedTurnTail);
   if (!shouldReplaceActiveTurn) {
     // Filter optimistic / transient ids out of `loaded` here too. The
     // snapshot's `liveUserMessageId` / `liveAssistantMessageId` are
@@ -1291,6 +1321,8 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
     new Map()
   );
   const historyRefreshInFlightByKeyRef = useRef<Map<string, Promise<boolean>>>(new Map());
+  /** ADR-152 — sticky dedupe so notify reattach does not storm when handler identity churns. */
+  const continuationReattachStartedRef = useRef<Set<string>>(new Set());
   const turnReattachInFlightByKeyRef = useRef<
     Map<string, Promise<"running" | "terminal" | "terminal_status" | "unknown">>
   >(new Map());
@@ -2059,10 +2091,17 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
               loaded[loaded.length - 1]?.role === "assistant" &&
               newLoadedUserMessages.length === 1 &&
               newLoadedAssistantMessages.length === 1;
-            if (loadedHasActiveUserMessage && loadedHasAssistantMessageAfterActiveUser) {
+            if (
+              !isAsyncContinuationClientTurnId(activeSnapshot.clientTurnId) &&
+              loadedHasActiveUserMessage &&
+              loadedHasAssistantMessageAfterActiveUser
+            ) {
               reconciledOptimisticTurn = true;
             }
-            if (loadedIntroducedCommittedTurnTail) {
+            if (
+              !isAsyncContinuationClientTurnId(activeSnapshot.clientTurnId) &&
+              loadedIntroducedCommittedTurnTail
+            ) {
               reconciledOptimisticTurn = true;
             }
           }
@@ -2082,10 +2121,14 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
               loaded[loaded.length - 1]?.role === "assistant" &&
               newServerUserMessages.length === 1 &&
               newServerAssistantMessages.length === 1;
+            const isAsyncContinuation =
+              activeSnapshot !== undefined &&
+              isAsyncContinuationClientTurnId(activeSnapshot.clientTurnId);
             const shouldReplaceActiveTurn =
-              (loadedHasActiveUserMessage && loadedHasAssistantMessageAfterActiveUser) ||
-              loadedIntroducedCommittedTurnTail ||
-              loadedIntroducedCommittedTurnTailFromPrev;
+              !isAsyncContinuation &&
+              ((loadedHasActiveUserMessage && loadedHasAssistantMessageAfterActiveUser) ||
+                loadedIntroducedCommittedTurnTail ||
+                loadedIntroducedCommittedTurnTailFromPrev);
             if (shouldReplaceActiveTurn) {
               reconciledOptimisticTurn = true;
             }
@@ -2115,23 +2158,46 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
             // While a live turn is still open, only absorb messages that sit
             // after the live user in the loaded page — never dump an unrelated
             // pagination window that omitted the live turn entirely.
+            // Async-cont has no live user row: absorb new committed assistants
+            // (not the live optimistic placeholder) so completion can land.
             let missingToAbsorb = missing;
             if (activeSnapshot !== undefined && !shouldReplaceActiveTurn) {
-              const liveUserIdForAbsorb = activeSnapshot.liveUserMessageId;
-              const liveUserIndexInLoaded =
-                liveUserIdForAbsorb !== null && !liveUserIdForAbsorb.startsWith("local-user-")
-                  ? loaded.findIndex((message) => message.id === liveUserIdForAbsorb)
-                  : -1;
-              if (liveUserIndexInLoaded >= 0) {
-                const afterLiveIds = new Set(
-                  loaded.slice(liveUserIndexInLoaded + 1).map((message) => message.id)
+              if (isAsyncContinuation) {
+                const liveAssistantId = activeSnapshot.liveAssistantMessageId;
+                missingToAbsorb = missing.filter(
+                  (message) =>
+                    message.role === "assistant" &&
+                    !isLocalScopedAssistantId(message.id) &&
+                    message.id !== liveAssistantId
                 );
-                missingToAbsorb = missing.filter((message) => afterLiveIds.has(message.id));
               } else {
-                missingToAbsorb = [];
+                const liveUserIdForAbsorb = activeSnapshot.liveUserMessageId;
+                const liveUserIndexInLoaded =
+                  liveUserIdForAbsorb !== null && !liveUserIdForAbsorb.startsWith("local-user-")
+                    ? loaded.findIndex((message) => message.id === liveUserIdForAbsorb)
+                    : -1;
+                if (liveUserIndexInLoaded >= 0) {
+                  const afterLiveIds = new Set(
+                    loaded.slice(liveUserIndexInLoaded + 1).map((message) => message.id)
+                  );
+                  missingToAbsorb = missing.filter((message) => afterLiveIds.has(message.id));
+                } else {
+                  missingToAbsorb = [];
+                }
               }
             }
-            const merged = sortChatMessagesChronologically([...next, ...missingToAbsorb]);
+            let merged = sortChatMessagesChronologically([...next, ...missingToAbsorb]);
+            if (
+              isAsyncContinuation &&
+              activeSnapshot !== undefined &&
+              missingToAbsorb.some((message) => message.role === "assistant")
+            ) {
+              // Committed continuation bubble landed — drop the optimistic live placeholder.
+              const liveAssistantId = activeSnapshot.liveAssistantMessageId;
+              if (isLocalScopedAssistantId(liveAssistantId)) {
+                merged = merged.filter((message) => message.id !== liveAssistantId);
+              }
+            }
             if (activeSnapshot !== undefined) {
               const activeLiveTurnIds = new Set<string>(
                 [activeSnapshot.liveUserMessageId, activeSnapshot.liveAssistantMessageId].filter(
@@ -2139,9 +2205,12 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                 )
               );
               const loadedIds = new Set(loaded.map((message) => message.id));
+              const keepLiveOptimistic =
+                !isAsyncContinuation ||
+                !missingToAbsorb.some((message) => message.role === "assistant");
               return merged.filter(
                 (message) =>
-                  activeLiveTurnIds.has(message.id) ||
+                  (keepLiveOptimistic && activeLiveTurnIds.has(message.id)) ||
                   !currentBaseMessageIds.has(message.id) ||
                   loadedIds.has(message.id)
               );
@@ -2225,7 +2294,12 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
       clientTurnId: string,
       status: WebChatTurnStatusState
     ): "running" | "terminal" | "terminal_status" | "unknown" => {
-      const userMessage = status.userMessage ? toCommittedChatMessage(status.userMessage) : null;
+      const isAsyncContinuation = isAsyncContinuationClientTurnId(clientTurnId);
+      // Continuations must not bind a prior source user into live-turn identity.
+      const userMessage =
+        isAsyncContinuation || status.userMessage === null || status.userMessage === undefined
+          ? null
+          : toCommittedChatMessage(status.userMessage);
       const rawAssistantMessage = status.assistantMessage
         ? toCommittedChatMessage(status.assistantMessage)
         : null;
@@ -2243,7 +2317,13 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
         ? toCommittedChatMessage(status.followUpAssistantMessage)
         : null;
       if (status.status === "accepted" || status.status === "running") {
-        if (userMessage === null && targetThreadKey !== WELCOME_THREAD_KEY) {
+        // Continuations have no new user row (server markRunning userMessageId=null).
+        // Do not require a user message for live heuristics.
+        if (
+          userMessage === null &&
+          !isAsyncContinuation &&
+          targetThreadKey !== WELCOME_THREAD_KEY
+        ) {
           return "unknown";
         }
         // Resolve the LIVE assistant by `liveAssistantMessageId`, not by
@@ -2405,7 +2485,9 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
         const nextSnapshot = {
           clientTurnId,
           messages: nextMessages,
-          liveUserMessageId: userMessage?.id ?? existingSnapshot?.liveUserMessageId ?? null,
+          liveUserMessageId: isAsyncContinuation
+            ? null
+            : (userMessage?.id ?? existingSnapshot?.liveUserMessageId ?? null),
           liveAssistantMessageId: liveAssistantMessage.id,
           liveActivitiesByMessageId: nextLiveActivities,
           shadowRoutingLabelsByMessageId: existingSnapshot?.shadowRoutingLabelsByMessageId ?? {},
@@ -5156,6 +5238,60 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
     isStreaming,
     refreshLatestHistory
   ]);
+  // ADR-152 — when notify is claimed/dispatched, reattach the continuation
+  // clientTurnId through the ordinary ADR-149 turn stream (live bubble).
+  // Sticky Set + in-flight map prevent storms when startTurnReattach identity
+  // churns after applyTurnStatusState updates messages.
+  const startTurnReattachRef = useRef(startTurnReattach);
+  startTurnReattachRef.current = startTurnReattach;
+  const finalizeReconciledDetachedTurnRef = useRef(finalizeReconciledDetachedTurn);
+  finalizeReconciledDetachedTurnRef.current = finalizeReconciledDetachedTurn;
+  useEffect(() => {
+    const clientTurnIds = new Set<string>();
+    for (const job of activeMediaJobs) {
+      const id = jobNeedsContinuationReattach(job);
+      if (id !== null) clientTurnIds.add(id);
+    }
+    for (const job of activeDocumentJobs) {
+      const id = jobNeedsContinuationReattach(job);
+      if (id !== null) clientTurnIds.add(id);
+    }
+    for (const job of activeSandboxJobs) {
+      const id = jobNeedsContinuationReattach(job);
+      if (id !== null) clientTurnIds.add(id);
+    }
+    for (const startedId of continuationReattachStartedRef.current) {
+      // Clear sticky when job leaves claimed|dispatched (or loses clientTurnId).
+      if (!clientTurnIds.has(startedId)) {
+        continuationReattachStartedRef.current.delete(startedId);
+      }
+    }
+    if (clientTurnIds.size === 0) {
+      return;
+    }
+    const targetThreadKey = currentThreadKeyRef.current;
+    for (const clientTurnId of clientTurnIds) {
+      if (continuationReattachStartedRef.current.has(clientTurnId)) {
+        continue;
+      }
+      continuationReattachStartedRef.current.add(clientTurnId);
+      void startTurnReattachRef.current(targetThreadKey, clientTurnId).then((result) => {
+        if (result === "terminal" || result === "terminal_status") {
+          continuationReattachStartedRef.current.delete(clientTurnId);
+          const snapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
+          if (snapshot?.clientTurnId === clientTurnId) {
+            finalizeReconciledDetachedTurnRef.current(targetThreadKey);
+          }
+          return;
+        }
+        // Allow retry after false-terminal / failed-to-start; keep sticky while
+        // running to avoid reattach storms.
+        if (result !== "running") {
+          continuationReattachStartedRef.current.delete(clientTurnId);
+        }
+      });
+    }
+  }, [activeDocumentJobs, activeMediaJobs, activeSandboxJobs]);
   // Drop phantom "thinking" / blinking-cursor placeholders. If a streaming
   // assistant message has empty content AND there's a NEWER assistant
   // message below it, the older one is stale (background turn already

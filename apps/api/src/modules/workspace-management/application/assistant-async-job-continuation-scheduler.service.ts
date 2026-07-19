@@ -36,6 +36,7 @@ import { ResolveAssistantRuntimeTierService } from "./resolve-assistant-runtime-
 import { LEASE_HEARTBEAT_INTERVAL_MS } from "./scheduler-lease.constants";
 import { SchedulerLeaseService } from "./scheduler-lease.service";
 import { SandboxControlPlaneClientService } from "./sandbox-control-plane.client.service";
+import { StreamWebAsyncContinuationService } from "./stream-web-async-continuation.service";
 import { TelegramAssistantChatOutboundService } from "./telegram-assistant-chat-outbound.service";
 
 const SCHEDULER_KEY = "assistant_async_job_continuation";
@@ -69,7 +70,9 @@ export class AssistantAsyncJobContinuationSchedulerService
     @Inject(ASSISTANT_MATERIALIZED_SPEC_REPOSITORY)
     private readonly materializedSpecs: AssistantMaterializedSpecRepository,
     @Optional()
-    private readonly sandboxControlPlane?: SandboxControlPlaneClientService
+    private readonly sandboxControlPlane?: SandboxControlPlaneClientService,
+    @Optional()
+    private readonly streamWebAsyncContinuation?: StreamWebAsyncContinuationService
   ) {}
 
   onModuleInit(): void {
@@ -218,6 +221,43 @@ export class AssistantAsyncJobContinuationSchedulerService
         dispatchExpiresAt: new Date(Date.now() + dispatch.timeoutMs + DISPATCH_DEADLINE_GRACE_MS)
       });
       if (!marked) return;
+      // Web prefers the resumable ADR-149 stream path; Telegram (and unit
+      // tests without the stream helper) keep blocking execute.
+      if (context.handle.channel === "web" && this.streamWebAsyncContinuation !== undefined) {
+        await this.streamWebAsyncContinuation.processWebClaim({
+          claim,
+          context: {
+            handle: {
+              id: context.handle.id,
+              assistantId: context.handle.assistantId,
+              workspaceId: context.handle.workspaceId,
+              userId: context.handle.userId,
+              chatId: context.handle.chatId,
+              channel: context.handle.channel,
+              threadKey: context.handle.threadKey,
+              continuationClientTurnId: context.handle.continuationClientTurnId,
+              sourceUserMessageId: context.handle.sourceUserMessageId,
+              retryCount: context.handle.retryCount
+            },
+            sourceUserMessage: context.sourceUserMessage
+          },
+          request: dispatch.request,
+          timeoutMs: dispatch.timeoutMs,
+          callbacks: {
+            persistOutputOnce: (c, ctx, result) => this.persistOutputOnce(c, ctx as never, result),
+            finalizeContinuationChildren: (ctx, outcome, assistantMessageId) =>
+              this.finalizeContinuationChildren(ctx as never, outcome, assistantMessageId),
+            deliverContinuationArtifactsOnce: (c, ctx, assistantMessageId, result) =>
+              this.deliverContinuationArtifactsOnce(c, ctx as never, assistantMessageId, result),
+            failClaimVisibly: (c, error) => this.failClaimVisibly(c, error),
+            requeueBusyNotStarted: (value) => this.handleState.requeueBusyNotStarted(value),
+            completeClaim: (c) => this.handleState.completeClaim(c),
+            deliveryAttemptsSettled: (c, channel) => this.deliveryAttemptsSettled(c, channel),
+            retryAt: (retryCount) => this.retryAt(retryCount)
+          }
+        });
+        return;
+      }
       let outcome;
       try {
         outcome = await this.runtimeClient.execute(dispatch.request, {
@@ -354,12 +394,16 @@ export class AssistantAsyncJobContinuationSchedulerService
       select: { id: true }
     });
     if (sourceUserMessage === null) return null;
+    // Include sandboxResult (stdout/stderr/exitCode/paths) so notify wake has the
+    // same job outcome await wait would have returned inline. Without it the model
+    // only sees "Sandbox job completed." and invents / stalls.
     const facts = {
       kind: handle.kind,
       status: terminal.status,
       errorCode: terminal.errorCode,
       message: terminal.message,
-      jobRef: handle.jobRef
+      jobRef: handle.jobRef,
+      ...(terminal.sandboxResult !== null ? { sandboxResult: terminal.sandboxResult } : {})
     };
     return { handle, session, sourceUserMessage, facts };
   }

@@ -189,7 +189,8 @@ export class AssistantAsyncJobHandleStateService {
         state: true,
         createdAt: true,
         updatedAt: true,
-        canonicalJobId: true
+        canonicalJobId: true,
+        continuationClientTurnId: true
       }
     });
     // Detached SandboxJob rows stay pending in DB until sandbox poll/inspect
@@ -225,6 +226,14 @@ export class AssistantAsyncJobHandleStateService {
         job.status === "queued" || job.status === "running" || job.status === "detached"
           ? job.status
           : "detached";
+      const continuationClientTurnId =
+        row.continuationClientTurnId !== null &&
+        (row.state === "subscribed" ||
+          row.state === "ready" ||
+          row.state === "claimed" ||
+          row.state === "dispatched")
+          ? row.continuationClientTurnId
+          : undefined;
       return [
         {
           jobRef: row.jobRef,
@@ -233,7 +242,8 @@ export class AssistantAsyncJobHandleStateService {
           notifyState: toWebNotifyState(row.state),
           createdAt: row.createdAt.toISOString(),
           startedAt: job.startedAt?.toISOString() ?? null,
-          updatedAt: row.updatedAt.toISOString()
+          updatedAt: row.updatedAt.toISOString(),
+          ...(continuationClientTurnId === undefined ? {} : { continuationClientTurnId })
         }
       ];
     });

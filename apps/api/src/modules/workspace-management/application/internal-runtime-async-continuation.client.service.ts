@@ -3,7 +3,8 @@ import { loadApiConfig } from "@persai/config";
 import type {
   RuntimeAsyncContinuationResult,
   RuntimeTurnRequest,
-  RuntimeTurnResult
+  RuntimeTurnResult,
+  RuntimeTurnStreamEvent
 } from "@persai/runtime-contract";
 
 export class AsyncContinuationDispatchAmbiguousError extends ServiceUnavailableException {
@@ -12,6 +13,18 @@ export class AsyncContinuationDispatchAmbiguousError extends ServiceUnavailableE
     this.name = "AsyncContinuationDispatchAmbiguousError";
   }
 }
+
+/** Caller AbortSignal (Stop / cancel) — not post-accept connection ambiguity. */
+export class AsyncContinuationInterruptedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "AsyncContinuationInterruptedError";
+  }
+}
+
+export type RuntimeAsyncContinuationStreamStart =
+  | { mode: "outcome"; result: RuntimeAsyncContinuationResult }
+  | { mode: "events"; events: AsyncGenerator<RuntimeTurnStreamEvent> };
 
 @Injectable()
 export class InternalRuntimeAsyncContinuationClientService {
@@ -63,6 +76,185 @@ export class InternalRuntimeAsyncContinuationClientService {
     } finally {
       clearTimeout(timer);
     }
+  }
+
+  /**
+   * ADR-152 web notify continuation stream. Early busy/duplicate/invalid stay
+   * JSON outcomes; accepted work is NDJSON `RuntimeTurnStreamEvent` lines.
+   * Wall-clock timeout covers both connect and full stream consumption.
+   */
+  async stream(
+    input: RuntimeTurnRequest,
+    options: { timeoutMs: number; signal?: AbortSignal }
+  ): Promise<RuntimeAsyncContinuationStreamStart> {
+    const config = loadApiConfig(process.env);
+    const baseUrl = config.PERSAI_RUNTIME_BASE_URL?.trim();
+    const token = config.PERSAI_INTERNAL_API_TOKEN?.trim();
+    if (!baseUrl || !token) {
+      throw new ServiceUnavailableException("Async continuation runtime is not configured.");
+    }
+    const controller = new AbortController();
+    const onExternalAbort = (): void => controller.abort();
+    options.signal?.addEventListener("abort", onExternalAbort);
+    if (options.signal?.aborted) {
+      controller.abort();
+    }
+    const timer = setTimeout(() => controller.abort(), Math.max(1, options.timeoutMs));
+    const disposeConnectGuards = (): void => {
+      clearTimeout(timer);
+      options.signal?.removeEventListener("abort", onExternalAbort);
+    };
+    try {
+      const response = await fetch(
+        new URL("/api/v1/internal/runtime/async-continuations/stream", baseUrl).toString(),
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+            Accept: "application/x-ndjson, application/json"
+          },
+          body: JSON.stringify(input),
+          signal: controller.signal
+        }
+      );
+      if (!response.ok) {
+        disposeConnectGuards();
+        throw new AsyncContinuationDispatchAmbiguousError(
+          "Runtime continuation stream response was not authoritative."
+        );
+      }
+      const contentType = response.headers.get("content-type") ?? "";
+      if (contentType.includes("application/json") && !contentType.includes("ndjson")) {
+        try {
+          const body = await response.json().catch(() => null);
+          const parsed = this.parseExecuteResponse(body);
+          if (parsed === null) {
+            throw new AsyncContinuationDispatchAmbiguousError(
+              "Runtime continuation stream returned a malformed JSON outcome."
+            );
+          }
+          return { mode: "outcome", result: parsed };
+        } finally {
+          disposeConnectGuards();
+        }
+      }
+      if (response.body === null) {
+        disposeConnectGuards();
+        throw new AsyncContinuationDispatchAmbiguousError(
+          "Runtime continuation stream returned an empty body."
+        );
+      }
+      // Keep wall-clock + external abort active for the full NDJSON lifetime.
+      return {
+        mode: "events",
+        events: this.readNdjsonEvents(response, {
+          signal: controller.signal,
+          isCallerAborted: () => options.signal?.aborted === true,
+          onDone: disposeConnectGuards
+        })
+      };
+    } catch (error) {
+      disposeConnectGuards();
+      if (error instanceof AsyncContinuationDispatchAmbiguousError) throw error;
+      if (error instanceof AsyncContinuationInterruptedError) throw error;
+      if (options.signal?.aborted) {
+        throw new AsyncContinuationInterruptedError(
+          "Runtime continuation stream aborted by caller."
+        );
+      }
+      throw new AsyncContinuationDispatchAmbiguousError(
+        controller.signal.aborted
+          ? "Runtime continuation stream timed out after acceptance became possible."
+          : "Runtime continuation stream connection failed after acceptance became possible."
+      );
+    }
+  }
+
+  private async *readNdjsonEvents(
+    response: Response,
+    options: {
+      signal: AbortSignal;
+      isCallerAborted: () => boolean;
+      onDone: () => void;
+    }
+  ): AsyncGenerator<RuntimeTurnStreamEvent> {
+    const { signal, isCallerAborted, onDone } = options;
+    const reader = response.body!.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    const abortListener = (): void => {
+      void reader.cancel().catch(() => undefined);
+    };
+    signal.addEventListener("abort", abortListener);
+    try {
+      while (true) {
+        if (signal.aborted) {
+          if (isCallerAborted()) {
+            throw new AsyncContinuationInterruptedError(
+              "Runtime continuation stream aborted by caller."
+            );
+          }
+          throw new AsyncContinuationDispatchAmbiguousError(
+            "Runtime continuation stream timed out after acceptance became possible."
+          );
+        }
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        while (true) {
+          const newlineIndex = buffer.indexOf("\n");
+          if (newlineIndex === -1) break;
+          const line = buffer.slice(0, newlineIndex).trim();
+          buffer = buffer.slice(newlineIndex + 1);
+          if (line.length === 0) continue;
+          yield this.parseStreamEventLine(line);
+        }
+      }
+      buffer += decoder.decode();
+      const tail = buffer.trim();
+      if (tail.length > 0) {
+        yield this.parseStreamEventLine(tail);
+      }
+    } catch (error) {
+      if (
+        error instanceof AsyncContinuationDispatchAmbiguousError ||
+        error instanceof AsyncContinuationInterruptedError
+      ) {
+        throw error;
+      }
+      if (isCallerAborted()) {
+        throw new AsyncContinuationInterruptedError(
+          "Runtime continuation stream aborted by caller."
+        );
+      }
+      throw error;
+    } finally {
+      signal.removeEventListener("abort", abortListener);
+      reader.releaseLock();
+      onDone();
+    }
+  }
+
+  private parseStreamEventLine(line: string): RuntimeTurnStreamEvent {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(line);
+    } catch {
+      throw new AsyncContinuationDispatchAmbiguousError(
+        "Runtime continuation stream returned malformed NDJSON."
+      );
+    }
+    if (
+      typeof parsed !== "object" ||
+      parsed === null ||
+      typeof (parsed as { type?: unknown }).type !== "string"
+    ) {
+      throw new AsyncContinuationDispatchAmbiguousError(
+        "Runtime continuation stream event missing type."
+      );
+    }
+    return parsed as RuntimeTurnStreamEvent;
   }
 
   private parseExecuteResponse(value: unknown): RuntimeAsyncContinuationResult | null {

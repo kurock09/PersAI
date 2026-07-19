@@ -18,4 +18,7 @@ export interface AssistantWebChatActiveSandboxJobState {
   /** @nullable */
   startedAt: string | null;
   updatedAt: string;
+  /** ADR-152 — when notify continuation is armed (`subscribed|ready|claimed|dispatched`), the deterministic web `clientTurnId` (`async-cont:…`) for ADR-149 reattach. Omitted when null or notify is idle/terminal.
+   */
+  continuationClientTurnId?: string;
 }
