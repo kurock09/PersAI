@@ -5,12 +5,14 @@
 
 ## 2026-07-20
 
-- **Web UI (local):** restored only the founder-requested Working pill visual
-  refinements from the pre-ADR-159 stash: separate centered 44×44 chevron cap,
-  larger mobile resting dots with count above, vertically centered desktop
-  chip content, and overlay-safe clickable controls. The canonical ADR-159
-  Working projection and interaction behavior are unchanged. Focused chat
-  input coverage, web typecheck/lint, format check, and diff check pass.
+- **Web UI (deployed and accepted):** restored only the founder-requested
+  Working pill visual refinements from the pre-ADR-159 stash: separate centered
+  44×44 chevron cap, larger mobile resting dots with count above, vertically
+  centered desktop chip content, and overlay-safe clickable controls. The
+  canonical ADR-159 Working projection and interaction behavior are unchanged.
+  Release `8cb96de8` / GitOps pin `486b90a0` is `Synced/Healthy` at exact web
+  image 2/2. Focused and full web tests (1064), typecheck/lint, formatting,
+  GitHub CI, and live browser DOM/geometry acceptance pass.
 
 ## 2026-07-19
 

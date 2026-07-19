@@ -1,17 +1,23 @@
 # SESSION-HANDOFF
 
-## 2026-07-20 — Working pill visual refinement local
+## 2026-07-20 — Working pill visual refinement deployed
 
-Status: **Local only; not committed, pushed, deployed, or live-accepted.**
-Baseline `bb1c5611`. Restored only the founder-requested Working pill UI from
-the isolated stash diff: a separate centered 44×44 chevron cap, larger mobile
-resting dots with muted count above, vertically centered desktop chip content,
-and overlay-safe clickable controls. The canonical ADR-159 Working projection,
-resting → compact → expanded progression, idle/outside collapse, and
-accessibility remain unchanged; no stashed API, runtime, or `use-chat` logic
-was restored. Focused chat-input test (30/30), web typecheck, web lint,
-format check, and `git diff --check` pass. Next: parent audit and commit with
-the ongoing ADR-159 work.
+Status: **Deployed and web-live-accepted.** Release `8cb96de8`; GitOps pin
+`486b90a0`; Argo `Synced/Healthy`; web exact image
+`8cb96de86aca80c9532c1f0012725d935f90aea1` at 2/2 replicas. Restored only the
+founder-requested Working pill UI from the isolated stash diff: a separate
+centered 44×44 chevron cap, larger mobile resting dots with muted count above,
+vertically centered desktop chip content, and overlay-safe clickable controls.
+The canonical ADR-159 Working projection, resting → compact → expanded
+progression, idle/outside collapse, and accessibility remain unchanged; no
+stashed API, runtime, or `use-chat` logic was restored. Focused chat-input test
+(30/30), full web tests (1064), web typecheck/lint, format check, diff check,
+and GitHub CI pass. Live browser inspection confirmed the deployed resting
+pill is 44px high, desktop width is 120px, and the requested classes for
+`pointer-events-auto`, `z-20`, centered desktop content, large mobile dots,
+and count-above layout are present. The first sandbox smoke returned a
+transient 500; one retry created the job and exposed the deployed Working
+control correctly.
 
 ## 2026-07-20 — live web continuation discovery deployed and accepted
 
