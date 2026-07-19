@@ -324,7 +324,7 @@ web:
       maxSurge: 1
   image:
     name: web
-    tag: 687876a75c1adc3923baf4cb5326953baea64214
+    tag: 8cb96de86aca80c9532c1f0012725d935f90aea1
     pullPolicy: IfNotPresent
   env:
     NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_live_Y2xlcmsucGVyc2FpLmRldiQ
