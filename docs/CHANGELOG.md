@@ -5,17 +5,18 @@
 
 ## 2026-07-19
 
-- **Fix: ADR-158 stream hardening + async-cont post-complete duplicate.**
-  Bus: tenant stream key `${assistantId}:${userId}:${clientTurnId}`;
-  fail-closed register; queued `releaseAsync` + always short-grace; soft-detach
-  / continuation TTL touch; append null-retry; orphan Redis probe fail →
-  treat active. Web: sticky clear on SSE death; finalize demote; one stream
-  owner; activity chips without latest-assistant fallback; A→B→A scoped
-  snapshot key. Universal `async-cont:*` (notify and background job wakes):
-  `turn_status completed` with null `assistantMessage` no longer demotes
-  local then history-appends a twin — defer teardown and drop all
-  `local-assistant-*` when absorbing the server row. Three independent
-  re-audits CLEAN.
+- **Fix pushed to `main` (`e1ce2424`): ADR-158 stream hardening + async-cont
+  post-complete duplicate.** Bus: tenant stream key
+  `${assistantId}:${userId}:${clientTurnId}`; fail-closed register; queued
+  `releaseAsync` + always short-grace; soft-detach / continuation TTL touch;
+  append null-retry; orphan Redis probe fail → treat active. Web: sticky
+  clear on SSE death; finalize demote; one stream owner; activity chips
+  without latest-assistant fallback; A→B→A scoped snapshot key. Universal
+  `async-cont:*` (notify and background job wakes): `turn_status completed`
+  with null `assistantMessage` no longer demotes local then history-appends
+  a twin — defer teardown and drop all `local-assistant-*` when absorbing
+  the server row. Three independent re-audits CLEAN; AGENTS + CI-like gate
+  green before push. Deploy/live multi-replica smoke still open.
 
 - **Feature pushed to `main` (`e94cf26e`): ADR-158 durable multi-pod web turn
   stream bus + client status cleanup.** Replaces process-local-only live SSE

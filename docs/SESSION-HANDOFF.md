@@ -2,9 +2,9 @@
 
 ## 2026-07-19 — ADR-158 stream hardening + async-cont duplicate fix
 
-Status: **Pushing to `main`.** Baseline `14bdf424`. Bundles prior local P0
-bus + web UX hardening with a founder-reported post-stream full duplicate
-(gone on F5).
+Status: **Pushed `main` `e1ce2424`.** Baseline was `14bdf424` (rebased over
+gitops pin `b851d65e`). Bundles prior local P0 bus + web UX hardening with a
+founder-reported post-stream full duplicate (gone on F5).
 
 Duplicate root cause (universal `async-cont:*` — notify **and** background
 job completions): `turn_status completed` with null `assistantMessage`
