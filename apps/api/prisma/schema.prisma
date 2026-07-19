@@ -2254,13 +2254,21 @@ model AssistantChat {
   archivedAt                  DateTime?                         @map("archived_at") @db.Timestamptz(6)
   lastMessageAt               DateTime?                         @map("last_message_at") @db.Timestamptz(6)
   lastCrossSessionCarryOverAt DateTime?                         @map("last_cross_session_carry_over_at") @db.Timestamptz(6)
-  /// ADR-159 S2 — stamped when a USER_TURN begins (TG inbound after user
-  /// message; web markRunning for ordinary turns). Open window = started
+  /// ADR-159 S2/Slice 1 — stamped when a USER_TURN begins (TG inbound after
+  /// user message; web ordinary turns immediately after chat resolution and
+  /// before user-message persistence). Web ownership transfers to the attempt
+  /// only after markRunning succeeds. Open window = started
   /// without terminal, or started after last terminal (preparing/running).
   lastUserTurnStartedAt       DateTime?                         @map("last_user_turn_started_at") @db.Timestamptz(6)
   /// ADR-159 S2 — stamped when a USER_TURN becomes terminal; catch-up waits
   /// CATCHUP_IDLE_PAUSE_MS after this before claiming the per-chat lock.
   lastUserTurnTerminalAt      DateTime?                         @map("last_user_turn_terminal_at") @db.Timestamptz(6)
+  /// ADR-159 Slice 1 repair — durable compare-and-set mutation used as the
+  /// USER_TURN/JOB_CATCHUP admission linearization boundary.
+  catchUpAdmissionFence       Int                               @default(0) @map("catch_up_admission_fence")
+  /// ADR-159 Slice 1 repair — durable round-robin recency for bounded
+  /// cross-chat catch-up scans.
+  catchUpLastScannedAt        DateTime?                         @map("catch_up_last_scanned_at") @db.Timestamptz(6)
   createdAt                   DateTime                          @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt                   DateTime                          @updatedAt @map("updated_at") @db.Timestamptz(6)
   assistant                   Assistant                         @relation(fields: [assistantId, userId], references: [id, userId], onDelete: Restrict, onUpdate: Cascade)

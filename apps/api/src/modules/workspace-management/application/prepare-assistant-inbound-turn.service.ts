@@ -1,4 +1,4 @@
-import { Inject, Injectable, NotFoundException } from "@nestjs/common";
+import { Inject, Injectable, NotFoundException, Optional } from "@nestjs/common";
 import {
   ASSISTANT_CHAT_REPOSITORY,
   type AssistantChatRepository
@@ -35,6 +35,7 @@ import {
   isElevatedAssistantChatMode,
   normalizeAssistantChatModeForPaidLightMode
 } from "../domain/assistant-chat.entity";
+import { ChatWakeCoordinator } from "./chat-wake-coordinator.service";
 
 export interface PrepareAssistantInboundTurnInput {
   userId: string;
@@ -63,6 +64,10 @@ export interface PreparedAssistantInboundTurn {
   userId: string;
   workspaceId: string;
   workspaceTimezone: string;
+  userTurnAdmission: {
+    closeRequired: boolean;
+    closed: boolean;
+  };
 }
 
 @Injectable()
@@ -79,7 +84,8 @@ export class PrepareAssistantInboundTurnService {
     private readonly resolveAssistantInboundRuntimeContextService: ResolveAssistantInboundRuntimeContextService,
     private readonly mergeStagedWebChatAttachmentsService: MergeStagedWebChatAttachmentsService,
     @Inject(ASSISTANT_CHAT_MESSAGE_ATTACHMENT_REPOSITORY)
-    private readonly attachmentRepository: AssistantChatMessageAttachmentRepository
+    private readonly attachmentRepository: AssistantChatMessageAttachmentRepository,
+    @Optional() private readonly chatWakeCoordinator?: ChatWakeCoordinator
   ) {}
 
   async execute(input: PrepareAssistantInboundTurnInput): Promise<PreparedAssistantInboundTurn> {
@@ -176,106 +182,149 @@ export class PrepareAssistantInboundTurnService {
             deepModeEnabled: requestedDeepModeEnabled ?? false
           });
 
-    if (input.surface === "web_chat") {
-      await this.deleteStaleWebRuntimeThreadState({
-        assistantId: assistant.id,
-        surfaceThreadKey: chat.surfaceThreadKey,
-        chatCreatedAt: chat.createdAt
-      });
+    const userTurnAdmission =
+      input.surface === "web_chat" ? this.requireChatWakeCoordinator(chat.id) : null;
+    if (userTurnAdmission !== null) {
+      await userTurnAdmission.admitUserTurn(chat.id);
     }
 
-    await this.enforceMessagesPerChatLimit({ assistant, chatId: chat.id });
+    try {
+      if (input.surface === "web_chat") {
+        await this.deleteStaleWebRuntimeThreadState({
+          assistantId: assistant.id,
+          surfaceThreadKey: chat.surfaceThreadKey,
+          chatCreatedAt: chat.createdAt
+        });
+      }
 
-    const userMessage = await this.assistantChatRepository.createMessage({
-      chatId: chat.id,
-      assistantId: assistant.id,
-      author: "user",
-      content: input.message
-    });
+      await this.enforceMessagesPerChatLimit({ assistant, chatId: chat.id });
 
-    if (input.surface === "web_chat") {
-      await this.mergeStagedWebChatAttachmentsService.mergeIntoUserMessage({
+      const userMessage = await this.assistantChatRepository.createMessage({
         chatId: chat.id,
         assistantId: assistant.id,
-        userMessageId: userMessage.id,
-        userMessageCreatedAt: userMessage.createdAt,
-        clientTurnId: input.clientTurnId ?? null
+        author: "user",
+        content: input.message
       });
-    }
 
-    const userAttachments = await this.attachmentRepository.listByMessageId(userMessage.id);
-    const attachmentStates: AssistantWebChatMessageAttachmentState[] = userAttachments.map((a) => {
-      const metadata =
-        a.metadata !== null && typeof a.metadata === "object" && !Array.isArray(a.metadata)
-          ? (a.metadata as Record<string, unknown>)
-          : null;
-      return toAssistantWebChatMessageAttachmentState({
-        id: a.id,
-        storagePath: a.storagePath,
-        attachmentType: a.attachmentType,
-        originalFilename: a.originalFilename,
-        mimeType: a.mimeType,
-        sizeBytes: a.sizeBytes,
-        processingStatus: a.processingStatus,
-        metadata,
-        createdAt: a.createdAt
-      });
-    });
+      if (input.surface === "web_chat") {
+        await this.mergeStagedWebChatAttachmentsService.mergeIntoUserMessage({
+          chatId: chat.id,
+          assistantId: assistant.id,
+          userMessageId: userMessage.id,
+          userMessageCreatedAt: userMessage.createdAt,
+          clientTurnId: input.clientTurnId ?? null
+        });
+      }
 
-    const activeWebChatsCurrent =
-      await this.assistantChatRepository.countActiveChatsByAssistantIdAndSurface(
-        assistant.id,
-        "web"
+      const userAttachments = await this.attachmentRepository.listByMessageId(userMessage.id);
+      const attachmentStates: AssistantWebChatMessageAttachmentState[] = userAttachments.map(
+        (a) => {
+          const metadata =
+            a.metadata !== null && typeof a.metadata === "object" && !Array.isArray(a.metadata)
+              ? (a.metadata as Record<string, unknown>)
+              : null;
+          return toAssistantWebChatMessageAttachmentState({
+            id: a.id,
+            storagePath: a.storagePath,
+            attachmentType: a.attachmentType,
+            originalFilename: a.originalFilename,
+            mimeType: a.mimeType,
+            sizeBytes: a.sizeBytes,
+            processingStatus: a.processingStatus,
+            metadata,
+            createdAt: a.createdAt
+          });
+        }
       );
-    await this.trackWorkspaceQuotaUsageService.refreshActiveWebChatsUsage({
-      assistant,
-      activeWebChatsCurrent,
-      source: "web_chat_turn_prepare"
-    });
-    const workspace = await this.prisma.workspace.findUnique({
-      where: { id: assistant.workspaceId },
-      select: { timezone: true }
-    });
-    if (workspace === null) {
-      throw new NotFoundException("Workspace does not exist for this assistant.");
-    }
 
-    return {
-      chat: {
-        id: chat.id,
-        assistantId: chat.assistantId,
-        surface: chat.surface,
-        surfaceThreadKey: chat.surfaceThreadKey,
-        title: chat.title,
-        chatMode: chat.chatMode,
-        deepModeEnabled: chat.deepModeEnabled,
-        skillDecisionState: chat.skillDecisionState,
-        archivedAt: chat.archivedAt?.toISOString() ?? null,
-        lastMessageAt: chat.lastMessageAt?.toISOString() ?? null,
-        createdAt: chat.createdAt.toISOString(),
-        updatedAt: chat.updatedAt.toISOString()
-      },
-      userMessage: {
-        id: userMessage.id,
-        chatId: userMessage.chatId,
-        assistantId: userMessage.assistantId,
-        author: userMessage.author,
-        content: userMessage.content,
-        attachments: attachmentStates,
-        createdAt: userMessage.createdAt.toISOString()
-      },
-      assistant,
-      assistantId: assistant.id,
-      publishedVersionId: resolved.publishedVersionId,
-      runtimeTier: resolved.runtimeTier,
-      quotaDegradeModelOverride:
-        quotaDecision.mode === "degrade_allowed" ? resolved.quotaDegradeModelOverride : null,
-      quotaDegradeReason: quotaDecision.mode === "degrade_allowed" ? quotaDecision.reason : null,
-      welcomeFirstTurnPrompt: resolved.welcomeFirstTurnPrompt,
-      userId: assistant.userId,
-      workspaceId: assistant.workspaceId,
-      workspaceTimezone: workspace.timezone
-    };
+      const activeWebChatsCurrent =
+        await this.assistantChatRepository.countActiveChatsByAssistantIdAndSurface(
+          assistant.id,
+          "web"
+        );
+      await this.trackWorkspaceQuotaUsageService.refreshActiveWebChatsUsage({
+        assistant,
+        activeWebChatsCurrent,
+        source: "web_chat_turn_prepare"
+      });
+      const workspace = await this.prisma.workspace.findUnique({
+        where: { id: assistant.workspaceId },
+        select: { timezone: true }
+      });
+      if (workspace === null) {
+        throw new NotFoundException("Workspace does not exist for this assistant.");
+      }
+
+      return {
+        chat: {
+          id: chat.id,
+          assistantId: chat.assistantId,
+          surface: chat.surface,
+          surfaceThreadKey: chat.surfaceThreadKey,
+          title: chat.title,
+          chatMode: chat.chatMode,
+          deepModeEnabled: chat.deepModeEnabled,
+          skillDecisionState: chat.skillDecisionState,
+          archivedAt: chat.archivedAt?.toISOString() ?? null,
+          lastMessageAt: chat.lastMessageAt?.toISOString() ?? null,
+          createdAt: chat.createdAt.toISOString(),
+          updatedAt: chat.updatedAt.toISOString()
+        },
+        userMessage: {
+          id: userMessage.id,
+          chatId: userMessage.chatId,
+          assistantId: userMessage.assistantId,
+          author: userMessage.author,
+          content: userMessage.content,
+          attachments: attachmentStates,
+          createdAt: userMessage.createdAt.toISOString()
+        },
+        assistant,
+        assistantId: assistant.id,
+        publishedVersionId: resolved.publishedVersionId,
+        runtimeTier: resolved.runtimeTier,
+        quotaDegradeModelOverride:
+          quotaDecision.mode === "degrade_allowed" ? resolved.quotaDegradeModelOverride : null,
+        quotaDegradeReason: quotaDecision.mode === "degrade_allowed" ? quotaDecision.reason : null,
+        welcomeFirstTurnPrompt: resolved.welcomeFirstTurnPrompt,
+        userId: assistant.userId,
+        workspaceId: assistant.workspaceId,
+        workspaceTimezone: workspace.timezone,
+        userTurnAdmission: {
+          closeRequired: input.surface === "web_chat",
+          closed: false
+        }
+      };
+    } catch (error) {
+      if (userTurnAdmission !== null) {
+        await userTurnAdmission.abandonUserTurnAdmission(chat.id);
+      }
+      throw error;
+    }
+  }
+
+  private requireChatWakeCoordinator(chatId: string): ChatWakeCoordinator {
+    if (this.chatWakeCoordinator === undefined) {
+      throw new Error(`USER_TURN admission coordinator is unavailable for chat ${chatId}.`);
+    }
+    return this.chatWakeCoordinator;
+  }
+
+  async closePreparedUserTurnAdmission(prepared: PreparedAssistantInboundTurn): Promise<void> {
+    if (!prepared.userTurnAdmission.closeRequired || prepared.userTurnAdmission.closed) {
+      return;
+    }
+    await this.requireChatWakeCoordinator(prepared.chat.id).abandonUserTurnAdmission(
+      prepared.chat.id
+    );
+    prepared.userTurnAdmission.closed = true;
+  }
+
+  transferPreparedUserTurnAdmissionToAttempt(prepared: PreparedAssistantInboundTurn): void {
+    if (!prepared.userTurnAdmission.closeRequired || prepared.userTurnAdmission.closed) {
+      throw new Error("USER_TURN admission cannot transfer after closure or prior transfer.");
+    }
+    prepared.userTurnAdmission.closeRequired = false;
   }
 
   private async reserveWebChatUnderCap(params: {

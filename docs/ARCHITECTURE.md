@@ -77,7 +77,9 @@ ADR-109 and ADR-111 add one bounded HeyGen-backed product seam inside the active
   wake is a **new** continuation bubble (user may interleave). **ADR-159**
   owns wake **dispatch**: per-chat serial `ChatWakeCoordinator`
   (`USER_TURN` > `JOB_CATCHUP`, idle-pause, ready FIFO) — not lease-race
-  parallel wakes. Each dispatched turn admits 20 replay-deduped waits. No
+  parallel wakes. Working projections contain only canonical nonterminal
+  media/document/sandbox jobs; terminal continuation facts remain history,
+  not active animation/status. Each dispatched turn admits 20 replay-deduped waits. No
   runtime Prisma access or parallel job registry is introduced.
 
 ### Provider plane
@@ -244,10 +246,14 @@ registry or mega-transaction is introduced. F0–F5 run with no intermediate
 deploy; rollout is migration → API → runtime → sandbox → web and reverses on
 rollback.
 
-**ADR-159 Session Work Queue (S4 local 2026-07-19; S5 open):** Cursor-like
+**ADR-159 Session Work Queue (Slices 1–3 CLEAN/GO local 2026-07-19; S5 shipping pending):** Cursor-like
 per-chat serial agent execution. `ChatWakeCoordinator` admits at most one
 active agent turn per chat; `USER_TURN` always beats `JOB_CATCHUP` (durable
-`last_user_turn_started_at` open window covers TG preparing); after durable
+`last_user_turn_started_at` open window covers Telegram preparing and every
+web chat admission after chat resolution but before user-message persistence);
+a conditional
+chat-row `catch_up_admission_fence` update is the durable USER_TURN vs
+JOB_CATCHUP admission boundary (not the runtime lease); after durable
 user idle-pause (`assistant_chats.last_user_turn_terminal_at`), ready
 subscribed handles dispatch FIFO with structured `wakeKind=job_catchup`
 markers. Design: exclusive per-chat catch-up lock +
@@ -266,72 +272,73 @@ locally. A SchedulerLease-backed API worker now validates and claims ready
 handle rows, dispatches through the ordinary runtime session lease/receipt seam,
 persists one Assistant output, and conservatively reconciles stale work.
 **Wake dispatch serialization is superseded by ADR-159** (`ChatWakeCoordinator`
-+ per-chat catch-up lock + ready FIFO; no parked-accepted busy strategy). Web
-notify continuation prefers the resumable ADR-149 stream path (turn attempt +
-ADR-158 durable turn-stream bus + Stop + client reattach on
-`continuationClientTurnId`, with null attempt `userMessageId` so history merge
-does not treat the source-user prior assistant as already-committed); Telegram
-keeps blocking JSON dispatch. **ADR-158:** live web SSE catch-up
-(`delta`/`tool`/…) is an ephemeral Redis (or single-process memory) bus on the
-same coordination URL family as Stop; any API pod can replay+subscribe, while
-Postgres turn-attempt rows stay status authority and soft-detach still does not
-Stop. Sticky/absorb **wake** crutches purged in ADR-159 S4 (stream bus remains). The
-same `assistant_async_job_handles` row now owns source-finalization, narration,
-depth, claim/dispatch/receipt/retry, and terminal state. Both media and document
-delivery paths consult that decision before legacy framing while preserving
-their existing attachment-first file ownership. Audit repairs distinguish
-typed busy-before-acceptance from ambiguous dispatch, use a full-turn dispatch
-deadline, require runtime receipt/in-flight absence proof before requeue, and
-CAS-own Telegram/artifact attempts before external calls. Original
-user-message UUID and continuation client-turn identity remain separate through
-child-job enqueue/depth inheritance. Row depth names the creating turn;
-scheduler depth is `rowDepth + 1`. Persisted continuation output finalizes only
-children keyed by its client-turn id, with receipt/message reconciliation for
-lost completion. Internal runtime responses are strictly validated before
-scheduler dereference. Checkpoint 2 received a final CLEAN independent re-audit.
-Checkpoint 3 adds only the bounded Script browser SDK. Script browser
-capability is exactly `{browser:{actions:["snapshot","act"]}}`: a required
-structured profile input reaches the existing `RuntimeBrowserToolService`, API
-local bridge, and exact user device with existing affinity, observer lock,
-abort, policy/quota, progress, and telemetry. It has no headless fallback,
-browser list/login/open-live/user-action SDK methods, or Script-visible bridge
-credentials/identifiers. A narrow job-scoped TTL Redis broker extends live-exec
-stdin/stdout framing; it is not a second browser runtime, permits one
-outstanding request/job, and fails an active Script closed on loss/restart.
-The broker transport does not automatically persist or log browser request or
-response payloads. A Script may deliberately copy useful SDK-derived data into
-its authored output, which remains ordinary persisted `SandboxJob` output;
-preventing that would require out-of-scope content inspection/redaction and is
-an explicit founder/audit wording residual.
-The capability-authorized wrapper reserves inherited FDs over the existing
-Kubernetes exec stream, leaving entry diagnostics and the final Script result
-marker separate. Runtime registers an unguessable TTL consumer before submit;
-sandbox Redis relays strict envelopes and removes all broker routing credentials
-before returning SDK responses. Ordinary Scripts retain the buffered exec path
-and do not depend on broker Redis. A bearer-protected, read-only exact terminal
-replay lookup checks assistant, server-derived invocation identity, immutable
-Script version/content hash, and canonical input hash before broker
-registration; only terminal persisted output can bypass live broker readiness,
-while new execution still fails closed unless its subscriber is ready.
-Checkpoint 3 is committed at `a0d9d368` after a first independent DIRTY audit,
-code repairs, and a founder-directed re-audit that closed residual docs P2. It
-is not deployed or live-accepted. Checkpoint 4 adds Admin Scripts UI and MCP
-`script_version_upsert` authoring for the exact optional manifest capability
-`{browser:{actions:["snapshot","act"]}}` (or omit); when present, draft
-`inputSchema` must declare required string `profile` (the model supplies the
-value at `script.execute`). Checkpoint 4 authoring passed a final CLEAN status
-re-check after a first DIRTY docs-only audit and repairs. It is not deployed
-or live-accepted. Checkpoint 5 repairs enforce Helm/Argo migration `PreSync`
-wave `-1` → API wave `0` → API readiness-contract Sync hook wave `1` →
-runtime wave `2`, plus a rollback-surviving protocol barrier: new runtime
-calls only versioned `v1` internal media/document enqueue and async-handle
-status/subscribe routes. Old API has no `v1` routes, so API-first rollback
-rejects before controller side effects; new runtime has no unversioned
-fallback. The retained unversioned API routes serve old runtimes only. Real
-Nest HTTP tests prove legacy/v1 binding, bearer denial, and v2 no-effect
-failure. Final independent Terra and Sonnet re-audits and the parent full
-repository gate are CLEAN. Push, deploy, and founder live acceptance remain
-pending.
+
+- per-chat catch-up lock + ready FIFO; no parked-accepted busy strategy). Web
+  notify continuation prefers the resumable ADR-149 stream path (turn attempt +
+  ADR-158 durable turn-stream bus + Stop + client reattach on
+  `continuationClientTurnId`, with null attempt `userMessageId` so history merge
+  does not treat the source-user prior assistant as already-committed); Telegram
+  keeps blocking JSON dispatch. **ADR-158:** live web SSE catch-up
+  (`delta`/`tool`/…) is an ephemeral Redis (or single-process memory) bus on the
+  same coordination URL family as Stop; any API pod can replay+subscribe, while
+  Postgres turn-attempt rows stay status authority and soft-detach still does not
+  Stop. Sticky/absorb **wake** crutches purged in ADR-159 S4 (stream bus remains). The
+  same `assistant_async_job_handles` row now owns source-finalization, narration,
+  depth, claim/dispatch/receipt/retry, and terminal state. Both media and document
+  delivery paths consult that decision before legacy framing while preserving
+  their existing attachment-first file ownership. Audit repairs distinguish
+  typed busy-before-acceptance from ambiguous dispatch, use a full-turn dispatch
+  deadline, require runtime receipt/in-flight absence proof before requeue, and
+  CAS-own Telegram/artifact attempts before external calls. Original
+  user-message UUID and continuation client-turn identity remain separate through
+  child-job enqueue/depth inheritance. Row depth names the creating turn;
+  scheduler depth is `rowDepth + 1`. Persisted continuation output finalizes only
+  children keyed by its client-turn id, with receipt/message reconciliation for
+  lost completion. Internal runtime responses are strictly validated before
+  scheduler dereference. Checkpoint 2 received a final CLEAN independent re-audit.
+  Checkpoint 3 adds only the bounded Script browser SDK. Script browser
+  capability is exactly `{browser:{actions:["snapshot","act"]}}`: a required
+  structured profile input reaches the existing `RuntimeBrowserToolService`, API
+  local bridge, and exact user device with existing affinity, observer lock,
+  abort, policy/quota, progress, and telemetry. It has no headless fallback,
+  browser list/login/open-live/user-action SDK methods, or Script-visible bridge
+  credentials/identifiers. A narrow job-scoped TTL Redis broker extends live-exec
+  stdin/stdout framing; it is not a second browser runtime, permits one
+  outstanding request/job, and fails an active Script closed on loss/restart.
+  The broker transport does not automatically persist or log browser request or
+  response payloads. A Script may deliberately copy useful SDK-derived data into
+  its authored output, which remains ordinary persisted `SandboxJob` output;
+  preventing that would require out-of-scope content inspection/redaction and is
+  an explicit founder/audit wording residual.
+  The capability-authorized wrapper reserves inherited FDs over the existing
+  Kubernetes exec stream, leaving entry diagnostics and the final Script result
+  marker separate. Runtime registers an unguessable TTL consumer before submit;
+  sandbox Redis relays strict envelopes and removes all broker routing credentials
+  before returning SDK responses. Ordinary Scripts retain the buffered exec path
+  and do not depend on broker Redis. A bearer-protected, read-only exact terminal
+  replay lookup checks assistant, server-derived invocation identity, immutable
+  Script version/content hash, and canonical input hash before broker
+  registration; only terminal persisted output can bypass live broker readiness,
+  while new execution still fails closed unless its subscriber is ready.
+  Checkpoint 3 is committed at `a0d9d368` after a first independent DIRTY audit,
+  code repairs, and a founder-directed re-audit that closed residual docs P2. It
+  is not deployed or live-accepted. Checkpoint 4 adds Admin Scripts UI and MCP
+  `script_version_upsert` authoring for the exact optional manifest capability
+  `{browser:{actions:["snapshot","act"]}}` (or omit); when present, draft
+  `inputSchema` must declare required string `profile` (the model supplies the
+  value at `script.execute`). Checkpoint 4 authoring passed a final CLEAN status
+  re-check after a first DIRTY docs-only audit and repairs. It is not deployed
+  or live-accepted. Checkpoint 5 repairs enforce Helm/Argo migration `PreSync`
+  wave `-1` → API wave `0` → API readiness-contract Sync hook wave `1` →
+  runtime wave `2`, plus a rollback-surviving protocol barrier: new runtime
+  calls only versioned `v1` internal media/document enqueue and async-handle
+  status/subscribe routes. Old API has no `v1` routes, so API-first rollback
+  rejects before controller side effects; new runtime has no unversioned
+  fallback. The retained unversioned API routes serve old runtimes only. Real
+  Nest HTTP tests prove legacy/v1 binding, bearer denial, and v2 no-effect
+  failure. Final independent Terra and Sonnet re-audits and the parent full
+  repository gate are CLEAN. Push, deploy, and founder live acceptance remain
+  pending.
 
 The universal model-visible `await` tool observes owned canonical
 media/document/**sandbox** jobs through opaque server-minted `jr1` handles

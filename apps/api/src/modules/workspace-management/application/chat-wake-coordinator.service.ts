@@ -13,6 +13,8 @@ const CATCHUP_LOCK_PREFIX = "async-catchup:";
  * Tunable once; keep in the founder ~1–3s band.
  */
 export const CATCHUP_IDLE_PAUSE_MS = 2_000;
+const CATCHUP_CANDIDATE_PAGE_SIZE = 32;
+const CATCHUP_CANDIDATE_SCAN_CAP = 256;
 
 export type CatchUpClaim = {
   id: string;
@@ -30,6 +32,11 @@ type CatchUpCandidate = {
   assistantId: string;
   userId: string;
   surfaceThreadKey: string | null;
+};
+type ScannedCatchUpCandidate = CatchUpCandidate & {
+  readyAt: Date | null;
+  scanAt: Date | null;
+  headId: string;
 };
 
 /**
@@ -66,10 +73,11 @@ export class ChatWakeCoordinator {
    */
   async claimReadyCatchUps(input: { limit: number; claimTtlMs: number }): Promise<CatchUpClaim[]> {
     const limit = Math.max(1, Math.floor(input.limit));
-    const candidates = await this.listCatchUpEligibleChats(limit * 2);
+    const candidates = await this.listCatchUpEligibleChats(limit);
     const claimed: CatchUpClaim[] = [];
     for (const candidate of candidates) {
       if (claimed.length >= limit) break;
+      await this.recordCatchUpScan(candidate.chatId);
       const preGate = await this.evaluateCatchUpGate(candidate);
       if (!preGate.allowed) {
         this.logger.log(
@@ -117,30 +125,36 @@ export class ChatWakeCoordinator {
   }
 
   /**
-   * Stamp durable USER_TURN open-window origin (preparing/running). Must not
-   * be called for async_continuation. Terminal stamp is separate; leave
-   * started_at for idle-pause comparison (started > terminal = open).
+   * USER_TURN and JOB_CATCHUP serialize on the same chat row. A committed
+   * user-side update wins over a later catch-up CAS; a catch-up whose CAS
+   * committed first is already admitted and cannot be preempted retroactively.
    */
-  async recordUserTurnStarted(chatId: string, at: Date = new Date()): Promise<void> {
+  async admitUserTurn(chatId: string, at: Date = new Date()): Promise<void> {
     if (
       typeof (this.prisma.assistantChat as { update?: unknown }).update !== "function" ||
       typeof chatId !== "string" ||
       chatId.length === 0
     ) {
-      return;
+      throw new Error("USER_TURN admission requires assistant_chats persistence.");
     }
-    try {
-      await this.prisma.assistantChat.update({
-        where: { id: chatId },
-        data: { lastUserTurnStartedAt: at }
-      });
-    } catch (error) {
-      this.logger.warn(
-        `chat_wake_record_user_started_failed chatId=${chatId}: ${
-          error instanceof Error ? error.message : String(error)
-        }`
-      );
+    await this.prisma.assistantChat.update({
+      where: { id: chatId },
+      data: { lastUserTurnStartedAt: at }
+    });
+  }
+
+  async abandonUserTurnAdmission(chatId: string, at: Date = new Date()): Promise<void> {
+    if (
+      typeof (this.prisma.assistantChat as { update?: unknown }).update !== "function" ||
+      typeof chatId !== "string" ||
+      chatId.length === 0
+    ) {
+      throw new Error("USER_TURN admission close requires assistant_chats persistence.");
     }
+    await this.prisma.assistantChat.update({
+      where: { id: chatId },
+      data: { lastUserTurnTerminalAt: at }
+    });
   }
 
   /**
@@ -183,29 +197,115 @@ export class ChatWakeCoordinator {
     return { allowed: true };
   }
 
+  /**
+   * The successful UPDATE is the durable admission linearization boundary:
+   * USER_TURNs whose preparing stamp commits first make its predicate fail;
+   * a USER_TURN that begins after this CAS cannot preempt an already-admitted
+   * catch-up. Runtime's session lease remains an execution guard only.
+   */
+  async admitCatchUpAtBoundary(input: CatchUpCandidate): Promise<CatchUpGateResult> {
+    const gate = await this.evaluateCatchUpGate(input);
+    if (!gate.allowed) return gate;
+    const updated = await this.prisma.$executeRaw`
+      UPDATE "assistant_chats"
+      SET "catch_up_admission_fence" = "catch_up_admission_fence" + 1,
+          "updated_at" = NOW()
+      WHERE "id" = ${input.chatId}::uuid
+        AND (
+          "last_user_turn_started_at" IS NULL
+          OR (
+            "last_user_turn_terminal_at" IS NOT NULL
+            AND "last_user_turn_started_at" <= "last_user_turn_terminal_at"
+          )
+        )
+        AND (
+          "last_user_turn_terminal_at" IS NULL
+          OR "last_user_turn_terminal_at" <= NOW() - (${CATCHUP_IDLE_PAUSE_MS} * INTERVAL '1 millisecond')
+        )
+    `;
+    return updated === 1 ? { allowed: true } : { allowed: false, reason: "user_turn_active" };
+  }
+
+  private async recordCatchUpScan(chatId: string, at: Date = new Date()): Promise<void> {
+    if (typeof (this.prisma.assistantChat as { update?: unknown }).update !== "function") {
+      return;
+    }
+    await this.prisma.assistantChat.update({
+      where: { id: chatId },
+      data: { catchUpLastScannedAt: at }
+    });
+  }
+
   private async listCatchUpEligibleChats(limit: number): Promise<CatchUpCandidate[]> {
     if (typeof (this.prisma as { $queryRaw?: unknown }).$queryRaw !== "function") {
       return [];
     }
-    return this.prisma.$queryRaw<CatchUpCandidate[]>`
-      SELECT "chatId", "assistantId", "userId", "surfaceThreadKey"
+    const wanted = Math.max(1, Math.floor(limit));
+    const scanCap = Math.max(
+      CATCHUP_CANDIDATE_PAGE_SIZE,
+      Math.min(CATCHUP_CANDIDATE_SCAN_CAP, wanted * 8)
+    );
+    const candidates: CatchUpCandidate[] = [];
+    const seenChatIds = new Set<string>();
+    let scanned = 0;
+    let cursorScanAt: Date | null = null;
+    let cursorReadyAt: Date | null = null;
+    let cursorChatId: string | null = null;
+    let cursorHeadId: string | null = null;
+    while (scanned < scanCap) {
+      const pageSize = Math.min(CATCHUP_CANDIDATE_PAGE_SIZE, scanCap - scanned);
+      const page: ScannedCatchUpCandidate[] = await this.prisma.$queryRaw<
+        ScannedCatchUpCandidate[]
+      >`
+      SELECT "chatId", "assistantId", "userId", "surfaceThreadKey", "readyAt", "scanAt", "headId"
       FROM (
         SELECT DISTINCT ON ("chat_id")
           "chat_id" AS "chatId",
           "assistant_id" AS "assistantId",
           "user_id" AS "userId",
           "thread_key" AS "surfaceThreadKey",
-          "ready_at" AS "readyAt"
+          "ready_at" AS "readyAt",
+          c."catch_up_last_scanned_at" AS "scanAt",
+          "id" AS "headId"
         FROM "assistant_async_job_handles"
+        INNER JOIN "assistant_chats" c ON c."id" = "assistant_async_job_handles"."chat_id"
         WHERE "state" = 'ready'
           AND "source_finalized_at" IS NOT NULL
           AND ("next_retry_at" IS NULL OR "next_retry_at" <= NOW())
           AND "retry_count" < "max_retries"
-        ORDER BY "chat_id", "ready_at" ASC NULLS LAST, "updated_at" ASC
+        ORDER BY "chat_id", "ready_at" ASC NULLS LAST, "updated_at" ASC, "id" ASC
       ) AS eligible
-      ORDER BY "readyAt" ASC NULLS LAST
-      LIMIT ${Math.max(1, Math.floor(limit))}
+      WHERE (
+        ${cursorChatId}::uuid IS NULL
+        OR (
+          COALESCE("scanAt", '-infinity'::timestamptz),
+          COALESCE("readyAt", 'infinity'::timestamptz),
+          "chatId", "headId"
+        ) > (
+          COALESCE(${cursorScanAt}::timestamptz, '-infinity'::timestamptz),
+          COALESCE(${cursorReadyAt}::timestamptz, 'infinity'::timestamptz),
+          ${cursorChatId}::uuid, ${cursorHeadId}::uuid
+        )
+      )
+      ORDER BY "scanAt" ASC NULLS FIRST, "readyAt" ASC NULLS LAST, "chatId" ASC, "headId" ASC
+      LIMIT ${pageSize}
     `;
+      if (page.length === 0) break;
+      for (const { readyAt: _readyAt, scanAt: _scanAt, headId: _headId, ...candidate } of page) {
+        if (!seenChatIds.has(candidate.chatId)) {
+          seenChatIds.add(candidate.chatId);
+          candidates.push(candidate);
+        }
+      }
+      scanned += page.length;
+      const last = page[page.length - 1]!;
+      cursorScanAt = last.scanAt;
+      cursorReadyAt = last.readyAt;
+      cursorChatId = last.chatId;
+      cursorHeadId = last.headId;
+      if (page.length < pageSize) break;
+    }
+    return candidates;
   }
 
   /**

@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { AssistantAsyncJobContinuationSchedulerService } from "../src/modules/workspace-management/application/assistant-async-job-continuation-scheduler.service";
 import { MAX_ASYNC_CONTINUATION_DEPTH } from "../src/modules/workspace-management/application/assistant-async-job-handle-state.service";
-import { AsyncContinuationDispatchAmbiguousError } from "../src/modules/workspace-management/application/internal-runtime-async-continuation.client.service";
+import {
+  AsyncContinuationCoordinationLostError,
+  AsyncContinuationDispatchAmbiguousError
+} from "../src/modules/workspace-management/application/internal-runtime-async-continuation.client.service";
 
 const ORIGINAL_ENV = process.env;
 
@@ -11,11 +14,12 @@ const wakeCoordinatorStub = {
   releaseCatchUp: async () => undefined,
   heartbeatCatchUp: async () => true,
   catchUpHeartbeatIntervalMs: () => 20_000,
-  evaluateCatchUpGate: async () => ({ allowed: true as const })
+  admitCatchUpAtBoundary: async () => ({ allowed: true as const })
 };
 
 function dispatchHarness(input: {
   execute: () => Promise<Record<string, unknown>>;
+  inspect?: () => Promise<Record<string, unknown>>;
   handleState?: Record<string, unknown>;
   telegramOutbound?: Record<string, unknown>;
   prisma?: Record<string, unknown>;
@@ -24,7 +28,16 @@ function dispatchHarness(input: {
     (input.prisma ?? {}) as never,
     (input.handleState ?? {}) as never,
     wakeCoordinatorStub as never,
-    { execute: input.execute } as never,
+    {
+      execute: input.execute,
+      inspect:
+        input.inspect ??
+        (async () => ({
+          proof: "ambiguous",
+          receiptStatus: "absent",
+          exactInFlight: false
+        }))
+    } as never,
     {} as never,
     {} as never,
     (input.telegramOutbound ?? {}) as never,
@@ -935,7 +948,7 @@ describe("AssistantAsyncJobContinuationSchedulerService", () => {
       catchUpHeartbeatIntervalMs() {
         return 20_000;
       },
-      async evaluateCatchUpGate() {
+      async admitCatchUpAtBoundary() {
         return { allowed: true as const };
       }
     };
@@ -1089,7 +1102,7 @@ describe("AssistantAsyncJobContinuationSchedulerService", () => {
       } as never,
       {
         ...wakeCoordinatorStub,
-        evaluateCatchUpGate: async (input: Record<string, unknown>) => {
+        admitCatchUpAtBoundary: async (input: Record<string, unknown>) => {
           gateArgs.push(input);
           return { allowed: false as const, reason: "user_turn_active" as const };
         }
@@ -1237,6 +1250,11 @@ describe("AssistantAsyncJobContinuationSchedulerService", () => {
       execute: async () => {
         throw new AsyncContinuationDispatchAmbiguousError("timed out");
       },
+      inspect: async () => ({
+        proof: "proven",
+        receiptStatus: "accepted",
+        exactInFlight: true
+      }),
       handleState: {
         markDispatched: async () => true,
         requeueClaim: async () => {
@@ -1248,6 +1266,10 @@ describe("AssistantAsyncJobContinuationSchedulerService", () => {
         },
         getPermanentFailureObservation: async () => null
       }
+    });
+    internal.loadAndValidateContext = async () => ({
+      handle: { retryCount: 0, channel: "telegram" },
+      session: { id: "session-1" }
     });
     await internal.processClaim({ id: "handle-2", claimToken: "claim-2" });
     assert.equal(requeued, false);
@@ -1596,5 +1618,63 @@ describe("AssistantAsyncJobContinuationSchedulerService", () => {
     await deliver({ id: "handle-4", claimToken: "claim-4" }, context, "message-1", result);
     await deliver({ id: "handle-4", claimToken: "claim-4" }, context, "message-1", result);
     assert.equal(outboundCount, 1);
+  });
+
+  test("coordination abort during paused Telegram execute releases only a proven-absent claim", async () => {
+    const calls: string[] = [];
+    const controller = new AbortController();
+    let lockHeld = true;
+    let executeStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      executeStarted = resolve;
+    });
+    const { internal } = dispatchHarness({
+      execute: async (_request: unknown, options?: { signal?: AbortSignal }) => {
+        executeStarted();
+        await new Promise<void>((_resolve, reject) => {
+          options?.signal?.addEventListener("abort", () => reject(options.signal?.reason), {
+            once: true
+          });
+        });
+        throw new Error("unreachable");
+      },
+      inspect: async () => ({
+        proof: "proven",
+        receiptStatus: "absent",
+        exactInFlight: false
+      }),
+      handleState: {
+        releaseClaimToReady: async () => {
+          calls.push("release");
+          return "released";
+        },
+        markDispatched: async () => {
+          calls.push("mark");
+          return true;
+        }
+      }
+    });
+    internal.loadAndValidateContext = async () => ({
+      handle: { retryCount: 0, channel: "telegram" },
+      session: { id: "session-1" }
+    });
+    const dispatch = (
+      internal as unknown as {
+        processClaim: (
+          claim: { id: string; claimToken: string },
+          held: () => boolean,
+          signal: AbortSignal
+        ) => Promise<void>;
+      }
+    ).processClaim(
+      { id: "handle-lock-loss", claimToken: "claim-lock-loss" },
+      () => lockHeld,
+      controller.signal
+    );
+    await started;
+    lockHeld = false;
+    controller.abort(new AsyncContinuationCoordinationLostError());
+    await dispatch;
+    assert.deepEqual(calls, ["release"]);
   });
 });

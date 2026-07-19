@@ -117,7 +117,7 @@ source user-message id (the runtime turn idempotency key), so both media and
 document handles participate in exact source-turn finalization without a second
 table.
 
-### ADR-159 Session Work Queue (S3 local — no new queue table)
+### ADR-159 Session Work Queue (Slices 1–3 CLEAN/GO local; S5 shipping pending — no new queue table)
 
 ADR-159 does **not** add `assistant_chat_work_items` or a second backlog
 table. Ready subscribed rows on `assistant_async_job_handles` remain the
@@ -137,8 +137,10 @@ durable catch-up backlog. Serialization moves to a `ChatWakeCoordinator`:
   `CATCHUP_IDLE_PAUSE_MS` (2000ms) after that stamp before lock/claim.
 - **Preparing / open window (S2, durable):** nullable
   `assistant_chats.last_user_turn_started_at`, stamped when a `USER_TURN`
-  begins (Telegram after user message persist; web ordinary `markRunning`).
-  Open = started without terminal, or started after last terminal. Covers
+  begins (Telegram after user message persist; web ordinary immediately after
+  chat resolution and before user-message persistence). Web preparation owns
+  closure until `markRunning` succeeds, when ownership transfers to its
+  attempt. Open = started without terminal, or started after last terminal. Covers
   Telegram pre-runtime-accept without inventing parked accepted receipts.
   `async_continuation` must not stamp started or terminal.
 - **Active user signal:** durable open window above; web
@@ -146,6 +148,17 @@ durable catch-up backlog. Serialization moves to a `ChatWakeCoordinator`:
   `surfaceClient ≠ async_continuation`; Telegram accepted
   `RuntimeTurnReceipt` on the thread whose `idempotencyKey` does not start
   with `async-cont:` (no TG attempt row).
+- **Admission linearization (Slice 1):** non-null
+  `assistant_chats.catch_up_admission_fence` defaults to `0`. A catch-up
+  increments it only through a conditional update that rechecks the durable
+  user-open window and idle pause. This is the USER_TURN/JOB_CATCHUP
+  linearization boundary; the runtime session lease is only the execution
+  guard.
+- **Fair bounded scans (Slice 1 repair):** nullable
+  `assistant_chats.catch_up_last_scanned_at` is stamped whenever a candidate
+  chat is evaluated. Candidate pages sort null/old scan stamps first, yielding
+  durable round-robin fairness across scheduler ticks and API replicas without
+  a companion queue table.
 - **S3 markers + durable ordinals:** continuation `facts` carry
   `wakeKind=job_catchup`, `queueOrdinal`/`queueTotal`, `interleaved`,
   `originatingUserMessageId` / `latestUserMessageId` when different; quiet
@@ -159,6 +172,17 @@ durable catch-up backlog. Serialization moves to a `ChatWakeCoordinator`:
   migration in ADR-159.
 - **Invariant** — `dispatched` / `markDispatched` only after runtime lease +
   (web) running attempt; no parked `accepted` attempt rows as wake state.
+- **Working projection:** only a canonical nonterminal media/document/sandbox
+  row is active. Terminal handle state and continuation facts are retained for
+  history/catch-up, never as an active Working status.
+- **Document current revision:** `assistant_documents.current_version_id` may
+  advance only to a successfully delivered version with a strictly larger
+  durable `assistant_document_versions.version_number`. Delivery finalization
+  locks the document row; a late older delivered revision is retained as
+  `superseded` and cannot replace the current revision. Attachment
+  `documentLink.versionStatus` and `isCurrentOutput` are finalized in that
+  same transaction: the winner is `ready`/current and both late candidates
+  and the exact superseded predecessor are noncurrent.
 
 Rejected: companion durable queue of `USER_TURN`/`JOB_CATCHUP` rows
 (dual authority with handles). Revisit only if handle-scoped FIFO fails live.

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import {
+  AsyncContinuationCoordinationLostError,
   AsyncContinuationDispatchAmbiguousError,
   AsyncContinuationInterruptedError
 } from "../src/modules/workspace-management/application/internal-runtime-async-continuation.client.service";
@@ -20,7 +21,8 @@ function baseContext(overrides?: { continuationClientTurnId?: string }) {
       sourceUserMessageId: "00000000-0000-4000-8000-000000000001",
       retryCount: 0
     },
-    sourceUserMessage: { id: "00000000-0000-4000-8000-000000000001" }
+    sourceUserMessage: { id: "00000000-0000-4000-8000-000000000001" },
+    sessionId: "session-1"
   };
 }
 
@@ -126,6 +128,66 @@ function attemptMock(attemptCalls: string[], extras?: Record<string, unknown>) {
 }
 
 describe("StreamWebAsyncContinuationService", () => {
+  test("coordination abort during a paused web stream releases registry without narration", async () => {
+    const coordination = new AbortController();
+    const callbackCalls: string[] = [];
+    const attemptCalls: string[] = [];
+    const published: string[] = [];
+    let released = false;
+    let lockHeld = true;
+    let started!: () => void;
+    const streamStarted = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const service = new StreamWebAsyncContinuationService(
+      {
+        stream: async (_request: unknown, options: { signal?: AbortSignal }) => {
+          started();
+          await new Promise<void>((_resolve, reject) => {
+            options.signal?.addEventListener("abort", () => reject(options.signal?.reason), {
+              once: true
+            });
+          });
+          throw new Error("unreachable");
+        },
+        inspect: async () => ({
+          proof: "proven",
+          receiptStatus: "absent",
+          exactInFlight: false
+        })
+      } as never,
+      attemptMock(attemptCalls),
+      streamRegistryMock({
+        onRelease: () => {
+          released = true;
+        },
+        onPublish: (event) => published.push(event.event)
+      }),
+      stopDispatchMock(),
+      undefined
+    );
+    const run = service.processWebClaim({
+      claim: { id: "handle-lock-loss", claimToken: "claim-lock-loss" },
+      context: baseContext(),
+      request: { requestId: "request-lock-loss" } as never,
+      timeoutMs: 1_000,
+      coordinationSignal: coordination.signal,
+      isCatchUpLockHeld: () => lockHeld,
+      callbacks: baseCallbacks(callbackCalls)
+    });
+    await streamStarted;
+    lockHeld = false;
+    coordination.abort(new AsyncContinuationCoordinationLostError());
+    await run;
+    assert.equal(released, true);
+    assert.deepEqual(published, []);
+    assert.equal(callbackCalls.includes("persist"), false);
+    assert.equal(callbackCalls.includes("deliver"), false);
+    assert.equal(callbackCalls.includes("complete"), false);
+    assert.ok(attemptCalls.includes("abandonPreAcceptanceAttempt"));
+    assert.ok(callbackCalls.includes("busy"));
+  });
+
   test("streams runtime events into the web turn registry and completes the attempt", async () => {
     const published: Array<{ event: string; payload: unknown }> = [];
     const attemptCalls: string[] = [];
@@ -672,7 +734,7 @@ describe("StreamWebAsyncContinuationService", () => {
     );
   });
 
-  test("ADR-159 S2 TOCTOU: pre-runtime gate denial releases busy without stream", async () => {
+  test("ADR-159 admission boundary denial releases busy without stream", async () => {
     const callbackCalls: string[] = [];
     const attemptCalls: string[] = [];
     let streamed = false;
@@ -687,7 +749,7 @@ describe("StreamWebAsyncContinuationService", () => {
       streamRegistryMock(),
       stopDispatchMock(),
       {
-        evaluateCatchUpGate: async () => ({ allowed: false, reason: "idle_pause" })
+        admitCatchUpAtBoundary: async () => ({ allowed: false, reason: "idle_pause" })
       } as never
     );
 

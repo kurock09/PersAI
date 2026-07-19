@@ -2,6 +2,7 @@ import { Injectable, Logger, Optional } from "@nestjs/common";
 import type { RuntimeTurnRequest, RuntimeTurnResult } from "@persai/runtime-contract";
 import type { CompletedWebTurnReplayState } from "../domain/assistant-channel-surface-binding.repository";
 import {
+  AsyncContinuationCoordinationLostError,
   AsyncContinuationDispatchAmbiguousError,
   AsyncContinuationInterruptedError,
   InternalRuntimeAsyncContinuationClientService
@@ -27,6 +28,7 @@ type WebContinuationContext = {
     retryCount: number;
   };
   sourceUserMessage: { id: string };
+  sessionId: string;
 };
 
 export type StreamWebAsyncContinuationCallbacks = {
@@ -94,6 +96,8 @@ export class StreamWebAsyncContinuationService {
     context: WebContinuationContext;
     request: RuntimeTurnRequest;
     timeoutMs: number;
+    coordinationSignal?: AbortSignal;
+    isCatchUpLockHeld?: () => boolean;
     callbacks: StreamWebAsyncContinuationCallbacks;
   }): Promise<void> {
     const { claim, context, request, timeoutMs, callbacks } = input;
@@ -156,16 +160,47 @@ export class StreamWebAsyncContinuationService {
     });
 
     const abortController = new AbortController();
+    const onCoordinationAbort = (): void =>
+      abortController.abort(
+        input.coordinationSignal?.reason instanceof Error
+          ? input.coordinationSignal.reason
+          : new AsyncContinuationCoordinationLostError()
+      );
+    input.coordinationSignal?.addEventListener("abort", onCoordinationAbort);
+    if (input.coordinationSignal?.aborted) onCoordinationAbort();
+    const coordinationLost = (): boolean =>
+      input.coordinationSignal?.aborted === true || input.isCatchUpLockHeld?.() === false;
     const registryIdentity = {
       assistantId: context.handle.assistantId,
       clientTurnId: continuationClientTurnId,
       userId: context.handle.userId
     };
-    this.webChatTurnStopDispatchService.register({
-      ...registryIdentity,
-      controller: abortController
-    });
-    await this.webChatTurnStreamRegistry.register(registryIdentity);
+    try {
+      // A continuation must not claim a running web attempt until a Stop from
+      // another API replica can reach its local AbortController.
+      await this.webChatTurnStopDispatchService.register({
+        ...registryIdentity,
+        controller: abortController
+      });
+      await this.webChatTurnStreamRegistry.register(registryIdentity);
+    } catch (error) {
+      await this.webChatTurnAttemptService.abandonPreAcceptanceAttempt({
+        assistantId: context.handle.assistantId,
+        userId: context.handle.userId,
+        surfaceThreadKey: threadKey,
+        clientTurnId: continuationClientTurnId
+      });
+      await callbacks.releasePreDispatchBusy({
+        ...claim,
+        retryAt: callbacks.retryAt(context.handle.retryCount)
+      });
+      this.logger.warn(
+        `web_async_continuation_stop_registration_failed id=${claim.id}: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+      return;
+    }
 
     const touchStreamTtl = (): void => {
       void this.webChatTurnStreamRegistry.touch(registryIdentity).catch(() => undefined);
@@ -193,7 +228,7 @@ export class StreamWebAsyncContinuationService {
     };
 
     const isInterruptedError = (error: unknown): boolean =>
-      error instanceof AsyncContinuationInterruptedError ||
+      (error instanceof AsyncContinuationInterruptedError && !coordinationLost()) ||
       abortController.signal.aborted ||
       this.webChatTurnStopDispatchService.wasUserStopped(
         context.handle.assistantId,
@@ -226,6 +261,7 @@ export class StreamWebAsyncContinuationService {
     // ADR-159 — local proof that markDispatched already succeeded after runtime accept.
     // A later markDispatched false means already-dispatched, never pre-accept busy.
     let dispatched = false;
+    let coordinationReconciled = false;
 
     const ensureDispatched = async (): Promise<boolean> => {
       if (dispatched) return true;
@@ -235,6 +271,27 @@ export class StreamWebAsyncContinuationService {
       });
       dispatched = marked;
       return marked;
+    };
+
+    const reconcileCoordinationLoss = async (): Promise<void> => {
+      if (coordinationReconciled) return;
+      coordinationReconciled = true;
+      const status = await this.runtimeClient.inspect({
+        ...request,
+        sessionId: context.sessionId
+      });
+      if (
+        status.proof === "proven" &&
+        status.receiptStatus === "absent" &&
+        !status.exactInFlight &&
+        !dispatched
+      ) {
+        await releaseBusyPreDispatch();
+        return;
+      }
+      if (!dispatched) {
+        await ensureDispatched();
+      }
     };
 
     const terminalizeFailedAttempt = async (code: string, message: string): Promise<void> => {
@@ -279,10 +336,14 @@ export class StreamWebAsyncContinuationService {
     };
 
     try {
-      // ADR-159 S2 TOCTOU — re-check user-active / idle-pause immediately before
-      // runtime accept (not only before catch-up lock / head claim).
+      if (coordinationLost()) {
+        await releaseBusyPreDispatch();
+        return;
+      }
+      // ADR-159 Slice 1 — durable CAS is the USER_TURN/JOB_CATCHUP admission
+      // boundary immediately before runtime acceptance (not only lock/head claim).
       if (this.chatWakeCoordinator !== undefined) {
-        const gate = await this.chatWakeCoordinator.evaluateCatchUpGate({
+        const gate = await this.chatWakeCoordinator.admitCatchUpAtBoundary({
           chatId: context.handle.chatId,
           assistantId: context.handle.assistantId,
           userId: context.handle.userId,
@@ -304,6 +365,10 @@ export class StreamWebAsyncContinuationService {
           signal: abortController.signal
         });
       } catch (error) {
+        if (coordinationLost() || error instanceof AsyncContinuationCoordinationLostError) {
+          await reconcileCoordinationLoss();
+          return;
+        }
         if (isInterruptedError(error)) {
           await finalizeInterrupted();
           return;
@@ -317,6 +382,10 @@ export class StreamWebAsyncContinuationService {
       }
 
       if (started.mode === "outcome") {
+        if (coordinationLost()) {
+          await reconcileCoordinationLoss();
+          return;
+        }
         if (started.result.outcome === "busy" || started.result.outcome === "duplicate") {
           // ADR-159: busy / runtime duplicate (acceptTurn in_flight elsewhere) —
           // abandon pre-accept attempt + releaseClaimToReady (not completeClaim).
@@ -338,6 +407,10 @@ export class StreamWebAsyncContinuationService {
       }
 
       // NDJSON stream ⇒ runtime accepted and holds the session lease.
+      if (coordinationLost()) {
+        await reconcileCoordinationLoss();
+        return;
+      }
       if (!(await ensureDispatched())) return;
 
       let terminal: RuntimeTurnResult | null = null;
@@ -347,6 +420,10 @@ export class StreamWebAsyncContinuationService {
 
       try {
         for await (const event of started.events) {
+          if (coordinationLost()) {
+            await reconcileCoordinationLoss();
+            return;
+          }
           if (abortController.signal.aborted) {
             interrupted = true;
             break;
@@ -464,6 +541,10 @@ export class StreamWebAsyncContinuationService {
           }
         }
       } catch (error) {
+        if (coordinationLost() || error instanceof AsyncContinuationCoordinationLostError) {
+          await reconcileCoordinationLoss();
+          return;
+        }
         if (isInterruptedError(error)) {
           await finalizeInterrupted();
           return;
@@ -483,6 +564,10 @@ export class StreamWebAsyncContinuationService {
         )
       ) {
         interrupted = true;
+      }
+      if (coordinationLost()) {
+        await reconcileCoordinationLoss();
+        return;
       }
 
       if (terminal !== null) {
@@ -540,6 +625,10 @@ export class StreamWebAsyncContinuationService {
         errorMessage: "Runtime continuation stream ended without a terminal event."
       });
     } catch (error) {
+      if (coordinationLost() || error instanceof AsyncContinuationCoordinationLostError) {
+        await reconcileCoordinationLoss();
+        return;
+      }
       if (isInterruptedError(error)) {
         await finalizeInterrupted();
         return;
@@ -552,6 +641,7 @@ export class StreamWebAsyncContinuationService {
       // from inner catches; scheduler requeues the handle.
       throw error;
     } finally {
+      input.coordinationSignal?.removeEventListener("abort", onCoordinationAbort);
       clearInterval(streamTtlHeartbeat);
       this.webChatTurnStopDispatchService.release({
         assistantId: context.handle.assistantId,

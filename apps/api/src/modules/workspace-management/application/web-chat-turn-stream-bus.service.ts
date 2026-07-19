@@ -8,6 +8,13 @@ import {
   type TurnStreamEventStore
 } from "./turn-stream-event-store";
 
+export class TurnStreamRegistrationError extends Error {
+  constructor(readonly reason: "conflict" | "unavailable") {
+    super(`turn stream registration ${reason}`);
+    this.name = "TurnStreamRegistrationError";
+  }
+}
+
 interface LocalTurnRegistration {
   assistantId: string;
   clientTurnId: string;
@@ -45,28 +52,32 @@ export class WebChatTurnStreamBusService implements OnModuleDestroy {
     const key = buildTurnStreamKey(input.assistantId, input.userId, input.clientTurnId);
     const existingLocal = this.localTurns.get(key);
     if (existingLocal !== undefined && existingLocal.userId !== input.userId) {
-      this.logger.warn(
-        `[turn-stream-bus] registerTurn refuse local overwrite assistantId=${input.assistantId} clientTurnId=${input.clientTurnId} existingUserId=${existingLocal.userId} requestedUserId=${input.userId}`
-      );
-      return;
+      throw new TurnStreamRegistrationError("conflict");
     }
+    const registerStore = async (): Promise<void> => {
+      const result = await this.store.registerTurn({ turnKey: key, userId: input.userId });
+      if (result === "conflict" || result === "unavailable") {
+        throw new TurnStreamRegistrationError(result);
+      }
+    };
     try {
       const meta = await this.store.getMeta(key);
       if (meta !== null && meta.userId !== input.userId) {
-        this.logger.warn(
-          `[turn-stream-bus] registerTurn refuse store overwrite assistantId=${input.assistantId} clientTurnId=${input.clientTurnId} existingUserId=${meta.userId} requestedUserId=${input.userId}`
-        );
-        return;
+        throw new TurnStreamRegistrationError("conflict");
       }
     } catch (error) {
-      this.logger.warn(`[turn-stream-bus] registerTurn getMeta failed: ${String(error)}`);
-      return;
+      if (error instanceof TurnStreamRegistrationError) {
+        throw error;
+      }
+      throw new TurnStreamRegistrationError("unavailable");
     }
     if (existingLocal !== undefined) {
-      this.logger.warn(
-        `[turn-stream-bus] reregister assistantId=${input.assistantId} clientTurnId=${input.clientTurnId} userId=${input.userId}`
-      );
+      // Preserve local sinks and fallback sequencing during idempotent
+      // registration. The durable store owns cross-replica replay.
+      await registerStore();
+      return;
     }
+    await registerStore();
     this.localTurns.set(key, {
       assistantId: input.assistantId,
       clientTurnId: input.clientTurnId,
@@ -76,11 +87,6 @@ export class WebChatTurnStreamBusService implements OnModuleDestroy {
       nextSeq: 1,
       sinks: new Map()
     });
-    try {
-      await this.store.registerTurn({ turnKey: key, userId: input.userId });
-    } catch (error) {
-      this.logger.warn(`[turn-stream-bus] registerTurn store failed: ${String(error)}`);
-    }
   }
 
   publish(input: {
@@ -119,7 +125,15 @@ export class WebChatTurnStreamBusService implements OnModuleDestroy {
       return null;
     }
 
-    const meta = await this.store.getMeta(key);
+    let meta;
+    try {
+      meta = await this.store.getMeta(key);
+    } catch (error) {
+      // Redis is only the ephemeral live plane. The caller must fall back to
+      // durable attempt status/history rather than turning reattach into 500.
+      this.logger.warn(`[turn-stream-bus] attach meta unavailable: ${String(error)}`);
+      return null;
+    }
     if (meta !== null && meta.userId !== input.userId) {
       return null;
     }
@@ -130,10 +144,15 @@ export class WebChatTurnStreamBusService implements OnModuleDestroy {
       return null;
     }
 
-    if (canServeLocal) {
-      return this.attachLocal(input, local, key);
+    try {
+      if (canServeLocal) {
+        return await this.attachLocal(input, local, key);
+      }
+      return await this.attachRemote(input, key);
+    } catch (error) {
+      this.logger.warn(`[turn-stream-bus] attach live plane unavailable: ${String(error)}`);
+      return null;
     }
-    return this.attachRemote(input, key);
   }
 
   release(input: { assistantId: string; clientTurnId: string; userId: string }): void {

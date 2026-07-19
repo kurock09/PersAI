@@ -145,7 +145,13 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
     assert.equal(txUpdates.length, 1);
     assert.equal(finalUpdates.at(-1)?.data?.status, "delivered");
     assert.equal(finalUpdates.at(-1)?.data?.completionAssistantMessageId, undefined);
-    assert.deepEqual(messageUpdates, []);
+    assert.deepEqual(messageUpdates, [
+      {
+        messageId: "assistant-message-1",
+        assistantId: "assistant-1",
+        content: "Your image is ready."
+      }
+    ]);
     assert.equal(framingCalls, 0);
     assert.equal(handleCompletionCalls, 1);
   });
@@ -153,6 +159,7 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
   test("delivers completion_pending telegram jobs asynchronously and marks them delivered", async () => {
     const finalUpdates: Array<Record<string, unknown>> = [];
     const sendReplyCalls: Array<Record<string, unknown>> = [];
+    const events: string[] = [];
     const service = new AssistantMediaJobCompletionDeliveryService(
       {
         $transaction: async <T>(callback: (tx: Record<string, unknown>) => Promise<T>) =>
@@ -165,7 +172,7 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
                 workspaceId: "workspace-1",
                 chatId: "chat-telegram-1",
                 surface: "telegram",
-                kind: "image",
+                kind: "video",
                 sourceUserMessageId: "user-message-2",
                 requestJson: {
                   attachments: [],
@@ -203,13 +210,16 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
         }
       } as never,
       {
-        createMessage: async () => ({
-          id: "assistant-message-2",
-          chatId: "chat-telegram-1",
-          assistantId: "assistant-1",
-          content: "Your image is ready.",
-          createdAt: new Date("2026-05-05T09:10:00.000Z")
-        }),
+        createMessage: async () => {
+          events.push("structural-message");
+          return {
+            id: "assistant-message-2",
+            chatId: "chat-telegram-1",
+            assistantId: "assistant-1",
+            content: "",
+            createdAt: new Date("2026-05-05T09:10:00.000Z")
+          };
+        },
         findChatById: async () => ({
           id: "chat-telegram-1",
           assistantId: "assistant-1",
@@ -233,20 +243,27 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
           author: "assistant" as const,
           createdAt: new Date()
         }),
-        updateMessageContent: async () => null
+        updateMessageContent: async () => {
+          events.push("success-text");
+          return null;
+        }
       } as never,
       {
-        deliver: async () => ({
-          attachments: [
-            {
-              id: "attachment-2",
-              originalFilename: "image.png"
-            }
-          ]
-        })
+        deliver: async () => {
+          events.push("attachments");
+          return {
+            attachments: [
+              {
+                id: "attachment-2",
+                originalFilename: "image.png"
+              }
+            ]
+          };
+        }
       } as never,
       {
         async deliverPersistedAssistantMessageBestEffort(input: Record<string, unknown>) {
+          events.push("outbound-text");
           sendReplyCalls.push(input);
           return { status: "delivered" };
         }
@@ -279,6 +296,7 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
       } as never,
       {
         async maybeFrame() {
+          events.push("legacy-frame");
           return { text: "Fresh Telegram framing.", usage: null };
         }
       } as never,
@@ -294,8 +312,14 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
     assert.equal(sendReplyCalls.length, 1);
     assert.equal(sendReplyCalls[0]?.assistantMessageId, "assistant-message-2");
     assert.equal(sendReplyCalls[0]?.mediaAlreadyDelivered, true);
-    // ADR-157: image success skips ghostwriter maybeFrame; stored resultText is kept.
-    assert.equal(sendReplyCalls[0]?.text, "Your image is ready.");
+    assert.equal(sendReplyCalls[0]?.text, "Fresh Telegram framing.");
+    assert.deepEqual(events, [
+      "structural-message",
+      "attachments",
+      "legacy-frame",
+      "success-text",
+      "outbound-text"
+    ]);
   });
 
   test("does not refresh image completion with ghostwriter framing when an acknowledgement already exists", async () => {

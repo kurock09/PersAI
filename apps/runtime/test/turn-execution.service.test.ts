@@ -9266,7 +9266,14 @@ export async function runAsyncContinuationAcceptanceTest(): Promise<void> {
         kind: "media" as const,
         status: "completed" as const,
         errorCode: null,
-        message: "Job completed and was delivered."
+        message: "Job completed and was delivered.",
+        jobRef: "jr1.media.test-handle",
+        wakeKind: "job_catchup" as const,
+        queueOrdinal: 1,
+        queueTotal: 2,
+        interleaved: true,
+        originatingUserMessageId: "00000000-0000-4000-8000-000000000123",
+        latestUserMessageId: "00000000-0000-4000-8000-000000000124"
       }
     }
   };
@@ -9293,16 +9300,25 @@ export async function runAsyncContinuationAcceptanceTest(): Promise<void> {
   });
   const completionBlock = sections.find((section) => section.key === "async_completion");
   assert.ok(completionBlock?.content.includes('"status":"completed"'));
+  assert.ok(completionBlock?.content.includes('"queueOrdinal":1'));
+  assert.ok(completionBlock?.content.includes('"queueTotal":2'));
+  assert.ok(completionBlock?.content.includes('"interleaved":true'));
   assert.ok(
-    completionBlock?.content.includes("Continue the prior task now"),
-    "notify wake must instruct the model to finish the prior task"
+    completionBlock?.content.includes("Narrate only the exact completed, failed, or cancelled")
   );
+  assert.ok(completionBlock?.content.includes("later user messages already have priority"));
+  assert.ok(completionBlock?.content.includes("Do not claim delivery again"));
+  assert.ok(completionBlock?.content.includes("Do not call await wait or await notify again"));
+  assert.equal(completionBlock?.content.includes("Continue the prior task now"), false);
   assert.ok(
     completionBlock?.content.includes("facts.sandboxResult"),
     "notify wake must tell the model to use sandboxResult like await wait"
   );
   assert.equal(completionBlock?.content.includes("async-cont:turn-1"), false);
-  assert.equal(completionBlock?.content.includes("00000000-0000-4000-8000-000000000123"), false);
+  assert.ok(
+    completionBlock?.content.includes("00000000-0000-4000-8000-000000000124"),
+    "interleaved catch-up facts expose the later-user marker needed to preserve ordering"
+  );
   assert.deepEqual(
     stripAsyncContinuationSyntheticMessage(
       [

@@ -104,6 +104,10 @@ export interface StreamWebChatTurnPrepared {
   userId: string;
   workspaceId: string;
   workspaceTimezone: string;
+  userTurnAdmission: {
+    closeRequired: boolean;
+    closed: boolean;
+  };
   traceHandle?: OverviewLatencyTraceHandle;
   clientTurnId?: string;
   welcomeTurn?: boolean;
@@ -289,6 +293,7 @@ export class StreamWebChatTurnService {
       threadKey: request.surfaceThreadKey
     });
     trace.stage("prepare_begin");
+    let preparedForAdmission: StreamWebChatTurnPrepared | null = null;
     try {
       const replayTransport = await this.claimOrReplayWebTurn(userId, request);
       trace.stage("replay_claim_checked");
@@ -312,6 +317,7 @@ export class StreamWebChatTurnService {
           : { deepModeEnabled: request.deepModeEnabled }),
         ...(request.clientTurnId === undefined ? {} : { clientTurnId: request.clientTurnId })
       });
+      preparedForAdmission = prepared;
       trace.stage("prepared");
       if (request.clientTurnId !== undefined && this.webChatTurnAttemptService) {
         await this.webChatTurnAttemptService.markRunning({
@@ -322,6 +328,9 @@ export class StreamWebChatTurnService {
           chatId: prepared.chat.id,
           userMessageId: prepared.userMessage.id
         });
+        this.prepareAssistantInboundTurnService.transferPreparedUserTurnAdmissionToAttempt(
+          prepared
+        );
       }
       return {
         mode: "prepared",
@@ -340,6 +349,11 @@ export class StreamWebChatTurnService {
         }
       };
     } catch (error) {
+      if (preparedForAdmission?.userTurnAdmission?.closeRequired) {
+        await this.prepareAssistantInboundTurnService.closePreparedUserTurnAdmission(
+          preparedForAdmission
+        );
+      }
       trace.finish({ status: "failed" });
       throw error;
     }
@@ -712,6 +726,9 @@ export class StreamWebChatTurnService {
           runtimeStartedAtMs: primaryRuntimeStartedAt,
           firstDeltaMs: primaryFirstDeltaMs
         });
+        if (prepared.userTurnAdmission?.closeRequired) {
+          await this.prepareAssistantInboundTurnService.closePreparedUserTurnAdmission(prepared);
+        }
         return interrupted;
       }
 
@@ -771,6 +788,9 @@ export class StreamWebChatTurnService {
           runtimeStartedAtMs: primaryRuntimeStartedAt,
           firstDeltaMs: primaryFirstDeltaMs
         });
+        if (prepared.userTurnAdmission?.closeRequired) {
+          await this.prepareAssistantInboundTurnService.closePreparedUserTurnAdmission(prepared);
+        }
         return {
           status: "failed",
           transport: null,
@@ -923,6 +943,9 @@ export class StreamWebChatTurnService {
         runtimeStartedAtMs: primaryRuntimeStartedAt,
         firstDeltaMs: primaryFirstDeltaMs
       });
+      if (prepared.userTurnAdmission?.closeRequired) {
+        await this.prepareAssistantInboundTurnService.closePreparedUserTurnAdmission(prepared);
+      }
       const streamEngagementSummary = deriveEngagementSummary(
         refreshedChat.skillDecisionState as Parameters<typeof deriveEngagementSummary>[0]
       );
@@ -1049,6 +1072,9 @@ export class StreamWebChatTurnService {
         runtimeStartedAtMs: primaryRuntimeStartedAt,
         firstDeltaMs: primaryFirstDeltaMs
       });
+      if (prepared.userTurnAdmission?.closeRequired) {
+        await this.prepareAssistantInboundTurnService.closePreparedUserTurnAdmission(prepared);
+      }
       return {
         status: "failed",
         transport: interruptedOutcome.transport,

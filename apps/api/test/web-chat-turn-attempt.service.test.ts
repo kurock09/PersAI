@@ -232,6 +232,36 @@ describe("WebChatTurnAttemptService", () => {
     assert.deepEqual(terminalStamps, []);
   });
 
+  test("markRunning only updates an already-admitted attempt", async () => {
+    const order: string[] = [];
+    const service = new WebChatTurnAttemptService(
+      {
+        assistantWebChatTurnAttempt: {
+          update: async () => {
+            order.push("attempt_running");
+            return {};
+          }
+        }
+      } as never,
+      { execute: async () => ({ assistantId: "assistant-1" }) } as never,
+      {
+        admitUserTurn: async () => {
+          throw new Error("markRunning must not admit USER_TURN");
+        }
+      } as never
+    );
+    await service.markRunning({
+      assistantId: "assistant-1",
+      userId: "user-1",
+      surfaceThreadKey: "thread-1",
+      clientTurnId: "turn-user",
+      chatId: "chat-user",
+      userMessageId: "message-user",
+      surfaceClient: "web_chat"
+    });
+    assert.deepEqual(order, ["attempt_running"]);
+  });
+
   test("returns unknown when the active assistant differs from the turn owner", async () => {
     let lookedUpAssistantId: string | null = null;
     const prisma = {

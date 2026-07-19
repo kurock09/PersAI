@@ -281,71 +281,25 @@ export class AssistantMediaJobService {
     userId: string;
     chatId: string;
   }): Promise<AssistantWebChatActiveMediaJobState[]> {
-    const continuationCutoff = new Date(Date.now() - 5 * 60_000);
-    const [openRows, continuationHandles] = await Promise.all([
-      this.prisma.assistantMediaJob.findMany({
-        where: {
-          assistantId: input.assistantId,
-          userId: input.userId,
-          chatId: input.chatId,
-          status: {
-            in: ["queued", "running", "completion_pending"]
-          }
-        },
-        orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-        select: {
-          id: true,
-          kind: true,
-          requestJson: true,
-          status: true,
-          createdAt: true,
-          startedAt: true,
-          updatedAt: true
-        }
-      }),
-      this.prisma.assistantAsyncJobHandle.findMany({
-        where: {
-          assistantId: input.assistantId,
-          chatId: input.chatId,
-          kind: "media",
-          OR: [
-            { state: { in: ["subscribed", "ready", "claimed", "dispatched"] } },
-            {
-              state: { in: ["failed", "cancelled"] },
-              updatedAt: { gte: continuationCutoff }
-            }
-          ]
-        },
-        select: { canonicalJobId: true, state: true }
-      })
-    ]);
-    const openIds = new Set(openRows.map((row) => row.id));
-    const missingIds = continuationHandles
-      .map((handle) => handle.canonicalJobId)
-      .filter((id) => !openIds.has(id));
-    const continuationRows =
-      missingIds.length === 0
-        ? []
-        : await this.prisma.assistantMediaJob.findMany({
-            where: {
-              id: { in: missingIds },
-              assistantId: input.assistantId,
-              userId: input.userId,
-              chatId: input.chatId
-            },
-            select: {
-              id: true,
-              kind: true,
-              requestJson: true,
-              status: true,
-              createdAt: true,
-              startedAt: true,
-              updatedAt: true
-            }
-          });
-    const rows = [...openRows, ...continuationRows].sort((a, b) => {
-      const byCreated = a.createdAt.getTime() - b.createdAt.getTime();
-      return byCreated !== 0 ? byCreated : a.id.localeCompare(b.id);
+    // A pending continuation is not pending media. Working is only canonical
+    // nonterminal work; terminal results remain in history/continuation facts.
+    const rows = await this.prisma.assistantMediaJob.findMany({
+      where: {
+        assistantId: input.assistantId,
+        userId: input.userId,
+        chatId: input.chatId,
+        status: { in: ["queued", "running", "completion_pending"] }
+      },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+      select: {
+        id: true,
+        kind: true,
+        requestJson: true,
+        status: true,
+        createdAt: true,
+        startedAt: true,
+        updatedAt: true
+      }
     });
     const handles = await this.prisma.assistantAsyncJobHandle.findMany({
       where: {

@@ -6,7 +6,7 @@ function buildPrismaStub(
     id: string;
     kind: "image" | "audio" | "video";
     requestJson: unknown;
-    status: "queued" | "running" | "completion_pending" | "delivered";
+    status: "queued" | "running" | "completion_pending" | "delivered" | "failed" | "canceled";
     createdAt: Date;
     startedAt: Date | null;
     completedAt?: Date | null;
@@ -694,6 +694,100 @@ async function run(): Promise<void> {
       results[2]?.displayKind,
       "cinematic",
       "image jobs must default to displayKind=cinematic"
+    );
+  }
+
+  // ── Working refresh: terminal canonical media never survives projection ───
+  {
+    const now = new Date("2026-07-19T16:00:00.000Z");
+    const rows = [
+      {
+        id: "media-queued",
+        kind: "image" as const,
+        requestJson: {
+          attachments: [],
+          sourceUserMessageText: "queued",
+          sourceUserMessageCreatedAt: now.toISOString()
+        },
+        status: "queued" as const,
+        createdAt: now,
+        startedAt: null,
+        updatedAt: now
+      },
+      {
+        id: "media-running",
+        kind: "video" as const,
+        requestJson: {
+          attachments: [],
+          sourceUserMessageText: "running",
+          sourceUserMessageCreatedAt: now.toISOString()
+        },
+        status: "running" as const,
+        createdAt: now,
+        startedAt: now,
+        updatedAt: now
+      },
+      {
+        id: "media-completed",
+        kind: "image" as const,
+        requestJson: {
+          attachments: [],
+          sourceUserMessageText: "completed",
+          sourceUserMessageCreatedAt: now.toISOString()
+        },
+        status: "delivered" as const,
+        createdAt: now,
+        startedAt: now,
+        updatedAt: now
+      },
+      {
+        id: "media-failed",
+        kind: "audio" as const,
+        requestJson: {
+          attachments: [],
+          sourceUserMessageText: "failed",
+          sourceUserMessageCreatedAt: now.toISOString()
+        },
+        status: "failed" as const,
+        createdAt: now,
+        startedAt: now,
+        updatedAt: now
+      },
+      {
+        id: "media-cancelled",
+        kind: "audio" as const,
+        requestJson: {
+          attachments: [],
+          sourceUserMessageText: "cancelled",
+          sourceUserMessageCreatedAt: now.toISOString()
+        },
+        status: "canceled" as const,
+        createdAt: now,
+        startedAt: now,
+        updatedAt: now
+      }
+    ];
+    (service as never)["prisma"] = buildPrismaStub(rows);
+
+    const firstRead = await service.listOpenJobsForWebChat({
+      assistantId: "assistant-1",
+      userId: "user-1",
+      chatId: "chat-1"
+    });
+    assert.deepEqual(
+      firstRead.map((job) => job.id),
+      ["media-queued", "media-running"]
+    );
+
+    rows[1]!.status = "delivered";
+    const refreshed = await service.listOpenJobsForWebChat({
+      assistantId: "assistant-1",
+      userId: "user-1",
+      chatId: "chat-1"
+    });
+    assert.deepEqual(
+      refreshed.map((job) => job.id),
+      ["media-queued"]
     );
   }
 

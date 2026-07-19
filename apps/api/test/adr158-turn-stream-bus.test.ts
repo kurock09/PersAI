@@ -111,6 +111,62 @@ describe("ADR-158 durable web turn stream bus", () => {
     assert.equal(wrongUser, null);
   });
 
+  test("reattach degrades non-live on store failure then recovers replay and live subscription", async () => {
+    const { store, podA, podB } = createBusPair();
+    const identity = { assistantId: "assistant-1", clientTurnId: "turn-outage", userId: "user-1" };
+    await podA.registerTurn(identity);
+    await podA.publishAsync({ ...identity, event: "delta", payload: { delta: "before" } });
+
+    const originalGetMeta = store.getMeta.bind(store);
+    store.getMeta = async () => {
+      throw new Error("redis unavailable");
+    };
+    const unavailable = await podB.attach({ ...identity, onEvent: () => undefined });
+    assert.equal(unavailable, null);
+
+    store.getMeta = originalGetMeta;
+    const events: string[] = [];
+    const detach = await podB.attach({
+      ...identity,
+      onEvent: (event, payload) => events.push(`${event}:${(payload as { delta: string }).delta}`)
+    });
+    assert.notEqual(detach, null);
+    await podA.publishAsync({ ...identity, event: "delta", payload: { delta: "after" } });
+    assert.deepEqual(events, ["delta:before", "delta:after"]);
+    detach?.();
+  });
+
+  test("same-owner registration preserves replay, sequence, and local sinks", async () => {
+    const { store, podA } = createBusPair();
+    const identity = {
+      assistantId: "assistant-1",
+      clientTurnId: "turn-reregister",
+      userId: "user-1"
+    };
+    await podA.registerTurn(identity);
+    const received: string[] = [];
+    const detach = await podA.attach({
+      ...identity,
+      onEvent: (_event, payload) => received.push((payload as { value: string }).value)
+    });
+    await podA.publishAsync({ ...identity, event: "delta", payload: { value: "one" } });
+    await podA.registerTurn(identity);
+    await podA.publishAsync({ ...identity, event: "delta", payload: { value: "two" } });
+
+    const key = buildTurnStreamKey(identity.assistantId, identity.userId, identity.clientTurnId);
+    const replay = await store.listFrom(key);
+    assert.deepEqual(
+      replay.map((item) => item.seq),
+      [1, 2]
+    );
+    assert.deepEqual(
+      replay.map((item) => (item.payload as { value: string }).value),
+      ["one", "two"]
+    );
+    assert.deepEqual(received, ["one", "two"]);
+    detach?.();
+  });
+
   test("same clientTurnId is tenant-isolated by userId in stream key", async () => {
     const { store, podA, podB } = createBusPair();
     await podA.registerTurn({
@@ -182,11 +238,14 @@ describe("ADR-158 durable web turn stream bus", () => {
     };
 
     const bus = new WebChatTurnStreamBusService(store);
-    await bus.registerTurn({
-      assistantId: "assistant-1",
-      clientTurnId: "turn-fence",
-      userId: "user-1"
-    });
+    await assert.rejects(
+      bus.registerTurn({
+        assistantId: "assistant-1",
+        clientTurnId: "turn-fence",
+        userId: "user-1"
+      }),
+      { name: "TurnStreamRegistrationError" }
+    );
 
     assert.equal(bus.hasLocalRegistrationForTesting("assistant-1", "user-1", "turn-fence"), false);
     store.getMeta = originalGetMeta;

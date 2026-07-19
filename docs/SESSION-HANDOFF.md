@@ -1,17 +1,88 @@
 # SESSION-HANDOFF
 
-## 2026-07-19 — ADR-159 S0–S4 pushed; S5 deploy + live
+## 2026-07-19 — ADR-159 repair train CLEAN/GO; S5 shipping pending
 
-Status: **Pushed `main` `ec9bb5b7`.** Baseline was `b41adb6a` (rebased over
-gitops pin `da5e3cf9`). Session Work Queue S0–S4 (+ runtime-duplicate P0 +
-post-CLEAN comment cleanup) landed after dual CLEAN audit and full AGENTS
-lint/format/api+web+runtime+sandbox typecheck + recursive `pnpm test` +
-`test:ci-detect-affected` + `test:step2`. Migrations
+Status: **Slices 1–3 and final frozen integration/cleanup audits are
+CLEAN/GO locally.** Baseline is clean `main` `209f2d18`; additive migration
+`20260719180000_adr159_admission_linearization` remains uncommitted and needs
+migration approval. No deploy/live/CLOSED claim: S5 requires mandatory gate
+rerun, commit/push, migration approval, exact images/GitOps, then live
+multi-replica web + Telegram acceptance.
+
+Final local gate record: recursive lint, `format:check`, API typecheck, and
+Web typecheck PASS; full workspace tests PASS on the final tree (latest
+2026-07-19, exit 0, approximately 12m40s); `test:step2` PASS (web: 85 files /
+1060 tests) and `test:ci-detect-affected` PASS (30/30). The final frozen Terra
+audit is CLEAN/GO with zero P0/P1/P2 findings. `prisma:migrate:check` did not
+complete because the local database has the pre-existing failed historical
+`20260501120000_adr079_knowledge_skills_foundation` migration (P3009); this
+does not indicate a failure of the new migration. Prisma schema validation and
+migration-file audit are clean; production still requires normal migration
+approval.
+
+Final invariants: claim-one/process-one prevents queued expiring locks;
+coordination loss reconciles exact receipts without duplicate narration;
+attachment-first/document monotonicity remains intact; Redis owner/stream
+coordination preserves cross-replica Stop and honest non-live reattach.
+
+Slice 1 fixes:
+completion-before-wait retains null narration ownership until source
+finalization so the open current turn can atomically claim terminal narration;
+every web turn now stamps its chat-row admission before user-message
+persistence (including no-clientTurnId sync), Telegram stamps after inbound
+user-message persistence, and the same chat row serializes their
+race with catch-up CAS. Ready-chat scanning is bounded but durably round-robin
+via `catch_up_last_scanned_at`, so >scan-cap blocked chats cannot starve later
+eligible work across ticks/replicas. Migrations now include
 `20260719160000_adr159_s2_chat_idle_pause` +
-`20260719170000_adr159_catchup_ordinal` require migration-approved pin.
-**S5 in progress:** wait exact api/web/runtime images → live accept web
-interleave user↔catch-up, multi-job 1/2→2/2, sync `await.wait`, Telegram
-serial busy. Working-pill trash / bandage stash still out of scope.
+`20260719170000_adr159_catchup_ordinal` +
+`20260719180000_adr159_admission_linearization`; all require
+migration-approved pin. Do not deploy or perform S5 live acceptance until this
+repair passes independent audit and the required gate. This historical
+audit-pending wording is superseded by the CLEAN/GO status above.
+
+### Historical Slice 2 local repair
+
+- Working is now strictly canonical nonterminal media/document/sandbox work;
+  terminal continuation handles remain history/catch-up truth only.
+- Web media and document legacy framing run only after canonical attachment
+  delivery; partial metadata enrichment remains best-effort and cannot delay
+  attachment-first.
+- Catch-up developer guidance identifies exact terminal facts and durable
+  queue ordinal, forbids duplicate delivery claims and re-answering later user
+  messages. Await documentation now consistently records the `0..300000`
+  per-call cap plus cumulative 20-wait budget.
+- Document delivery finalization locks the document row and promotes only a
+  strictly newer durable version number. Late older successful revisions are
+  retained as `superseded`; focused fixture coverage pins v5-before-v4,
+  exact-prior supersession, attachment currentness demotion/promotion,
+  row-lock use, and retry idempotency. Revision attachment lookup now also
+  requires the canonical `currentVersionId` identity.
+
+### Historical Slice 3 local repair
+
+- Fresh web stream admission awaits the Redis Stop-owner publication barrier
+  before emitting `started` or invoking runtime; failure is surfaced as an
+  honest coordination failure, not cancellable work.
+- Redis stream metadata/replay/subscribe failures degrade reattach to
+  non-live canonical attempt/history recovery; stream registration is
+  idempotent for the same owner and preserves replay sequence.
+- Catch-up heartbeat loss prevents completion under the lost lock; Telegram
+  ambiguous dispatch reconciles the exact requestId receipt before dispatch,
+  ready release, or fail-closed orphan reconciliation.
+- Focused race tests and the full workspace suite passed twice on the final
+  frozen tree (latest 2026-07-19, exit 0, approximately 12m40s). The final
+  mandatory gate is also PASS; commit/push and normal migration approval are
+  the next shipping prerequisites.
+
+### Slice 3 audit-repair tests (local)
+
+- Controllable-promise web and Telegram tests prove coordination abort does
+  not create assistant narration, delivery, stream publication, or claim
+  completion; web cleanup releases Stop/stream registration and exact receipt
+  reconciliation only releases proven-absent work. Explicit registration
+  outcomes fail fresh admission on conflict/unavailable while reattach remains
+  a non-live fallback.
 
 ## 2026-07-19 — ADR-152 Browser Script SDK live PASS (Telega / any profile)
 
@@ -122,9 +193,10 @@ Fix: `finalizeSourceTurn` auto-subscribes null/`current_turn`-released
 handles to `continuation`+`notify_subscribed`; `prepareDelivery` /
 `recordCanonicalCompletion` heal historical legacy → skip framing + ready;
 runtime `receipt`/notify never emit already-owned chat static. ADR-157 D4.1
-+ ADR-152 supersession updated. Focused handle-state + await tests +
-api/runtime typecheck green. Next: deploy api+runtime → live smoke bg
-without notify wakes and narrates; notify combo has no EN static leak.
+
+- ADR-152 supersession updated. Focused handle-state + await tests +
+  api/runtime typecheck green. Next: deploy api+runtime → live smoke bg
+  without notify wakes and narrates; notify combo has no EN static leak.
 
 ## 2026-07-19 — ADR-158 stream hardening + async-cont duplicate fix
 

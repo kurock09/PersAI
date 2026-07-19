@@ -277,11 +277,6 @@ export class WebChatTurnAttemptService {
         ...(input.surfaceClient === undefined ? {} : { surfaceClient: input.surfaceClient })
       }
     });
-    // ADR-159 S2 — optional durable parity with Telegram preparing stamp.
-    // Gate still primarily uses the non-async_continuation attempt row.
-    if (input.surfaceClient !== "async_continuation" && this.chatWakeCoordinator !== undefined) {
-      await this.chatWakeCoordinator.recordUserTurnStarted(input.chatId);
-    }
     this.logger.log(
       `web_turn_attempt_running assistantId=${input.assistantId} threadKey=${input.surfaceThreadKey} clientTurnId=${input.clientTurnId} chatId=${input.chatId} userMessageId=${input.userMessageId ?? "null"}`
     );

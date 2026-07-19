@@ -19,8 +19,8 @@ unchanged.
 Universal await is
 `await({action:"wait"|"notify",jobRef?:string,timeoutMs?:number})`: wait may
 omit `jobRef` for a complete bounded current-turn/open-chat snapshot; notify
-requires it; timeout is wait-only `0..60000`; and 20 replay-deduped waits are
-admitted per dispatched turn. Canonical adapters are media, document, and
+requires it; timeout is wait-only `0..300000` per call; and 20
+replay-deduped waits are admitted cumulatively per dispatched turn. Canonical adapters are media, document, and
 sandbox. Registration is trusted and exact-owned through runtime session and
 source turn. Notify remains non-terminal and durable; terminal-before-subscribe
 is inline; sourceFinalizedAt and same-chat lease gate exactly-once continuation.
@@ -134,7 +134,7 @@ The exact schema is
 `await({ action: "wait" | "notify", jobRef?: string, timeoutMs?: number })`
 with `additionalProperties: false` and required `action`. `jobRef` is optional
 only for `wait`; runtime validation still requires it for `notify`. `timeoutMs`
-is valid only for `wait`, with an inclusive `0..60000` range. There is no
+is valid only for `wait`, with an inclusive `0..300000` range. There is no
 `notify-all` action.
 
 `wait(jobRef)` observes one exact owned job. `wait()` observes one complete,

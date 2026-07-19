@@ -4,7 +4,8 @@ import {
   isTurnStreamTerminalEvent,
   type TurnStreamEnvelope,
   type TurnStreamEventStore,
-  type TurnStreamMeta
+  type TurnStreamMeta,
+  type TurnStreamRegistrationResult
 } from "./turn-stream-event-store";
 
 type RedisClient = ReturnType<typeof createClient>;
@@ -12,6 +13,21 @@ type RedisClient = ReturnType<typeof createClient>;
 const KEY_PREFIX = "turn-stream";
 const BUFFER_TTL_SECONDS = 3600;
 const RELEASE_GRACE_SECONDS = 30;
+const REGISTER_LUA = `
+local existing = redis.call('GET', KEYS[1])
+if existing then
+  local meta = cjson.decode(existing)
+  if meta['userId'] ~= ARGV[1] then
+    return 0
+  end
+  redis.call('EXPIRE', KEYS[1], tonumber(ARGV[2]))
+  redis.call('EXPIRE', KEYS[2], tonumber(ARGV[2]))
+  redis.call('EXPIRE', KEYS[3], tonumber(ARGV[2]))
+  return 2
+end
+redis.call('SET', KEYS[1], cjson.encode({ userId = ARGV[1], terminalPublished = false }), 'EX', tonumber(ARGV[2]))
+return 1
+`;
 
 /**
  * Atomically: validate meta userId, INCR seq, RPUSH envelope, refresh TTL,
@@ -63,27 +79,29 @@ export class RedisTurnStreamEventStore implements TurnStreamEventStore {
 
   constructor(private readonly redisUrl: string) {}
 
-  async registerTurn(input: { turnKey: string; userId: string }): Promise<void> {
+  async registerTurn(input: {
+    turnKey: string;
+    userId: string;
+  }): Promise<TurnStreamRegistrationResult> {
     const client = await this.client();
     if (client === null) {
-      return;
+      return "unavailable";
     }
-    const existing = await this.getMeta(input.turnKey);
-    if (existing !== null && existing.userId !== input.userId) {
+    const registered = await client.eval(REGISTER_LUA, {
+      keys: [
+        this.metaKey(input.turnKey),
+        this.eventsKey(input.turnKey),
+        this.seqKey(input.turnKey)
+      ],
+      arguments: [input.userId, String(BUFFER_TTL_SECONDS)]
+    });
+    if (registered === 0) {
       this.logger.warn(
-        `[turn-stream-redis] registerTurn refuse overwrite turnKey=${input.turnKey} existingUserId=${existing.userId} requestedUserId=${input.userId}`
+        `[turn-stream-redis] registerTurn refuse overwrite turnKey=${input.turnKey} requestedUserId=${input.userId}`
       );
-      return;
+      return "conflict";
     }
-    const eventsKey = this.eventsKey(input.turnKey);
-    const metaKey = this.metaKey(input.turnKey);
-    const seqKey = this.seqKey(input.turnKey);
-    const meta: StoredMeta = {
-      userId: input.userId,
-      terminalPublished: false
-    };
-    await client.del([eventsKey, seqKey]);
-    await client.set(metaKey, JSON.stringify(meta), { EX: BUFFER_TTL_SECONDS });
+    return registered === 2 ? "idempotent" : "registered";
   }
 
   async append(input: {

@@ -5,6 +5,76 @@
 
 ## 2026-07-19
 
+- **ADR-159 repair train CLEAN/GO (local):** final frozen integration and
+  cleanup audits accepted Slices 1–3. Per-chat catch-up now claims and
+  processes one item at a time (no queued expiring locks), exact receipt
+  reconciliation fences coordination loss, attachment/document monotonicity
+  stays authoritative, and Redis owner/stream coordination preserves
+  cross-replica Stop with honest non-live reattach. Full workspace tests passed
+  twice on the final tree (latest 2026-07-19, exit 0, ~12m40s). Baseline
+  `209f2d18`; additive migration `20260719180000_adr159_admission_linearization`;
+  no commit SHA, deploy, live acceptance, or closure. Next: commit/push,
+  migration approval, exact-image/GitOps rollout, live multi-replica web +
+  Telegram acceptance.
+
+- **ADR-159 final local gate record:** recursive lint, `format:check`, API
+  typecheck, and Web typecheck PASS; full workspace tests PASS on the final
+  tree (latest 2026-07-19, exit 0, ~12m40s); `test:step2` PASS (web: 85 files /
+  1060 tests); `test:ci-detect-affected` PASS (30/30). Final frozen Terra
+  audit CLEAN/GO reported zero P0/P1/P2. `prisma:migrate:check` did not
+  complete solely because the local database has the pre-existing failed
+  historical migration `20260501120000_adr079_knowledge_skills_foundation`
+  (P3009), not because of the new migration; Prisma schema validation and
+  migration-file audit are clean. Normal production migration approval remains
+  required.
+
+- **Repair (ADR-159 Slice 3; local, audit pending):** fresh web streams now
+  await durable Redis Stop-owner publication before `started`/runtime
+  acceptance and fail closed if cross-replica cancellation cannot be
+  established. Redis reattach faults degrade to non-live attempt/history
+  reconciliation; same-owner stream registration preserves replay/sequence;
+  Telegram ambiguous continuation dispatch reconciles exact runtime request
+  receipt before dispatch or requeue. Catch-up heartbeat loss blocks claim
+  completion. No deploy, commit, or CLEAN claim.
+
+- **Audit repair (ADR-159 Slice 3; local, audit pending):** stream
+  registration has explicit durable outcomes; ordinary pre-runtime failure
+  terminalizes its attempt and closes USER_TURN admission. Catch-up heartbeat
+  loss now aborts web/Telegram dispatch and fences narration/delivery; exact
+  request receipt reconciliation chooses requeue only for proven absence.
+
+- **Repair (ADR-159 Slice 2; local, audit pending):** Working projections now
+  exclude terminal media/document/sandbox canonical jobs even while their
+  continuation handles retain terminal facts. Web legacy completion framing is
+  deferred until canonical attachment delivery succeeds; document framing
+  follows delivered attachments. Catch-up guidance is bounded to exact terminal
+  facts and durable queue position, preserving interleaved user-message
+  priority. Await docs reconcile the `0..300000` per-call cap and cumulative
+  20-wait turn budget. Document revision finalization locks its document row
+  and only advances `currentVersionId` by durable version number, preventing
+  late older deliveries from regressing the current revision; attachment
+  currentness is finalized in the same transaction and revision lookup checks
+  canonical version identity. No
+  Stop/Redis/heartbeat changes or deploy.
+
+- **Repair (ADR-159 Slice 1; local, audit pending):** post-push integration
+  audit marked S5 DIRTY and paused deploy/live acceptance. Terminal completion
+  before source finalization now remains current-turn claimable instead of
+  immediately becoming a continuation; source finalization and completion make
+  one owner decision. Catch-up admission now has a durable
+  `assistant_chats.catch_up_admission_fence` CAS boundary shared with web
+  admission immediately after chat resolution and before user-message
+  persistence (including no-clientTurnId sync turns); preparation retains
+  terminal-close ownership until successful `markRunning` transfers it to the
+  attempt. Telegram inbound
+  admission; a user already preparing at that boundary wins,
+  while an already-CAS-admitted catch-up is not falsely claimed preemptible.
+  Ready-chat discovery scans bounded durable-round-robin keyset pages
+  (`catch_up_last_scanned_at`) so blocked oldest chats do not starve later
+  eligible work across ticks. Additive migration
+  `20260719180000_adr159_admission_linearization`; no deploy or live
+  acceptance.
+
 - **Pushed `ec9bb5b7`: ADR-159 S0–S4 Session Work Queue (S5 deploy/live).**
   `ChatWakeCoordinator` serializes per-chat catch-up via exclusive
   `async-catchup:{chatId}` lease + FIFO ready head; user priority + 2s

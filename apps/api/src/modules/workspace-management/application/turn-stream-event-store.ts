@@ -18,12 +18,14 @@ export type TurnStreamMeta = {
   terminalPublished: boolean;
 };
 
+export type TurnStreamRegistrationResult = "registered" | "idempotent" | "conflict" | "unavailable";
+
 export const TURN_STREAM_EVENT_STORE = Symbol("TURN_STREAM_EVENT_STORE");
 
 export const TURN_STREAM_TERMINAL_EVENTS = new Set(["completed", "interrupted", "failed"]);
 
 export interface TurnStreamEventStore {
-  registerTurn(input: { turnKey: string; userId: string }): Promise<void>;
+  registerTurn(input: { turnKey: string; userId: string }): Promise<TurnStreamRegistrationResult>;
   append(input: {
     turnKey: string;
     userId: string;

@@ -4,9 +4,9 @@ This document defines the current verification baseline for the active PersAI-na
 
 ADR-072 is closed as the historical native migration ADR. Current continuation work should be checked against `docs/ADR/078-consolidated-follow-through-program.md`. `Step 15a` is cancelled and is not an active verification track. ADR-087 defines the unified quota-advisory and paid light-mode target state. ADR-088 defines the unified notification platform target state.
 
-## 2026-07-19 ADR-159 Session Work Queue (S4 local; S5 open)
+## 2026-07-19 ADR-159 Session Work Queue (Slices 1–3 CLEAN/GO local; S5 shipping pending)
 
-Required coverage as slices land (no intermediate deploy until S5):
+Completed focused coverage plus S5 shipping coverage (no intermediate deploy until S5):
 
 - **S1+S2 landed (local):** `apps/api/test/chat-wake-coordinator.service.test.ts`,
   `assistant-async-job-continuation-scheduler.service.test.ts`,
@@ -21,6 +21,24 @@ Required coverage as slices land (no intermediate deploy until S5):
   scheduler gate-denial → no execute / release claim); async_continuation
   terminals do not stamp user-turn started/terminal; FIFO one-at-a-time while
   lock held
+- **Slice 1 repair:** deterministic completion-before-wait and
+  completion-vs-finalize ownership races prove exactly one narrator and no
+  duplicate continuation; pause catch-up immediately before its durable
+  admission CAS, start a web or Telegram user turn, and prove the catch-up
+  releases/requeues while the user owns the next admission across replicas;
+  scan more than `2 * limit` oldest gate-denied chats and still claim a later
+  eligible chat within the 32-row page / 256-row tick cap; then run a second
+  tick after more than the scan cap of blocked chats and prove the durable
+  `catch_up_last_scanned_at` ordering reaches a later eligible chat. Web
+  every web admission, including no-clientTurnId sync, must precede
+  user-message persistence and close on preparation failure; chat-row user and
+  catch-up mutations have deterministic commit ordering.
+  A no-clientTurnId prepared turn carries one close-required admission token;
+  sync success/failure and stream completed/interrupted/failed terminal paths
+  must consume it only after their actual terminal outcome, never at prepare
+  success or soft detach.
+  Focused deterministic unit ordering/SQL-shape coverage passed on the final
+  frozen tree; final integration and cleanup audits are CLEAN/GO.
 - **S3 markers landed (local):** scheduler
   `resolveCatchUpWakeMarkers` / `buildRequest` / `loadAndValidateContext`
   emit `wakeKind=job_catchup`, `queueOrdinal`/`queueTotal`, `interleaved`,
@@ -37,6 +55,25 @@ Required coverage as slices land (no intermediate deploy until S5):
   ready; sequential markers 1/2 then 2/2; web `duplicate_handled` →
   `completeClaim` (no claimed stall); TG ambiguous `markDispatched` P2
   residual documented
+- **Slice 2 repair:** media/document/sandbox web Working
+  read seams exclude completed/delivered, failed, and cancelled canonical rows
+  while preserving queued/running rows; media and sandbox tests also re-read
+  after a terminal transition. Telegram success ordering pins structural
+  attachment anchor → canonical attachment delivery → legacy framing/text
+  publication, while existing pre-delivery failure coverage prevents success
+  text publication. The runtime acceptance fixture pins exact job facts, queue
+  ordinal/total, interleaving, no duplicate delivery claim, and no repeated
+  await.
+- **Document delivery repair requirement:** `skip_legacy_frame` must preserve
+  non-empty current-turn/continuation narration after attachment delivery;
+  only a historical missing-handle decision may frame, and only after at least
+  one canonical attachment is delivered. Telegram document zero/throw/partial
+  paths must expose failure or structural honesty only.
+- **Document revision linearization:** the delivery transaction fixture pins
+  row-lock acquisition and durable version-number ordering: v5 delivered
+  before late v4 remains current, v4 becomes `superseded`, only the exact
+  previous current is superseded by a winning candidate, attachment metadata
+  is demoted/promoted with that outcome, and a same-job retry is idempotent.
 - **Interleave (S2):** user POST while ≥1 handle is `ready` → user turn runs
   first; after idle-pause, catch-ups run; no parallel agent turns for the
   same chat
@@ -52,6 +89,38 @@ Required coverage as slices land (no intermediate deploy until S5):
   no web SSE zombie / stuck-accepted absorb as product path
 - Retain ADR-157/152 coverage for auto-subscribe intent, opaque `jobRef`,
   Stop≠cancel background job, ADR-158 stream bus replay
+- **Slice 3:** pause durable Stop-owner publication and issue
+  Stop from a second bus replica; `started` / runtime acceptance must remain
+  blocked until owner publication completes. Redis attach/read/subscribe
+  outages return `liveTokenStream:false` and status/history reconciliation,
+  never HTTP 500; after recovery reattach returns live replay. Same-owner
+  registration preserves buffered events and sequence, conflicting owner fails
+  CAS. Force catch-up heartbeat false/error during web and Telegram dispatch:
+  no claim completes under the lost lock and the exact runtime receipt is
+  reconciled without a duplicate narrator. Telegram ambiguous execute must
+  inspect the exact requestId and prove accepted→dispatched,
+  absent→ready, ambiguous→no re-execute/orphan reconciliation.
+- **Slice 3 audit repair:** controllable-promise tests pause an active web
+  stream and Telegram execute, inject coordination-lock loss before response
+  and at the response/dispatch fence, and assert abort plus no narration,
+  persistence, delivery, publish, or completion. Registration tests assert
+  explicit `registered|idempotent|conflict|unavailable`, same-owner replay
+  preservation, and durable ordinary/continuation cleanup on fresh-admission
+  failure.
+- **Redis reattach proof:** a controllable stream store throws on metadata
+  read during reattach and returns a non-live result without throwing; after
+  restoration, replay returns buffered events in order and subscription
+  receives the next append. Same-owner re-registration after buffered events
+  preserves sequence and local sinks.
+- **Web coordination-loss proof:** while `runtimeClient.stream` is pending,
+  a controllable coordination abort inspects the exact request/session;
+  proven absence abandons the running async-continuation attempt and releases
+  ready, while accepted/in-flight/ambiguous results remain dispatched for
+  receipt/orphan reconciliation without narration.
+- **Catch-up scheduling:** scheduler claims and processes one chat at a time;
+  no lock/claim waits behind another runtime dispatch unheartbeated. Bounded
+  batch loops stop on an empty claim while each next claim reuses durable scan
+  recency for fairness.
 
 ## 2026-07-19 ScriptRef isolation (broken Script ≠ dead chat)
 

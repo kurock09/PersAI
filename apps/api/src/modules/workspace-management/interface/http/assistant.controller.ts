@@ -1368,17 +1368,44 @@ export class AssistantController {
       if (clientTurnIdForRegistry !== undefined && preparation.mode === "prepared") {
         assistantIdForRegistry = preparation.prepared.assistantId;
         streamRegistryUserId = preparation.prepared.userId;
-        this.webChatTurnStopDispatchService.register({
-          assistantId: preparation.prepared.assistantId,
-          clientTurnId: clientTurnIdForRegistry,
-          userId: preparation.prepared.userId,
-          controller: clientAbortController
-        });
-        await this.webChatTurnStreamRegistry.register({
-          assistantId: preparation.prepared.assistantId,
-          clientTurnId: clientTurnIdForRegistry,
-          userId: preparation.prepared.userId
-        });
+        try {
+          // Cross-replica Stop is an admission requirement for a fresh web
+          // stream. Do not emit `started` until the owner record is durably
+          // visible to every API replica.
+          await this.webChatTurnStopDispatchService.register({
+            assistantId: preparation.prepared.assistantId,
+            clientTurnId: clientTurnIdForRegistry,
+            userId: preparation.prepared.userId,
+            controller: clientAbortController
+          });
+          await this.webChatTurnStreamRegistry.register({
+            assistantId: preparation.prepared.assistantId,
+            clientTurnId: clientTurnIdForRegistry,
+            userId: preparation.prepared.userId
+          });
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : "Unable to establish durable turn control.";
+          // `prepare` has already persisted the user message and marked the
+          // attempt running/admitted. Registration is still pre-runtime, so
+          // durably terminalize that attempt and close its USER_TURN window
+          // before telling the client this send failed.
+          await this.webChatTurnAttemptService.markFailed({
+            assistantId: preparation.prepared.assistantId,
+            userId: preparation.prepared.userId,
+            surfaceThreadKey: preparation.prepared.chat.surfaceThreadKey,
+            clientTurnId: clientTurnIdForRegistry,
+            code: "turn_coordination_unavailable",
+            message
+          });
+          sendSse("failed", {
+            code: "turn_coordination_unavailable",
+            message,
+            transport: null
+          });
+          res.end();
+          return;
+        }
       }
 
       if (preparation.mode === "replayed") {

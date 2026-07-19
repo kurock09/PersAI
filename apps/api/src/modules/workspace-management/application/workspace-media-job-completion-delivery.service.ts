@@ -333,33 +333,32 @@ export class AssistantMediaJobCompletionDeliveryService {
         kind: "media",
         canonicalJobId: job.id
       });
-      const completionAssistantText = await this.resolveCompletionAssistantText({
-        job,
-        sourceUserMessageText: requestPayload.sourceUserMessageText,
-        sourceUserMessageCreatedAt: requestPayload.sourceUserMessageCreatedAt,
-        artifacts,
-        allowLegacyFrame: narrationDecision === "legacy_frame"
-      });
-      const messageId = await this.ensureCompletionMessage(job, completionAssistantText);
-      if (completionAssistantText.shouldUpdateExistingMessage) {
-        await this.safeUpdateDeliveryMessageContent({
-          messageId,
-          assistantId: job.assistantId,
-          nextText: completionAssistantText.text
-        });
-      }
-
       if (job.surface === "telegram") {
+        // Canonical Telegram attachment delivery precedes all legacy success
+        // framing. The structural message is only the attachment anchor until
+        // delivery succeeds.
+        const messageId = await this.ensureCompletionMessage(job, {
+          text: "",
+          shouldUpdateExistingMessage: false
+        });
         await this.processTelegramCompletionPendingJob({
           job,
           artifacts,
           messageId,
-          rawAssistantText: completionAssistantText.text,
+          sourceUserMessageText: requestPayload.sourceUserMessageText,
+          sourceUserMessageCreatedAt: requestPayload.sourceUserMessageCreatedAt,
+          allowLegacyFrame: narrationDecision === "legacy_frame",
           deliveryState
         });
         return;
       }
 
+      // Attachment delivery is authoritative. In the missing-handle historical
+      // contour, do not persist or publish legacy framing before this succeeds.
+      const messageId = await this.ensureCompletionMessage(job, {
+        text: "",
+        shouldUpdateExistingMessage: false
+      });
       const delivered = await this.mediaDeliveryService.deliver({
         artifacts: runtimeOutputArtifactsToMediaArtifacts(artifacts),
         channel: "web",
@@ -370,6 +369,20 @@ export class AssistantMediaJobCompletionDeliveryService {
       });
       deliveryState.loopResolved = true;
       await this.releaseUnproducedRemainderBestEffort(job, artifacts.length);
+      const completionAssistantText = await this.resolveCompletionAssistantText({
+        job,
+        sourceUserMessageText: requestPayload.sourceUserMessageText,
+        sourceUserMessageCreatedAt: requestPayload.sourceUserMessageCreatedAt,
+        artifacts,
+        allowLegacyFrame: narrationDecision === "legacy_frame" && delivered.attachments.length > 0
+      });
+      if (completionAssistantText.text.trim().length > 0) {
+        await this.safeUpdateDeliveryMessageContent({
+          messageId,
+          assistantId: job.assistantId,
+          nextText: completionAssistantText.text
+        });
+      }
       let finalText = applyFinalDeliveryHonestyCorrection({
         assistantText: completionAssistantText.text,
         attemptedArtifactCount: artifacts.length,
@@ -858,7 +871,9 @@ export class AssistantMediaJobCompletionDeliveryService {
     job: ClaimedCompletionPendingMediaJob;
     artifacts: RuntimeOutputArtifact[];
     messageId: string;
-    rawAssistantText: string;
+    sourceUserMessageText: string;
+    sourceUserMessageCreatedAt: string;
+    allowLegacyFrame: boolean;
     deliveryState: { loopResolved: boolean };
   }): Promise<void> {
     const deliveryContext = await this.resolveTelegramDeliveryContext(params.job);
@@ -881,8 +896,25 @@ export class AssistantMediaJobCompletionDeliveryService {
     // per-artifact; any later exception in this method must not reconcile again.
     params.deliveryState.loopResolved = true;
     await this.releaseUnproducedRemainderBestEffort(params.job, params.artifacts.length);
+    if (delivered.attachments.length === 0) {
+      throw new Error("Generated media could not be delivered to the Telegram chat.");
+    }
+    const completionAssistantText = await this.resolveCompletionAssistantText({
+      job: params.job,
+      sourceUserMessageText: params.sourceUserMessageText,
+      sourceUserMessageCreatedAt: params.sourceUserMessageCreatedAt,
+      artifacts: params.artifacts,
+      allowLegacyFrame: params.allowLegacyFrame
+    });
+    if (completionAssistantText.text.trim().length > 0) {
+      await this.safeUpdateDeliveryMessageContent({
+        messageId: params.messageId,
+        assistantId: params.job.assistantId,
+        nextText: completionAssistantText.text
+      });
+    }
     let finalText = applyFinalDeliveryHonestyCorrection({
-      assistantText: params.rawAssistantText,
+      assistantText: completionAssistantText.text,
       attemptedArtifactCount: params.artifacts.length,
       deliveredAttachmentCount: delivered.attachments.length,
       deliveredAttachmentFilenames: delivered.attachments
@@ -907,29 +939,12 @@ export class AssistantMediaJobCompletionDeliveryService {
       finalText = `${finalText}\n\n${tgShortfallLine}`;
     }
 
-    if (params.rawAssistantText !== finalText) {
+    if (completionAssistantText.text !== finalText) {
       await this.assistantChatRepository.updateMessageContent(
         params.messageId,
         params.job.assistantId,
         finalText
       );
-    }
-
-    if (delivered.attachments.length === 0) {
-      await this.telegramAssistantChatOutboundService.deliverPersistedAssistantMessageBestEffort({
-        assistantId: params.job.assistantId,
-        chatId: params.job.chatId,
-        workspaceId: params.job.workspaceId,
-        assistantMessageId: params.messageId,
-        text: finalText,
-        mediaAlreadyDelivered: false
-      });
-      await this.finalizeJob(params.job, {
-        status: "failed",
-        code: "media_delivery_failed",
-        message: "Generated media could not be delivered to the Telegram chat."
-      });
-      return;
     }
 
     await this.telegramAssistantChatOutboundService.deliverPersistedAssistantMessageBestEffort({

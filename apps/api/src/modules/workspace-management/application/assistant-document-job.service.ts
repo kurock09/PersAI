@@ -534,7 +534,8 @@ export class AssistantDocumentJobService {
     const latestDeliveredAttachment = await this.findLatestDeliveredDocumentAttachment({
       assistantId: input.assistantId,
       chatId: input.chatId,
-      docId: document.id
+      docId: document.id,
+      versionId: document.currentVersionId
     });
     return {
       docId: document.id,
@@ -568,6 +569,7 @@ export class AssistantDocumentJobService {
     assistantId: string;
     chatId: string;
     docId: string;
+    versionId: string;
   }) {
     const attachments = await this.prisma.assistantChatMessageAttachment.findMany({
       where: {
@@ -603,7 +605,11 @@ export class AssistantDocumentJobService {
         continue;
       }
       const link = documentLink as Record<string, unknown>;
-      if (link.docId !== input.docId || link.isCurrentOutput !== true) {
+      if (
+        link.docId !== input.docId ||
+        link.versionId !== input.versionId ||
+        link.isCurrentOutput !== true
+      ) {
         continue;
       }
       if (metadata?.kind !== "document" && metadata?.source !== "tool_output") {

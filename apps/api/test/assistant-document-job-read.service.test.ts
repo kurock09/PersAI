@@ -9,6 +9,8 @@ type StubRow = {
     | "provider_processing"
     | "fetching_output"
     | "ready_for_delivery"
+    | "failed"
+    | "canceled"
     | "delivered";
   createdAt: Date;
   startedAt: Date | null;
@@ -134,6 +136,24 @@ async function run(): Promise<void> {
       document: {
         documentType: "presentation"
       }
+    },
+    {
+      id: "presentation-failed",
+      status: "failed",
+      createdAt: now,
+      startedAt: now,
+      updatedAt: now,
+      version: { descriptorMode: "create_presentation", sourceSummaryText: "failed deck" },
+      document: { documentType: "presentation" }
+    },
+    {
+      id: "presentation-cancelled",
+      status: "canceled",
+      createdAt: now,
+      startedAt: now,
+      updatedAt: now,
+      version: { descriptorMode: "create_presentation", sourceSummaryText: "cancelled deck" },
+      document: { documentType: "presentation" }
     }
   ]);
 
@@ -155,6 +175,11 @@ async function run(): Promise<void> {
   assert.equal(
     webJobs.every((job) => job.documentType === "presentation"),
     true
+  );
+  assert.deepEqual(
+    webJobs.map((job) => job.id),
+    ["presentation-running", "presentation-finalizing"],
+    "web Working projection excludes completed, failed, and cancelled canonical jobs"
   );
 
   const deliveryUpdates = await service.listJobDeliveryUpdatesForRuntimeContext({

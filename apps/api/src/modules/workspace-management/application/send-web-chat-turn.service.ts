@@ -22,7 +22,10 @@ import { type AssistantRuntimeWebChatTurnResult } from "./assistant-runtime.faca
 import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
 import { deriveEngagementSummary, type AssistantWebChatTurnState } from "./web-chat.types";
 import { readPersistedDocumentLinkMetadata } from "./read-attachment-document-link";
-import { PrepareAssistantInboundTurnService } from "./prepare-assistant-inbound-turn.service";
+import {
+  type PreparedAssistantInboundTurn,
+  PrepareAssistantInboundTurnService
+} from "./prepare-assistant-inbound-turn.service";
 import {
   createAssistantInboundConflict,
   toAssistantInboundFailurePayload,
@@ -322,6 +325,7 @@ export class SendWebChatTurnService {
     let preparedAssistantId: string | null = null;
     let preparedChatId: string | null = null;
     let sourceUserMessageId: string | null = null;
+    let preparedTurn: PreparedAssistantInboundTurn | null = null;
     let persistedAssistantMessageId: string | null = null;
     let pendingMediaForReconciliation: MediaArtifact[] = [];
     let mediaDeliveryCompleted = false;
@@ -343,6 +347,7 @@ export class SendWebChatTurnService {
           : { deepModeEnabled: request.deepModeEnabled }),
         ...(request.clientTurnId === undefined ? {} : { clientTurnId: request.clientTurnId })
       });
+      preparedTurn = prepared;
       preparedAssistantId = prepared.assistantId;
       preparedChatId = prepared.chat.id;
       sourceUserMessageId = prepared.userMessage.id;
@@ -355,6 +360,9 @@ export class SendWebChatTurnService {
           chatId: prepared.chat.id,
           userMessageId: prepared.userMessage.id
         });
+        this.prepareAssistantInboundTurnService.transferPreparedUserTurnAdmissionToAttempt(
+          prepared
+        );
       }
       trace.stage("prepared");
 
@@ -609,6 +617,9 @@ export class SendWebChatTurnService {
           }`
       });
 
+      if (prepared.userTurnAdmission?.closeRequired) {
+        await this.prepareAssistantInboundTurnService.closePreparedUserTurnAdmission(prepared);
+      }
       trace.finish({
         status: "completed",
         outputPreview: postRuntime.finalAssistantContent
@@ -671,6 +682,9 @@ export class SendWebChatTurnService {
                 assistantMessageId: persistedAssistantMessageId
               })
         });
+      }
+      if (preparedTurn?.userTurnAdmission?.closeRequired) {
+        await this.prepareAssistantInboundTurnService.closePreparedUserTurnAdmission(preparedTurn);
       }
       if (
         preparedAssistantId !== null &&

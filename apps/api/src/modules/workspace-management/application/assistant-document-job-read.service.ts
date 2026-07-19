@@ -73,7 +73,6 @@ export class AssistantDocumentJobReadService {
     userId: string;
     chatId: string;
   }): Promise<AssistantWebChatActiveDocumentJobState[]> {
-    const continuationCutoff = new Date(Date.now() - 5 * 60_000);
     const openSelect = {
       id: true,
       status: true,
@@ -92,60 +91,19 @@ export class AssistantDocumentJobReadService {
         }
       }
     } as const;
-    const [openRows, continuationHandles] = await Promise.all([
-      this.prisma.assistantDocumentRenderJob.findMany({
-        where: {
-          assistantId: input.assistantId,
-          userId: input.userId,
-          chatId: input.chatId,
-          status: {
-            in: [
-              "queued",
-              "running",
-              "provider_processing",
-              "fetching_output",
-              "ready_for_delivery"
-            ]
-          }
-        },
-        orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-        select: openSelect
-      }),
-      this.prisma.assistantAsyncJobHandle.findMany({
-        where: {
-          assistantId: input.assistantId,
-          chatId: input.chatId,
-          kind: "document",
-          OR: [
-            { state: { in: ["subscribed", "ready", "claimed", "dispatched"] } },
-            {
-              state: { in: ["failed", "cancelled"] },
-              updatedAt: { gte: continuationCutoff }
-            }
-          ]
-        },
-        select: { canonicalJobId: true, state: true }
-      })
-    ]);
-    const openIds = new Set(openRows.map((row) => row.id));
-    const missingIds = continuationHandles
-      .map((handle) => handle.canonicalJobId)
-      .filter((id) => !openIds.has(id));
-    const continuationRows =
-      missingIds.length === 0
-        ? []
-        : await this.prisma.assistantDocumentRenderJob.findMany({
-            where: {
-              id: { in: missingIds },
-              assistantId: input.assistantId,
-              userId: input.userId,
-              chatId: input.chatId
-            },
-            select: openSelect
-          });
-    const rows = [...openRows, ...continuationRows].sort((a, b) => {
-      const byCreated = a.createdAt.getTime() - b.createdAt.getTime();
-      return byCreated !== 0 ? byCreated : a.id.localeCompare(b.id);
+    // A terminal document held for continuation narration is history, not
+    // Working. Only canonical nonterminal jobs are active UI/model context.
+    const rows = await this.prisma.assistantDocumentRenderJob.findMany({
+      where: {
+        assistantId: input.assistantId,
+        userId: input.userId,
+        chatId: input.chatId,
+        status: {
+          in: ["queued", "running", "provider_processing", "fetching_output", "ready_for_delivery"]
+        }
+      },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+      select: openSelect
     });
     const handles = await this.prisma.assistantAsyncJobHandle.findMany({
       where: {

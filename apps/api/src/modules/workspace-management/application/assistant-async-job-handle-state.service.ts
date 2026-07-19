@@ -166,22 +166,15 @@ export class AssistantAsyncJobHandleStateService {
     assistantId: string;
     chatId: string;
   }): Promise<AssistantWebChatActiveSandboxJobState[]> {
-    // Keep Working + history poll alive through continuation: include handles
-    // still subscribed/ready/claimed/dispatched (and briefly failed/cancelled)
-    // even after the canonical SandboxJob leaves queued|running|detached.
-    const continuationCutoff = new Date(Date.now() - 5 * 60_000);
+    // Working is strictly canonical nonterminal work. A continuation may retain
+    // terminal facts for narration/history, but it must not keep an animation
+    // or active status visible after the sandbox job has terminalized.
     const rows = await this.prisma.assistantAsyncJobHandle.findMany({
       where: {
         assistantId: input.assistantId,
         chatId: input.chatId,
         kind: "sandbox",
-        OR: [
-          { state: { in: ["none", "subscribed", "ready", "claimed", "dispatched"] } },
-          {
-            state: { in: ["failed", "cancelled"] },
-            updatedAt: { gte: continuationCutoff }
-          }
-        ]
+        state: { in: ["none", "subscribed", "ready", "claimed", "dispatched"] }
       },
       orderBy: [{ createdAt: "asc" }, { id: "asc" }],
       take: 8,
@@ -213,14 +206,7 @@ export class AssistantAsyncJobHandleStateService {
       }
       const jobOpen =
         job.status === "queued" || job.status === "running" || job.status === "detached";
-      const handleHoldsObservation =
-        row.state === "subscribed" ||
-        row.state === "ready" ||
-        row.state === "claimed" ||
-        row.state === "dispatched" ||
-        row.state === "failed" ||
-        row.state === "cancelled";
-      if (!jobOpen && !handleHoldsObservation) {
+      if (!jobOpen) {
         return [];
       }
       const status: AssistantWebChatActiveSandboxJobState["status"] =
@@ -598,7 +584,8 @@ export class AssistantAsyncJobHandleStateService {
           state: true,
           narrationOwner: true,
           continuationDepth: true,
-          continuationClientTurnId: true
+          continuationClientTurnId: true,
+          terminalSnapshotJson: true
         }
       });
       let autoSubscribed = 0;
@@ -623,6 +610,9 @@ export class AssistantAsyncJobHandleStateService {
         }
         const continuationClientTurnId =
           row.continuationClientTurnId ?? this.continuationClientTurnId(row.id);
+        const terminalBeforeFinalization =
+          row.terminalSnapshotJson !== null &&
+          (row.state === "completed" || row.state === "failed" || row.state === "cancelled");
         const openForSubscribe = row.state === "none" || row.state === "subscribed";
         await tx.assistantAsyncJobHandle.update({
           where: { id: row.id },
@@ -632,7 +622,16 @@ export class AssistantAsyncJobHandleStateService {
             narrationDecisionAt: now,
             continuationClientTurnId,
             maxRetries: ASYNC_CONTINUATION_MAX_RETRIES,
-            ...(openForSubscribe ? { state: "subscribed" as const } : {}),
+            ...(terminalBeforeFinalization
+              ? {
+                  state: "ready" as const,
+                  readyAt: now,
+                  nextRetryAt: now,
+                  terminalObservedAt: now
+                }
+              : openForSubscribe
+                ? { state: "subscribed" as const }
+                : {}),
             ...(wasCurrentTurn
               ? {
                   lastErrorCode:
@@ -645,6 +644,12 @@ export class AssistantAsyncJobHandleStateService {
               : {})
           }
         });
+        if (terminalBeforeFinalization) {
+          await this.stampCatchUpQueueMarkersInTx(tx, {
+            handleId: row.id,
+            chatId: input.chatId
+          });
+        }
         autoSubscribed += 1;
         if (wasCurrentTurn) currentTurnReleased += 1;
       }
@@ -691,10 +696,13 @@ export class AssistantAsyncJobHandleStateService {
       const row = await this.lockCanonical(tx, input);
       if (row === null) return { decision: "legacy_frame", state: input.terminalStatus };
       const now = new Date();
-      // Heal historical legacy / null owners into continuation wake.
+      // Historical legacy rows always heal into continuation. A live null
+      // owner only becomes a continuation after its source turn finalizes:
+      // before that, await.wait must be able to atomically claim terminal
+      // narration for the still-open source turn.
       const needsContinuationHeal =
         row.narrationOwner === "legacy" ||
-        row.narrationOwner === null ||
+        (row.narrationOwner === null && row.sourceFinalizedAt !== null) ||
         (row.narrationOwner === "continuation" &&
           row.narrationDecision !== "notify_subscribed" &&
           row.narrationDecision !== "continuation_depth_exhausted");
@@ -753,7 +761,7 @@ export class AssistantAsyncJobHandleStateService {
           AND "source_finalized_at" IS NOT NULL
           AND ("next_retry_at" IS NULL OR "next_retry_at" <= NOW())
           AND "retry_count" < "max_retries"
-        ORDER BY "ready_at" ASC NULLS LAST, "updated_at" ASC
+        ORDER BY "ready_at" ASC NULLS LAST, "updated_at" ASC, "id" ASC
         FOR UPDATE SKIP LOCKED
         LIMIT 1
       `);

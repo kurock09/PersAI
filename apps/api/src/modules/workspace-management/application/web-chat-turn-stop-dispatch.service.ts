@@ -45,6 +45,19 @@ type RedisClient = ReturnType<typeof createClient>;
 
 const KEY_PREFIX = "turn-stop";
 const OWNER_TTL_SECONDS = 3600;
+const PUBLISH_OWNER_LUA = `
+local existing = redis.call('GET', KEYS[1])
+if existing then
+  local parsed = cjson.decode(existing)
+  if parsed['podId'] ~= ARGV[1] or parsed['userId'] ~= ARGV[2] then
+    return 0
+  end
+  redis.call('EXPIRE', KEYS[1], tonumber(ARGV[3]))
+  return 1
+end
+redis.call('SET', KEYS[1], cjson.encode({ podId = ARGV[1], userId = ARGV[2] }), 'EX', tonumber(ARGV[3]))
+return 1
+`;
 
 function buildTurnKey(assistantId: string, clientTurnId: string): string {
   return `${assistantId}:${clientTurnId}`;
@@ -77,12 +90,12 @@ export class WebChatTurnStopDispatchService implements OnModuleDestroy {
     return this.redisUrl !== undefined;
   }
 
-  register(input: {
+  async register(input: {
     assistantId: string;
     clientTurnId: string;
     userId: string;
     controller: AbortController;
-  }): void {
+  }): Promise<void> {
     const key = buildTurnKey(input.assistantId, input.clientTurnId);
     const existing = this.localTurns.get(key);
     if (existing !== undefined) {
@@ -98,9 +111,14 @@ export class WebChatTurnStopDispatchService implements OnModuleDestroy {
       registeredAt: Date.now(),
       userStopped: false
     });
-    void this.publishOwnerRecord(input).catch((error: unknown) => {
-      this.logger.warn(`[turn-stop-dispatch] owner publish failed: ${String(error)}`);
-    });
+    try {
+      await this.publishOwnerRecord(input);
+    } catch (error) {
+      if (this.localTurns.get(key)?.controller === input.controller) {
+        this.localTurns.delete(key);
+      }
+      throw error;
+    }
   }
 
   release(input: { assistantId: string; clientTurnId: string; controller: AbortController }): void {
@@ -308,12 +326,18 @@ export class WebChatTurnStopDispatchService implements OnModuleDestroy {
   }): Promise<void> {
     const client = await this.client();
     if (client === null) {
+      if (this.isRedisEnabled()) {
+        throw new Error("turn-stop Redis owner publication is unavailable");
+      }
       return;
     }
-    const record: OwnerRecord = { podId: this.podId, userId: input.userId };
-    await client.set(this.ownerKey(input.assistantId, input.clientTurnId), JSON.stringify(record), {
-      EX: OWNER_TTL_SECONDS
+    const published = await client.eval(PUBLISH_OWNER_LUA, {
+      keys: [this.ownerKey(input.assistantId, input.clientTurnId)],
+      arguments: [this.podId, input.userId, String(OWNER_TTL_SECONDS)]
     });
+    if (published !== 1) {
+      throw new Error("turn-stop owner is already registered by another replica");
+    }
   }
 
   private async removeOwnerRecord(assistantId: string, clientTurnId: string): Promise<void> {

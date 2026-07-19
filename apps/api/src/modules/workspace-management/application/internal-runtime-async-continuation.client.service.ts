@@ -22,6 +22,14 @@ export class AsyncContinuationInterruptedError extends Error {
   }
 }
 
+/** Scheduler coordination lock was lost; never render it as a user Stop. */
+export class AsyncContinuationCoordinationLostError extends Error {
+  constructor(message = "Async continuation coordination lock was lost.") {
+    super(message);
+    this.name = "AsyncContinuationCoordinationLostError";
+  }
+}
+
 export type RuntimeAsyncContinuationStreamStart =
   | { mode: "outcome"; result: RuntimeAsyncContinuationResult }
   | { mode: "events"; events: AsyncGenerator<RuntimeTurnStreamEvent> };
@@ -30,7 +38,7 @@ export type RuntimeAsyncContinuationStreamStart =
 export class InternalRuntimeAsyncContinuationClientService {
   async execute(
     input: RuntimeTurnRequest,
-    options: { timeoutMs: number }
+    options: { timeoutMs: number; signal?: AbortSignal }
   ): Promise<RuntimeAsyncContinuationResult> {
     const config = loadApiConfig(process.env);
     const baseUrl = config.PERSAI_RUNTIME_BASE_URL?.trim();
@@ -39,6 +47,9 @@ export class InternalRuntimeAsyncContinuationClientService {
       throw new ServiceUnavailableException("Async continuation runtime is not configured.");
     }
     const controller = new AbortController();
+    const onExternalAbort = (): void => controller.abort(options.signal?.reason);
+    options.signal?.addEventListener("abort", onExternalAbort);
+    if (options.signal?.aborted) controller.abort(options.signal.reason);
     const timer = setTimeout(() => controller.abort(), Math.max(1, options.timeoutMs));
     try {
       const response = await fetch(
@@ -68,6 +79,12 @@ export class InternalRuntimeAsyncContinuationClientService {
       return parsed;
     } catch (error) {
       if (error instanceof AsyncContinuationDispatchAmbiguousError) throw error;
+      if (
+        options.signal?.aborted &&
+        options.signal.reason instanceof AsyncContinuationCoordinationLostError
+      ) {
+        throw options.signal.reason;
+      }
       throw new AsyncContinuationDispatchAmbiguousError(
         controller.signal.aborted
           ? "Runtime continuation dispatch timed out after acceptance became possible."
@@ -75,6 +92,7 @@ export class InternalRuntimeAsyncContinuationClientService {
       );
     } finally {
       clearTimeout(timer);
+      options.signal?.removeEventListener("abort", onExternalAbort);
     }
   }
 
@@ -94,7 +112,7 @@ export class InternalRuntimeAsyncContinuationClientService {
       throw new ServiceUnavailableException("Async continuation runtime is not configured.");
     }
     const controller = new AbortController();
-    const onExternalAbort = (): void => controller.abort();
+    const onExternalAbort = (): void => controller.abort(options.signal?.reason);
     options.signal?.addEventListener("abort", onExternalAbort);
     if (options.signal?.aborted) {
       controller.abort();
@@ -158,6 +176,12 @@ export class InternalRuntimeAsyncContinuationClientService {
       disposeConnectGuards();
       if (error instanceof AsyncContinuationDispatchAmbiguousError) throw error;
       if (error instanceof AsyncContinuationInterruptedError) throw error;
+      if (
+        options.signal?.aborted &&
+        options.signal.reason instanceof AsyncContinuationCoordinationLostError
+      ) {
+        throw options.signal.reason;
+      }
       if (options.signal?.aborted) {
         throw new AsyncContinuationInterruptedError(
           "Runtime continuation stream aborted by caller."

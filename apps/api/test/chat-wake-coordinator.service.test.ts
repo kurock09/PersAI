@@ -238,6 +238,109 @@ describe("ChatWakeCoordinator", () => {
     ]);
   });
 
+  test("scans beyond the old 2x window so blocked oldest chats cannot starve a later eligible chat", async () => {
+    const candidates = Array.from({ length: 9 }, (_, index) => ({
+      chatId: `chat-${index + 1}`,
+      assistantId: "assistant-1",
+      userId: "user-1",
+      surfaceThreadKey: `thread-${index + 1}`,
+      readyAt: new Date(Date.now() + index)
+    }));
+    const claimed: string[] = [];
+    const coordinator = new ChatWakeCoordinator(
+      {
+        $queryRaw: async () => candidates,
+        assistantWebChatTurnAttempt: {
+          findFirst: async (input: { where: { OR: Array<{ chatId: string }> } }) =>
+            input.where.OR[0]?.chatId !== "chat-9" ? { id: "active-user-turn" } : null
+        },
+        runtimeTurnReceipt: { findFirst: async () => null },
+        assistantChat: {
+          findUnique: async () => ({
+            lastUserTurnStartedAt: null,
+            lastUserTurnTerminalAt: null
+          })
+        }
+      } as never,
+      {
+        claimReadyHeadForChat: async ({ chatId }: { chatId: string }) => {
+          claimed.push(chatId);
+          return { id: "handle-later", claimToken: "claim-later" };
+        }
+      } as never,
+      {
+        acquireOrCreate: async () => ({ token: "lock-later" }),
+        releaseKey: async () => undefined
+      } as never
+    );
+    const claims = await coordinator.claimReadyCatchUps({ limit: 4, claimTtlMs: 60_000 });
+    assert.deepEqual(claimed, ["chat-9"]);
+    assert.equal(claims.length, 1);
+    assert.equal(claims[0]?.chatId, "chat-9");
+  });
+
+  test("durable scan recency reaches a later eligible chat on the next bounded tick", async () => {
+    const blocked = Array.from({ length: 32 }, (_, index) => ({
+      chatId: `blocked-${index + 1}`,
+      assistantId: "assistant-1",
+      userId: "user-1",
+      surfaceThreadKey: `thread-blocked-${index + 1}`,
+      readyAt: new Date(Date.now() + index),
+      scanAt: null
+    }));
+    const later = {
+      chatId: "later-eligible",
+      assistantId: "assistant-1",
+      userId: "user-1",
+      surfaceThreadKey: "thread-later",
+      readyAt: new Date(Date.now() + 33),
+      scanAt: null
+    };
+    let queryCalls = 0;
+    const scanned: string[] = [];
+    const claimed: string[] = [];
+    const coordinator = new ChatWakeCoordinator(
+      {
+        $queryRaw: async () => {
+          queryCalls += 1;
+          if (queryCalls === 1) return blocked;
+          if (queryCalls === 2) return [later];
+          return [];
+        },
+        assistantWebChatTurnAttempt: {
+          findFirst: async (input: { where: { OR: Array<{ chatId: string }> } }) =>
+            input.where.OR[0]?.chatId.startsWith("blocked-") ? { id: "active" } : null
+        },
+        runtimeTurnReceipt: { findFirst: async () => null },
+        assistantChat: {
+          update: async ({ where }: { where: { id: string } }) => {
+            scanned.push(where.id);
+            return {};
+          },
+          findUnique: async () => ({
+            lastUserTurnStartedAt: null,
+            lastUserTurnTerminalAt: null
+          })
+        }
+      } as never,
+      {
+        claimReadyHeadForChat: async ({ chatId }: { chatId: string }) => {
+          claimed.push(chatId);
+          return { id: "later-handle", claimToken: "later-claim" };
+        }
+      } as never,
+      {
+        acquireOrCreate: async () => ({ token: "lock" }),
+        releaseKey: async () => undefined
+      } as never
+    );
+    assert.deepEqual(await coordinator.claimReadyCatchUps({ limit: 4, claimTtlMs: 60_000 }), []);
+    const second = await coordinator.claimReadyCatchUps({ limit: 4, claimTtlMs: 60_000 });
+    assert.equal(scanned.length, 33);
+    assert.deepEqual(claimed, ["later-eligible"]);
+    assert.equal(second[0]?.chatId, "later-eligible");
+  });
+
   test("acquires async-catchup lock and claims one FIFO head per eligible chat", async () => {
     const acquired: string[] = [];
     const released: string[] = [];
@@ -439,28 +542,6 @@ describe("ChatWakeCoordinator", () => {
     assert.deepEqual(claimCalls, ["chat-1", "chat-1"]);
   });
 
-  test("recordUserTurnStarted stamps assistant_chats.lastUserTurnStartedAt", async () => {
-    const updates: Array<{ id: string; at: Date }> = [];
-    const coordinator = new ChatWakeCoordinator(
-      {
-        assistantChat: {
-          update: async (args: {
-            where: { id: string };
-            data: { lastUserTurnStartedAt: Date };
-          }) => {
-            updates.push({ id: args.where.id, at: args.data.lastUserTurnStartedAt });
-            return {};
-          }
-        }
-      } as never,
-      {} as never,
-      {} as never
-    );
-    const at = new Date("2026-07-19T11:59:00.000Z");
-    await coordinator.recordUserTurnStarted("chat-9", at);
-    assert.deepEqual(updates, [{ id: "chat-9", at }]);
-  });
-
   test("recordUserTurnTerminal stamps assistant_chats.lastUserTurnTerminalAt", async () => {
     const updates: Array<{ id: string; at: Date }> = [];
     const coordinator = new ChatWakeCoordinator(
@@ -551,5 +632,40 @@ describe("ChatWakeCoordinator", () => {
       surfaceThreadKey: "t"
     });
     assert.deepEqual(open, { allowed: false, reason: "user_turn_active" });
+  });
+
+  test("durable admission CAS yields to a user turn that reached the boundary first", async () => {
+    let executeRawCalls = 0;
+    const coordinator = new ChatWakeCoordinator(
+      {
+        $executeRaw: async () => {
+          executeRawCalls += 1;
+          // Simulates another API replica stamping USER_TURN preparing between
+          // the initial read and this conditional admission mutation.
+          return 0;
+        },
+        assistantWebChatTurnAttempt: { findFirst: async () => null },
+        runtimeTurnReceipt: { findFirst: async () => null },
+        assistantChat: {
+          findUnique: async () => ({
+            lastUserTurnStartedAt: null,
+            // Fixed far-past timestamp ensures the pre-CAS idle gate always
+            // passes; the asserted rejection comes only from the simulated
+            // concurrent USER_TURN update at the CAS boundary.
+            lastUserTurnTerminalAt: new Date("2020-01-01T00:00:00.000Z")
+          })
+        }
+      } as never,
+      {} as never,
+      {} as never
+    );
+    const result = await coordinator.admitCatchUpAtBoundary({
+      chatId: "chat-race",
+      assistantId: "assistant-1",
+      userId: "user-1",
+      surfaceThreadKey: "thread-race"
+    });
+    assert.equal(executeRawCalls, 1);
+    assert.deepEqual(result, { allowed: false, reason: "user_turn_active" });
   });
 });

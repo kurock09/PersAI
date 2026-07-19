@@ -16,6 +16,7 @@ type Row = {
   continuationDepth: number;
   continuationClientTurnId: string | null;
   continuationAssistantMessageId: string | null;
+  terminalSnapshotJson: unknown | null;
   claimToken: string | null;
   dispatchReceiptRequestId: string | null;
   retryCount: number;
@@ -54,6 +55,7 @@ function fixture(
     continuationDepth: 0,
     continuationClientTurnId: null,
     continuationAssistantMessageId: null,
+    terminalSnapshotJson: null,
     claimToken: null,
     dispatchReceiptRequestId: null,
     retryCount: 0,
@@ -181,6 +183,33 @@ describe("AssistantAsyncJobHandleStateService", () => {
     assert.equal(subject.row.state, "failed");
   });
 
+  test("completion before wait stays claimable by the open source turn and never schedules a duplicate continuation", async () => {
+    const subject = fixture({}, { status: "failed", lastErrorCode: "provider_failed" });
+    const completion = await subject.service.recordCanonicalCompletion({
+      kind: "media",
+      canonicalJobId: subject.row.canonicalJobId,
+      terminalStatus: "failed",
+      terminalSnapshot: { status: "failed", message: "Terminal." }
+    });
+    assert.deepEqual(completion, { decision: "skip_legacy_frame", state: "failed" });
+    assert.equal(subject.row.narrationOwner, null);
+
+    const wait = await subject.service.subscribePending(owned);
+    assert.equal(wait.outcome, "terminal_inline");
+    assert.equal(subject.row.narrationOwner, "current_turn");
+
+    const finalized = await subject.service.finalizeSourceTurn({
+      assistantId: owned.assistantId,
+      chatId: owned.chatId,
+      sourceClientTurnId: "turn-1",
+      outcome: "persisted",
+      assistantMessageId: "message-1"
+    });
+    assert.equal(finalized.autoSubscribed, 0);
+    assert.equal(finalized.currentTurnPreserved, 1);
+    assert.equal(subject.row.narrationOwner, "current_turn");
+  });
+
   test("subscribed failure and cancellation both become one continuation-ready fact", async () => {
     for (const terminalStatus of ["failed", "cancelled"] as const) {
       const subject = fixture({
@@ -256,6 +285,52 @@ describe("AssistantAsyncJobHandleStateService", () => {
       outcome: "failed"
     });
     assert.equal(subscribed.row.narrationOwner, "continuation");
+  });
+
+  test("source finalization winning the completion race produces one ready continuation", async () => {
+    const subject = fixture();
+    await subject.service.finalizeSourceTurn({
+      assistantId: owned.assistantId,
+      chatId: owned.chatId,
+      sourceClientTurnId: "turn-1",
+      outcome: "failed"
+    });
+    const completion = await subject.service.recordCanonicalCompletion({
+      kind: "media",
+      canonicalJobId: subject.row.canonicalJobId,
+      terminalStatus: "completed",
+      terminalSnapshot: { status: "completed", message: "Terminal." }
+    });
+    assert.deepEqual(completion, { decision: "skip_legacy_frame", state: "ready" });
+    assert.equal(subject.row.narrationOwner, "continuation");
+    assert.equal(subject.row.state, "ready");
+    assert.equal(
+      subject.updates.filter((update) => update.narrationOwner === "continuation").length,
+      1
+    );
+  });
+
+  test("completion winning source finalization race promotes exactly one ready continuation", async () => {
+    const subject = fixture();
+    await subject.service.recordCanonicalCompletion({
+      kind: "media",
+      canonicalJobId: subject.row.canonicalJobId,
+      terminalStatus: "completed",
+      terminalSnapshot: { status: "completed", message: "Terminal." }
+    });
+    assert.equal(subject.row.state, "completed");
+    await subject.service.finalizeSourceTurn({
+      assistantId: owned.assistantId,
+      chatId: owned.chatId,
+      sourceClientTurnId: "turn-1",
+      outcome: "failed"
+    });
+    assert.equal(subject.row.narrationOwner, "continuation");
+    assert.equal(subject.row.state, "ready");
+    assert.equal(
+      subject.updates.filter((update) => update.narrationOwner === "continuation").length,
+      1
+    );
   });
 
   test("finalization preserves proven current-turn output and releases failed ownership to continuation", async () => {
@@ -1164,5 +1239,104 @@ describe("AssistantAsyncJobHandleStateService", () => {
 
     assert.equal(excludedSelf, true);
     assert.equal(result.registered, true);
+  });
+
+  test("web Working re-read excludes terminal sandbox jobs after canonical transition", async () => {
+    const handles = [
+      {
+        jobRef: "jr1.sandbox.queued",
+        state: "subscribed",
+        createdAt: new Date("2026-07-19T16:00:00.000Z"),
+        updatedAt: new Date("2026-07-19T16:00:00.000Z"),
+        canonicalJobId: "sandbox-queued",
+        continuationClientTurnId: null
+      },
+      {
+        jobRef: "jr1.sandbox.running",
+        state: "ready",
+        createdAt: new Date("2026-07-19T16:00:01.000Z"),
+        updatedAt: new Date("2026-07-19T16:00:01.000Z"),
+        canonicalJobId: "sandbox-running",
+        continuationClientTurnId: "async-cont:running"
+      },
+      {
+        jobRef: "jr1.sandbox.completed",
+        state: "dispatched",
+        createdAt: new Date("2026-07-19T16:00:02.000Z"),
+        updatedAt: new Date("2026-07-19T16:00:02.000Z"),
+        canonicalJobId: "sandbox-completed",
+        continuationClientTurnId: "async-cont:completed"
+      },
+      {
+        jobRef: "jr1.sandbox.failed",
+        state: "failed",
+        createdAt: new Date("2026-07-19T16:00:03.000Z"),
+        updatedAt: new Date("2026-07-19T16:00:03.000Z"),
+        canonicalJobId: "sandbox-failed",
+        continuationClientTurnId: null
+      },
+      {
+        jobRef: "jr1.sandbox.cancelled",
+        state: "cancelled",
+        createdAt: new Date("2026-07-19T16:00:04.000Z"),
+        updatedAt: new Date("2026-07-19T16:00:04.000Z"),
+        canonicalJobId: "sandbox-cancelled",
+        continuationClientTurnId: null
+      }
+    ];
+    const jobs = new Map([
+      [
+        "sandbox-queued",
+        { id: "sandbox-queued", toolCode: "shell", status: "queued", startedAt: null }
+      ],
+      [
+        "sandbox-running",
+        { id: "sandbox-running", toolCode: "exec", status: "running", startedAt: new Date() }
+      ],
+      [
+        "sandbox-completed",
+        { id: "sandbox-completed", toolCode: "shell", status: "completed", startedAt: new Date() }
+      ],
+      [
+        "sandbox-failed",
+        { id: "sandbox-failed", toolCode: "shell", status: "failed", startedAt: new Date() }
+      ],
+      [
+        "sandbox-cancelled",
+        { id: "sandbox-cancelled", toolCode: "exec", status: "cancelled", startedAt: new Date() }
+      ]
+    ]);
+    const service = new AssistantAsyncJobHandleStateService({
+      assistantAsyncJobHandle: {
+        findMany: async () => handles
+      },
+      sandboxJob: {
+        findMany: async () => [...jobs.values()]
+      }
+    } as never);
+
+    const firstRead = await service.listOpenSandboxJobsForWebChat({
+      assistantId: owned.assistantId,
+      chatId: owned.chatId
+    });
+    assert.deepEqual(
+      firstRead.map((job) => job.jobRef),
+      ["jr1.sandbox.queued", "jr1.sandbox.running"]
+    );
+
+    jobs.set("sandbox-running", {
+      id: "sandbox-running",
+      toolCode: "exec",
+      status: "completed",
+      startedAt: new Date()
+    });
+    const refreshed = await service.listOpenSandboxJobsForWebChat({
+      assistantId: owned.assistantId,
+      chatId: owned.chatId
+    });
+    assert.deepEqual(
+      refreshed.map((job) => job.jobRef),
+      ["jr1.sandbox.queued"]
+    );
   });
 });

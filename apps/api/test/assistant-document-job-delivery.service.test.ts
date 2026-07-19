@@ -296,7 +296,7 @@ describe("AssistantDocumentJobDeliveryService", () => {
       sourceManifestPath: null,
       inspectionPath: null,
       inspectionSummary: null,
-      isCurrentOutput: true
+      isCurrentOutput: false
     });
     assert.equal(framingCalls, 0);
     assert.equal(handleCompletionCalls, 1);
@@ -444,7 +444,7 @@ describe("AssistantDocumentJobDeliveryService", () => {
       sourceManifestPath: null,
       inspectionPath: null,
       inspectionSummary: null,
-      isCurrentOutput: true
+      isCurrentOutput: false
     });
   });
 
@@ -766,7 +766,7 @@ describe("AssistantDocumentJobDeliveryService", () => {
         (input) =>
           input.where?.id !== undefined &&
           (input.data as { metadata?: { documentLink?: { isCurrentOutput?: boolean } } })?.metadata
-            ?.documentLink?.isCurrentOutput === true
+            ?.documentLink?.isCurrentOutput === false
       ),
       true
     );
@@ -1433,7 +1433,7 @@ describe("AssistantDocumentJobDeliveryService", () => {
     );
   });
 
-  test("prefers LLM completion framing over persisted worker fallback text", async () => {
+  test("skip_legacy_frame preserves current-turn and continuation model narration", async () => {
     const renderJobUpdates: Array<Record<string, unknown>> = [];
     const messageUpdates: Array<Record<string, unknown>> = [];
     let quotaConsumeCalls = 0;
@@ -1480,7 +1480,7 @@ describe("AssistantDocumentJobDeliveryService", () => {
           chatId: "chat-1",
           assistantId: "assistant-1",
           author: "assistant" as const,
-          content: "Preparing your document...",
+          content: "Model-owned narration remains byte-identical.",
           createdAt: new Date("2026-05-15T16:00:00.000Z")
         }),
         findMessageByIdForAssistant: async (messageId: string) => ({
@@ -1488,7 +1488,7 @@ describe("AssistantDocumentJobDeliveryService", () => {
           chatId: "chat-1",
           assistantId: "assistant-1",
           author: "assistant" as const,
-          content: "Preparing your document...",
+          content: "Model-owned narration remains byte-identical.",
           createdAt: new Date("2026-05-15T16:00:00.000Z")
         }),
         updateMessageContent: async (messageId: string, assistantId: string, content: string) => {
@@ -1543,10 +1543,17 @@ describe("AssistantDocumentJobDeliveryService", () => {
       } as never,
       {
         async maybeFrame() {
-          return { text: "Fresh LLM completion framing.", usage: null };
+          throw new Error("skip_legacy_frame must not frame");
         }
       } as never,
-      noopRecordModelCostLedgerService
+      noopRecordModelCostLedgerService,
+      {
+        prepareDelivery: async () => "skip_legacy_frame",
+        recordCanonicalCompletion: async () => ({
+          decision: "skip_legacy_frame",
+          state: "completed"
+        })
+      } as never
     );
 
     await service.deliverReadyJob({
@@ -1572,23 +1579,41 @@ describe("AssistantDocumentJobDeliveryService", () => {
             filename: "brief.pdf"
           }
         ],
-        assistantText: "Your document is ready."
+        assistantText: "Your document is ready.",
+        completionAssistantMessageId: "assistant-message-current-turn"
       }
     });
 
     assert.equal(quotaConsumeCalls, 1);
-    assert.equal(
-      messageUpdates.some((entry) => entry.content === "Fresh LLM completion framing."),
-      true
-    );
-    assert.equal(
-      messageUpdates.some(
-        (entry) =>
-          entry.content === "Your document is ready." &&
-          !String(entry.messageId).includes("assistant-message-llm-1")
-      ),
-      false
-    );
+    assert.deepEqual(messageUpdates, []);
+
+    await service.deliverReadyJob({
+      id: "job-continuation-1",
+      docId: "doc-1",
+      versionId: "version-1",
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      chatId: "chat-1",
+      surface: "web",
+      schedulerClaimToken: "llm-claim-1",
+      providerStatusJson: {
+        descriptorMode: "create_presentation",
+        outputFormat: "pdf",
+        sourceUserMessageId: "message-1",
+        sourceUserMessageText: "Create a PDF brief",
+        sourceUserMessageCreatedAt: "2026-05-15T12:00:00.000Z",
+        completionAssistantMessageId: "assistant-message-continuation",
+        artifacts: [
+          {
+            kind: "file",
+            objectKey: `${WEB_SESSION_ROOT}/file-llm-1.pdf`,
+            mimeType: "application/pdf",
+            filename: "brief.pdf"
+          }
+        ]
+      }
+    });
+    assert.deepEqual(messageUpdates, []);
   });
 
   test("skips provider framing call when payload already carries a cached completionAssistantText (defer-retry safe)", async () => {
@@ -1885,5 +1910,142 @@ describe("AssistantDocumentJobDeliveryService", () => {
       true,
       "framed completion text must be persisted into providerStatusJson so a deferred retry can reuse it"
     );
+  });
+
+  test("serializes revision promotion by durable version number and is retry-idempotent", async () => {
+    const document = { currentVersionId: "version-3", status: "ready" };
+    const versions = new Map([
+      ["version-3", { versionNumber: 3, status: "ready" }],
+      ["version-4", { versionNumber: 4, status: "ready" }],
+      ["version-5", { versionNumber: 5, status: "ready" }]
+    ]);
+    const jobs = new Map([
+      ["job-5", "ready_for_delivery"],
+      ["job-4", "ready_for_delivery"]
+    ]);
+    const lockCalls: unknown[] = [];
+    const versionUpdates: Array<Record<string, unknown>> = [];
+    const supersessionCalls: Array<Record<string, unknown>> = [];
+    const attachmentCurrentnessUpdates: unknown[][] = [];
+    const transaction = {
+      assistantDocumentRenderJob: {
+        updateMany: async (input: {
+          where: { id: string; status: string };
+          data: { status: string };
+        }) => {
+          if (jobs.get(input.where.id) !== input.where.status) {
+            return { count: 0 };
+          }
+          jobs.set(input.where.id, input.data.status);
+          return { count: 1 };
+        }
+      },
+      assistantDocumentVersion: {
+        findUnique: async (input: { where: { id: string } }) => {
+          const version = versions.get(input.where.id);
+          return version === undefined ? null : { versionNumber: version.versionNumber };
+        },
+        update: async (input: {
+          where: { id: string };
+          data: { status: "ready" | "superseded" };
+        }) => {
+          versionUpdates.push(input);
+          const version = versions.get(input.where.id);
+          assert.notEqual(version, undefined);
+          version!.status = input.data.status;
+        },
+        updateMany: async (input: {
+          where: { id: string; status: "ready" };
+          data: { status: "superseded" };
+        }) => {
+          supersessionCalls.push(input);
+          const version = versions.get(input.where.id);
+          if (version?.status !== input.where.status) return { count: 0 };
+          version.status = input.data.status;
+          return { count: 1 };
+        }
+      },
+      assistantDocument: {
+        update: async (input: { data: { currentVersionId: string; status: string } }) => {
+          document.currentVersionId = input.data.currentVersionId;
+          document.status = input.data.status;
+        }
+      },
+      $queryRaw: async (query: unknown) => {
+        lockCalls.push(query);
+        return [{ currentVersionId: document.currentVersionId }];
+      },
+      $executeRaw: async (query: { values?: unknown[] }) => {
+        attachmentCurrentnessUpdates.push(query.values ?? []);
+        return 1;
+      }
+    };
+    const prisma = {
+      $transaction: async <T>(callback: (tx: typeof transaction) => Promise<T>) =>
+        callback(transaction)
+    };
+    const service = new AssistantDocumentJobDeliveryService(
+      prisma as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      noopRecordModelCostLedgerService,
+      {
+        async prepareDelivery() {
+          return "legacy_frame" as const;
+        },
+        async recordCanonicalCompletion() {
+          return { decision: "legacy_frame" as const, state: "completed" as const };
+        }
+      }
+    );
+    const finalize = (jobId: string, versionId: string) =>
+      (
+        service as unknown as {
+          finalizeDelivery: (
+            job: Record<string, unknown>,
+            payload: Record<string, unknown>
+          ) => Promise<boolean>;
+        }
+      ).finalizeDelivery(
+        {
+          id: jobId,
+          docId: "doc-1",
+          versionId,
+          schedulerClaimToken: `${jobId}-claim`
+        },
+        {},
+        [`attachment-${versionId}`]
+      );
+
+    assert.equal(await finalize("job-5", "version-5"), true);
+    assert.equal(document.currentVersionId, "version-5");
+    assert.equal(versions.get("version-3")?.status, "superseded");
+
+    assert.equal(await finalize("job-4", "version-4"), true);
+    assert.equal(document.currentVersionId, "version-5", "late v4 must not regress current v5");
+    assert.equal(versions.get("version-4")?.status, "superseded");
+    assert.equal(versions.get("version-5")?.status, "ready");
+    assert.deepEqual(
+      attachmentCurrentnessUpdates.map((values) => values.slice(0, 4)),
+      [
+        ["superseded", false, "doc-1", "version-3"],
+        ["ready", true, "doc-1", "version-5"],
+        ["superseded", false, "doc-1", "version-4"]
+      ],
+      "attachment metadata follows the locked promotion outcome, not delivery order"
+    );
+    assert.deepEqual(
+      supersessionCalls.map((input) => input.where?.id),
+      ["version-3"],
+      "only the exact prior current version is superseded, once"
+    );
+
+    assert.equal(await finalize("job-5", "version-5"), false, "same job retry is idempotent");
+    assert.equal(lockCalls.length, 2, "each accepted finalizer locks the document row");
   });
 });

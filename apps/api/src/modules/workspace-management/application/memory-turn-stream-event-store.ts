@@ -2,7 +2,8 @@ import {
   isTurnStreamTerminalEvent,
   type TurnStreamEnvelope,
   type TurnStreamEventStore,
-  type TurnStreamMeta
+  type TurnStreamMeta,
+  type TurnStreamRegistrationResult
 } from "./turn-stream-event-store";
 
 type MemoryTurnBuffer = {
@@ -25,14 +26,23 @@ export class MemoryTurnStreamEventStore implements TurnStreamEventStore {
   private readonly listeners = new Map<string, Set<(envelope: TurnStreamEnvelope) => void>>();
   private readonly appendQueues = new Map<string, Promise<unknown>>();
 
-  async registerTurn(input: { turnKey: string; userId: string }): Promise<void> {
+  async registerTurn(input: {
+    turnKey: string;
+    userId: string;
+  }): Promise<TurnStreamRegistrationResult> {
     const existing = this.buffers.get(input.turnKey);
     if (existing !== undefined && existing.userId !== input.userId) {
       // Fail closed — never overwrite another tenant's buffer.
-      return;
+      return "conflict";
     }
-    if (existing?.graceTimer !== null && existing?.graceTimer !== undefined) {
-      clearTimeout(existing.graceTimer);
+    if (existing !== undefined) {
+      // Idempotent same-owner registration extends a released buffer but must
+      // never discard replay events or restart its sequence.
+      if (existing.graceTimer !== null) {
+        clearTimeout(existing.graceTimer);
+        existing.graceTimer = null;
+      }
+      return "idempotent";
     }
     this.buffers.set(input.turnKey, {
       userId: input.userId,
@@ -41,6 +51,7 @@ export class MemoryTurnStreamEventStore implements TurnStreamEventStore {
       terminalPublished: false,
       graceTimer: null
     });
+    return "registered";
   }
 
   async append(input: {

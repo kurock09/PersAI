@@ -328,13 +328,6 @@ export class AssistantDocumentJobDeliveryService {
         };
       }
 
-      const framingOutcome = await this.resolveCompletionAssistantText({
-        job,
-        payload: currentPayload,
-        allowLegacyFrame: narrationDecision === "legacy_frame"
-      });
-      const completionAssistantText = framingOutcome.text;
-      currentPayload = framingOutcome.payload;
       const deliveredAttachments = await this.ensureDeliveredAttachments({
         job,
         payload: currentPayload,
@@ -343,6 +336,15 @@ export class AssistantDocumentJobDeliveryService {
       if (deliveredAttachments === null || completionAssistantMessageId === null) {
         return;
       }
+      // Canonical attachment delivery is primary. Historical missing-handle
+      // framing is best-effort follow-up only after a successful delivery.
+      const framingOutcome = await this.resolveCompletionAssistantText({
+        job,
+        payload: currentPayload,
+        allowLegacyFrame: narrationDecision === "legacy_frame" && deliveredAttachments.length > 0
+      });
+      const completionAssistantText = framingOutcome.text;
+      currentPayload = framingOutcome.payload;
 
       const persistedPayload = {
         ...currentPayload,
@@ -412,7 +414,11 @@ export class AssistantDocumentJobDeliveryService {
         };
       }
 
-      const finalized = await this.finalizeDelivery(job, finalPayload);
+      const finalized = await this.finalizeDelivery(
+        job,
+        finalPayload,
+        deliveredAttachments.map((attachment) => attachment.attachmentId)
+      );
       if (!finalized) {
         return;
       }
@@ -422,24 +428,28 @@ export class AssistantDocumentJobDeliveryService {
         preferredLocale: null,
         sourceText: this.readSourceUserMessageText(finalPayload)
       });
-      const finalText = applyFinalDeliveryHonestyCorrection({
-        assistantText:
-          finalAssistantText.length > 0
-            ? finalAssistantText
-            : buildAssistantDocumentJobSuccessFallbackMessage(finalLocale),
-        attemptedArtifactCount: finalPayload.artifacts.length,
-        deliveredAttachmentCount: deliveredAttachments.length,
-        deliveredAttachmentFilenames: []
-      });
       const existingDeliveryMessage =
         await this.assistantChatRepository.findMessageByIdForAssistant(
           completionAssistantMessageId,
           job.assistantId
         );
       const existingDeliveryText = existingDeliveryMessage?.content.trim() ?? "";
-      // When delivery reuses the source-turn assistant bubble, never replace
-      // chat-model narration with system success fallback copy.
+      const finalText =
+        narrationDecision === "legacy_frame"
+          ? applyFinalDeliveryHonestyCorrection({
+              assistantText:
+                finalAssistantText.length > 0
+                  ? finalAssistantText
+                  : buildAssistantDocumentJobSuccessFallbackMessage(finalLocale),
+              attemptedArtifactCount: finalPayload.artifacts.length,
+              deliveredAttachmentCount: deliveredAttachments.length,
+              deliveredAttachmentFilenames: []
+            })
+          : existingDeliveryText;
+      // A continuation/current-turn model message is authoritative. Delivery
+      // may attach files but must not replace its narration with fallback copy.
       const shouldWriteSuccessText =
+        narrationDecision === "legacy_frame" &&
         finalText.trim().length > 0 &&
         (existingDeliveryText.length === 0 ||
           existingDeliveryText === buildAssistantDocumentJobPreparingMessage(finalLocale) ||
@@ -674,6 +684,9 @@ export class AssistantDocumentJobDeliveryService {
     payload: PersistedDeliveryPayload;
     allowLegacyFrame: boolean;
   }): Promise<{ text: string; payload: PersistedDeliveryPayload }> {
+    if (!input.allowLegacyFrame) {
+      return { text: "", payload: input.payload };
+    }
     const rawAssistantText = input.payload.assistantText?.trim() ?? "";
     const cached =
       typeof input.payload.completionAssistantText === "string"
@@ -688,24 +701,22 @@ export class AssistantDocumentJobDeliveryService {
     const completionService = this.assistantDocumentJobCompletionTurnService as
       | AssistantDocumentJobCompletionTurnService
       | undefined;
-    const framedResult = input.allowLegacyFrame
-      ? await completionService?.maybeFrame({
-          id: input.job.id,
-          docId: input.job.docId,
-          versionId: input.job.versionId,
-          assistantId: input.job.assistantId,
-          workspaceId: input.job.workspaceId,
-          chatId: input.job.chatId,
-          surface: input.job.surface,
-          outputFormat: this.readOutputFormat(input.payload),
-          descriptorMode: this.readDescriptorMode(input.payload),
-          sourceUserMessageId: this.readSourceUserMessageId(input.payload),
-          sourceUserMessageText: this.readSourceUserMessageText(input.payload),
-          sourceUserMessageCreatedAt: this.readSourceUserMessageCreatedAt(input.payload),
-          resultText: rawAssistantText,
-          artifacts: input.payload.artifacts
-        })
-      : undefined;
+    const framedResult = await completionService?.maybeFrame({
+      id: input.job.id,
+      docId: input.job.docId,
+      versionId: input.job.versionId,
+      assistantId: input.job.assistantId,
+      workspaceId: input.job.workspaceId,
+      chatId: input.job.chatId,
+      surface: input.job.surface,
+      outputFormat: this.readOutputFormat(input.payload),
+      descriptorMode: this.readDescriptorMode(input.payload),
+      sourceUserMessageId: this.readSourceUserMessageId(input.payload),
+      sourceUserMessageText: this.readSourceUserMessageText(input.payload),
+      sourceUserMessageCreatedAt: this.readSourceUserMessageCreatedAt(input.payload),
+      resultText: rawAssistantText,
+      artifacts: input.payload.artifacts
+    });
     const framedText = framedResult?.text?.trim() ?? "";
     if (framedResult?.usage) {
       const assistant = await this.assistantRepository.findById(input.job.assistantId);
@@ -880,9 +891,12 @@ export class AssistantDocumentJobDeliveryService {
                 documentType: resolvedDocumentType,
                 outputFormat: this.readOutputFormat(input.payload),
                 documentStatus: "ready",
+                // Promotion is serialized later under the document-row lock.
+                // Never make an externally delivered attachment current merely
+                // because its delivery reached this earlier persistence step.
                 versionStatus: "ready",
                 renderJobId: input.job.id,
-                isCurrentOutput: true,
+                isCurrentOutput: false,
                 workspaceFacts: {
                   ...workspaceFacts,
                   outputPath: attachment.storagePath
@@ -917,7 +931,8 @@ export class AssistantDocumentJobDeliveryService {
 
   private async finalizeDelivery(
     job: ClaimedReadyDocumentJob,
-    payload: PersistedDeliveryPayload
+    payload: PersistedDeliveryPayload,
+    attachmentIds: string[] = []
   ): Promise<boolean> {
     const finalized = await this.prisma.$transaction(async (tx) => {
       const claimed = await tx.assistantDocumentRenderJob.updateMany({
@@ -943,23 +958,70 @@ export class AssistantDocumentJobDeliveryService {
         return false;
       }
 
+      const versions = tx.assistantDocumentVersion as {
+        findUnique?: (args: unknown) => Promise<{ versionNumber: number } | null>;
+      };
+      const candidateVersion =
+        typeof versions.findUnique === "function"
+          ? await versions.findUnique({
+              where: { id: job.versionId },
+              select: { versionNumber: true }
+            })
+          : { versionNumber: Number.MAX_SAFE_INTEGER };
+      if (candidateVersion === null) {
+        throw new Error(
+          `Document version ${job.versionId} is missing during delivery finalization.`
+        );
+      }
+      let lockedRows: Array<{ currentVersionId: string | null }>;
+      if (typeof (tx as { $queryRaw?: unknown }).$queryRaw === "function") {
+        lockedRows = await tx.$queryRaw<Array<{ currentVersionId: string | null }>>(Prisma.sql`
+          SELECT "current_version_id" AS "currentVersionId"
+          FROM "assistant_documents"
+          WHERE "id" = ${job.docId}::uuid
+          FOR UPDATE
+        `);
+      } else {
+        // Unit-test double fallback; production Prisma transaction clients
+        // always take the locking branch above.
+        const document = await tx.assistantDocument.findUnique({
+          where: { id: job.docId },
+          select: { currentVersionId: true }
+        });
+        lockedRows = document === null ? [] : [document];
+      }
+      const lockedDocument = lockedRows[0];
+      if (lockedDocument === undefined) {
+        throw new Error(`Document ${job.docId} is missing during delivery finalization.`);
+      }
+      const previousVersionId = lockedDocument.currentVersionId;
+      const currentVersion =
+        previousVersionId === null
+          ? null
+          : ((await versions.findUnique?.({
+              where: { id: previousVersionId },
+              select: { versionNumber: true }
+            })) ?? null);
+      const candidateWins =
+        previousVersionId === null ||
+        previousVersionId === job.versionId ||
+        currentVersion === null ||
+        candidateVersion.versionNumber > currentVersion.versionNumber;
       await tx.assistantDocumentVersion.update({
         where: { id: job.versionId },
-        data: {
-          status: "ready"
-        }
+        data: { status: candidateWins ? "ready" : "superseded" }
       });
-      const currentVersion = await tx.assistantDocument.findUnique({
-        where: { id: job.docId },
-        select: { currentVersionId: true }
-      });
-      const previousVersionId =
-        currentVersion !== null &&
-        currentVersion.currentVersionId !== null &&
-        currentVersion.currentVersionId !== job.versionId
-          ? currentVersion.currentVersionId
-          : null;
-      if (previousVersionId !== null) {
+      if (!candidateWins) {
+        await this.updateDocumentAttachmentCurrentness(tx, {
+          docId: job.docId,
+          versionId: job.versionId,
+          versionStatus: "superseded",
+          isCurrentOutput: false,
+          attachmentIds
+        });
+        return true;
+      }
+      if (previousVersionId !== null && previousVersionId !== job.versionId) {
         await tx.assistantDocumentVersion.updateMany({
           where: {
             id: previousVersionId,
@@ -969,6 +1031,12 @@ export class AssistantDocumentJobDeliveryService {
             status: "superseded"
           }
         });
+        await this.updateDocumentAttachmentCurrentness(tx, {
+          docId: job.docId,
+          versionId: previousVersionId,
+          versionStatus: "superseded",
+          isCurrentOutput: false
+        });
       }
       await tx.assistantDocument.update({
         where: { id: job.docId },
@@ -976,6 +1044,13 @@ export class AssistantDocumentJobDeliveryService {
           currentVersionId: job.versionId,
           status: "ready"
         }
+      });
+      await this.updateDocumentAttachmentCurrentness(tx, {
+        docId: job.docId,
+        versionId: job.versionId,
+        versionStatus: "ready",
+        isCurrentOutput: true,
+        attachmentIds
       });
       return true;
     });
@@ -992,6 +1067,49 @@ export class AssistantDocumentJobDeliveryService {
       });
     }
     return finalized;
+  }
+
+  private async updateDocumentAttachmentCurrentness(
+    tx: unknown,
+    input: {
+      docId: string;
+      versionId: string;
+      versionStatus: "ready" | "superseded";
+      isCurrentOutput: boolean;
+      attachmentIds?: string[];
+    }
+  ): Promise<void> {
+    const client = tx as {
+      $executeRaw?: <T = unknown>(query: Prisma.Sql) => Promise<T>;
+    };
+    if (typeof client.$executeRaw !== "function") {
+      // Prisma transaction clients always expose $executeRaw. This lets
+      // narrow legacy unit doubles exercise finalization state independently.
+      return;
+    }
+    const attachmentClause =
+      input.attachmentIds !== undefined && input.attachmentIds.length > 0
+        ? Prisma.sql`AND "id" IN (${Prisma.join(input.attachmentIds.map((id) => Prisma.sql`${id}::uuid`))})`
+        : Prisma.empty;
+    await client.$executeRaw(Prisma.sql`
+      UPDATE "assistant_chat_message_attachments"
+      SET "metadata" = jsonb_set(
+        jsonb_set(
+          COALESCE("metadata", '{}'::jsonb),
+          '{documentLink,versionStatus}',
+          to_jsonb(${input.versionStatus}::text),
+          true
+        ),
+        '{documentLink,isCurrentOutput}',
+        to_jsonb(${input.isCurrentOutput}::boolean),
+        true
+      )
+      WHERE "metadata" @> jsonb_build_object(
+        'documentLink',
+        jsonb_build_object('docId', ${input.docId}::text, 'versionId', ${input.versionId}::text)
+      )
+      ${attachmentClause}
+    `);
   }
 
   private async tryLlmAuthoredFailureCopy(input: {

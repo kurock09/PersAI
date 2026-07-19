@@ -26,6 +26,7 @@ import { runtimeOutputArtifactsToMediaArtifacts } from "./assistant-runtime.faca
 import { BackgroundSchedulerMetricsService } from "./background-scheduler-metrics.service";
 import { EnforceAssistantCapabilityAndQuotaService } from "./enforce-assistant-capability-and-quota.service";
 import {
+  AsyncContinuationCoordinationLostError,
   AsyncContinuationDispatchAmbiguousError,
   InternalRuntimeAsyncContinuationClientService
 } from "./internal-runtime-async-continuation.client.service";
@@ -92,27 +93,43 @@ export class AssistantAsyncJobContinuationSchedulerService
     await this.reconcileSubscribedDeliveryVisibleHandles(limit);
     await this.reconcileUnfinalizedSourceTurns(limit);
     await this.reconcileExpiredClaims(limit);
-    // ADR-159 — ChatWakeCoordinator: per-chat lock + FIFO head claim.
-    const claims = await this.chatWakeCoordinator.claimReadyCatchUps({
-      limit,
-      claimTtlMs: PRE_DISPATCH_CLAIM_TTL_MS
-    });
-    for (const claim of claims) {
+    // Claim exactly one catch-up immediately before processing it. Preclaiming
+    // a batch leaves later locks unheartbeated behind a long first runtime.
+    let processed = 0;
+    const boundedLimit = Math.max(1, Math.floor(limit));
+    for (let index = 0; index < boundedLimit; index += 1) {
+      const [claim] = await this.chatWakeCoordinator.claimReadyCatchUps({
+        limit: 1,
+        claimTtlMs: PRE_DISPATCH_CLAIM_TTL_MS
+      });
+      if (claim === undefined) break;
       let heartbeat: NodeJS.Timeout | null = null;
+      let catchUpLockLost = false;
+      const coordinationAbortController = new AbortController();
       try {
         heartbeat = setInterval(() => {
           void this.chatWakeCoordinator
             .heartbeatCatchUp(claim.chatId, claim.lockToken)
-            .catch(() => undefined);
+            .then((held) => {
+              if (!held) {
+                catchUpLockLost = true;
+                coordinationAbortController.abort(new AsyncContinuationCoordinationLostError());
+              }
+            })
+            .catch(() => {
+              catchUpLockLost = true;
+              coordinationAbortController.abort(new AsyncContinuationCoordinationLostError());
+            });
         }, this.chatWakeCoordinator.catchUpHeartbeatIntervalMs());
         heartbeat.unref?.();
-        await this.processClaim(claim);
+        await this.processClaim(claim, () => !catchUpLockLost, coordinationAbortController.signal);
       } finally {
         if (heartbeat !== null) clearInterval(heartbeat);
         await this.chatWakeCoordinator.releaseCatchUp(claim.chatId, claim.lockToken);
       }
+      processed += 1;
     }
-    return claims.length;
+    return processed;
   }
 
   private async reconcileSubscribedSandboxHandles(limit: number): Promise<void> {
@@ -237,9 +254,18 @@ export class AssistantAsyncJobContinuationSchedulerService
   }
 
   private async processClaim(
-    claim: Pick<CatchUpClaim, "id" | "claimToken"> | { id: string; claimToken: string }
+    claim: Pick<CatchUpClaim, "id" | "claimToken"> | { id: string; claimToken: string },
+    isCatchUpLockHeld: () => boolean = () => true,
+    coordinationSignal?: AbortSignal
   ): Promise<void> {
     try {
+      if (!isCatchUpLockHeld()) {
+        await this.handleState.releaseClaimToReady({
+          ...claim,
+          retryAt: this.retryAt(0)
+        });
+        return;
+      }
       const context = await this.loadAndValidateContext(claim.id);
       if (context === null) {
         await this.failClaimVisibly(claim, {
@@ -275,10 +301,13 @@ export class AssistantAsyncJobContinuationSchedulerService
               sourceUserMessageId: context.handle.sourceUserMessageId,
               retryCount: context.handle.retryCount
             },
-            sourceUserMessage: context.sourceUserMessage
+            sourceUserMessage: context.sourceUserMessage,
+            sessionId: context.session.id
           },
           request: dispatch.request,
           timeoutMs: dispatch.timeoutMs,
+          ...(coordinationSignal === undefined ? {} : { coordinationSignal }),
+          ...(coordinationSignal === undefined ? {} : { isCatchUpLockHeld }),
           callbacks: {
             persistOutputOnce: (c, ctx, result) => this.persistOutputOnce(c, ctx as never, result),
             finalizeContinuationChildren: (ctx, outcome, assistantMessageId) =>
@@ -288,15 +317,23 @@ export class AssistantAsyncJobContinuationSchedulerService
             failClaimVisibly: (c, error) => this.failClaimVisibly(c, error),
             markDispatched: (value) => markDispatched(value.receiptRequestId),
             releasePreDispatchBusy: (value) => this.handleState.releaseClaimToReady(value),
-            completeClaim: (c) => this.handleState.completeClaim(c),
+            // A lost exclusive chat lock must never finalize this claim. Its
+            // durable dispatched receipt/message is reconciled by the normal
+            // orphan path once another owner holds the lock.
+            completeClaim: (c) =>
+              isCatchUpLockHeld() ? this.handleState.completeClaim(c) : Promise.resolve(false),
             deliveryAttemptsSettled: (c, channel) => this.deliveryAttemptsSettled(c, channel),
             retryAt: (retryCount) => this.retryAt(retryCount)
           }
         });
+        if (!isCatchUpLockHeld() || coordinationSignal?.aborted) {
+          await this.reconcileLockLostClaim(claim, context, dispatch, markDispatched);
+        }
         return;
       }
-      // ADR-159 S2 TOCTOU — Telegram blocking path: re-check gate before runtime.
-      const preRuntimeGate = await this.chatWakeCoordinator.evaluateCatchUpGate({
+      // ADR-159 Slice 1 — durable CAS is the USER_TURN/JOB_CATCHUP admission
+      // boundary immediately before runtime acceptance.
+      const preRuntimeGate = await this.chatWakeCoordinator.admitCatchUpAtBoundary({
         chatId: context.handle.chatId,
         assistantId: context.handle.assistantId,
         userId: context.handle.userId,
@@ -312,20 +349,60 @@ export class AssistantAsyncJobContinuationSchedulerService
         });
         return;
       }
+      if (!isCatchUpLockHeld()) {
+        await this.handleState.releaseClaimToReady({
+          ...claim,
+          retryAt: this.retryAt(context.handle.retryCount)
+        });
+        return;
+      }
       let outcome;
       try {
         outcome = await this.runtimeClient.execute(dispatch.request, {
-          timeoutMs: dispatch.timeoutMs
+          timeoutMs: dispatch.timeoutMs,
+          ...(coordinationSignal === undefined ? {} : { signal: coordinationSignal })
         });
       } catch (error) {
+        if (
+          error instanceof AsyncContinuationCoordinationLostError ||
+          coordinationSignal?.aborted ||
+          !isCatchUpLockHeld()
+        ) {
+          await this.reconcileLockLostClaim(claim, context, dispatch, markDispatched);
+          return;
+        }
         if (error instanceof AsyncContinuationDispatchAmbiguousError) {
-          // ADR-159 P2 residual (Telegram blocking path): acceptance may have
-          // landed before the transport error — stamp dispatched so ordinary
-          // claim TTL / orphan reconcile can finish. Web uses
-          // leaveDispatchedAmbiguous after accept.
-          await markDispatched(dispatch.request.requestId);
+          // Telegram has no streaming acceptance event. Before deciding to
+          // dispatch or retry, reconcile the exact requestId against runtime's
+          // durable receipt/in-flight status. A transport error is never
+          // sufficient evidence to stamp dispatched.
+          const runtimeStatus = await this.runtimeClient.inspect({
+            ...dispatch.request,
+            sessionId: context.session.id
+          });
+          if (runtimeStatus.proof === "proven" && runtimeStatus.receiptStatus !== "absent") {
+            await markDispatched(dispatch.request.requestId);
+            this.logger.warn(
+              `Async continuation transport ambiguity reconciled to durable receipt id=${claim.id} status=${runtimeStatus.receiptStatus}`
+            );
+            return;
+          }
+          if (
+            runtimeStatus.proof === "proven" &&
+            runtimeStatus.receiptStatus === "absent" &&
+            !runtimeStatus.exactInFlight
+          ) {
+            await this.handleState.releaseClaimToReady({
+              ...claim,
+              retryAt: this.retryAt(context.handle.retryCount)
+            });
+            return;
+          }
+          // Status itself is ambiguous. Keep the claim for the existing
+          // receipt/orphan reconciler; re-executing here could duplicate a
+          // Telegram continuation.
           this.logger.warn(
-            `Async continuation dispatch is ambiguous; stamped dispatched id=${claim.id}: ${error.message}`
+            `Async continuation dispatch status remains ambiguous id=${claim.id}: ${error.message}`
           );
           return;
         }
@@ -340,6 +417,10 @@ export class AssistantAsyncJobContinuationSchedulerService
         });
         return;
       }
+      if (!isCatchUpLockHeld() || coordinationSignal?.aborted) {
+        await this.reconcileLockLostClaim(claim, context, dispatch, markDispatched);
+        return;
+      }
       const marked = await markDispatched(dispatch.request.requestId);
       if (!marked) return;
       if (outcome.outcome === "failed") {
@@ -351,10 +432,22 @@ export class AssistantAsyncJobContinuationSchedulerService
         return;
       }
       if (outcome.outcome !== "completed") return;
+      if (!isCatchUpLockHeld() || coordinationSignal?.aborted) {
+        await this.reconcileLockLostClaim(claim, context, dispatch, markDispatched);
+        return;
+      }
       const persisted = await this.persistOutputOnce(claim, context, outcome.result);
       if (persisted.outcome === "lost") return;
+      if (!isCatchUpLockHeld() || coordinationSignal?.aborted) {
+        await this.reconcileLockLostClaim(claim, context, dispatch, markDispatched);
+        return;
+      }
       const assistantMessageId = persisted.messageId;
       await this.finalizeContinuationChildren(context, "persisted", assistantMessageId);
+      if (!isCatchUpLockHeld() || coordinationSignal?.aborted) {
+        await this.reconcileLockLostClaim(claim, context, dispatch, markDispatched);
+        return;
+      }
       await this.deliverContinuationArtifactsOnce(
         claim,
         context,
@@ -365,7 +458,7 @@ export class AssistantAsyncJobContinuationSchedulerService
         await this.deliverTelegramOnce(claim, context, assistantMessageId, outcome.result);
       }
       if (!(await this.deliveryAttemptsSettled(claim, context.handle.channel))) return;
-      const completed = await this.handleState.completeClaim(claim);
+      const completed = isCatchUpLockHeld() ? await this.handleState.completeClaim(claim) : false;
       if (!completed) {
         this.logger.warn(`Late continuation completion lost its claim id=${claim.id}.`);
       }
@@ -375,6 +468,34 @@ export class AssistantAsyncJobContinuationSchedulerService
         "continuation_dispatch_failed",
         error instanceof Error ? error.message : String(error)
       );
+    }
+  }
+
+  /**
+   * After a catch-up lock is lost, never narrate or retry optimistically.
+   * Reconcile the exact request id: proven absence can return to ready;
+   * every accepted/terminal/ambiguous outcome stays durable for the receipt
+   * and orphan reconciler, preventing a duplicate execute.
+   */
+  private async reconcileLockLostClaim(
+    claim: { id: string; claimToken: string },
+    context: NonNullable<Awaited<ReturnType<typeof this.loadAndValidateContext>>>,
+    dispatch: { request: RuntimeTurnRequest },
+    markDispatched: (receiptRequestId: string) => Promise<boolean>
+  ): Promise<void> {
+    const status = await this.runtimeClient.inspect({
+      ...dispatch.request,
+      sessionId: context.session.id
+    });
+    if (status.proof === "proven" && status.receiptStatus === "absent" && !status.exactInFlight) {
+      await this.handleState.releaseClaimToReady({
+        ...claim,
+        retryAt: this.retryAt(context.handle.retryCount)
+      });
+      return;
+    }
+    if (status.proof === "proven" && status.receiptStatus !== "absent") {
+      await markDispatched(dispatch.request.requestId);
     }
   }
 

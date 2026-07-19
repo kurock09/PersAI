@@ -21,6 +21,17 @@ function createNoopSafetyFollowThrough() {
   } as never;
 }
 
+function createWakeCoordinator(events?: string[]) {
+  return {
+    async admitUserTurn(chatId: string) {
+      events?.push(`admit:${chatId}`);
+    },
+    async abandonUserTurnAdmission(chatId: string) {
+      events?.push(`close:${chatId}`);
+    }
+  } as never;
+}
+
 async function run(): Promise<void> {
   process.env.APP_ENV = "local";
   process.env.DATABASE_URL =
@@ -57,6 +68,7 @@ async function run(): Promise<void> {
   };
 
   const createdMessages: Array<{ chatId: string; content: string }> = [];
+  const admissionOrder: string[] = [];
   const runtimeDeletes: string[] = [];
   const service = new PrepareAssistantInboundTurnService(
     {
@@ -88,6 +100,7 @@ async function run(): Promise<void> {
         };
       },
       async createMessage(input: { chatId: string; content: string }) {
+        admissionOrder.push("create_message");
         createdMessages.push(input);
         return {
           id: "msg-1",
@@ -195,7 +208,8 @@ async function run(): Promise<void> {
           }
         ];
       }
-    } as never
+    } as never,
+    createWakeCoordinator(admissionOrder)
   );
 
   const prepared = await service.execute({
@@ -207,6 +221,7 @@ async function run(): Promise<void> {
 
   assert.equal(prepared.chat.id, "chat-1");
   assert.equal(createdMessages.length, 1);
+  assert.deepEqual(admissionOrder, ["admit:chat-1", "create_message"]);
   assert.equal(createdMessages[0]?.chatId, "chat-1");
   assert.equal(prepared.userMessage.attachments.length, 1);
   assert.equal(prepared.userMessage.attachments[0]?.path, `${SESSION_ROOT}/brief.txt`);
@@ -216,6 +231,7 @@ async function run(): Promise<void> {
     'session:{"where":{"id":{"in":["stale-runtime-session-1"]},"assistantId":"assistant-1","channel":"web","externalThreadKey":"thread-1"}}'
   ]);
 
+  const failedAdmission: string[] = [];
   await assert.rejects(
     () =>
       new PrepareAssistantInboundTurnService(
@@ -355,12 +371,12 @@ async function run(): Promise<void> {
             return;
           }
         } as never,
-        {} as never,
         {
           async listByMessageId() {
             return [];
           }
-        } as never
+        } as never,
+        createWakeCoordinator(failedAdmission)
       ).execute({
         userId: "user-1",
         surface: "web_chat",
@@ -375,6 +391,7 @@ async function run(): Promise<void> {
       "code" in error.errorObject &&
       error.errorObject.code === "chat_message_limit_reached"
   );
+  assert.deepEqual(failedAdmission, ["admit:chat-2", "close:chat-2"]);
 
   await assert.rejects(
     () =>

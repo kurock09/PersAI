@@ -289,7 +289,7 @@ export class HandleInternalTelegramTurnService {
       };
       // ADR-159 S2 — durable preparing window before runtime accept (receipt).
       if (this.chatWakeCoordinator !== undefined) {
-        await this.chatWakeCoordinator.recordUserTurnStarted(chat.id);
+        await this.chatWakeCoordinator.admitUserTurn(chat.id);
       }
       trace.stage("user_message_saved");
 
