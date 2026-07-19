@@ -210,7 +210,9 @@ export async function runRuntimeAwaitToolServiceTest(): Promise<void> {
       narrationOwner: "legacy" as const
     }));
     const result = await execute(service, 0);
-    assert.equal(result.payload.turnControl, "terminal_static");
+    assert.equal(result.payload.turnControl, "continue");
+    assert.equal(result.payload.staticAssistantText, null);
+    assert.equal(result.payload.reason, "narration_already_owned:legacy");
   }
   {
     const admitted = new Set<string>();

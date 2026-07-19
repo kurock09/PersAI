@@ -438,6 +438,42 @@ export class AssistantAsyncJobHandleStateService {
           duplicate: true
         };
       }
+      // Historical legacy rows: upgrade into continuation wake instead of
+      // blocking with already_owned/legacy.
+      if (row.narrationOwner === "legacy") {
+        if (row.continuationDepth >= MAX_ASYNC_CONTINUATION_DEPTH) {
+          const now = new Date();
+          await tx.assistantAsyncJobHandle.update({
+            where: { id: row.id },
+            data: {
+              narrationOwner: "continuation",
+              narrationDecision: "continuation_depth_exhausted",
+              narrationDecisionAt: now,
+              state: "failed",
+              failedAt: now,
+              lastErrorCode: "continuation_depth_exhausted",
+              lastErrorMessage: "The unattended continuation depth limit was reached."
+            }
+          });
+          return { outcome: "depth_exhausted" };
+        }
+        const now = new Date();
+        const continuationClientTurnId =
+          row.continuationClientTurnId ?? this.continuationClientTurnId(row.id);
+        const openForSubscribe = row.state === "none" || row.state === "subscribed";
+        await tx.assistantAsyncJobHandle.update({
+          where: { id: row.id },
+          data: {
+            narrationOwner: "continuation",
+            narrationDecision: "notify_subscribed",
+            narrationDecisionAt: now,
+            continuationClientTurnId,
+            maxRetries: ASYNC_CONTINUATION_MAX_RETRIES,
+            ...(openForSubscribe ? { state: "subscribed" as const } : {})
+          }
+        });
+        return { outcome: "subscribed", continuationClientTurnId, duplicate: false };
+      }
       if (row.narrationOwner !== null) {
         return { outcome: "already_owned", owner: row.narrationOwner };
       }
@@ -465,9 +501,6 @@ export class AssistantAsyncJobHandleStateService {
           kind: row.kind,
           ...terminal
         };
-      }
-      if (row.sourceFinalizedAt !== null) {
-        return { outcome: "already_owned", owner: "legacy" };
       }
       if (row.continuationDepth >= MAX_ASYNC_CONTINUATION_DEPTH) {
         const now = new Date();
@@ -502,6 +535,14 @@ export class AssistantAsyncJobHandleStateService {
     });
   }
 
+  /**
+   * Marks the source turn finalized and auto-subscribes every unresolved child
+   * handle to continuation wake (Cursor-like). Live product no longer assigns
+   * `narrationOwner: "legacy"` — that path is abolished.
+   *
+   * `legacyChosen` is retained as a compatibility alias for the auto-subscribe
+   * count (historical field name from the legacy-stamping era).
+   */
   async finalizeSourceTurn(input: {
     assistantId: string;
     chatId: string;
@@ -511,6 +552,7 @@ export class AssistantAsyncJobHandleStateService {
   }): Promise<{
     finalized: number;
     legacyChosen: number;
+    autoSubscribed: number;
     currentTurnPreserved: number;
     currentTurnReleased: number;
   }> {
@@ -542,41 +584,72 @@ export class AssistantAsyncJobHandleStateService {
         },
         data: { sourceFinalizedAt: now }
       });
-      const released =
+      const releaseOwners =
         input.outcome === "persisted"
-          ? { count: 0 }
-          : await tx.assistantAsyncJobHandle.updateMany({
-              where: {
-                assistantId: input.assistantId,
-                chatId: input.chatId,
-                sourceClientTurnId: input.sourceClientTurnId,
-                narrationOwner: "current_turn"
-              },
-              data: {
-                narrationOwner: "legacy",
-                narrationDecision: "legacy_completion",
-                narrationDecisionAt: now,
-                lastErrorCode:
-                  input.outcome === "stopped"
-                    ? "current_turn_stopped_before_persistence"
-                    : "current_turn_failed_before_persistence",
-                lastErrorMessage:
-                  "Current-turn narration was released because durable assistant output was not proven."
-              }
-            });
-      const legacy = await tx.assistantAsyncJobHandle.updateMany({
+          ? ([] as Array<"current_turn">)
+          : (["current_turn"] as Array<"current_turn">);
+      const toSubscribe = await tx.assistantAsyncJobHandle.findMany({
         where: {
           assistantId: input.assistantId,
           chatId: input.chatId,
           sourceClientTurnId: input.sourceClientTurnId,
-          narrationOwner: null
+          OR: [{ narrationOwner: null }, { narrationOwner: { in: releaseOwners } }]
         },
-        data: {
-          narrationOwner: "legacy",
-          narrationDecision: "legacy_completion",
-          narrationDecisionAt: now
+        select: {
+          id: true,
+          state: true,
+          narrationOwner: true,
+          continuationDepth: true,
+          continuationClientTurnId: true
         }
       });
+      let autoSubscribed = 0;
+      let currentTurnReleased = 0;
+      for (const row of toSubscribe) {
+        const wasCurrentTurn = row.narrationOwner === "current_turn";
+        if (row.continuationDepth >= MAX_ASYNC_CONTINUATION_DEPTH) {
+          await tx.assistantAsyncJobHandle.update({
+            where: { id: row.id },
+            data: {
+              narrationOwner: "continuation",
+              narrationDecision: "continuation_depth_exhausted",
+              narrationDecisionAt: now,
+              state: "failed",
+              failedAt: now,
+              lastErrorCode: "continuation_depth_exhausted",
+              lastErrorMessage: "The unattended continuation depth limit was reached."
+            }
+          });
+          if (wasCurrentTurn) currentTurnReleased += 1;
+          continue;
+        }
+        const continuationClientTurnId =
+          row.continuationClientTurnId ?? this.continuationClientTurnId(row.id);
+        const openForSubscribe = row.state === "none" || row.state === "subscribed";
+        await tx.assistantAsyncJobHandle.update({
+          where: { id: row.id },
+          data: {
+            narrationOwner: "continuation",
+            narrationDecision: "notify_subscribed",
+            narrationDecisionAt: now,
+            continuationClientTurnId,
+            maxRetries: ASYNC_CONTINUATION_MAX_RETRIES,
+            ...(openForSubscribe ? { state: "subscribed" as const } : {}),
+            ...(wasCurrentTurn
+              ? {
+                  lastErrorCode:
+                    input.outcome === "stopped"
+                      ? "current_turn_stopped_before_persistence"
+                      : "current_turn_failed_before_persistence",
+                  lastErrorMessage:
+                    "Current-turn narration was released; continuation owns the wake."
+                }
+              : {})
+          }
+        });
+        autoSubscribed += 1;
+        if (wasCurrentTurn) currentTurnReleased += 1;
+      }
       const preserved =
         input.outcome !== "persisted"
           ? 0
@@ -590,9 +663,11 @@ export class AssistantAsyncJobHandleStateService {
             });
       return {
         finalized: finalized.count,
-        legacyChosen: legacy.count,
+        // Compatibility alias: formerly "rows stamped legacy"; now auto-subscribed.
+        legacyChosen: autoSubscribed,
+        autoSubscribed,
         currentTurnPreserved: preserved,
-        currentTurnReleased: released.count
+        currentTurnReleased
       };
     });
   }
@@ -603,10 +678,9 @@ export class AssistantAsyncJobHandleStateService {
   }): Promise<AsyncJobDeliveryDecision> {
     return this.prisma.$transaction(async (tx) => {
       const row = await this.lockCanonical(tx, input);
+      // Missing handle only — owned rows (including historical legacy) never
+      // take the ghostwriter framing path; chat-model / continuation owns text.
       if (row === null) return "legacy_frame";
-      if (row.narrationOwner === "legacy") return "legacy_frame";
-      // ADR-157: unresolved narration must not block artifact delivery. Bytes
-      // proceed with skip_legacy_frame; chat-model / continuation owns text.
       return "skip_legacy_frame";
     });
   }
@@ -621,12 +695,20 @@ export class AssistantAsyncJobHandleStateService {
       const row = await this.lockCanonical(tx, input);
       if (row === null) return { decision: "legacy_frame", state: input.terminalStatus };
       const now = new Date();
-      const decision: AsyncJobDeliveryDecision =
-        row.narrationOwner === "legacy" ? "legacy_frame" : "skip_legacy_frame";
+      // Heal historical legacy / null owners into continuation wake.
+      const needsContinuationHeal =
+        row.narrationOwner === "legacy" ||
+        row.narrationOwner === null ||
+        (row.narrationOwner === "continuation" &&
+          row.narrationDecision !== "notify_subscribed" &&
+          row.narrationDecision !== "continuation_depth_exhausted");
+      const continuationClientTurnId =
+        row.continuationClientTurnId ?? this.continuationClientTurnId(row.id);
       const continuationReady =
-        row.narrationOwner === "continuation" &&
-        row.narrationDecision === "notify_subscribed" &&
-        row.state !== "failed";
+        row.state !== "failed" &&
+        row.narrationDecision !== "continuation_depth_exhausted" &&
+        (row.narrationOwner === "continuation" || needsContinuationHeal) &&
+        (row.narrationDecision === "notify_subscribed" || needsContinuationHeal);
       const terminalData = continuationReady
         ? {
             state: "ready" as const,
@@ -639,10 +721,19 @@ export class AssistantAsyncJobHandleStateService {
         where: { id: row.id },
         data: {
           terminalSnapshotJson: input.terminalSnapshot,
+          ...(needsContinuationHeal && row.narrationDecision !== "continuation_depth_exhausted"
+            ? {
+                narrationOwner: "continuation" as const,
+                narrationDecision: "notify_subscribed",
+                narrationDecisionAt: now,
+                continuationClientTurnId,
+                maxRetries: ASYNC_CONTINUATION_MAX_RETRIES
+              }
+            : {}),
           ...terminalData
         }
       });
-      return { decision, state: terminalData.state };
+      return { decision: "skip_legacy_frame", state: terminalData.state };
     });
   }
 

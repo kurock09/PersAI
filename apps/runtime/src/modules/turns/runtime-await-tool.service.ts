@@ -349,13 +349,23 @@ export class RuntimeAwaitToolService {
       };
     }
     if (result.outcome === "already_owned") {
+      // Never write "already being handled" into chat. Tool-visible reason only.
       return {
-        payload: this.terminalStatic(
+        payload: {
+          toolCode: "await",
+          executionMode: "inline",
+          action: "already_owned",
+          turnControl: "continue",
+          staticAssistantText: null,
+          reason: `narration_already_owned:${result.owner}`,
+          warning: null,
           jobRef,
-          "already_owned",
-          `narration_already_owned:${result.owner}`,
-          input.locale
-        ),
+          kind: null,
+          status: null,
+          terminal: false,
+          errorCode: null,
+          message: null
+        },
         isError: false
       };
     }
@@ -390,23 +400,16 @@ export class RuntimeAwaitToolService {
       toolCode: "await",
       executionMode: "inline",
       action,
-      // Continuation-owned terminals must stay model-continuable after notify;
-      // only legacy ownership ends the turn with a static receipt.
-      turnControl:
-        status.terminal &&
-        status.narrationOutcome === "already_owned" &&
-        status.narrationOwner === "legacy"
-          ? "terminal_static"
-          : "continue",
-      staticAssistantText:
-        status.terminal &&
-        status.narrationOutcome === "already_owned" &&
-        status.narrationOwner === "legacy"
-          ? "This job completion is already being handled in this conversation."
-          : null,
-      reason: null,
       warning: null,
-      ...status
+      ...status,
+      // already_owned (any owner, including historical legacy) stays model-
+      // continuable with terminal facts — never terminal_static chat text.
+      turnControl: "continue",
+      staticAssistantText: null,
+      reason:
+        status.terminal && status.narrationOutcome === "already_owned"
+          ? `narration_already_owned:${status.narrationOwner ?? "unknown"}`
+          : null
     };
   }
 
@@ -430,7 +433,7 @@ export class RuntimeAwaitToolService {
 
   private terminalStatic(
     jobRef: string,
-    action: "already_owned" | "depth_exhausted",
+    action: "depth_exhausted",
     reason: string,
     locale?: string | null
   ): RuntimeAwaitToolResult {
@@ -439,24 +442,17 @@ export class RuntimeAwaitToolService {
       executionMode: "inline",
       action,
       turnControl: "terminal_static",
-      staticAssistantText:
-        action === "depth_exhausted"
-          ? this.localized(
-              locale,
-              "Цепочка автоматических продолжений завершена. Напишите новое сообщение, если нужно продолжить.",
-              "The automatic continuation chain has ended. Send a new message if you want to continue."
-            )
-          : this.localized(
-              locale,
-              "Завершение этой задачи уже обрабатывается в этом чате.",
-              "This job completion is already being handled in this chat."
-            ),
+      staticAssistantText: this.localized(
+        locale,
+        "Цепочка автоматических продолжений завершена. Напишите новое сообщение, если нужно продолжить.",
+        "The automatic continuation chain has ended. Send a new message if you want to continue."
+      ),
       reason,
       warning: null,
       jobRef,
       kind: null,
       status: null,
-      terminal: action === "depth_exhausted",
+      terminal: true,
       errorCode: null,
       message: null
     };

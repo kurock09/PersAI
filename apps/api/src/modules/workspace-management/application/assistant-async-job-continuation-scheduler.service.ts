@@ -109,8 +109,19 @@ export class AssistantAsyncJobContinuationSchedulerService
     }
     const rows = await this.prisma.assistantAsyncJobHandle.findMany({
       // Include state=none so completed unobserved sandbox jobs finalize and
-      // cannot linger as open-handle snapshot candidates.
-      where: { kind: "sandbox", state: { in: ["none", "subscribed"] } },
+      // cannot linger as open-handle snapshot candidates. Also heal historical
+      // legacy terminal rows into continuation-ready wake.
+      where: {
+        kind: "sandbox",
+        OR: [
+          { state: { in: ["none", "subscribed"] } },
+          {
+            narrationOwner: "legacy",
+            state: { in: ["completed", "failed", "cancelled"] },
+            sourceFinalizedAt: { not: null }
+          }
+        ]
+      },
       orderBy: { updatedAt: "asc" },
       take: limit,
       select: { canonicalJobId: true }
@@ -176,7 +187,14 @@ export class AssistantAsyncJobContinuationSchedulerService
     const rows = await this.prisma.assistantAsyncJobHandle.findMany({
       where: {
         kind: { in: ["media", "document"] },
-        state: { in: ["none", "subscribed"] }
+        OR: [
+          { state: { in: ["none", "subscribed"] } },
+          {
+            narrationOwner: "legacy",
+            state: { in: ["completed", "failed", "cancelled"] },
+            sourceFinalizedAt: { not: null }
+          }
+        ]
       },
       orderBy: { updatedAt: "asc" },
       take: limit,

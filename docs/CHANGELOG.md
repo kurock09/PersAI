@@ -5,6 +5,14 @@
 
 ## 2026-07-19
 
+- **Fix (local): abolish async-job `legacy` + Cursor-like bg auto-wake.**
+  Source-turn finalize auto-subscribes unresolved child jobs to continuation
+  (explicit `await.notify` stays idempotent). Historical `legacy` rows heal on
+  subscribe/completion; delivery framing skips owned legacy. Runtime never
+  writes “This job completion is already being handled…” into chat for
+  `already_owned`. ADR-157 D4.1 / ADR-152 supersession. Focused api/runtime
+  tests + typecheck.
+
 - **Fix pushed to `main` (`e1ce2424`): ADR-158 stream hardening + async-cont
   post-complete duplicate.** Bus: tenant stream key
   `${assistantId}:${userId}:${clientTurnId}`; fail-closed register; queued

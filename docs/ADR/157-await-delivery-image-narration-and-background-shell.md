@@ -103,19 +103,22 @@ Model-facing `shell` / `exec`:
 Plan Process-timeout remains a bound for synchronous execution and safety; it
 is not the only door into background.
 
-### D4.1 — Honest chat bubbles (same-turn vs notify)
+### D4.1 — Honest chat bubbles (same-turn vs wake)
 
-Founder-accepted product truth (not auto-subscribe):
+Founder override 2026-07-19 (Cursor-like; supersedes prior “no auto-subscribe”):
 
 | Path | User-visible bubble |
 |---|---|
 | In-turn `await.wait` (or sync tool) while the streaming assistant reply is still open | **Same** assistant bubble: model text + queued attachments/shell outputs embed into that reply |
-| Explicit `await.notify` after the source turn is finalized | **New** assistant bubble via continuation scheduler (new logical turn) |
+| Source turn finalized with unresolved child jobs (with or without explicit `await.notify`) | Jobs are **auto-subscribed** to continuation; on terminal → **new** assistant bubble via scheduler |
+| Explicit `await.notify` | Idempotent with auto-subscribe (duplicate subscribe); same wake path |
 | Background job still open; user may send ordinary messages between enqueue and wake | Interleaved user bubbles are first-class; wake remains a **new** assistant bubble, never a patch onto an old one |
 
-`await.notify` stays explicit and durable. No silent auto-subscribe of every
-`background:true` job. Continuation is “agent gets another turn”, not
-“append to the previous message”.
+`narrationOwner: "legacy"` is abolished on the live finalize path. Historical
+legacy rows heal into continuation on subscribe/completion. `await.wait` /
+`already_owned` must never write “already being handled…” into chat
+(`terminal_static` reserved for depth exhaustion only). Continuation is
+“agent gets another turn”, not “append to the previous message”.
 
 ### D5 — Working pill ops
 

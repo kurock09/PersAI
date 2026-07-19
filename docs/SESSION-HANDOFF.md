@@ -1,5 +1,23 @@
 # SESSION-HANDOFF
 
+## 2026-07-19 — Abolish legacy + auto-wake bg jobs (local)
+
+Status: **Local — shipping.** Baseline clean `main` `5795ed95`. Founder:
+eradicate `legacy` narration; Cursor-like wake on bg completion without
+explicit notify; stop EN “already being handled…” chat leak.
+
+Live evidence (chat `0ea8ab3b…`): notify continuation
+`async-cont:35255749` called `await wait` on sibling job stamped `legacy` →
+`terminal_static` wiped the wake to only that English line; plain bg job
+stayed silent by design.
+
+Fix: `finalizeSourceTurn` auto-subscribes null/`current_turn`-released
+handles to `continuation`+`notify_subscribed`; `prepareDelivery` /
+`recordCanonicalCompletion` heal historical legacy → skip framing + ready;
+runtime `receipt`/notify never emit already-owned chat static. ADR-157 D4.1
++ ADR-152 supersession updated. Focused handle-state + await tests +
+api/runtime typecheck green.
+
 ## 2026-07-19 — ADR-158 stream hardening + async-cont duplicate fix
 
 Status: **Pushed `main` `e1ce2424`.** Baseline was `14bdf424` (rebased over

@@ -313,17 +313,22 @@ Rules:
    `persistOutputOnce` / attempt terminal write remain the reconnect truth if
    the live registry is gone (other replica) or the client was offline.
 
-Out of scope for this addendum: auto-subscribe of every `background:true`,
+Superseded 2026-07-19 by ADR-157 D4.1 founder override: source-turn finalize
+auto-subscribes unresolved child jobs (Cursor-like wake without explicit
+notify). Explicit `await.notify` remains idempotent. Live `legacy` narration
+owner stamping is abolished.
+
+Historical note (pre-override out of scope): auto-subscribe of every `background:true`,
 patching an old bubble, Telegram live seconds UI, new tables.
 
 After continuation output is durably persisted, the scheduler finalizes only
 child handles whose `sourceClientTurnId` equals that continuation's
-deterministic client-turn id. Persisted output assigns unresolved children to
-legacy while preserving children already owned by `notify` or the current turn.
-Failed or interrupted continuation receipts finalize those children
-failed/stopped. Lost-finalization repair identifies continuation output by
-`asyncContinuationClientTurnId`; ordinary source turns continue using
-`sourceUserMessageId`.
+deterministic client-turn id. Persisted output auto-subscribes unresolved
+children to continuation (preserving children already owned by `notify` or
+the current turn). Failed or interrupted continuation receipts finalize those
+children failed/stopped. Lost-finalization repair identifies continuation
+output by `asyncContinuationClientTurnId`; ordinary source turns continue
+using `sourceUserMessageId`.
 
 ## Browser Script SDK
 
@@ -435,7 +440,8 @@ agent audits and commits only; product implementation is delegated only to
 
 Rollback is additive: stop projecting `await` and stop its scheduler while
 preserving existing canonical jobs and handles. Existing file delivery remains
-intact, and unsubscribed legacy framing remains unchanged. No destructive
+intact. Historical legacy framing is healed into continuation wake; no new
+legacy stamps. No destructive
 rollback migration, compatibility alias, or TODO scaffold is permitted.
 
 Mixed-version production ordering is mandatory: apply the additive migration,

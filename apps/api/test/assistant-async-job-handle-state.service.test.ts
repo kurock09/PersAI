@@ -108,7 +108,30 @@ function fixture(
     assistantDocumentRenderJob: { findUnique: async () => canonical }
   };
   Object.assign(delegate, {
-    count: async () => (row.narrationOwner === "current_turn" ? 1 : 0)
+    count: async () => (row.narrationOwner === "current_turn" ? 1 : 0),
+    findMany: async ({
+      where
+    }: {
+      where?: {
+        narrationOwner?: null | { in?: Array<"current_turn"> };
+        OR?: Array<{ narrationOwner?: null | { in?: Array<"current_turn"> } }>;
+      };
+    }) => {
+      const clauses = where?.OR ?? (where?.narrationOwner !== undefined ? [where] : []);
+      if (clauses.length === 0) return [row];
+      const matches = clauses.some((clause) => {
+        if (clause.narrationOwner === null) return row.narrationOwner === null;
+        if (
+          typeof clause.narrationOwner === "object" &&
+          clause.narrationOwner !== null &&
+          Array.isArray(clause.narrationOwner.in)
+        ) {
+          return clause.narrationOwner.in.includes(row.narrationOwner as "current_turn");
+        }
+        return false;
+      });
+      return matches ? [row] : [];
+    }
   });
   const prisma = {
     $transaction: async <T>(callback: (value: typeof tx) => Promise<T>) => callback(tx),
@@ -176,7 +199,7 @@ describe("AssistantAsyncJobHandleStateService", () => {
     }
   });
 
-  test("delivery arbitration never blocks unresolved narration; legacy still frames", async () => {
+  test("delivery arbitration never blocks unresolved narration; historical legacy skips framing", async () => {
     const unresolved = fixture();
     assert.equal(
       await unresolved.service.prepareDelivery({
@@ -195,11 +218,11 @@ describe("AssistantAsyncJobHandleStateService", () => {
         kind: "document",
         canonicalJobId: "00000000-0000-4000-8000-000000000006"
       }),
-      "legacy_frame"
+      "skip_legacy_frame"
     );
   });
 
-  test("source finalization preserves owners and assigns unresolved rows to legacy", async () => {
+  test("source finalization auto-subscribes unresolved rows to continuation wake", async () => {
     const unresolved = fixture();
     const result = await unresolved.service.finalizeSourceTurn({
       assistantId: owned.assistantId,
@@ -210,10 +233,17 @@ describe("AssistantAsyncJobHandleStateService", () => {
     assert.deepEqual(result, {
       finalized: 1,
       legacyChosen: 1,
+      autoSubscribed: 1,
       currentTurnPreserved: 0,
       currentTurnReleased: 0
     });
-    assert.equal(unresolved.row.narrationOwner, "legacy");
+    assert.equal(unresolved.row.narrationOwner, "continuation");
+    assert.equal(unresolved.row.narrationDecision, "notify_subscribed");
+    assert.equal(unresolved.row.state, "subscribed");
+    assert.ok(
+      typeof unresolved.row.continuationClientTurnId === "string" &&
+        unresolved.row.continuationClientTurnId.startsWith("async-cont:")
+    );
 
     const subscribed = fixture({
       narrationOwner: "continuation",
@@ -229,7 +259,7 @@ describe("AssistantAsyncJobHandleStateService", () => {
     assert.equal(subscribed.row.narrationOwner, "continuation");
   });
 
-  test("finalization preserves proven current-turn output and releases failed ownership", async () => {
+  test("finalization preserves proven current-turn output and releases failed ownership to continuation", async () => {
     const persisted = fixture({ narrationOwner: "current_turn" });
     const preserved = await persisted.service.finalizeSourceTurn({
       assistantId: owned.assistantId,
@@ -249,7 +279,26 @@ describe("AssistantAsyncJobHandleStateService", () => {
       outcome: "stopped"
     });
     assert.equal(released.currentTurnReleased, 1);
-    assert.equal(failed.row.narrationOwner, "legacy");
+    assert.equal(failed.row.narrationOwner, "continuation");
+    assert.equal(failed.row.narrationDecision, "notify_subscribed");
+  });
+
+  test("recordCanonicalCompletion heals historical legacy into ready continuation", async () => {
+    const legacy = fixture({
+      narrationOwner: "legacy",
+      narrationDecision: "legacy_completion",
+      sourceFinalizedAt: new Date()
+    });
+    const result = await legacy.service.recordCanonicalCompletion({
+      kind: "media",
+      canonicalJobId: "00000000-0000-4000-8000-000000000006",
+      terminalStatus: "completed",
+      terminalSnapshot: { status: "completed", message: "Job completed." }
+    });
+    assert.deepEqual(result, { decision: "skip_legacy_frame", state: "ready" });
+    assert.equal(legacy.row.narrationOwner, "continuation");
+    assert.equal(legacy.row.narrationDecision, "notify_subscribed");
+    assert.equal(legacy.row.state, "ready");
   });
 
   test("depth four rejects a fifth unattended continuation", async () => {
