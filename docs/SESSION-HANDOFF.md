@@ -1,5 +1,18 @@
 # SESSION-HANDOFF
 
+## 2026-07-19 — ADR-159 S0–S4 pushed; S5 deploy + live
+
+Status: **Pushed `main` `ec9bb5b7`.** Baseline was `b41adb6a` (rebased over
+gitops pin `da5e3cf9`). Session Work Queue S0–S4 (+ runtime-duplicate P0 +
+post-CLEAN comment cleanup) landed after dual CLEAN audit and full AGENTS
+lint/format/api+web+runtime+sandbox typecheck + recursive `pnpm test` +
+`test:ci-detect-affected` + `test:step2`. Migrations
+`20260719160000_adr159_s2_chat_idle_pause` +
+`20260719170000_adr159_catchup_ordinal` require migration-approved pin.
+**S5 in progress:** wait exact api/web/runtime images → live accept web
+interleave user↔catch-up, multi-job 1/2→2/2, sync `await.wait`, Telegram
+serial busy. Working-pill trash / bandage stash still out of scope.
+
 ## 2026-07-19 — ADR-152 Browser Script SDK live PASS (Telega / any profile)
 
 Status: **Live PASS accepted.** Chat
@@ -14,18 +27,6 @@ Proves profile-backed Script browser SDK works through local bridge with a
 non-hardcoded profile key. Full ADR-152 program closure still depends on
 remaining await/job/deploy gates — this is Browser Script SDK Telega live
 acceptance only.
-
-## 2026-07-19 — ADR-159 S0–S4 commit + S5 push/deploy gate
-
-Status: **Committing S0–S4 (+ runtime-duplicate P0 + post-CLEAN comment
-cleanup) on baseline `b41adb6a`; push starts S5 (one deploy + live).** Dual
-Grok+Composer CLEAN after cleanup. Migrations:
-`20260719160000_adr159_s2_chat_idle_pause`,
-`20260719170000_adr159_catchup_ordinal` — need migration-approved pin path.
-Full AGENTS lint/format/typecheck + recursive test + `test:ci-detect-affected`
-+ `test:step2` before push. Live acceptance after exact images: web interleave
-user↔catch-up, multi-job 1/2→2/2, sync `await.wait`, Telegram serial busy.
-Working-pill trash / bandage stash still out of scope.
 
 ## 2026-07-19 — ADR-159 post-CLEAN wake-comment cleanup (local)
 

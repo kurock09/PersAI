@@ -5,56 +5,27 @@
 
 ## 2026-07-19
 
+- **Pushed `ec9bb5b7`: ADR-159 S0–S4 Session Work Queue (S5 deploy/live).**
+  `ChatWakeCoordinator` serializes per-chat catch-up via exclusive
+  `async-catchup:{chatId}` lease + FIFO ready head; user priority + 2s
+  idle-pause; `markDispatched` only after runtime accept + (web) running
+  attempt; pre-accept busy / runtime duplicate → `releaseClaimToReady` +
+  abandon attempt (no parked `accepted`); `duplicate_handled` →
+  `completeClaim`; durable `catch_up_ordinal`/`catch_up_wave_total`/
+  `catch_up_wave_id` for stable 1/2→2/2 markers; `wakeKind=job_catchup`
+  facts; dead wake APIs purged (`claimReady`, `requeueBusyNotStarted`,
+  `legacyChosen`, `resetToAccepted` park). Migrations
+  `20260719160000_adr159_s2_chat_idle_pause` +
+  `20260719170000_adr159_catchup_ordinal`. Dual CLEAN audit + post-CLEAN
+  comment cleanup. Baseline was `b41adb6a` (rebased over gitops
+  `da5e3cf9`). S5: one deploy + live acceptance (web + api + runtime +
+  Telegram).
+
 - **ADR-152 Browser Script SDK live PASS (Telega).** Founder/MCP acceptance on
   chat `373e47bc-…` with profile `adr152-test`: Script `adr152_live_browser`
   returned `ADR152_BROWSER_SDK_OK` via `local_bridge` (`snapshot` + `acted` on
   `telega.in/catalog`). Profile key is model-supplied, not hard-coded. Does
   not by itself close the full ADR-152 program.
-
-- **ADR-159 S0–S4 Session Work Queue (push starts S5).** `ChatWakeCoordinator`
-  serializes per-chat catch-up via exclusive `async-catchup:{chatId}` lease +
-  FIFO ready head; user priority + 2s idle-pause; `markDispatched` only after
-  runtime accept + (web) running attempt; pre-accept busy / runtime duplicate
-  → `releaseClaimToReady` + abandon attempt (no parked `accepted`);
-  `duplicate_handled` → `completeClaim`; durable
-  `catch_up_ordinal`/`catch_up_wave_total`/`catch_up_wave_id` for stable
-  1/2→2/2 markers; `wakeKind=job_catchup` facts; dead wake APIs purged
-  (`claimReady`, `requeueBusyNotStarted`, `legacyChosen`, `resetToAccepted`
-  park). Migrations `20260719160000_adr159_s2_chat_idle_pause` +
-  `20260719170000_adr159_catchup_ordinal`. Dual CLEAN audit + post-CLEAN
-  comment cleanup. Baseline was `b41adb6a`. S5: one deploy + live acceptance
-  (web + api + runtime + Telegram).
-
-- **Local (not pushed): ADR-159 S2 — user priority + durable idle-pause +
-  TOCTOU.** Additive `assistant_chats.last_user_turn_started_at` +
-  `last_user_turn_terminal_at` (migration
-  `20260719160000_adr159_s2_chat_idle_pause`); `CATCHUP_IDLE_PAUSE_MS=2000`
-  before catch-up lock/claim. Hardened user-active: durable open window
-  (started without/after terminal — covers TG preparing); web
-  non-`async_continuation` attempt accepted/running; Telegram accepted
-  `RuntimeTurnReceipt` with non-`async-cont:*` idempotency.
-  `async_continuation` does not stamp started/terminal. Gate re-checked after
-  lock and immediately before runtime accept (web stream + TG execute;
-  focused TG pre-runtime TOCTOU test). FIFO one-at-a-time covered by exclusive
-  lock tests. No `resetToAccepted` / parked reconcile. Focused api tests +
-  typecheck + prisma validate. Baseline `b41adb6a`.
-
-- **Local (not pushed): ADR-159 S1 — ChatWakeCoordinator + dispatch gate.**
-  Per-chat `async-catchup:{chatId}` SchedulerLease lock, FIFO head claim,
-  never `markDispatched` before runtime lease + (web) running attempt;
-  pre-accept busy releases claimed→ready and abandons the continuation
-  attempt (no `resetToAccepted` park). Minimal user-turn-active skip for web;
-  idle-pause landed in S2 above. Baseline `b41adb6a`.
-
-- **Docs-only: ADR-159 Session Work Queue opened (S0).** Founder-ready
-  architecture for Cursor-like per-chat serial agent work:
-  `USER_TURN` priority over `JOB_CATCHUP`, idle-pause then FIFO catch-ups with
-  structured wake markers. Design lock: `ChatWakeCoordinator` + exclusive
-  per-chat catch-up lock + ready FIFO on existing handles (no new queue
-  table). Supersedes ADR-152 lease-race wake dispatch and parked-accepted
-  busy strategy; ADR-157 D4.1 auto-subscribe intent stays, dispatch becomes
-  session-queue; ADR-158 stream bus stays, sticky/absorb wake crutches
-  temporary until S4. Baseline `b41adb6a`.
 
 - **Fix pushed to `main` (`88badd39`): abolish async-job `legacy` + Cursor-like
   bg auto-wake.** Source-turn finalize auto-subscribes unresolved child jobs

@@ -2,15 +2,13 @@
 
 ## Status
 
-**Open 2026-07-19 — S4 CLEAN + runtime-duplicate release P0 repaired locally
-(not committed).** S0–S4 landed; parent S3 audit was CLEAN; S4 re-audit DIRTY
-repaired: durable catch-up ordinals, sequential 1/2→2/2 markers,
-`duplicate_handled` frees FIFO head immediately, TG ambiguous
-`markDispatched` documented as P2 reconcile exception. Follow-up P0: runtime
-`outcome === "duplicate"` must `releaseClaimToReady` (web also abandons
-pre-accept attempt) — never bare-return with claim held; still distinct from
-`duplicate_handled` → `completeClaim`. S5 (deploy + live) remains. Baseline
-`b41adb6a`.
+**Open 2026-07-19 — S0–S4 pushed `ec9bb5b7`; S5 deploy + live in progress.**
+S0–S4 landed after dual CLEAN audit (durable ordinals, sequential 1/2→2/2,
+`duplicate_handled`→`completeClaim`, runtime `duplicate`→`releaseClaimToReady`,
+dead wake APIs purged). Baseline was `b41adb6a` (rebased over gitops
+`da5e3cf9`). Migrations require migration-approved pin. S5: exact
+api/web/runtime images + founder live acceptance (web interleave, multi-job
+FIFO markers, sync `await.wait`, Telegram serial).
 
 S0 docs checkpoint accepted; S1 implements `ChatWakeCoordinator` + per-chat
 `async-catchup:{chatId}` SchedulerLease lock + FIFO head claim, dispatch gate
@@ -248,9 +246,9 @@ residual remains intentional until a future migration ADR.
 | **S0** | This docs ADR + related doc pointers | Docs only |
 | **S1** | Dispatch gate + per-chat serial claim (root race fix); delete parked-accepted path (`resetToAccepted` park, parked reclaim as product) | No |
 | **S2** | User priority + idle-pause debounce + FIFO catch-ups | No |
-| **S3** | Model/UI/Telegram markers (`wakeKind`, ordinal, interleaved, jobRef facts) — **landed locally** | No |
-| **S4** | Purge legacy/sticky leftovers + focused/regression tests — **landed locally** | No |
-| **S5** | One deploy + live acceptance (web + api + runtime + Telegram) | Yes — once |
+| **S3** | Model/UI/Telegram markers (`wakeKind`, ordinal, interleaved, jobRef facts) — **pushed** | No |
+| **S4** | Purge legacy/sticky leftovers + focused/regression tests — **pushed** | No |
+| **S5** | One deploy + live acceptance (web + api + runtime + Telegram) — **in progress** | Yes — once |
 
 Parent gates each slice. Implementation: `cursor-grok-4.5-high-fast`.
 
