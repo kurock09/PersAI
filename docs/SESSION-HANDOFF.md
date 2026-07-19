@@ -1,10 +1,10 @@
 # SESSION-HANDOFF
 
-## 2026-07-19 — Abolish legacy + auto-wake bg jobs (local)
+## 2026-07-19 — Abolish legacy + auto-wake bg jobs
 
-Status: **Local — shipping.** Baseline clean `main` `5795ed95`. Founder:
-eradicate `legacy` narration; Cursor-like wake on bg completion without
-explicit notify; stop EN “already being handled…” chat leak.
+Status: **Pushed `main` `88badd39`.** Baseline was `7f268dd0` (GitOps pin of
+`e1ce2424`). Founder: eradicate `legacy` narration; Cursor-like wake on bg
+completion without explicit notify; stop EN “already being handled…” chat leak.
 
 Live evidence (chat `0ea8ab3b…`): notify continuation
 `async-cont:35255749` called `await wait` on sibling job stamped `legacy` →
@@ -16,7 +16,8 @@ handles to `continuation`+`notify_subscribed`; `prepareDelivery` /
 `recordCanonicalCompletion` heal historical legacy → skip framing + ready;
 runtime `receipt`/notify never emit already-owned chat static. ADR-157 D4.1
 + ADR-152 supersession updated. Focused handle-state + await tests +
-api/runtime typecheck green.
+api/runtime typecheck green. Next: deploy api+runtime → live smoke bg
+without notify wakes and narrates; notify combo has no EN static leak.
 
 ## 2026-07-19 — ADR-158 stream hardening + async-cont duplicate fix
 
