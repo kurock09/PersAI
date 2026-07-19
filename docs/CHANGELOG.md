@@ -5,7 +5,8 @@
 
 ## 2026-07-19
 
-- **Repair (live web continuation discovery; local):** restored no-refresh
+- **Repair (live web continuation discovery; deployed and web-accepted):**
+  restored no-refresh
   async continuation delivery without weakening ADR-159's canonical-
   nonterminal-only Working projection. Once an `async-cont:*` per-turn stream
   is registered, API publishes its bounded identity to a separate
@@ -15,8 +16,13 @@
   deltas, tools, tool progress, and terminal events. Cursor replay, repeated
   discovery dedupe, persisted-message reconciliation, heartbeat, chat-switch
   abort, and owner/chat isolation have focused coverage. API focused tests
-  pass 17/17, web focused tests pass 190/190, and API/Web typechecks pass. Not
-  committed, pushed, deployed, or live-accepted.
+  pass 17/17, web focused tests pass 190/190, and API/Web typechecks pass.
+  Release `687876a7` plus Clerk registration hotfix `d62de2ee` are deployed
+  through GitOps pin `b71904b9` on 2/2 API and 2/2 web replicas. Browser live
+  acceptance passed no-refresh replay, chat switch-away/return during active
+  work, and F5 during active work: Working restored and final continuations
+  arrived without another refresh. Telegram acceptance remains pending, so
+  ADR-159 is not closed.
 
 - **Repair (ADR-159 post-deploy continuation; local):** after deployed SQL
   hotfix `b07ff3dd` restored scheduler dispatch, live web evidence showed a

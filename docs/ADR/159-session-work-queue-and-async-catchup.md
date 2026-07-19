@@ -2,26 +2,25 @@
 
 ## Status
 
-**Open 2026-07-19 — S5 live BLOCKED by post-deploy continuation defects.**
-The scheduler SQL hotfix `b07ff3dd` is deployed on both API replicas through
-GitOps pin `5243a1a1`; it removed PostgreSQL `42702`, and ready handles dispatch
-again. Repeated live acceptance then exposed two further production defects:
-runtime removed the synthetic completion event and left historical user text
-as the active request, so a catch-up repeated completed jobs; and web transport
-ambiguity marked work `dispatched` without logical idempotency evidence,
-leaving a zombie handle and permitting unsafe retry under a new request id.
-The local repair makes exact `JOB_CATCHUP` facts the final model-facing event,
-adds logical `(conversation,idempotencyKey)` receipt evidence, requeues only
-authoritative never-accepted work, makes orphan-reconciled `async-cont:*`
-receipts non-reclaimable, and terminalizes accepted/unknown ambiguity once.
-Real-PostgreSQL concurrency coverage proves two request ids for one logical
-continuation produce one authoritative receipt and no reclaim. These repairs
-are not committed, pushed, deployed, or live-accepted. ADR-159 remains open
-until exact API/runtime images pass fresh web and Telegram background-job
-acceptance without duplicate execution, missing narration, zombie Working, or
-reload-only visibility.
+**Open 2026-07-20 — web live acceptance passed; Telegram remains pending.**
+The scheduler SQL, exact `JOB_CATCHUP` projection, logical-receipt ambiguity
+fence, and live web continuation discovery repairs are deployed. Current
+accepted releases are runtime continuation repair `ca0780dc`, web discovery
+release `687876a7`, API Clerk registration hotfix `d62de2ee`, and GitOps pin
+`b71904b9`. Argo is `Synced/Healthy`; API, web, and runtime each have 2/2 ready
+replicas on those exact selective pins. Real-PostgreSQL concurrency coverage
+proves two request ids for one logical continuation produce one authoritative
+receipt and no reclaim.
 
-**Post-deploy live-web regression repair (local, not deployed):** Slice 2's
+Browser live acceptance passed three explicit recovery modes: an already-open
+chat received two continuations without refresh; switching away during active
+work and returning restored the job and delivered its continuation; reloading
+during active work immediately restored Working and delivered the final
+continuation without another refresh. ADR-159 remains open until Telegram
+background continuation acceptance passes and final documentation is
+reconciled. Do not reopen or implement the discarded ADR-160 draft.
+
+**Post-deploy live-web regression repair (deployed and web-accepted):** Slice 2's
 canonical-nonterminal-only Working truth remains unchanged. The browser had
 also depended on those rows to discover `continuationClientTurnId`, so a
 terminal job could become ready/claimed and stream a persisted continuation

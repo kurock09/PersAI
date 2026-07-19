@@ -70,7 +70,12 @@ Completed focused coverage plus S5 shipping coverage (no intermediate deploy unt
   Focused fixtures:
   `web-chat-continuation-discovery.service.test.ts`,
   `stream-web-async-continuation.service.test.ts`,
-  `assistant-api-client.test.ts`, and `use-chat.test.tsx`.
+  `assistant-api-client.test.ts`, and `use-chat.test.tsx`. Deployed browser
+  acceptance must cover three separate mounted-client paths: no-refresh
+  delivery after the source stream closes; switch to another chat and return
+  while canonical work is active; and F5 while work is active followed by
+  replay plus live completion without a second refresh. These three paths
+  passed on releases `687876a7` / `d62de2ee` with GitOps pin `b71904b9`.
 - **S4 purge + CLEAN repair (local):** no production `claimReady` /
   `requeueBusyNotStarted`; finalize returns `autoSubscribed` (no
   `legacyChosen`); pre-accept busy uses `releaseClaimToReady` without retry

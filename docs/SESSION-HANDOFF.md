@@ -1,9 +1,9 @@
 # SESSION-HANDOFF
 
-## 2026-07-19 — live web continuation discovery repair local
+## 2026-07-20 — live web continuation discovery deployed and accepted
 
-Status: **Implemented and focused-tested locally; not committed, pushed,
-deployed, or live-accepted.** ADR-159's honest Working projection correctly
+Status: **Web repair deployed and live-accepted; ADR-159 remains open for
+Telegram acceptance.** ADR-159's honest Working projection correctly
 removed terminal canonical jobs, but that projection had also been the
 browser's only way to discover a newly created synthetic `async-cont:*` turn.
 The continuation still persisted and published its complete ADR-158 event
@@ -17,10 +17,23 @@ chat-level SSE route with cursor replay, heartbeat, and teardown. The mounted
 web chat keeps one abortable subscription, deduplicates discoveries, and
 attaches through the existing per-turn reattach path; raw `started` is now
 forwarded alongside deltas, tool events/progress, and terminal events.
-Terminal jobs remain absent from Working. Focused API tests pass 17/17, focused
-web tests pass 190/190, and API/Web typechecks pass. Next: recursive lint,
-format check, final diff audit, then parent review/commit/deploy/live
-cross-replica acceptance.
+Terminal jobs remain absent from Working. Discovery release `687876a7` and
+Clerk route-registration hotfix `d62de2ee` are deployed through GitOps pin
+`b71904b9`; Argo is `Synced/Healthy`, API is 2/2 on `d62de2ee`, web is 2/2 on
+`687876a7`, and runtime remains 2/2 on the prior continuation repair
+`ca0780dc`.
+
+Focused API tests pass 17/17, focused web tests pass 190/190, the auth-route
+regression and API/Web typechecks pass, recursive lint and formatting pass,
+and both GitHub workflows passed. Founder-driven browser acceptance used one
+already-loaded tab and passed: no-refresh discovery replay surfaced two
+completed continuations; switching to another chat and returning restored the
+active job and delivered its final continuation; reloading during an active
+job immediately restored Working and later delivered the final continuation
+without another refresh. API logs show successful ordinary and synthetic
+turns across both replicas; the prior repeated discovery `401` stopped after
+the Clerk registration hotfix. Next: Telegram background continuation live
+acceptance, then reconcile ADR-159 closure status. Do not reopen ADR-160.
 
 ## 2026-07-19 — ADR-159 post-deploy continuation repair local
 
