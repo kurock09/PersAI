@@ -5,9 +5,9 @@
 
 ## 2026-07-19
 
-- **Feature (ADR-158; push SHA in handoff): durable multi-pod web turn stream
-  bus + client status cleanup.** Replaces process-local-only live SSE fanout
-  with `WebChatTurnStreamBusService` (Redis LIST+pub/sub via
+- **Feature pushed to `main` (`e94cf26e`): ADR-158 durable multi-pod web turn
+  stream bus + client status cleanup.** Replaces process-local-only live SSE
+  fanout with `WebChatTurnStreamBusService` (Redis LIST+pub/sub via
   `PERSAI_TURN_COORDINATION_REDIS_URL` / `BROWSER_BRIDGE_REDIS_URL`, memory
   fallback). Atomic Lua `INCR`+`RPUSH` seq; reattach any pod replays then
   follows live; `reattached.live` when attach succeeds. Client: non-live →

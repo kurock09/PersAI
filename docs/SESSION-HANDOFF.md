@@ -2,13 +2,13 @@
 
 ## 2026-07-19 — ADR-158 durable multi-pod web turn stream bus
 
-Status: **CLEAN + AGENTS/CI-like gate green; push SHA after push. Deploy/live
-multi-replica smoke still open.** Baseline was clean `main` `20b55d5d`.
-Redis/memory turn stream bus (same URL family as Stop) + client reconciling /
-finalize / no phantom «Думаю» / chips on live assistant only. Independent
-re-audit CLEAN after Lua seq + attachLocal sink-before-list repairs. Gate:
-lint, format:check, api/web/runtime/sandbox typecheck, full `pnpm test`,
-`test:ci-detect-affected`, `test:step2`.
+Status: **Pushed `main` `e94cf26e`. Deploy/live multi-replica smoke still
+open.** Baseline was clean `main` `20b55d5d`. Redis/memory turn stream bus
+(same URL family as Stop) + client reconciling / finalize / no phantom
+«Думаю» / chips on live assistant only. Independent re-audit CLEAN after Lua
+seq + attachLocal sink-before-list repairs. Gate: lint, format:check,
+api/web/runtime/sandbox typecheck, full `pnpm test`, `test:ci-detect-affected`,
+`test:step2`.
 
 ## 2026-07-19 — Notify resumable same-chat stream
 
