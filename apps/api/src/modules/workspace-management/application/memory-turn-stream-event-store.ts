@@ -27,6 +27,10 @@ export class MemoryTurnStreamEventStore implements TurnStreamEventStore {
 
   async registerTurn(input: { turnKey: string; userId: string }): Promise<void> {
     const existing = this.buffers.get(input.turnKey);
+    if (existing !== undefined && existing.userId !== input.userId) {
+      // Fail closed — never overwrite another tenant's buffer.
+      return;
+    }
     if (existing?.graceTimer !== null && existing?.graceTimer !== undefined) {
       clearTimeout(existing.graceTimer);
     }
@@ -90,7 +94,7 @@ export class MemoryTurnStreamEventStore implements TurnStreamEventStore {
     };
   }
 
-  async release(turnKey: string, options?: { shortGrace?: boolean }): Promise<void> {
+  async release(turnKey: string, _options?: { shortGrace?: boolean }): Promise<void> {
     const buffer = this.buffers.get(turnKey);
     if (buffer === undefined) {
       return;
@@ -99,24 +103,23 @@ export class MemoryTurnStreamEventStore implements TurnStreamEventStore {
       clearTimeout(buffer.graceTimer);
       buffer.graceTimer = null;
     }
-    if (options?.shortGrace === true || buffer.terminalPublished) {
-      buffer.graceTimer = setTimeout(() => {
-        this.buffers.delete(turnKey);
-        this.listeners.delete(turnKey);
-        this.appendQueues.delete(turnKey);
-      }, RELEASE_GRACE_MS);
-      if (typeof buffer.graceTimer.unref === "function") {
-        buffer.graceTimer.unref();
-      }
-      return;
+    // Always short grace — never hard-delete undrained events.
+    buffer.graceTimer = setTimeout(() => {
+      this.buffers.delete(turnKey);
+      this.listeners.delete(turnKey);
+      this.appendQueues.delete(turnKey);
+    }, RELEASE_GRACE_MS);
+    if (typeof buffer.graceTimer.unref === "function") {
+      buffer.graceTimer.unref();
     }
-    this.buffers.delete(turnKey);
-    this.listeners.delete(turnKey);
-    this.appendQueues.delete(turnKey);
   }
 
   async exists(turnKey: string): Promise<boolean> {
     return this.buffers.has(turnKey);
+  }
+
+  async touch(_turnKey: string): Promise<void> {
+    // Memory buffers have no TTL; no-op.
   }
 
   async destroy(): Promise<void> {
@@ -143,7 +146,8 @@ export class MemoryTurnStreamEventStore implements TurnStreamEventStore {
     const envelope: TurnStreamEnvelope = {
       seq: buffer.nextSeq,
       event: input.event,
-      payload: input.payload
+      payload: input.payload,
+      userId: input.userId
     };
     buffer.nextSeq += 1;
     buffer.events.push(envelope);

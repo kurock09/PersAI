@@ -27,7 +27,8 @@ catch-up plane was incomplete.
 
 1. **Durable turn stream bus (Redis)** on the same coordination URL family as
    Stop: `PERSAI_TURN_COORDINATION_REDIS_URL` with fallback to
-   `BROWSER_BRIDGE_REDIS_URL`. Keyed by `(assistantId, clientTurnId)`.
+   `BROWSER_BRIDGE_REDIS_URL`. Keyed by `(assistantId, userId, clientTurnId)`
+   (`${assistantId}:${userId}:${clientTurnId}`).
 2. **Owning path** (ordinary POST stream + web async continuation) appends
    every SSE-facing event to the bus and notifies subscribers. Local sinks
    remain for same-pod listeners.

@@ -1319,6 +1319,21 @@ export class AssistantController {
       }
     };
     const sendHeartbeat = (): void => {
+      // Soft-detach (clientClosed) must still refresh Redis TTL while the turn
+      // remains registered — only skip the SSE comment write.
+      if (
+        assistantIdForRegistry !== undefined &&
+        clientTurnIdForRegistry !== undefined &&
+        streamRegistryUserId !== undefined
+      ) {
+        void this.webChatTurnStreamRegistry
+          .touch({
+            assistantId: assistantIdForRegistry,
+            clientTurnId: clientTurnIdForRegistry,
+            userId: streamRegistryUserId
+          })
+          .catch(() => undefined);
+      }
       if (clientClosed) {
         return;
       }
@@ -1497,7 +1512,7 @@ export class AssistantController {
           controller: clientAbortController
         });
         if (streamRegistryUserId !== undefined) {
-          this.webChatTurnStreamRegistry.release({
+          await this.webChatTurnStreamRegistry.releaseAsync({
             assistantId: assistantIdForRegistry,
             clientTurnId: clientTurnIdForRegistry,
             userId: streamRegistryUserId

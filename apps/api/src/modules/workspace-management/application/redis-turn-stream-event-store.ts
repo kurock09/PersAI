@@ -28,7 +28,7 @@ if meta['userId'] ~= ARGV[1] then
   return false
 end
 local seq = redis.call('INCR', KEYS[3])
-local envelope = '{"seq":' .. seq .. ',"event":' .. ARGV[2] .. ',"payload":' .. ARGV[3] .. '}'
+local envelope = '{"seq":' .. seq .. ',"event":' .. ARGV[2] .. ',"payload":' .. ARGV[3] .. ',"userId":' .. ARGV[6] .. '}'
 redis.call('RPUSH', KEYS[2], envelope)
 local ttl = tonumber(ARGV[5])
 if ARGV[4] == '1' then
@@ -68,6 +68,13 @@ export class RedisTurnStreamEventStore implements TurnStreamEventStore {
     if (client === null) {
       return;
     }
+    const existing = await this.getMeta(input.turnKey);
+    if (existing !== null && existing.userId !== input.userId) {
+      this.logger.warn(
+        `[turn-stream-redis] registerTurn refuse overwrite turnKey=${input.turnKey} existingUserId=${existing.userId} requestedUserId=${input.userId}`
+      );
+      return;
+    }
     const eventsKey = this.eventsKey(input.turnKey);
     const metaKey = this.metaKey(input.turnKey);
     const seqKey = this.seqKey(input.turnKey);
@@ -100,7 +107,8 @@ export class RedisTurnStreamEventStore implements TurnStreamEventStore {
         JSON.stringify(input.event),
         JSON.stringify(input.payload),
         isTurnStreamTerminalEvent(input.event) ? "1" : "0",
-        String(BUFFER_TTL_SECONDS)
+        String(BUFFER_TTL_SECONDS),
+        JSON.stringify(input.userId)
       ]
     });
     if (result === false || result === null || typeof result !== "string") {
@@ -180,32 +188,37 @@ export class RedisTurnStreamEventStore implements TurnStreamEventStore {
     };
   }
 
-  async release(turnKey: string, options?: { shortGrace?: boolean }): Promise<void> {
+  async release(turnKey: string, _options?: { shortGrace?: boolean }): Promise<void> {
     const client = await this.client();
     if (client === null) {
       return;
     }
-    const meta = await this.getMeta(turnKey);
-    const shortGrace = options?.shortGrace === true || meta?.terminalPublished === true;
+    // Always short grace — never hard-DEL undrained events after a registered turn.
     const eventsKey = this.eventsKey(turnKey);
     const metaKey = this.metaKey(turnKey);
     const seqKey = this.seqKey(turnKey);
-    if (shortGrace) {
-      await client.expire(eventsKey, RELEASE_GRACE_SECONDS);
-      await client.expire(metaKey, RELEASE_GRACE_SECONDS);
-      await client.expire(seqKey, RELEASE_GRACE_SECONDS);
-      return;
-    }
-    await client.del([eventsKey, metaKey, seqKey]);
+    await client.expire(eventsKey, RELEASE_GRACE_SECONDS);
+    await client.expire(metaKey, RELEASE_GRACE_SECONDS);
+    await client.expire(seqKey, RELEASE_GRACE_SECONDS);
   }
 
   async exists(turnKey: string): Promise<boolean> {
     const client = await this.client();
     if (client === null) {
-      return false;
+      throw new Error("turn-stream redis unavailable");
     }
     const count = await client.exists(this.metaKey(turnKey));
     return count > 0;
+  }
+
+  async touch(turnKey: string): Promise<void> {
+    const client = await this.client();
+    if (client === null) {
+      return;
+    }
+    await client.expire(this.eventsKey(turnKey), BUFFER_TTL_SECONDS);
+    await client.expire(this.metaKey(turnKey), BUFFER_TTL_SECONDS);
+    await client.expire(this.seqKey(turnKey), BUFFER_TTL_SECONDS);
   }
 
   async destroy(): Promise<void> {
@@ -323,11 +336,15 @@ export class RedisTurnStreamEventStore implements TurnStreamEventStore {
     try {
       const parsed = JSON.parse(raw) as TurnStreamEnvelope;
       if (typeof parsed?.seq === "number" && typeof parsed?.event === "string") {
-        return {
+        const envelope: TurnStreamEnvelope = {
           seq: parsed.seq,
           event: parsed.event,
           payload: parsed.payload
         };
+        if (typeof parsed.userId === "string") {
+          envelope.userId = parsed.userId;
+        }
+        return envelope;
       }
       return null;
     } catch {

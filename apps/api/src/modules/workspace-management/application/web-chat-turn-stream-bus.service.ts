@@ -42,9 +42,27 @@ export class WebChatTurnStreamBusService implements OnModuleDestroy {
     clientTurnId: string;
     userId: string;
   }): Promise<void> {
-    const key = buildTurnStreamKey(input.assistantId, input.clientTurnId);
-    const existing = this.localTurns.get(key);
-    if (existing !== undefined) {
+    const key = buildTurnStreamKey(input.assistantId, input.userId, input.clientTurnId);
+    const existingLocal = this.localTurns.get(key);
+    if (existingLocal !== undefined && existingLocal.userId !== input.userId) {
+      this.logger.warn(
+        `[turn-stream-bus] registerTurn refuse local overwrite assistantId=${input.assistantId} clientTurnId=${input.clientTurnId} existingUserId=${existingLocal.userId} requestedUserId=${input.userId}`
+      );
+      return;
+    }
+    try {
+      const meta = await this.store.getMeta(key);
+      if (meta !== null && meta.userId !== input.userId) {
+        this.logger.warn(
+          `[turn-stream-bus] registerTurn refuse store overwrite assistantId=${input.assistantId} clientTurnId=${input.clientTurnId} existingUserId=${meta.userId} requestedUserId=${input.userId}`
+        );
+        return;
+      }
+    } catch (error) {
+      this.logger.warn(`[turn-stream-bus] registerTurn getMeta failed: ${String(error)}`);
+      return;
+    }
+    if (existingLocal !== undefined) {
       this.logger.warn(
         `[turn-stream-bus] reregister assistantId=${input.assistantId} clientTurnId=${input.clientTurnId} userId=${input.userId}`
       );
@@ -84,7 +102,7 @@ export class WebChatTurnStreamBusService implements OnModuleDestroy {
     event: string;
     payload: unknown;
   }): Promise<void> {
-    const key = buildTurnStreamKey(input.assistantId, input.clientTurnId);
+    const key = buildTurnStreamKey(input.assistantId, input.userId, input.clientTurnId);
     return this.enqueuePublish(key, () => this.publishUnlocked(input, key));
   }
 
@@ -95,7 +113,7 @@ export class WebChatTurnStreamBusService implements OnModuleDestroy {
     onEvent: (event: string, payload: unknown) => void;
     fromSeq?: number;
   }): Promise<(() => void) | null> {
-    const key = buildTurnStreamKey(input.assistantId, input.clientTurnId);
+    const key = buildTurnStreamKey(input.assistantId, input.userId, input.clientTurnId);
     const local = this.localTurns.get(key);
     if (local !== undefined && local.userId !== input.userId) {
       return null;
@@ -124,41 +142,61 @@ export class WebChatTurnStreamBusService implements OnModuleDestroy {
     });
   }
 
+  /**
+   * Drain the per-turn publish queue (including terminal), then grace-release
+   * the store buffer. Prefer awaiting this from controller/continuation finally.
+   */
   async releaseAsync(input: {
     assistantId: string;
     clientTurnId: string;
     userId: string;
   }): Promise<void> {
-    const key = buildTurnStreamKey(input.assistantId, input.clientTurnId);
-    const local = this.localTurns.get(key);
-    let terminalPublished = false;
-    if (local !== undefined) {
-      if (local.userId !== input.userId) {
-        return;
-      }
-      terminalPublished = local.terminalPublished;
-      this.localTurns.delete(key);
-      this.publishQueues.delete(key);
-    } else {
-      const meta = await this.store.getMeta(key);
-      if (meta === null || meta.userId !== input.userId) {
-        return;
-      }
-      terminalPublished = meta.terminalPublished;
-    }
-    await this.store.release(key, { shortGrace: terminalPublished });
+    const key = buildTurnStreamKey(input.assistantId, input.userId, input.clientTurnId);
+    await this.enqueuePublish(key, () => this.releaseUnlocked(input, key));
   }
 
-  async hasActiveStream(assistantId: string, clientTurnId: string): Promise<boolean> {
-    const key = buildTurnStreamKey(assistantId, clientTurnId);
+  async touch(input: { assistantId: string; clientTurnId: string; userId: string }): Promise<void> {
+    const key = buildTurnStreamKey(input.assistantId, input.userId, input.clientTurnId);
+    if (typeof this.store.touch !== "function") {
+      return;
+    }
+    try {
+      await this.store.touch(key);
+    } catch (error) {
+      this.logger.warn(`[turn-stream-bus] touch failed: ${String(error)}`);
+    }
+  }
+
+  /**
+   * True when a local registration or durable buffer exists.
+   * On store probe failure (e.g. Redis unreachable), returns true so orphan
+   * reconcile does not claim the turn inactive.
+   */
+  async hasActiveStream(
+    assistantId: string,
+    userId: string,
+    clientTurnId: string
+  ): Promise<boolean> {
+    const key = buildTurnStreamKey(assistantId, userId, clientTurnId);
     if (this.localTurns.has(key)) {
       return true;
     }
-    return this.store.exists(key);
+    try {
+      return await this.store.exists(key);
+    } catch (error) {
+      this.logger.warn(
+        `[turn-stream-bus] hasActiveStream store probe failed (treat active): ${String(error)}`
+      );
+      return true;
+    }
   }
 
-  hasLocalRegistrationForTesting(assistantId: string, clientTurnId: string): boolean {
-    return this.localTurns.has(buildTurnStreamKey(assistantId, clientTurnId));
+  hasLocalRegistrationForTesting(
+    assistantId: string,
+    userId: string,
+    clientTurnId: string
+  ): boolean {
+    return this.localTurns.has(buildTurnStreamKey(assistantId, userId, clientTurnId));
   }
 
   async onModuleDestroy(): Promise<void> {
@@ -167,6 +205,36 @@ export class WebChatTurnStreamBusService implements OnModuleDestroy {
     if (typeof this.store.destroy === "function") {
       await this.store.destroy();
     }
+  }
+
+  private async releaseUnlocked(
+    input: {
+      assistantId: string;
+      clientTurnId: string;
+      userId: string;
+    },
+    key: string
+  ): Promise<void> {
+    const local = this.localTurns.get(key);
+    if (local !== undefined) {
+      if (local.userId !== input.userId) {
+        return;
+      }
+      this.localTurns.delete(key);
+    } else {
+      try {
+        const meta = await this.store.getMeta(key);
+        if (meta === null || meta.userId !== input.userId) {
+          return;
+        }
+      } catch (error) {
+        this.logger.warn(`[turn-stream-bus] release getMeta failed: ${String(error)}`);
+        return;
+      }
+    }
+    // Always shortGrace after a registered turn — never wipe undrained events.
+    await this.store.release(key, { shortGrace: true });
+    this.publishQueues.delete(key);
   }
 
   private async publishUnlocked(
@@ -187,16 +255,27 @@ export class WebChatTurnStreamBusService implements OnModuleDestroy {
       local.terminalPublished = true;
     }
 
+    const appendInput = {
+      turnKey: key,
+      userId: input.userId,
+      event: input.event,
+      payload: input.payload
+    };
     let envelope: TurnStreamEnvelope | null = null;
     try {
-      envelope = await this.store.append({
-        turnKey: key,
-        userId: input.userId,
-        event: input.event,
-        payload: input.payload
-      });
+      envelope = await this.store.append(appendInput);
+      if (envelope === null) {
+        envelope = await this.store.append(appendInput);
+      }
     } catch (error) {
-      this.logger.warn(`[turn-stream-bus] store append failed: ${String(error)}`);
+      this.logger.error(`[turn-stream-bus] store append threw: ${String(error)}`);
+    }
+    if (envelope === null) {
+      // Durable plane missed — do not pretend Redis success. Local fanout below
+      // still serves same-pod sinks; localTurns keeps hasActiveStream true.
+      this.logger.error(
+        `[turn-stream-bus] durable append failed after retry assistantId=${input.assistantId} clientTurnId=${input.clientTurnId} event=${input.event}`
+      );
     }
 
     // Same-pod sinks still receive events when the durable store is unavailable.
@@ -205,7 +284,8 @@ export class WebChatTurnStreamBusService implements OnModuleDestroy {
         envelope = {
           seq: local.nextSeq,
           event: input.event,
-          payload: input.payload
+          payload: input.payload,
+          userId: input.userId
         };
         local.nextSeq += 1;
       } else {
@@ -230,6 +310,10 @@ export class WebChatTurnStreamBusService implements OnModuleDestroy {
     return next;
   }
 
+  private envelopeAllowed(envelope: TurnStreamEnvelope, userId: string): boolean {
+    return envelope.userId === undefined || envelope.userId === userId;
+  }
+
   private async attachLocal(
     input: {
       assistantId: string;
@@ -246,6 +330,9 @@ export class WebChatTurnStreamBusService implements OnModuleDestroy {
     let replaying = true;
 
     const deliver = (envelope: TurnStreamEnvelope): void => {
+      if (!this.envelopeAllowed(envelope, input.userId)) {
+        return;
+      }
       if (envelope.seq <= lastSeq) {
         return;
       }
@@ -296,6 +383,9 @@ export class WebChatTurnStreamBusService implements OnModuleDestroy {
     let replaying = true;
 
     const deliver = (envelope: TurnStreamEnvelope): void => {
+      if (!this.envelopeAllowed(envelope, input.userId)) {
+        return;
+      }
       if (envelope.seq <= lastSeq) {
         return;
       }

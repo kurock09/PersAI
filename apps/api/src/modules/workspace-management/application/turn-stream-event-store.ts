@@ -9,6 +9,8 @@ export type TurnStreamEnvelope = {
   seq: number;
   event: string;
   payload: unknown;
+  /** Defense-in-depth on notify; attach already fences by meta.userId. */
+  userId?: string;
 };
 
 export type TurnStreamMeta = {
@@ -32,16 +34,27 @@ export interface TurnStreamEventStore {
   getMeta(turnKey: string): Promise<TurnStreamMeta | null>;
   subscribe(turnKey: string, onEvent: (envelope: TurnStreamEnvelope) => void): Promise<() => void>;
   /**
-   * Drop or TTL-bound the buffer. When `shortGrace` is true (terminal already
-   * published), keep a short replay window then expire.
+   * Bound the buffer with a short replay grace window. Never hard-deletes a
+   * registered turn buffer (pending publish tails must remain readable).
    */
   release(turnKey: string, options?: { shortGrace?: boolean }): Promise<void>;
+  /**
+   * True when meta exists. Throws when the store cannot determine existence
+   * (e.g. Redis configured but unreachable) so callers can fail closed.
+   */
   exists(turnKey: string): Promise<boolean>;
+  /** Refresh buffer TTL (heartbeat / activity). Optional on memory store. */
+  touch?(turnKey: string): Promise<void>;
   destroy?(): Promise<void>;
 }
 
-export function buildTurnStreamKey(assistantId: string, clientTurnId: string): string {
-  return `${assistantId}:${clientTurnId}`;
+/** Tenant-fenced stream key: matches DB uniqueness on assistant + user + turn. */
+export function buildTurnStreamKey(
+  assistantId: string,
+  userId: string,
+  clientTurnId: string
+): string {
+  return `${assistantId}:${userId}:${clientTurnId}`;
 }
 
 export function isTurnStreamTerminalEvent(event: string): boolean {

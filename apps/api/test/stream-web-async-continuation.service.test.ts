@@ -51,6 +51,41 @@ function baseCallbacks(callbackCalls: string[]) {
   };
 }
 
+function streamRegistryMock(options?: {
+  onRegister?: () => void;
+  onRelease?: () => void;
+  onPublish?: (input: { event: string; payload?: unknown }) => void;
+}) {
+  return {
+    register: () => {
+      options?.onRegister?.();
+    },
+    releaseAsync: async () => {
+      options?.onRelease?.();
+    },
+    touch: async () => undefined,
+    publish: (input: { event: string; payload?: unknown }) => {
+      options?.onPublish?.(input);
+    }
+  } as never;
+}
+
+function stopDispatchMock(options?: {
+  onRegister?: () => void;
+  onRelease?: () => void;
+  wasUserStopped?: () => boolean;
+}) {
+  return {
+    register: () => {
+      options?.onRegister?.();
+    },
+    release: () => {
+      options?.onRelease?.();
+    },
+    wasUserStopped: () => options?.wasUserStopped?.() ?? false
+  } as never;
+}
+
 describe("StreamWebAsyncContinuationService", () => {
   test("streams runtime events into the web turn registry and completes the attempt", async () => {
     const published: Array<{ event: string; payload: unknown }> = [];
@@ -123,26 +158,25 @@ describe("StreamWebAsyncContinuationService", () => {
           attemptCalls.push("resetToAccepted");
         }
       } as never,
-      {
-        register: () => {
+      streamRegistryMock({
+        onRegister: () => {
           registered = true;
         },
-        release: () => {
+        onRelease: () => {
           released = true;
         },
-        publish: (input: { event: string; payload: unknown }) => {
+        onPublish: (input) => {
           published.push({ event: input.event, payload: input.payload });
         }
-      } as never,
-      {
-        register: () => {
+      }),
+      stopDispatchMock({
+        onRegister: () => {
           stopRegistered = true;
         },
-        release: () => {
+        onRelease: () => {
           stopReleased = true;
-        },
-        wasUserStopped: () => false
-      } as never
+        }
+      })
     );
 
     await service.processWebClaim({
@@ -198,18 +232,12 @@ describe("StreamWebAsyncContinuationService", () => {
           attemptCalls.push("resetToAccepted");
         }
       } as never,
-      {
-        register: () => undefined,
-        release: () => undefined,
-        publish: (input: { event: string }) => {
+      streamRegistryMock({
+        onPublish: (input) => {
           published.push(input.event);
         }
-      } as never,
-      {
-        register: () => undefined,
-        release: () => undefined,
-        wasUserStopped: () => false
-      } as never
+      }),
+      stopDispatchMock()
     );
 
     await service.processWebClaim({
@@ -255,18 +283,12 @@ describe("StreamWebAsyncContinuationService", () => {
         touchRunningAttempt: async () => undefined,
         resetToAccepted: async () => undefined
       } as never,
-      {
-        register: () => undefined,
-        release: () => undefined,
-        publish: (input: { event: string }) => {
+      streamRegistryMock({
+        onPublish: (input) => {
           published.push(input.event);
         }
-      } as never,
-      {
-        register: () => undefined,
-        release: () => undefined,
-        wasUserStopped: () => true
-      } as never
+      }),
+      stopDispatchMock({ wasUserStopped: () => true })
     );
 
     await service.processWebClaim({
@@ -317,18 +339,12 @@ describe("StreamWebAsyncContinuationService", () => {
         touchRunningAttempt: async () => undefined,
         resetToAccepted: async () => undefined
       } as never,
-      {
-        register: () => undefined,
-        release: () => undefined,
-        publish: (input: { event: string }) => {
+      streamRegistryMock({
+        onPublish: (input) => {
           published.push(input.event);
         }
-      } as never,
-      {
-        register: () => undefined,
-        release: () => undefined,
-        wasUserStopped: () => false
-      } as never
+      }),
+      stopDispatchMock()
     );
 
     await assert.rejects(
@@ -376,18 +392,12 @@ describe("StreamWebAsyncContinuationService", () => {
         touchRunningAttempt: async () => undefined,
         resetToAccepted: async () => undefined
       } as never,
-      {
-        register: () => undefined,
-        release: () => undefined,
-        publish: (input: { event: string }) => {
+      streamRegistryMock({
+        onPublish: (input) => {
           published.push(input.event);
         }
-      } as never,
-      {
-        register: () => undefined,
-        release: () => undefined,
-        wasUserStopped: () => false
-      } as never
+      }),
+      stopDispatchMock()
     );
 
     await service.processWebClaim({
@@ -434,18 +444,12 @@ describe("StreamWebAsyncContinuationService", () => {
         touchRunningAttempt: async () => undefined,
         resetToAccepted: async () => undefined
       } as never,
-      {
-        register: () => undefined,
-        release: () => undefined,
-        publish: (input: { event: string }) => {
+      streamRegistryMock({
+        onPublish: (input) => {
           published.push(input.event);
         }
-      } as never,
-      {
-        register: () => undefined,
-        release: () => undefined,
-        wasUserStopped: () => false
-      } as never
+      }),
+      stopDispatchMock()
     );
 
     await service.processWebClaim({

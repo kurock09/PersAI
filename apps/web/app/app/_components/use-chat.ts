@@ -962,6 +962,57 @@ function stripEmptyActiveAssistantPlaceholders(
     return true;
   });
 }
+
+/**
+ * ADR-158 P0 — after a terminal finalize, demote contentful live assistants
+ * out of streaming/reconciling (empty placeholders are stripped separately).
+ */
+function demoteLiveAssistantLifecycleStatuses(
+  messages: ChatMessage[],
+  terminalKind: "committed" | "partial",
+  liveTurnIds?: ReadonlySet<string>
+): ChatMessage[] {
+  return messages.map((message) => {
+    if (message.role !== "assistant" || !isActiveAssistantLifecycleStatus(message.status)) {
+      return message;
+    }
+    if (liveTurnIds !== undefined && !liveTurnIds.has(message.id)) {
+      return message;
+    }
+    return {
+      ...message,
+      status: terminalKind,
+      streamingTextActive: false
+    };
+  });
+}
+
+function finalizeActiveTurnMessages(
+  messages: ChatMessage[],
+  terminalKind: "committed" | "partial" = "committed",
+  liveTurnIds?: ReadonlySet<string>
+): ChatMessage[] {
+  const demoted = demoteLiveAssistantLifecycleStatuses(
+    stripEmptyActiveAssistantPlaceholders(messages, "all"),
+    terminalKind,
+    liveTurnIds
+  );
+  // Once a server-committed assistant exists for the turn, drop local-scoped
+  // bubbles (including contentful ones demoted from streaming) so we do not
+  // keep a duplicate local-assistant-* beside assistant-msg-*.
+  const hasServerAssistant = demoted.some(
+    (message) =>
+      message.role === "assistant" &&
+      !isLocalScopedAssistantId(message.id) &&
+      (message.status === "committed" || message.status === "partial")
+  );
+  if (!hasServerAssistant) {
+    return demoted;
+  }
+  return demoted.filter(
+    (message) => !(message.role === "assistant" && isLocalScopedAssistantId(message.id))
+  );
+}
 function isPassiveStreamDisconnect(error: unknown): boolean {
   if (error instanceof Error) {
     return (
@@ -1353,6 +1404,8 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
     markSandboxActive,
     markStreaming
   } = useStreamingThreadsRegistry();
+  const activeThreadsRef = useRef(activeThreads);
+  activeThreadsRef.current = activeThreads;
   const isStreaming = activeThreads.has(assistantScopedThreadKey);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [hasOlderMessages, setHasOlderMessages] = useState(false);
@@ -1753,36 +1806,66 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
     }
   }, []);
   const finalizeReconciledDetachedTurn = useCallback(
-    (targetThreadKey: string) => {
+    (
+      targetThreadKey: string,
+      options?: {
+        terminalKind?: "committed" | "partial";
+        /** When set, only finalize if this clientTurnId still owns the thread snapshot. */
+        ownerClientTurnId?: string;
+      }
+    ) => {
+      const snapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
+      if (
+        options?.ownerClientTurnId !== undefined &&
+        (snapshot === undefined || snapshot.clientTurnId !== options.ownerClientTurnId)
+      ) {
+        return;
+      }
+      const terminalKind = options?.terminalKind ?? "committed";
       clearSoftDetachReconcileTimer(targetThreadKey);
       markStreaming(targetThreadKey, false);
-      const snapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
+      const liveTurnIds =
+        snapshot === undefined
+          ? undefined
+          : new Set<string>(
+              [snapshot.liveUserMessageId, snapshot.liveAssistantMessageId].filter(
+                (value): value is string => typeof value === "string"
+              )
+            );
       if (snapshot !== undefined) {
         const cleanedSnapshot: ActiveTurnSnapshot = {
           ...snapshot,
-          messages: stripEmptyActiveAssistantPlaceholders(snapshot.messages, "all"),
+          messages: finalizeActiveTurnMessages(snapshot.messages, terminalKind, liveTurnIds),
           liveActivitiesByMessageId: {}
         };
         cacheThreadHistorySnapshot(targetThreadKey, cleanedSnapshot);
         clearStoredActiveTurnClientTurnId(targetThreadKey, snapshot.clientTurnId);
         softDetachedClientTurnIdsRef.current.delete(snapshot.clientTurnId);
+        continuationReattachStartedRef.current.delete(snapshot.clientTurnId);
       }
       if (currentThreadKeyRef.current === targetThreadKey) {
         setLiveActivitiesByMessageId({});
-        setMessages((prev) => stripEmptyActiveAssistantPlaceholders(prev, "all"));
+        setMessages((prev) => finalizeActiveTurnMessages(prev, terminalKind, liveTurnIds));
       } else if (snapshot !== undefined) {
         const cached = cachedThreadHistorySnapshotsRef.current.get(targetThreadKey);
         if (cached !== undefined) {
           cachedThreadHistorySnapshotsRef.current.set(targetThreadKey, {
             ...cached,
+            messages: finalizeActiveTurnMessages(cached.messages, terminalKind, liveTurnIds),
             liveActivitiesByMessageId: {}
           });
         }
       }
       activeTurnSnapshotsRef.current.delete(targetThreadKey);
       const controllerEntry = abortControllersByThreadRef.current.get(targetThreadKey);
-      controllerEntry?.controller.abort();
-      abortControllersByThreadRef.current.delete(targetThreadKey);
+      if (
+        controllerEntry !== undefined &&
+        (options?.ownerClientTurnId === undefined ||
+          controllerEntry.clientTurnId === options.ownerClientTurnId)
+      ) {
+        controllerEntry.controller.abort();
+        abortControllersByThreadRef.current.delete(targetThreadKey);
+      }
     },
     [cacheThreadHistorySnapshot, clearSoftDetachReconcileTimer, markStreaming]
   );
@@ -1925,8 +2008,9 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
         ...liveSnapshot,
         messages: restoredMessages
       };
-      activeTurnSnapshotsRef.current.set(threadKey, nextSnapshot);
-      auditActiveTurnSnapshotMessages("swap-back-restore", threadKey, nextSnapshot);
+      // Always key with the same scoped key used by live send/reattach paths.
+      activeTurnSnapshotsRef.current.set(assistantScopedThreadKey, nextSnapshot);
+      auditActiveTurnSnapshotMessages("swap-back-restore", assistantScopedThreadKey, nextSnapshot);
     }
     setActivities([]);
     setLiveActivitiesByMessageId(liveSnapshot?.liveActivitiesByMessageId ?? {});
@@ -2274,22 +2358,50 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                   missingToAbsorb = [];
                 }
               }
+            } else if (activeSnapshot === undefined && !shouldReplaceActiveTurn) {
+              // Snapshot may already be torn down (async-cont turn_status demote)
+              // while a demoted local-assistant-* is still visible. Still absorb
+              // newly landed server assistants so notify completion can settle.
+              const hasVisibleLocalAssistant = prev.some(
+                (message) => message.role === "assistant" && isLocalScopedAssistantId(message.id)
+              );
+              if (hasVisibleLocalAssistant) {
+                missingToAbsorb = missing.filter(
+                  (message) => message.role === "assistant" && !isLocalScopedAssistantId(message.id)
+                );
+              }
             }
             let merged = sortChatMessagesChronologically([...next, ...missingToAbsorb]);
+            const absorbedServerAssistant = missingToAbsorb.some(
+              (message) => message.role === "assistant" && !isLocalScopedAssistantId(message.id)
+            );
             if (
-              isAsyncContinuation &&
-              activeSnapshot !== undefined &&
-              missingToAbsorb.some((message) => message.role === "assistant")
+              absorbedServerAssistant &&
+              (isAsyncContinuation ||
+                (activeSnapshot === undefined &&
+                  prev.some(
+                    (message) =>
+                      message.role === "assistant" && isLocalScopedAssistantId(message.id)
+                  )))
             ) {
-              // Committed continuation bubble landed — treat as reconcile success
-              // and drop the optimistic live placeholder / empty streaming slot.
+              // Committed continuation bubble landed — drop every local-scoped
+              // assistant (streaming OR already demoted to committed). Otherwise
+              // turn_status teardown + history absorb leaves a full duplicate
+              // until refresh.
               reconciledOptimisticTurn = true;
-              const liveAssistantId = activeSnapshot.liveAssistantMessageId;
+              const liveAssistantId = activeSnapshot?.liveAssistantMessageId;
               merged = stripEmptyActiveAssistantPlaceholders(
-                merged.filter(
-                  (message) =>
-                    message.id !== liveAssistantId || !isLocalScopedAssistantId(liveAssistantId)
-                ),
+                merged.filter((message) => {
+                  if (!(message.role === "assistant" && isLocalScopedAssistantId(message.id))) {
+                    return true;
+                  }
+                  if (liveAssistantId !== undefined && message.id === liveAssistantId) {
+                    return false;
+                  }
+                  // No live snapshot: drop all demoted local assistants once the
+                  // server row is absorbed.
+                  return activeSnapshot !== undefined && message.id !== liveAssistantId;
+                }),
                 "all"
               );
             }
@@ -2352,7 +2464,9 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
             activeSnapshot !== undefined &&
             isAsyncContinuationClientTurnId(activeSnapshot.clientTurnId)
           ) {
-            finalizeReconciledDetachedTurn(targetThreadKey);
+            finalizeReconciledDetachedTurn(targetThreadKey, {
+              ownerClientTurnId: activeSnapshot.clientTurnId
+            });
           }
           return reconciledOptimisticTurn;
         } catch {
@@ -2657,13 +2771,96 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
         status.status === "failed" ||
         status.status === "interrupted"
       ) {
+        const terminalKind: "committed" | "partial" =
+          status.status === "completed" ? "committed" : "partial";
+        // Async-cont often completes with userMessage=null and sometimes without
+        // assistantMessage yet. If we demote local-assistant-* to committed and
+        // delete the snapshot here, the follow-up history refresh appends the
+        // server twin beside it → full duplicate until F5. Defer teardown to
+        // finalizeAfterTerminal (history absorb drops the local slot).
+        if (isAsyncContinuation && assistantMessage === null) {
+          markStreaming(targetThreadKey, false);
+          setLiveActivitiesByMessageId((prev) =>
+            currentThreadKeyRef.current === targetThreadKey ? {} : prev
+          );
+          if (status.status === "failed" && status.error?.message) {
+            setIssue(
+              toWebChatUxIssue({
+                code: status.error.code ?? undefined,
+                message: status.error.message
+              })
+            );
+          }
+          return "terminal_status";
+        }
+        const liveTurnIds = new Set<string>(
+          [
+            existingSnapshot?.liveUserMessageId ?? null,
+            existingSnapshot?.liveAssistantMessageId ?? null
+          ].filter((value): value is string => typeof value === "string")
+        );
+        // Async-cont terminals often have userMessage=null. Still demote every
+        // live streaming|reconciling assistant for this turn before teardown,
+        // and merge a status-projected assistantMessage when present.
+        const visibleBase = currentThreadKeyRef.current === targetThreadKey ? messages : [];
+        const baseMessages = mergeChatMessagesById(
+          cachedSnapshot?.messages ?? [],
+          existingSnapshot?.messages ?? [],
+          visibleBase
+        );
+        const committedTail = [
+          ...(userMessage !== null ? [userMessage] : []),
+          ...(assistantMessage !== null ? [assistantMessage] : []),
+          ...(followUpAssistantMessage ? [followUpAssistantMessage] : [])
+        ];
+        const committedIds = new Set(committedTail.map((message) => message.id));
+        const withoutLivePlaceholders = baseMessages.filter(
+          (message) =>
+            !isOptimisticLocalMessage(message) &&
+            !isTransientActiveAssistantMessage(message) &&
+            !(committedTail.length > 0 && liveTurnIds.has(message.id)) &&
+            !committedIds.has(message.id)
+        );
+        const mergedBeforeDemote =
+          committedTail.length > 0 ? [...withoutLivePlaceholders, ...committedTail] : baseMessages;
+        // Demote live-turn streaming|reconciling (and async-cont local assistants)
+        // even when status omitted userMessage (assistantMessage present above).
+        const demoteIds = new Set<string>([
+          ...liveTurnIds,
+          ...(existingSnapshot?.liveAssistantMessageId
+            ? [existingSnapshot.liveAssistantMessageId]
+            : [])
+        ]);
+        const demotedMessages = finalizeActiveTurnMessages(
+          mergedBeforeDemote,
+          terminalKind,
+          demoteIds.size > 0 ? demoteIds : undefined
+        );
         clearStoredActiveTurnClientTurnId(targetThreadKey, clientTurnId);
         setLiveActivitiesByMessageId((prev) =>
           currentThreadKeyRef.current === targetThreadKey ? {} : prev
         );
         const controllerEntry = abortControllersByThreadRef.current.get(targetThreadKey);
-        controllerEntry?.controller.abort();
-        abortControllersByThreadRef.current.delete(targetThreadKey);
+        if (controllerEntry === undefined || controllerEntry.clientTurnId === clientTurnId) {
+          controllerEntry?.controller.abort();
+          abortControllersByThreadRef.current.delete(targetThreadKey);
+        }
+        cacheThreadHistorySnapshot(targetThreadKey, {
+          clientTurnId,
+          messages: demotedMessages,
+          liveUserMessageId: isAsyncContinuation
+            ? null
+            : (userMessage?.id ?? existingSnapshot?.liveUserMessageId ?? null),
+          liveAssistantMessageId:
+            assistantMessage?.id ??
+            existingSnapshot?.liveAssistantMessageId ??
+            `local-assistant-${clientTurnId}`,
+          liveActivitiesByMessageId: {},
+          shadowRoutingLabelsByMessageId: existingSnapshot?.shadowRoutingLabelsByMessageId ?? {},
+          chatId: status.chat?.id ?? existingSnapshot?.chatId ?? cachedSnapshot?.chatId ?? null,
+          compactionRunning: false
+        });
+        applyThreadMessages(targetThreadKey, () => demotedMessages);
         activeTurnSnapshotsRef.current.delete(targetThreadKey);
         markStreaming(targetThreadKey, false);
         if (status.status === "failed" && status.error?.message) {
@@ -2673,61 +2870,6 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
               message: status.error.message
             })
           );
-        }
-        if (status.status === "completed" && userMessage !== null && assistantMessage !== null) {
-          const committed = [
-            userMessage,
-            assistantMessage,
-            ...(followUpAssistantMessage ? [followUpAssistantMessage] : [])
-          ];
-          const baseMessages =
-            existingSnapshot?.messages ??
-            cachedSnapshot?.messages ??
-            (currentThreadKeyRef.current === targetThreadKey ? messages : []);
-          const committedIds = new Set(committed.map((message) => message.id));
-          // Only the LIVE turn's stale ids should be removed here. Using the
-          // entire `existingSnapshot.messages` id set would also strip older
-          // committed messages that were merged into the snapshot's visible
-          // state during a prior loadHistory.
-          const liveTurnIds = new Set<string>(
-            [
-              existingSnapshot?.liveUserMessageId ?? null,
-              existingSnapshot?.liveAssistantMessageId ?? null
-            ].filter((value): value is string => typeof value === "string")
-          );
-          const committedMessages = [
-            ...baseMessages.filter(
-              (message) =>
-                !isOptimisticLocalMessage(message) &&
-                !isTransientActiveAssistantMessage(message) &&
-                !liveTurnIds.has(message.id) &&
-                !committedIds.has(message.id)
-            ),
-            ...committed
-          ];
-          cacheThreadHistorySnapshot(targetThreadKey, {
-            clientTurnId,
-            messages: committedMessages,
-            liveUserMessageId: userMessage?.id ?? existingSnapshot?.liveUserMessageId ?? null,
-            liveAssistantMessageId:
-              assistantMessage?.id ??
-              existingSnapshot?.liveAssistantMessageId ??
-              `local-assistant-${clientTurnId}`,
-            liveActivitiesByMessageId: {},
-            shadowRoutingLabelsByMessageId: existingSnapshot?.shadowRoutingLabelsByMessageId ?? {},
-            chatId: status.chat?.id ?? existingSnapshot?.chatId ?? cachedSnapshot?.chatId ?? null,
-            compactionRunning: false
-          });
-          applyThreadMessages(targetThreadKey, (prev) => {
-            const withoutActiveTurn = prev.filter(
-              (message) =>
-                !isOptimisticLocalMessage(message) &&
-                !isTransientActiveAssistantMessage(message) &&
-                !liveTurnIds.has(message.id) &&
-                !committedIds.has(message.id)
-            );
-            return [...withoutActiveTurn, ...committed];
-          });
         }
         return "terminal_status";
       }
@@ -2761,27 +2903,73 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
       if (existingReattach !== undefined) {
         return existingReattach;
       }
+      // One stream owner per thread: notify continuation waits while an ordinary
+      // send/stream still owns the thread (history poll still lands the final msg).
+      if (isAsyncContinuationClientTurnId(clientTurnId)) {
+        const existingSnapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
+        const existingController = abortControllersByThreadRef.current.get(targetThreadKey);
+        const ordinaryOwnsThread =
+          (existingSnapshot !== undefined &&
+            !isAsyncContinuationClientTurnId(existingSnapshot.clientTurnId) &&
+            (activeThreadsRef.current.has(targetThreadKey) ||
+              softDetachedClientTurnIdsRef.current.has(existingSnapshot.clientTurnId) ||
+              existingController?.clientTurnId === existingSnapshot.clientTurnId)) ||
+          (existingController !== undefined &&
+            !isAsyncContinuationClientTurnId(existingController.clientTurnId) &&
+            existingController.clientTurnId !== clientTurnId);
+        if (ordinaryOwnsThread) {
+          return "unknown";
+        }
+      }
       const reattachPromise = (async (): Promise<
         "running" | "terminal" | "terminal_status" | "unknown"
       > => {
         const token = await getToken({ skipCache: true });
         if (!token) return "unknown";
+        // Re-check ownership after the await — user send may have claimed the thread.
+        if (isAsyncContinuationClientTurnId(clientTurnId)) {
+          const existingSnapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
+          const existingController = abortControllersByThreadRef.current.get(targetThreadKey);
+          if (
+            (existingSnapshot !== undefined &&
+              !isAsyncContinuationClientTurnId(existingSnapshot.clientTurnId) &&
+              (activeThreadsRef.current.has(targetThreadKey) ||
+                softDetachedClientTurnIdsRef.current.has(existingSnapshot.clientTurnId))) ||
+            (existingController !== undefined &&
+              !isAsyncContinuationClientTurnId(existingController.clientTurnId) &&
+              existingController.clientTurnId !== clientTurnId)
+          ) {
+            return "unknown";
+          }
+        }
         const controller = new AbortController();
         // So terminal finalize / sticky job-leave can abort this reattach stream.
-        // If a soft-detached primary controller is still registered, abort it
-        // first so observers of the original send signal see `aborted`.
+        // Only abort a prior controller that this reattach is allowed to replace
+        // (same turn / soft-detached / prior continuation) — never an unrelated
+        // ordinary send that still owns the thread.
         const previousControllerEntry = abortControllersByThreadRef.current.get(targetThreadKey);
         if (
           previousControllerEntry !== undefined &&
           previousControllerEntry.controller !== controller
         ) {
+          const mayReplacePrevious =
+            previousControllerEntry.clientTurnId === clientTurnId ||
+            softDetachedClientTurnIdsRef.current.has(previousControllerEntry.clientTurnId) ||
+            (isAsyncContinuationClientTurnId(previousControllerEntry.clientTurnId) &&
+              isAsyncContinuationClientTurnId(clientTurnId));
+          if (!mayReplacePrevious) {
+            return "unknown";
+          }
           previousControllerEntry.controller.abort();
         }
         abortControllersByThreadRef.current.set(targetThreadKey, {
           controller,
           clientTurnId
         });
-        let latestResult: "running" | "terminal" | "terminal_status" | "unknown" = "unknown";
+        // Box avoids post-await control-flow narrowing of a let closed over by handlers.
+        const reattachState: {
+          latestResult: "running" | "terminal" | "terminal_status" | "unknown";
+        } = { latestResult: "unknown" };
         // ADR-158: headers alone do not imply a live token bus; onReattached.live does.
         let liveTokenStream = false;
         const resolveLiveAssistantId = (): string | null =>
@@ -2807,14 +2995,19 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
             })
           );
         };
-        const finalizeAfterTerminal = async (): Promise<void> => {
+        const finalizeAfterTerminal = async (
+          terminalKind: "committed" | "partial" = "committed"
+        ): Promise<void> => {
           const targetChatId = resolveKnownChatIdForThread(targetThreadKey);
           if (targetChatId) {
             await refreshLatestHistory(targetChatId, { targetThreadKey });
           }
           void refreshChatPlan();
-          finalizeReconciledDetachedTurn(targetThreadKey);
-          latestResult = "terminal";
+          finalizeReconciledDetachedTurn(targetThreadKey, {
+            terminalKind,
+            ownerClientTurnId: clientTurnId
+          });
+          reattachState.latestResult = "terminal";
         };
         try {
           await reattachAssistantWebChatTurnStream(
@@ -2827,29 +3020,49 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                 markStreaming(targetThreadKey, true);
               },
               onTurnStatus: ({ turn }) => {
-                latestResult = applyTurnStatusState(targetThreadKey, clientTurnId, turn, {
-                  liveTokenStream
-                });
-                if (latestResult === "terminal" || latestResult === "terminal_status") {
+                reattachState.latestResult = applyTurnStatusState(
+                  targetThreadKey,
+                  clientTurnId,
+                  turn,
+                  {
+                    liveTokenStream
+                  }
+                );
+                if (
+                  reattachState.latestResult === "terminal" ||
+                  reattachState.latestResult === "terminal_status"
+                ) {
                   // Status may already have committed the turn pair. Refresh only
                   // when we still need history absorb (async-cont has no user row).
                   if (isAsyncContinuationClientTurnId(clientTurnId)) {
-                    void finalizeAfterTerminal();
+                    void finalizeAfterTerminal("committed");
                   } else {
-                    finalizeReconciledDetachedTurn(targetThreadKey);
+                    finalizeReconciledDetachedTurn(targetThreadKey, {
+                      ownerClientTurnId: clientTurnId
+                    });
                   }
                 }
               },
               onReattached: ({ turn, live }) => {
                 liveTokenStream = live;
-                latestResult = applyTurnStatusState(targetThreadKey, clientTurnId, turn, {
-                  liveTokenStream: live
-                });
-                if (latestResult === "terminal" || latestResult === "terminal_status") {
+                reattachState.latestResult = applyTurnStatusState(
+                  targetThreadKey,
+                  clientTurnId,
+                  turn,
+                  {
+                    liveTokenStream: live
+                  }
+                );
+                if (
+                  reattachState.latestResult === "terminal" ||
+                  reattachState.latestResult === "terminal_status"
+                ) {
                   if (isAsyncContinuationClientTurnId(clientTurnId)) {
-                    void finalizeAfterTerminal();
+                    void finalizeAfterTerminal("committed");
                   } else {
-                    finalizeReconciledDetachedTurn(targetThreadKey);
+                    finalizeReconciledDetachedTurn(targetThreadKey, {
+                      ownerClientTurnId: clientTurnId
+                    });
                   }
                 }
               },
@@ -3051,24 +3264,55 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                 }
               },
               onCompleted: async () => {
-                await finalizeAfterTerminal();
+                await finalizeAfterTerminal("committed");
               },
               onInterrupted: async () => {
-                await finalizeAfterTerminal();
+                await finalizeAfterTerminal("partial");
               },
               onFailed: async (payload) => {
                 setIssue(toWebChatUxIssue(payload));
-                await finalizeAfterTerminal();
+                await finalizeAfterTerminal("partial");
               }
             },
             controller.signal
           );
-          return latestResult;
-        } catch (error) {
-          if (error instanceof DOMException && error.name === "AbortError") {
-            return latestResult;
+          // SSE ended without a clean terminal — not a durable live attachment.
+          // Soft-detached ordinary turns keep the busy/Stop affordance until
+          // history reconcile; async-cont / non-soft-detach must drop Stop.
+          if (reattachState.latestResult === "running") {
+            const stillOwns =
+              activeTurnSnapshotsRef.current.get(targetThreadKey)?.clientTurnId === clientTurnId;
+            const softDetached = softDetachedClientTurnIdsRef.current.has(clientTurnId);
+            if (stillOwns && !softDetached) {
+              markStreaming(targetThreadKey, false);
+            }
+            return "unknown";
           }
-          return latestResult;
+          return reattachState.latestResult;
+        } catch (error) {
+          const stillOwns =
+            activeTurnSnapshotsRef.current.get(targetThreadKey)?.clientTurnId === clientTurnId;
+          const softDetached = softDetachedClientTurnIdsRef.current.has(clientTurnId);
+          if (error instanceof DOMException && error.name === "AbortError") {
+            // User send / ownership takeover may abort intentionally — do not
+            // leave Stop latched if this reattach still appears to own streaming.
+            if (
+              reattachState.latestResult !== "terminal" &&
+              reattachState.latestResult !== "terminal_status" &&
+              stillOwns &&
+              !softDetached &&
+              abortControllersByThreadRef.current.get(targetThreadKey)?.controller === controller
+            ) {
+              markStreaming(targetThreadKey, false);
+            }
+            return reattachState.latestResult === "running"
+              ? "unknown"
+              : reattachState.latestResult;
+          }
+          if (stillOwns && !softDetached) {
+            markStreaming(targetThreadKey, false);
+          }
+          return reattachState.latestResult === "running" ? "unknown" : reattachState.latestResult;
         } finally {
           const entry = abortControllersByThreadRef.current.get(targetThreadKey);
           if (entry?.controller === controller) {
@@ -3106,19 +3350,36 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
   const startSoftDetachReconcile = useCallback(
     (targetThreadKey: string, targetChatId: string) => {
       clearSoftDetachReconcileTimer(targetThreadKey);
+      // Soft-detach owns only the clientTurnId that was soft-detached. Never
+      // finalize a later owner (e.g. async-cont notify) just because history
+      // absorbed an unrelated committed row.
+      const ownerClientTurnId =
+        activeTurnSnapshotsRef.current.get(targetThreadKey)?.clientTurnId ?? null;
+      if (ownerClientTurnId === null) {
+        return;
+      }
       let attempts = 0;
       const tick = async () => {
         attempts += 1;
+        const ownerSnapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
+        if (ownerSnapshot === undefined || ownerSnapshot.clientTurnId !== ownerClientTurnId) {
+          // Ownership moved (user send / notify continuation) — stop this loop.
+          clearSoftDetachReconcileTimer(targetThreadKey);
+          return;
+        }
         const reconciled = await refreshLatestHistory(targetChatId, {
           clearIssueOnReconcile: true,
           targetThreadKey
         });
-        if (reconciled) {
-          finalizeReconciledDetachedTurn(targetThreadKey);
+        const snapshotAfterRefresh = activeTurnSnapshotsRef.current.get(targetThreadKey);
+        // Finalize only when history reconcile matches THIS owner clientTurnId —
+        // never tear down a later async-cont (or user-send) owner.
+        if (reconciled && snapshotAfterRefresh?.clientTurnId === ownerClientTurnId) {
+          finalizeReconciledDetachedTurn(targetThreadKey, { ownerClientTurnId });
           return;
         }
         const snapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
-        if (snapshot !== undefined) {
+        if (snapshot !== undefined && snapshot.clientTurnId === ownerClientTurnId) {
           const shouldReattach =
             softDetachedClientTurnIdsRef.current.has(snapshot.clientTurnId) ||
             !activeThreads.has(targetThreadKey);
@@ -3143,15 +3404,21 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
               clearIssueOnReconcile: true,
               targetThreadKey
             });
-            finalizeReconciledDetachedTurn(targetThreadKey);
+            finalizeReconciledDetachedTurn(targetThreadKey, { ownerClientTurnId });
             return;
           }
           if (statusResult === "terminal_status") {
             // turn_status/reattached already applied committed messages; do not
             // re-merge an unrelated pagination window over that result.
-            finalizeReconciledDetachedTurn(targetThreadKey);
+            finalizeReconciledDetachedTurn(targetThreadKey, { ownerClientTurnId });
             return;
           }
+        }
+        if (
+          activeTurnSnapshotsRef.current.get(targetThreadKey)?.clientTurnId !== ownerClientTurnId
+        ) {
+          clearSoftDetachReconcileTimer(targetThreadKey);
+          return;
         }
         const stillHasLocalActiveTurn =
           activeTurnSnapshotsRef.current.has(targetThreadKey) ||
@@ -3173,7 +3440,6 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
     [
       clearSoftDetachReconcileTimer,
       finalizeReconciledDetachedTurn,
-      markStreaming,
       refreshLatestHistory,
       startTurnReattach,
       activeThreads
@@ -3337,7 +3603,12 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
           });
           void refreshChatPlan();
           if (reconciled) {
-            finalizeReconciledDetachedTurn(targetThreadKey);
+            const ownerClientTurnId =
+              activeTurnSnapshotsRef.current.get(targetThreadKey)?.clientTurnId;
+            finalizeReconciledDetachedTurn(
+              targetThreadKey,
+              ownerClientTurnId === undefined ? undefined : { ownerClientTurnId }
+            );
             return;
           }
           if (
@@ -3449,6 +3720,24 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
       const userMsgId = `local-user-${Date.now()}`;
       const assistantMsgId = `local-assistant-${Date.now()}`;
       const controller = new AbortController();
+      // User send wins the single stream-owner slot: abort any in-flight
+      // continuation reattach / prior controller and clear sticky so notify
+      // can retry later after this send finishes.
+      const previousControllerEntry = abortControllersByThreadRef.current.get(sendThreadKey);
+      const previousSnapshot = activeTurnSnapshotsRef.current.get(sendThreadKey);
+      if (previousControllerEntry !== undefined) {
+        previousControllerEntry.controller.abort();
+        abortControllersByThreadRef.current.delete(sendThreadKey);
+      }
+      if (previousSnapshot !== undefined) {
+        softDetachedClientTurnIdsRef.current.delete(previousSnapshot.clientTurnId);
+        continuationReattachStartedRef.current.delete(previousSnapshot.clientTurnId);
+        clearSoftDetachReconcileTimer(sendThreadKey);
+        if (isAsyncContinuationClientTurnId(previousSnapshot.clientTurnId)) {
+          clearStoredActiveTurnClientTurnId(sendThreadKey, previousSnapshot.clientTurnId);
+          activeTurnSnapshotsRef.current.delete(sendThreadKey);
+        }
+      }
       abortControllersByThreadRef.current.set(sendThreadKey, { controller, clientTurnId });
       /* Helper used at every cleanup point to drop *this* turn's controller */ /* without disturbing a newer controller that may have replaced it */ /* (e.g. user retried fast, or another turn started in the same thread). */ const releaseAbortController =
         () => {
@@ -5434,6 +5723,8 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
   startTurnReattachRef.current = startTurnReattach;
   const finalizeReconciledDetachedTurnRef = useRef(finalizeReconciledDetachedTurn);
   finalizeReconciledDetachedTurnRef.current = finalizeReconciledDetachedTurn;
+  const markStreamingRef = useRef(markStreaming);
+  markStreamingRef.current = markStreaming;
   useEffect(() => {
     const clientTurnIds = new Set<string>();
     for (const job of activeMediaJobs) {
@@ -5455,31 +5746,67 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
         continuationReattachStartedRef.current.delete(startedId);
         const snapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
         if (snapshot?.clientTurnId === startedId) {
-          finalizeReconciledDetachedTurnRef.current(targetThreadKey);
+          finalizeReconciledDetachedTurnRef.current(targetThreadKey, {
+            ownerClientTurnId: startedId
+          });
         }
       }
     }
     if (clientTurnIds.size === 0) {
       return;
     }
+    const ordinaryOwnsThread = (() => {
+      const snapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
+      const controllerEntry = abortControllersByThreadRef.current.get(targetThreadKey);
+      if (
+        snapshot !== undefined &&
+        !isAsyncContinuationClientTurnId(snapshot.clientTurnId) &&
+        (activeThreadsRef.current.has(targetThreadKey) ||
+          softDetachedClientTurnIdsRef.current.has(snapshot.clientTurnId) ||
+          controllerEntry?.clientTurnId === snapshot.clientTurnId)
+      ) {
+        return true;
+      }
+      return (
+        controllerEntry !== undefined &&
+        !isAsyncContinuationClientTurnId(controllerEntry.clientTurnId)
+      );
+    })();
     for (const clientTurnId of clientTurnIds) {
       if (continuationReattachStartedRef.current.has(clientTurnId)) {
         continue;
       }
+      // Notify can wait: do not start continuation while ordinary turn streams.
+      if (ordinaryOwnsThread) {
+        continue;
+      }
       continuationReattachStartedRef.current.add(clientTurnId);
       void startTurnReattachRef.current(targetThreadKey, clientTurnId).then((result) => {
+        // Promise settled ⇒ stream is gone. Never keep sticky for a dead SSE —
+        // the next notify history poll / activeThreads change re-runs this effect.
+        continuationReattachStartedRef.current.delete(clientTurnId);
+        const snapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
         if (result === "terminal" || result === "terminal_status") {
-          continuationReattachStartedRef.current.delete(clientTurnId);
-          finalizeReconciledDetachedTurnRef.current(targetThreadKey);
+          if (snapshot?.clientTurnId === clientTurnId) {
+            finalizeReconciledDetachedTurnRef.current(targetThreadKey, {
+              ownerClientTurnId: clientTurnId
+            });
+          }
           return;
         }
-        // Allow retry after false-terminal / failed-to-start; keep sticky while
-        // running to avoid reattach storms.
-        if (result !== "running") {
-          continuationReattachStartedRef.current.delete(clientTurnId);
+        // Error / disconnect / deferred: drop Stop if we still own this cont.
+        if (
+          snapshot?.clientTurnId === clientTurnId &&
+          isAsyncContinuationClientTurnId(clientTurnId)
+        ) {
+          markStreamingRef.current(targetThreadKey, false);
         }
       });
     }
+    // Intentionally omit activeThreads from deps: markStreaming flips would
+    // immediately re-enter and storm reattach. Notify history poll (2s while
+    // claimed) refreshes job arrays and re-runs this effect for recovery /
+    // ordinary-owner release.
   }, [activeDocumentJobs, activeMediaJobs, activeSandboxJobs]);
   // Drop phantom "thinking" / blinking-cursor placeholders (ADR-158).
   const activeLiveTurnIdsForVisibility = (() => {
@@ -5500,11 +5827,15 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
   );
   const liveAssistantMessageIdForActivities =
     activeTurnSnapshotsRef.current.get(assistantScopedThreadKey)?.liveAssistantMessageId ?? null;
-  const latestAssistantMessageId =
-    [...visibleMessages].reverse().find((message) => message.role === "assistant")?.id ?? null;
-  // Prefer the active-turn live assistant; fall back to latest only when no
-  // live snapshot remains (e.g. tests that end the SSE without a terminal).
-  const activityTargetMessageId = liveAssistantMessageIdForActivities ?? latestAssistantMessageId;
+  // Prefer the live-turn assistant. Never fall back to "latest assistant"
+  // (wrong-bubble chips). If the snapshot was cleared but a single live
+  // activity key remains, bind to that key — it is the bubble that received
+  // the events, not a scan of the message list.
+  const soleLiveActivityMessageId = (() => {
+    const ids = Object.keys(liveActivitiesByMessageId);
+    return ids.length === 1 ? (ids[0] ?? null) : null;
+  })();
+  const activityTargetMessageId = liveAssistantMessageIdForActivities ?? soleLiveActivityMessageId;
   const entries: ChatEntry[] = [];
   const activityByMsg = new Map<string, ActivityEvent[]>();
   const orphanActivities: ActivityEvent[] = [];

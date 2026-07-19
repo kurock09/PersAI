@@ -145,6 +145,16 @@ export class StreamWebAsyncContinuationService {
     });
     await this.webChatTurnStreamRegistry.register(registryIdentity);
 
+    const touchStreamTtl = (): void => {
+      void this.webChatTurnStreamRegistry.touch(registryIdentity).catch(() => undefined);
+    };
+    // Silent long waits (no deltas) must not expire Redis meta; tool_progress
+    // also touches below. Interval mirrors primary-stream heartbeat cadence.
+    const streamTtlHeartbeat = setInterval(touchStreamTtl, 10_000);
+    if (typeof streamTtlHeartbeat.unref === "function") {
+      streamTtlHeartbeat.unref();
+    }
+
     const publish = (event: string, payload: unknown): void => {
       this.webChatTurnStreamRegistry.publish({
         ...registryIdentity,
@@ -313,6 +323,7 @@ export class StreamWebAsyncContinuationService {
                 ...(event.step === undefined ? {} : { step: event.step }),
                 seq: event.seq
               });
+              touchStreamTtl();
               await this.webChatTurnAttemptService.touchRunningAttempt(attemptIdentity);
               break;
             case "async_job_accepted":
@@ -455,12 +466,13 @@ export class StreamWebAsyncContinuationService {
       // from inner catches; scheduler requeues the handle.
       throw error;
     } finally {
+      clearInterval(streamTtlHeartbeat);
       this.webChatTurnStopDispatchService.release({
         assistantId: context.handle.assistantId,
         clientTurnId: continuationClientTurnId,
         controller: abortController
       });
-      this.webChatTurnStreamRegistry.release(registryIdentity);
+      await this.webChatTurnStreamRegistry.releaseAsync(registryIdentity);
     }
   }
 

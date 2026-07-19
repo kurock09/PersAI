@@ -1,5 +1,26 @@
 # SESSION-HANDOFF
 
+## 2026-07-19 — ADR-158 stream hardening + async-cont duplicate fix
+
+Status: **Pushing to `main`.** Baseline `14bdf424`. Bundles prior local P0
+bus + web UX hardening with a founder-reported post-stream full duplicate
+(gone on F5).
+
+Duplicate root cause (universal `async-cont:*` — notify **and** background
+job completions): `turn_status completed` with null `assistantMessage`
+demoted `local-assistant-*` to committed and tore down the snapshot; history
+absorb then appended the server twin. Fix: defer demote/teardown when
+async-cont + null `assistantMessage`; history absorb drops all local-scoped
+assistants when a new server assistant lands (even after snapshot teardown).
+Regression test asserts exactly one server bubble. Continuation unit mocks
+updated for `releaseAsync` + `touch`.
+
+Three independent re-audits CLEAN (concurrency / UX lifecycle / Redis tails).
+Gate: recursive lint, format:check, api/web/runtime/sandbox typecheck, full
+`pnpm test`, `test:ci-detect-affected`, `test:step2`. Next after push:
+deploy → live smoke notify + bg job completion under 2 API replicas (live
+deltas, no stuck «Думаю»/Stop, no post-complete duplicate).
+
 ## 2026-07-19 — ADR-158 durable multi-pod web turn stream bus
 
 Status: **Pushed `main` `e94cf26e`. Deploy/live multi-replica smoke still

@@ -3,6 +3,7 @@ import { describe, test } from "node:test";
 import { MemoryTurnStreamEventStore } from "../src/modules/workspace-management/application/memory-turn-stream-event-store";
 import { WebChatTurnStreamBusService } from "../src/modules/workspace-management/application/web-chat-turn-stream-bus.service";
 import { WebChatTurnStreamRegistry } from "../src/modules/workspace-management/application/web-chat-turn-stream-registry.service";
+import { buildTurnStreamKey } from "../src/modules/workspace-management/application/turn-stream-event-store";
 
 function createBusPair(): {
   store: MemoryTurnStreamEventStore;
@@ -110,6 +111,91 @@ describe("ADR-158 durable web turn stream bus", () => {
     assert.equal(wrongUser, null);
   });
 
+  test("same clientTurnId is tenant-isolated by userId in stream key", async () => {
+    const { store, podA, podB } = createBusPair();
+    await podA.registerTurn({
+      assistantId: "assistant-1",
+      clientTurnId: "shared-turn",
+      userId: "user-1"
+    });
+    await podB.registerTurn({
+      assistantId: "assistant-1",
+      clientTurnId: "shared-turn",
+      userId: "user-2"
+    });
+
+    await podA.publishAsync({
+      assistantId: "assistant-1",
+      clientTurnId: "shared-turn",
+      userId: "user-1",
+      event: "delta",
+      payload: { owner: "user-1" }
+    });
+    await podB.publishAsync({
+      assistantId: "assistant-1",
+      clientTurnId: "shared-turn",
+      userId: "user-2",
+      event: "delta",
+      payload: { owner: "user-2" }
+    });
+
+    const key1 = buildTurnStreamKey("assistant-1", "user-1", "shared-turn");
+    const key2 = buildTurnStreamKey("assistant-1", "user-2", "shared-turn");
+    assert.notEqual(key1, key2);
+    const events1 = await store.listFrom(key1);
+    const events2 = await store.listFrom(key2);
+    assert.equal(events1.length, 1);
+    assert.equal(events2.length, 1);
+    assert.deepEqual(events1[0]?.payload, { owner: "user-1" });
+    assert.deepEqual(events2[0]?.payload, { owner: "user-2" });
+
+    const cross = await podA.attach({
+      assistantId: "assistant-1",
+      clientTurnId: "shared-turn",
+      userId: "user-2",
+      onEvent: () => undefined
+    });
+    // podA has local for user-1 only; user-2 attach on podA uses store key for user-2
+    assert.notEqual(cross, null);
+    cross?.();
+  });
+
+  test("registerTurn fail-closed when store meta has different userId", async () => {
+    const store = new MemoryTurnStreamEventStore();
+    const turnKey = buildTurnStreamKey("assistant-1", "user-1", "turn-fence");
+    await store.registerTurn({ turnKey, userId: "user-1" });
+    await store.append({
+      turnKey,
+      userId: "user-1",
+      event: "delta",
+      payload: { keep: true }
+    });
+
+    // Corrupt meta userId under the same key (defense-in-depth path).
+    const originalGetMeta = store.getMeta.bind(store);
+    store.getMeta = async (key: string) => {
+      const meta = await originalGetMeta(key);
+      if (meta !== null && key === turnKey) {
+        return { ...meta, userId: "attacker" };
+      }
+      return meta;
+    };
+
+    const bus = new WebChatTurnStreamBusService(store);
+    await bus.registerTurn({
+      assistantId: "assistant-1",
+      clientTurnId: "turn-fence",
+      userId: "user-1"
+    });
+
+    assert.equal(bus.hasLocalRegistrationForTesting("assistant-1", "user-1", "turn-fence"), false);
+    store.getMeta = originalGetMeta;
+    const meta = await store.getMeta(turnKey);
+    assert.equal(meta?.userId, "user-1");
+    const events = await store.listFrom(turnKey);
+    assert.equal(events.length, 1);
+  });
+
   test("same-pod attach uses local sinks after replay", async () => {
     const store = new MemoryTurnStreamEventStore();
     const bus = new WebChatTurnStreamBusService(store);
@@ -190,8 +276,11 @@ describe("ADR-158 durable web turn stream bus", () => {
       clientTurnId: "turn-active",
       userId: "user-1"
     });
-    assert.equal(await podB.hasActiveStream("assistant-1", "turn-active"), true);
-    assert.equal(podB.hasLocalRegistrationForTesting("assistant-1", "turn-active"), false);
+    assert.equal(await podB.hasActiveStream("assistant-1", "user-1", "turn-active"), true);
+    assert.equal(
+      podB.hasLocalRegistrationForTesting("assistant-1", "user-1", "turn-active"),
+      false
+    );
   });
 
   test("concurrent publishes keep contiguous unique seq and drop no payloads", async () => {
@@ -216,7 +305,8 @@ describe("ADR-158 durable web turn stream bus", () => {
       )
     );
 
-    const envelopes = await store.listFrom("assistant-1:turn-concurrent");
+    const turnKey = buildTurnStreamKey("assistant-1", "user-1", "turn-concurrent");
+    const envelopes = await store.listFrom(turnKey);
     assert.equal(envelopes.length, count);
     const seqs = envelopes.map((envelope) => envelope.seq);
     assert.deepEqual(
@@ -255,6 +345,69 @@ describe("ADR-158 durable web turn stream bus", () => {
     detach?.();
   });
 
+  test("release mid-publish drains queue; remote attach sees terminal + contiguous seq", async () => {
+    const { store, podA, podB } = createBusPair();
+    await podA.registerTurn({
+      assistantId: "assistant-1",
+      clientTurnId: "turn-release",
+      userId: "user-1"
+    });
+
+    const count = 40;
+    const publishes = Array.from({ length: count }, (_, i) =>
+      podA.publishAsync({
+        assistantId: "assistant-1",
+        clientTurnId: "turn-release",
+        userId: "user-1",
+        event: "delta",
+        payload: { i }
+      })
+    );
+    const terminal = podA.publishAsync({
+      assistantId: "assistant-1",
+      clientTurnId: "turn-release",
+      userId: "user-1",
+      event: "completed",
+      payload: { transport: null }
+    });
+    const release = podA.releaseAsync({
+      assistantId: "assistant-1",
+      clientTurnId: "turn-release",
+      userId: "user-1"
+    });
+
+    await Promise.all([...publishes, terminal, release]);
+
+    const turnKey = buildTurnStreamKey("assistant-1", "user-1", "turn-release");
+    const envelopes = await store.listFrom(turnKey);
+    assert.equal(envelopes.length, count + 1);
+    assert.deepEqual(
+      envelopes.map((envelope) => envelope.seq),
+      Array.from({ length: count + 1 }, (_, i) => i + 1)
+    );
+    assert.equal(envelopes[envelopes.length - 1]?.event, "completed");
+
+    const received: Array<{ event: string; seq?: number }> = [];
+    let seqCounter = 0;
+    const detach = await podB.attach({
+      assistantId: "assistant-1",
+      clientTurnId: "turn-release",
+      userId: "user-1",
+      onEvent: (event) => {
+        seqCounter += 1;
+        received.push({ event, seq: seqCounter });
+      }
+    });
+    assert.notEqual(detach, null);
+    assert.equal(received.length, count + 1);
+    assert.equal(received[received.length - 1]?.event, "completed");
+    assert.deepEqual(
+      received.map((item) => item.seq),
+      Array.from({ length: count + 1 }, (_, i) => i + 1)
+    );
+    detach?.();
+  });
+
   test("memory store concurrent append allocates unique contiguous seq", async () => {
     const store = new MemoryTurnStreamEventStore();
     await store.registerTurn({ turnKey: "t1", userId: "user-1" });
@@ -277,5 +430,63 @@ describe("ADR-158 durable web turn stream bus", () => {
     );
     const indexes = new Set(envelopes.map((envelope) => (envelope.payload as { i: number }).i));
     assert.equal(indexes.size, count);
+  });
+
+  test("memory store registerTurn fail-closed for different userId", async () => {
+    const store = new MemoryTurnStreamEventStore();
+    await store.registerTurn({ turnKey: "k", userId: "user-1" });
+    await store.append({
+      turnKey: "k",
+      userId: "user-1",
+      event: "delta",
+      payload: { keep: true }
+    });
+    await store.registerTurn({ turnKey: "k", userId: "user-2" });
+    const meta = await store.getMeta("k");
+    assert.equal(meta?.userId, "user-1");
+    const events = await store.listFrom("k");
+    assert.equal(events.length, 1);
+  });
+
+  test("touch is invoked and release keeps shortGrace buffer readable", async () => {
+    const store = new MemoryTurnStreamEventStore();
+    let touchCount = 0;
+    const originalTouch = store.touch.bind(store);
+    store.touch = async (turnKey: string) => {
+      touchCount += 1;
+      await originalTouch(turnKey);
+    };
+
+    const bus = new WebChatTurnStreamBusService(store);
+    await bus.registerTurn({
+      assistantId: "assistant-1",
+      clientTurnId: "turn-touch",
+      userId: "user-1"
+    });
+    await bus.touch({
+      assistantId: "assistant-1",
+      clientTurnId: "turn-touch",
+      userId: "user-1"
+    });
+    assert.equal(touchCount, 1);
+
+    await bus.publishAsync({
+      assistantId: "assistant-1",
+      clientTurnId: "turn-touch",
+      userId: "user-1",
+      event: "completed",
+      payload: { transport: null }
+    });
+    await bus.releaseAsync({
+      assistantId: "assistant-1",
+      clientTurnId: "turn-touch",
+      userId: "user-1"
+    });
+
+    const turnKey = buildTurnStreamKey("assistant-1", "user-1", "turn-touch");
+    assert.equal(await store.exists(turnKey), true);
+    const envelopes = await store.listFrom(turnKey);
+    assert.equal(envelopes.length, 1);
+    assert.equal(envelopes[0]?.event, "completed");
   });
 });

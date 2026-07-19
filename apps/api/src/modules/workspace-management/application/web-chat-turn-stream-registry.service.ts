@@ -20,7 +20,15 @@ export class WebChatTurnStreamRegistry {
   }
 
   release(input: { assistantId: string; clientTurnId: string; userId: string }): void {
-    this.bus.release(input);
+    void this.releaseAsync(input).catch(() => undefined);
+  }
+
+  async releaseAsync(input: {
+    assistantId: string;
+    clientTurnId: string;
+    userId: string;
+  }): Promise<void> {
+    await this.bus.releaseAsync(input);
   }
 
   async attach(input: {
@@ -43,11 +51,19 @@ export class WebChatTurnStreamRegistry {
     this.bus.publish(input);
   }
 
-  async hasActiveStream(assistantId: string, clientTurnId: string): Promise<boolean> {
-    return this.bus.hasActiveStream(assistantId, clientTurnId);
+  async touch(input: { assistantId: string; clientTurnId: string; userId: string }): Promise<void> {
+    await this.bus.touch(input);
   }
 
-  hasForTesting(assistantId: string, clientTurnId: string): boolean {
-    return this.bus.hasLocalRegistrationForTesting(assistantId, clientTurnId);
+  async hasActiveStream(
+    assistantId: string,
+    userId: string,
+    clientTurnId: string
+  ): Promise<boolean> {
+    return this.bus.hasActiveStream(assistantId, userId, clientTurnId);
+  }
+
+  hasForTesting(assistantId: string, userId: string, clientTurnId: string): boolean {
+    return this.bus.hasLocalRegistrationForTesting(assistantId, userId, clientTurnId);
   }
 }
