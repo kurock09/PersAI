@@ -5,7 +5,7 @@
 
 ## 2026-07-19
 
-- **Feature pushed to `main` (`77122196`): ADR-152 resumable web notify
+- **Feature pushed to `main` (`5434149d`): ADR-152 resumable web notify
   continuation + sandbox facts.** Web notify wake uses the same ADR-149
   resumable turn path as ordinary chat: runtime `streamAsyncContinuation` +
   `POST …/async-continuations/stream` (NDJSON; blocking JSON kept for
