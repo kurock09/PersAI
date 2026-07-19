@@ -5,8 +5,8 @@
 
 ## 2026-07-19
 
-- **Feature (ADR-152 addendum): resumable web notify continuation + sandbox
-  facts (push SHA in handoff).** Web notify wake uses the same ADR-149
+- **Feature pushed to `main` (`77122196`): ADR-152 resumable web notify
+  continuation + sandbox facts.** Web notify wake uses the same ADR-149
   resumable turn path as ordinary chat: runtime `streamAsyncContinuation` +
   `POST …/async-continuations/stream` (NDJSON; blocking JSON kept for
   Telegram), API claims/registers `AssistantWebChatTurnAttempt` + stream

@@ -2,8 +2,8 @@
 
 ## 2026-07-19 — Notify resumable same-chat stream
 
-Status: **CLEAN + AGENTS/CI-like gate green; push SHA recorded after push.
-Deploy still open.** Baseline was `c404baa8`. ADR-152 addendum: web notify
+Status: **Pushed `main` `77122196`. Deploy still open.** Baseline was
+`c404baa8`. ADR-152 addendum: web notify
 wake uses same-chat ADR-149 resumable turn (attempt + registry + reattach);
 Telegram keeps blocking execute; ordinary POST chat unchanged. Includes
 sandboxResult facts + prompt, audit P0/P1 repairs (null continuation
