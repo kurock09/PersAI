@@ -398,7 +398,7 @@ providerGateway:
       maxSurge: 1
   image:
     name: provider-gateway
-    tag: ec9bb5b7fee653e30760d91560933f0d359f2704
+    tag: 0bb19b6411672c4d166de77e13a3c784fab6daf5
     pullPolicy: IfNotPresent
   env:
     APP_ENV: dev
@@ -476,7 +476,7 @@ runtime:
     name: api-sa
   image:
     name: runtime
-    tag: ca0780dccf7be2c3a01a41b8c9b700ba01120ff7
+    tag: 0bb19b6411672c4d166de77e13a3c784fab6daf5
     pullPolicy: IfNotPresent
   cloudSqlProxy:
     enabled: true
