@@ -2,19 +2,22 @@
 
 ## Status
 
-**Open 2026-07-19 — local repair train Slices 1–3 CLEAN/GO; final frozen
-integration + cleanup audit CLEAN/GO.** Clean baseline is `209f2d18`.
-The repair train is committed locally as `9c8b95e8`
-(`fix(adr159): harden async catch-up coordination`). The additive migration
-`20260719180000_adr159_admission_linearization` requires migration approval.
-S5 shipping remains pending: push once, migration approval, exact-image/GitOps
-rollout, and founder live acceptance. Final recursive lint, `format:check`,
-API/Web typechecks, full workspace tests, `test:step2` (web 85 files / 1060 tests), and
-`test:ci-detect-affected` (30/30) PASS. `prisma:migrate:check` is locally
-blocked only by pre-existing historical migration
-`20260501120000_adr079_knowledge_skills_foundation` (P3009); schema validation
-and migration-file audit are clean. The commit is not pushed; ADR-159 is not
-deployed, live-accepted, or closed.
+**Open 2026-07-19 — S5 live BLOCKED.** Exact-image acceptance found
+PostgreSQL `42702` (`column reference "assistant_id" is ambiguous`) on every
+scheduler tick in `ChatWakeCoordinator.listCatchUpEligibleChats`, stranding a
+ready sandbox handle. Local repair now aliases `assistant_async_job_handles` as
+`h` and qualifies every handle reference in the joined inner query; a
+self-contained PostgreSQL temporary-table regression fixture covers the exact
+query with overlapping joined-table columns. The independent Terra code and
+real-PostgreSQL audit is **CLEAN/GO (15/15)**. This is a distinct hotfix audit;
+the earlier full repair-train CLEAN/GO remains historical and does not make
+this newly repaired exact image accepted. The hotfix is not committed, pushed,
+or redeployed. S5 remains BLOCKED until an exact-image redeploy and repeated
+smoke drain the stranded ready handle and pass a new multi-job test. ADR-159
+remains neither live-accepted nor closed. The additive migration
+`20260719180000_adr159_admission_linearization` still requires migration
+approval. Historical final-gate results below apply to the pre-live-failure
+tree only.
 
 **Slice 2 final repair:** Working projections now include only
 canonical nonterminal media/document/sandbox jobs; terminal continuation facts

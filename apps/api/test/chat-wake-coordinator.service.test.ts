@@ -1,11 +1,96 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
+import { PrismaClient } from "@prisma/client";
 import {
   CATCHUP_IDLE_PAUSE_MS,
   ChatWakeCoordinator
 } from "../src/modules/workspace-management/application/chat-wake-coordinator.service";
 
 describe("ChatWakeCoordinator", () => {
+  const postgresIntegrationUrl =
+    process.env.PERSAI_POSTGRES_INTEGRATION_URL ??
+    "postgresql://postgres:postgres@localhost:5432/persai_v2?schema=public";
+
+  test("PostgreSQL parses eligible-chat SQL with overlapping joined-table columns", async () => {
+    const prisma = new PrismaClient({
+      datasources: { db: { url: postgresIntegrationUrl } }
+    });
+    try {
+      await prisma.$transaction(async (tx) => {
+        await tx.$executeRawUnsafe(`
+            CREATE TEMP TABLE "assistant_chats" (
+              "id" uuid PRIMARY KEY,
+              "assistant_id" uuid NOT NULL,
+              "user_id" uuid NOT NULL,
+              "thread_key" text,
+              "ready_at" timestamptz,
+              "updated_at" timestamptz NOT NULL DEFAULT NOW(),
+              "catch_up_last_scanned_at" timestamptz
+            ) ON COMMIT DROP
+          `);
+        await tx.$executeRawUnsafe(`
+            CREATE TEMP TABLE "assistant_async_job_handles" (
+              "id" uuid PRIMARY KEY,
+              "chat_id" uuid NOT NULL,
+              "assistant_id" uuid NOT NULL,
+              "user_id" uuid NOT NULL,
+              "thread_key" text,
+              "ready_at" timestamptz,
+              "state" text NOT NULL,
+              "source_finalized_at" timestamptz,
+              "next_retry_at" timestamptz,
+              "retry_count" integer NOT NULL,
+              "max_retries" integer NOT NULL,
+              "updated_at" timestamptz NOT NULL
+            ) ON COMMIT DROP
+          `);
+        await tx.$executeRawUnsafe(`
+            INSERT INTO "assistant_chats"
+              ("id", "assistant_id", "user_id", "thread_key", "ready_at", "updated_at")
+            VALUES
+              ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000010',
+               '00000000-0000-0000-0000-000000000020', 'chat-thread', NOW(), NOW())
+          `);
+        await tx.$executeRawUnsafe(`
+            INSERT INTO "assistant_async_job_handles"
+              ("id", "chat_id", "assistant_id", "user_id", "thread_key", "ready_at", "state",
+               "source_finalized_at", "next_retry_at", "retry_count", "max_retries", "updated_at")
+            VALUES
+              ('00000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000001',
+               '00000000-0000-0000-0000-000000000010', '00000000-0000-0000-0000-000000000020',
+               'handle-thread', NOW(), 'ready', NOW(), NULL, 0, 1, NOW())
+          `);
+        const coordinator = new ChatWakeCoordinator(
+          { $queryRaw: tx.$queryRaw.bind(tx) } as never,
+          {} as never,
+          {} as never
+        );
+        const candidates = await (
+          coordinator as unknown as {
+            listCatchUpEligibleChats(limit: number): Promise<
+              Array<{
+                chatId: string;
+                assistantId: string;
+                userId: string;
+                surfaceThreadKey: string | null;
+              }>
+            >;
+          }
+        ).listCatchUpEligibleChats(1);
+        assert.deepEqual(candidates, [
+          {
+            chatId: "00000000-0000-0000-0000-000000000001",
+            assistantId: "00000000-0000-0000-0000-000000000010",
+            userId: "00000000-0000-0000-0000-000000000020",
+            surfaceThreadKey: "handle-thread"
+          }
+        ]);
+      });
+    } finally {
+      await prisma.$disconnect();
+    }
+  });
+
   test("skips catch-up when a non-continuation web user turn is accepted/running", async () => {
     const locks: string[] = [];
     const prisma = {

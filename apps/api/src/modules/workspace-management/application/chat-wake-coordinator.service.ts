@@ -259,21 +259,21 @@ export class ChatWakeCoordinator {
       >`
       SELECT "chatId", "assistantId", "userId", "surfaceThreadKey", "readyAt", "scanAt", "headId"
       FROM (
-        SELECT DISTINCT ON ("chat_id")
-          "chat_id" AS "chatId",
-          "assistant_id" AS "assistantId",
-          "user_id" AS "userId",
-          "thread_key" AS "surfaceThreadKey",
-          "ready_at" AS "readyAt",
+        SELECT DISTINCT ON (h."chat_id")
+          h."chat_id" AS "chatId",
+          h."assistant_id" AS "assistantId",
+          h."user_id" AS "userId",
+          h."thread_key" AS "surfaceThreadKey",
+          h."ready_at" AS "readyAt",
           c."catch_up_last_scanned_at" AS "scanAt",
-          "id" AS "headId"
-        FROM "assistant_async_job_handles"
-        INNER JOIN "assistant_chats" c ON c."id" = "assistant_async_job_handles"."chat_id"
-        WHERE "state" = 'ready'
-          AND "source_finalized_at" IS NOT NULL
-          AND ("next_retry_at" IS NULL OR "next_retry_at" <= NOW())
-          AND "retry_count" < "max_retries"
-        ORDER BY "chat_id", "ready_at" ASC NULLS LAST, "updated_at" ASC, "id" ASC
+          h."id" AS "headId"
+        FROM "assistant_async_job_handles" h
+        INNER JOIN "assistant_chats" c ON c."id" = h."chat_id"
+        WHERE h."state" = 'ready'
+          AND h."source_finalized_at" IS NOT NULL
+          AND (h."next_retry_at" IS NULL OR h."next_retry_at" <= NOW())
+          AND h."retry_count" < h."max_retries"
+        ORDER BY h."chat_id", h."ready_at" ASC NULLS LAST, h."updated_at" ASC, h."id" ASC
       ) AS eligible
       WHERE (
         ${cursorChatId}::uuid IS NULL

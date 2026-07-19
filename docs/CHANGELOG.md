@@ -5,6 +5,20 @@
 
 ## 2026-07-19
 
+- **Hotfix (ADR-159 S5 live BLOCKED; local CLEAN/GO, pending redeploy):**
+  exact-image acceptance found PostgreSQL `42702` (`column reference
+"assistant_id" is ambiguous`) on every
+  `ChatWakeCoordinator.listCatchUpEligibleChats` scheduler tick after its
+  `assistant_async_job_handles` / `assistant_chats` join, stranding a ready
+  sandbox handle. The local repair aliases handles as `h` and qualifies every
+  inner SELECT/WHERE/ORDER BY handle column; a self-contained PostgreSQL
+  temporary-table integration regression executes the exact query against
+  overlapping joined-table columns. Independent Terra code and real-PostgreSQL
+  audit is **CLEAN/GO (15/15)**. This hotfix CLEAN is distinct from the earlier
+  full repair-train CLEAN below. It is not committed, pushed, or redeployed;
+  ADR-159 stays open and S5 remains BLOCKED until exact-image redeploy and
+  repeated smoke drain the stranded ready handle and pass a new multi-job test.
+
 - **ADR-159 repair train CLEAN/GO (local):** final frozen integration and
   cleanup audits accepted Slices 1–3. Per-chat catch-up now claims and
   processes one item at a time (no queued expiring locks), exact receipt

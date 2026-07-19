@@ -1,15 +1,21 @@
 # SESSION-HANDOFF
 
-## 2026-07-19 — ADR-159 repair train CLEAN/GO; S5 shipping pending
+## 2026-07-19 — ADR-159 S5 live BLOCKED; scheduler SQL hotfix local
 
-Status: **Slices 1–3 and final frozen integration/cleanup audits are
-CLEAN/GO locally and committed in `9c8b95e8`
-(`fix(adr159): harden async catch-up coordination`).** Baseline is clean
-`main` `209f2d18`; additive migration
-`20260719180000_adr159_admission_linearization` needs migration approval.
-The commit is not pushed. No deploy/live/CLOSED claim: S5 next action is push
-once, then migration approval, exact images/GitOps, and live multi-replica web
-Telegram acceptance.
+Status: **Exact-image S5 acceptance is blocked.** Every scheduler tick failed
+with PostgreSQL `42702` (`column reference "assistant_id" is ambiguous`) in
+`ChatWakeCoordinator.listCatchUpEligibleChats` after joining
+`assistant_async_job_handles` and `assistant_chats`; a ready sandbox handle
+was stranded. Against clean `main` `81298b73`, the local repair aliases the
+handle table as `h` and qualifies all inner query SELECT/WHERE/ORDER BY handle
+columns. A focused PostgreSQL temporary-table integration regression executes
+the exact coordinator query with overlapping column names, alongside fairness
+and keyset unit coverage. The independent Terra code and real-PostgreSQL
+audit is **CLEAN/GO (15/15)**. That hotfix audit is distinct from the earlier
+full repair-train CLEAN/GO recorded below. The hotfix is not committed,
+pushed, or redeployed; S5 remains BLOCKED until exact-image redeploy and
+repeated smoke drain the stranded ready handle and pass a new multi-job test.
+Do not claim ADR-159 closed.
 
 Final local gate record: recursive lint, `format:check`, API typecheck, and
 Web typecheck PASS; full workspace tests PASS on the final tree (latest
