@@ -897,12 +897,70 @@ function toActiveTurnOverlayMessages(activeTurn: WebChatActiveTurnState | null |
 function isOptimisticLocalMessage(message: ChatMessage): boolean {
   return message.id.startsWith("local-user-") || message.id.startsWith("local-assistant-");
 }
+function isActiveAssistantLifecycleStatus(status: ChatMessageStatus): boolean {
+  return status === "streaming" || status === "reconciling";
+}
 function isTransientActiveAssistantMessage(message: ChatMessage): boolean {
   return (
     message.role === "assistant" &&
-    message.status === "streaming" &&
+    isActiveAssistantLifecycleStatus(message.status) &&
     (message.id.startsWith("local-assistant-") || message.id.startsWith("active-assistant-"))
   );
+}
+function isEmptyActiveAssistantPlaceholder(message: ChatMessage): boolean {
+  return (
+    message.role === "assistant" &&
+    isActiveAssistantLifecycleStatus(message.status) &&
+    message.content.trim().length === 0 &&
+    (message.attachments?.length ?? 0) === 0
+  );
+}
+/**
+ * Drop empty streaming/reconciling assistant bubbles.
+ * - `mode: "stale-only"` (render): hide empties that are not the sole latest,
+ *   and hide a sole latest empty when a committed assistant for the same live
+ *   turn id is already present.
+ * - `mode: "all"` (terminal finalize): drop every empty active placeholder.
+ */
+function stripEmptyActiveAssistantPlaceholders(
+  messages: ChatMessage[],
+  mode: "stale-only" | "all",
+  liveTurnIds?: ReadonlySet<string>
+): ChatMessage[] {
+  if (mode === "all") {
+    return messages.filter((message) => !isEmptyActiveAssistantPlaceholder(message));
+  }
+  let lastAssistantIndex = -1;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i]?.role === "assistant") {
+      lastAssistantIndex = i;
+      break;
+    }
+  }
+  const committedLiveAssistantExists =
+    liveTurnIds !== undefined &&
+    messages.some(
+      (message) =>
+        message.role === "assistant" &&
+        message.status === "committed" &&
+        liveTurnIds.has(message.id)
+    );
+  return messages.filter((message, index) => {
+    if (!isEmptyActiveAssistantPlaceholder(message)) {
+      return true;
+    }
+    if (index < lastAssistantIndex) {
+      return false;
+    }
+    if (
+      committedLiveAssistantExists &&
+      index === lastAssistantIndex &&
+      (liveTurnIds?.has(message.id) === true || isLocalScopedAssistantId(message.id))
+    ) {
+      return false;
+    }
+    return true;
+  });
 }
 function isPassiveStreamDisconnect(error: unknown): boolean {
   if (error instanceof Error) {
@@ -1170,12 +1228,28 @@ function mergeCommittedHistoryWithActiveTurn(input: {
     loaded[loaded.length - 1]?.role === "assistant" &&
     newLoadedUserMessages.length === 1 &&
     newLoadedAssistantMessages.length === 1;
+  const isAsyncContinuation = isAsyncContinuationClientTurnId(activeSnapshot.clientTurnId);
+  const knownMessageIds = new Set<string>([
+    ...baseMessageIds,
+    ...activeSnapshot.messages.map((message) => message.id)
+  ]);
+  const loadedHasContinuationAssistant =
+    isAsyncContinuation &&
+    loaded.some(
+      (message) =>
+        message.role === "assistant" &&
+        !isLocalScopedAssistantId(message.id) &&
+        message.id !== liveAssistantId &&
+        // Only a newly landed continuation row replaces the live slot.
+        !knownMessageIds.has(message.id)
+    );
   // Continuations must not use user-tail "already committed" replace heuristics.
-  const shouldReplaceActiveTurn =
-    !isAsyncContinuationClientTurnId(activeSnapshot.clientTurnId) &&
-    (loadedHasAssistantAfterActiveUser ||
+  // They do replace when a new committed assistant (continuation) is present.
+  const shouldReplaceActiveTurn = isAsyncContinuation
+    ? loadedHasContinuationAssistant || loadedHasLiveAssistantId
+    : loadedHasAssistantAfterActiveUser ||
       loadedHasLiveAssistantId ||
-      loadedIntroducedCommittedTurnTail);
+      loadedIntroducedCommittedTurnTail;
   if (!shouldReplaceActiveTurn) {
     // Filter optimistic / transient ids out of `loaded` here too. The
     // snapshot's `liveUserMessageId` / `liveAssistantMessageId` are
@@ -1684,14 +1758,29 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
       markStreaming(targetThreadKey, false);
       const snapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
       if (snapshot !== undefined) {
-        cacheThreadHistorySnapshot(targetThreadKey, snapshot);
+        const cleanedSnapshot: ActiveTurnSnapshot = {
+          ...snapshot,
+          messages: stripEmptyActiveAssistantPlaceholders(snapshot.messages, "all"),
+          liveActivitiesByMessageId: {}
+        };
+        cacheThreadHistorySnapshot(targetThreadKey, cleanedSnapshot);
         clearStoredActiveTurnClientTurnId(targetThreadKey, snapshot.clientTurnId);
+        softDetachedClientTurnIdsRef.current.delete(snapshot.clientTurnId);
+      }
+      if (currentThreadKeyRef.current === targetThreadKey) {
+        setLiveActivitiesByMessageId({});
+        setMessages((prev) => stripEmptyActiveAssistantPlaceholders(prev, "all"));
+      } else if (snapshot !== undefined) {
+        const cached = cachedThreadHistorySnapshotsRef.current.get(targetThreadKey);
+        if (cached !== undefined) {
+          cachedThreadHistorySnapshotsRef.current.set(targetThreadKey, {
+            ...cached,
+            liveActivitiesByMessageId: {}
+          });
+        }
       }
       activeTurnSnapshotsRef.current.delete(targetThreadKey);
       const controllerEntry = abortControllersByThreadRef.current.get(targetThreadKey);
-      if (snapshot !== undefined) {
-        softDetachedClientTurnIdsRef.current.delete(snapshot.clientTurnId);
-      }
       controllerEntry?.controller.abort();
       abortControllersByThreadRef.current.delete(targetThreadKey);
     },
@@ -2192,11 +2281,17 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
               activeSnapshot !== undefined &&
               missingToAbsorb.some((message) => message.role === "assistant")
             ) {
-              // Committed continuation bubble landed — drop the optimistic live placeholder.
+              // Committed continuation bubble landed — treat as reconcile success
+              // and drop the optimistic live placeholder / empty streaming slot.
+              reconciledOptimisticTurn = true;
               const liveAssistantId = activeSnapshot.liveAssistantMessageId;
-              if (isLocalScopedAssistantId(liveAssistantId)) {
-                merged = merged.filter((message) => message.id !== liveAssistantId);
-              }
+              merged = stripEmptyActiveAssistantPlaceholders(
+                merged.filter(
+                  (message) =>
+                    message.id !== liveAssistantId || !isLocalScopedAssistantId(liveAssistantId)
+                ),
+                "all"
+              );
             }
             if (activeSnapshot !== undefined) {
               const activeLiveTurnIds = new Set<string>(
@@ -2250,6 +2345,15 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
             setIssue(null);
             setThreadPendingSend(targetThreadKey, null);
           }
+          // ADR-158: async-cont history absorb must always tear down streaming
+          // snapshot / activities even when the poll path does not call finalize.
+          if (
+            reconciledOptimisticTurn &&
+            activeSnapshot !== undefined &&
+            isAsyncContinuationClientTurnId(activeSnapshot.clientTurnId)
+          ) {
+            finalizeReconciledDetachedTurn(targetThreadKey);
+          }
           return reconciledOptimisticTurn;
         } catch {
           /* non-critical resume refresh */ return false;
@@ -2264,7 +2368,13 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
         }
       }
     },
-    [applyThreadMessages, getToken, refreshCompactionState, setThreadPendingSend]
+    [
+      applyThreadMessages,
+      finalizeReconciledDetachedTurn,
+      getToken,
+      refreshCompactionState,
+      setThreadPendingSend
+    ]
   );
   const noteDocumentJobStarted = useCallback(() => {
     const nowIso = new Date().toISOString();
@@ -2292,7 +2402,8 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
     (
       targetThreadKey: string,
       clientTurnId: string,
-      status: WebChatTurnStatusState
+      status: WebChatTurnStatusState,
+      options?: { liveTokenStream?: boolean }
     ): "running" | "terminal" | "terminal_status" | "unknown" => {
       const isAsyncContinuation = isAsyncContinuationClientTurnId(clientTurnId);
       // Continuations must not bind a prior source user into live-turn identity.
@@ -2342,7 +2453,8 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
             : undefined) ??
           (currentThreadKeyRef.current === targetThreadKey
             ? messages.find(
-                (message) => message.role === "assistant" && message.status === "streaming"
+                (message) =>
+                  message.role === "assistant" && isActiveAssistantLifecycleStatus(message.status)
               )
             : undefined);
         const statusAssistantMessage = assistantMessage ?? null;
@@ -2358,11 +2470,29 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
           id: `local-assistant-${clientTurnId}`,
           role: "assistant" as const,
           content: "",
-          status: "streaming" as const,
+          status: "reconciling" as const,
           thought: "",
           thoughtStartedAt: null,
           thoughtFinishedAt: null
         };
+        const nextContent =
+          statusAssistantMessage !== null &&
+          statusAssistantMessage.content.length > fallbackAssistantMessage.content.length
+            ? statusAssistantMessage.content
+            : fallbackAssistantMessage.content;
+        // ADR-158: only imply token streaming when the reattach bus is live or
+        // content/deltas already exist. Non-live reattach uses reconciling so
+        // empty «Думаю» does not blink forever while status/history catch up.
+        const assistantLifecycleStatus: ChatMessageStatus =
+          options?.liveTokenStream === false
+            ? nextContent.trim().length > 0
+              ? "streaming"
+              : "reconciling"
+            : options?.liveTokenStream === true ||
+                nextContent.trim().length > 0 ||
+                fallbackAssistantMessage.status === "streaming"
+              ? "streaming"
+              : "reconciling";
         const liveAssistantMessage: ChatMessage = {
           ...fallbackAssistantMessage,
           ...(statusAssistantMessage === null
@@ -2375,12 +2505,8 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                 thoughtStartedAt: statusAssistantMessage.thoughtStartedAt,
                 thoughtFinishedAt: statusAssistantMessage.thoughtFinishedAt
               }),
-          content:
-            statusAssistantMessage !== null &&
-            statusAssistantMessage.content.length > fallbackAssistantMessage.content.length
-              ? statusAssistantMessage.content
-              : fallbackAssistantMessage.content,
-          status: "streaming",
+          content: nextContent,
+          status: assistantLifecycleStatus,
           // Running/accepted turn-status is only live-progress truth.
           // Never hydrate attachment blocks from it, or an older committed
           // assistant message returned by reattach/status can visually stick
@@ -2388,16 +2514,29 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
           attachments: undefined
         };
         const currentActivity = status.currentActivity;
+        const previousLiveAssistantIdForActivities =
+          existingSnapshot?.liveAssistantMessageId ?? null;
         const existingLiveActivities = existingSnapshot?.liveActivitiesByMessageId ?? {};
+        // Bind chips only to the current live assistant; drop orphans from a
+        // prior bubble when a continuation (or remapped id) starts.
+        const scopedExistingLiveActivities =
+          previousLiveAssistantIdForActivities !== null &&
+          previousLiveAssistantIdForActivities !== liveAssistantMessage.id
+            ? {}
+            : Object.fromEntries(
+                Object.entries(existingLiveActivities).filter(
+                  ([messageId]) => messageId === liveAssistantMessage.id
+                )
+              );
         const nextLiveActivities =
           currentActivity === null
-            ? existingLiveActivities
+            ? scopedExistingLiveActivities
             : shouldDeferToolFinishedLiveActivity(currentActivity.toolName, currentActivity.phase)
-              ? existingLiveActivities
+              ? scopedExistingLiveActivities
               : {
-                  ...existingLiveActivities,
+                  ...scopedExistingLiveActivities,
                   [liveAssistantMessage.id]: mergeLiveActivity(
-                    existingLiveActivities[liveAssistantMessage.id],
+                    scopedExistingLiveActivities[liveAssistantMessage.id],
                     buildToolLiveActivity({
                       assistantMessageId: liveAssistantMessage.id,
                       toolName: currentActivity.toolName,
@@ -2628,59 +2767,117 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
         const token = await getToken({ skipCache: true });
         if (!token) return "unknown";
         const controller = new AbortController();
+        // So terminal finalize / sticky job-leave can abort this reattach stream.
+        // If a soft-detached primary controller is still registered, abort it
+        // first so observers of the original send signal see `aborted`.
+        const previousControllerEntry = abortControllersByThreadRef.current.get(targetThreadKey);
+        if (
+          previousControllerEntry !== undefined &&
+          previousControllerEntry.controller !== controller
+        ) {
+          previousControllerEntry.controller.abort();
+        }
+        abortControllersByThreadRef.current.set(targetThreadKey, {
+          controller,
+          clientTurnId
+        });
         let latestResult: "running" | "terminal" | "terminal_status" | "unknown" = "unknown";
+        // ADR-158: headers alone do not imply a live token bus; onReattached.live does.
+        let liveTokenStream = false;
+        const resolveLiveAssistantId = (): string | null =>
+          activeTurnSnapshotsRef.current.get(targetThreadKey)?.liveAssistantMessageId ?? null;
+        const promoteLiveAssistantStreaming = (
+          updater: (message: ChatMessage) => ChatMessage
+        ): void => {
+          liveTokenStream = true;
+          const liveAssistantId = resolveLiveAssistantId();
+          applyThreadMessages(targetThreadKey, (prev) =>
+            prev.map((message) => {
+              if (liveAssistantId !== null && message.id === liveAssistantId) {
+                return updater({ ...message, status: "streaming" });
+              }
+              if (
+                liveAssistantId === null &&
+                message.role === "assistant" &&
+                isActiveAssistantLifecycleStatus(message.status)
+              ) {
+                return updater({ ...message, status: "streaming" });
+              }
+              return message;
+            })
+          );
+        };
+        const finalizeAfterTerminal = async (): Promise<void> => {
+          const targetChatId = resolveKnownChatIdForThread(targetThreadKey);
+          if (targetChatId) {
+            await refreshLatestHistory(targetChatId, { targetThreadKey });
+          }
+          void refreshChatPlan();
+          finalizeReconciledDetachedTurn(targetThreadKey);
+          latestResult = "terminal";
+        };
         try {
           await reattachAssistantWebChatTurnStream(
             token,
             clientTurnId,
             {
               onHeadersOk: () => {
+                // Keep the thread marked busy, but do not force assistant
+                // status:"streaming" until live===true or the first delta.
                 markStreaming(targetThreadKey, true);
               },
               onTurnStatus: ({ turn }) => {
-                latestResult = applyTurnStatusState(targetThreadKey, clientTurnId, turn);
+                latestResult = applyTurnStatusState(targetThreadKey, clientTurnId, turn, {
+                  liveTokenStream
+                });
+                if (latestResult === "terminal" || latestResult === "terminal_status") {
+                  // Status may already have committed the turn pair. Refresh only
+                  // when we still need history absorb (async-cont has no user row).
+                  if (isAsyncContinuationClientTurnId(clientTurnId)) {
+                    void finalizeAfterTerminal();
+                  } else {
+                    finalizeReconciledDetachedTurn(targetThreadKey);
+                  }
+                }
               },
-              onReattached: ({ turn }) => {
-                latestResult = applyTurnStatusState(targetThreadKey, clientTurnId, turn);
+              onReattached: ({ turn, live }) => {
+                liveTokenStream = live;
+                latestResult = applyTurnStatusState(targetThreadKey, clientTurnId, turn, {
+                  liveTokenStream: live
+                });
+                if (latestResult === "terminal" || latestResult === "terminal_status") {
+                  if (isAsyncContinuationClientTurnId(clientTurnId)) {
+                    void finalizeAfterTerminal();
+                  } else {
+                    finalizeReconciledDetachedTurn(targetThreadKey);
+                  }
+                }
               },
               onDelta: ({ delta }) => {
-                applyThreadMessages(targetThreadKey, (prev) =>
-                  prev.map((message) =>
-                    message.role === "assistant" && message.status === "streaming"
-                      ? {
-                          ...message,
-                          content: `${message.content}${delta}`,
-                          streamingTextActive: true
-                        }
-                      : message
-                  )
-                );
+                promoteLiveAssistantStreaming((message) => ({
+                  ...message,
+                  content: `${message.content}${delta}`,
+                  streamingTextActive: true
+                }));
               },
               onThinking: ({ accumulated }) => {
                 const now = new Date().toISOString();
-                applyThreadMessages(targetThreadKey, (prev) =>
-                  prev.map((message) =>
-                    message.role === "assistant" && message.status === "streaming"
-                      ? {
-                          ...message,
-                          thought: accumulated,
-                          thoughtStartedAt: message.thoughtStartedAt ?? now
-                        }
-                      : message
-                  )
-                );
+                promoteLiveAssistantStreaming((message) => ({
+                  ...message,
+                  thought: accumulated,
+                  thoughtStartedAt: message.thoughtStartedAt ?? now
+                }));
               },
               onTool: ({ phase, toolName, toolCallId, isError, toolInputPreview }) => {
-                const snapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
-                const assistantMessageId = snapshot?.liveAssistantMessageId ?? null;
+                const assistantMessageId = resolveLiveAssistantId();
                 if (assistantMessageId === null) {
                   return;
                 }
+                liveTokenStream = true;
                 if (shouldDeferToolFinishedLiveActivity(toolName, phase)) {
                   return;
                 }
                 applyThreadLiveActivities(targetThreadKey, (prev) => ({
-                  ...prev,
                   [assistantMessageId]: mergeLiveActivity(
                     prev[assistantMessageId],
                     buildToolLiveActivity({
@@ -2696,7 +2893,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                 applyThreadMessages(targetThreadKey, (prev) =>
                   prev.map((message) =>
                     message.id === assistantMessageId
-                      ? { ...message, streamingTextActive: false }
+                      ? { ...message, status: "streaming", streamingTextActive: false }
                       : message
                   )
                 );
@@ -2705,13 +2902,11 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                 }
               },
               onToolProgress: ({ toolName, toolCallId, kind, line, step }) => {
-                const snapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
-                const assistantMessageId = snapshot?.liveAssistantMessageId ?? null;
+                const assistantMessageId = resolveLiveAssistantId();
                 if (assistantMessageId === null) {
                   return;
                 }
                 applyThreadLiveActivities(targetThreadKey, (prev) => ({
-                  ...prev,
                   [assistantMessageId]: mergeLiveActivity(
                     prev[assistantMessageId],
                     applyToolProgressToLiveActivity(prev[assistantMessageId], {
@@ -2769,13 +2964,12 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                 upsertAcceptedAsyncJob(payload);
               },
               onProjectActivity: ({ summary, detail }) => {
-                const snapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
-                const assistantMessageId = snapshot?.liveAssistantMessageId ?? null;
+                const assistantMessageId = resolveLiveAssistantId();
                 if (assistantMessageId === null) {
                   return;
                 }
+                liveTokenStream = true;
                 applyThreadLiveActivities(targetThreadKey, (prev) => ({
-                  ...prev,
                   [assistantMessageId]: mergeLiveActivity(
                     prev[assistantMessageId],
                     buildProjectLiveActivity({
@@ -2788,19 +2982,18 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                 applyThreadMessages(targetThreadKey, (prev) =>
                   prev.map((message) =>
                     message.id === assistantMessageId
-                      ? { ...message, streamingTextActive: false }
+                      ? { ...message, status: "streaming", streamingTextActive: false }
                       : message
                   )
                 );
               },
               onProjectReasoningSummary: ({ summary, detail }) => {
-                const snapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
-                const assistantMessageId = snapshot?.liveAssistantMessageId ?? null;
+                const assistantMessageId = resolveLiveAssistantId();
                 if (assistantMessageId === null) {
                   return;
                 }
+                liveTokenStream = true;
                 applyThreadLiveActivities(targetThreadKey, (prev) => ({
-                  ...prev,
                   [assistantMessageId]: mergeLiveActivity(
                     prev[assistantMessageId],
                     buildProjectLiveActivity({
@@ -2813,17 +3006,17 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                 applyThreadMessages(targetThreadKey, (prev) =>
                   prev.map((message) =>
                     message.id === assistantMessageId
-                      ? { ...message, streamingTextActive: false }
+                      ? { ...message, status: "streaming", streamingTextActive: false }
                       : message
                   )
                 );
               },
               onActivity: ({ source, resultCount, skillName, skillIconEmoji }) => {
-                const snapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
-                const assistantMessageId = snapshot?.liveAssistantMessageId ?? null;
+                const assistantMessageId = resolveLiveAssistantId();
                 if (assistantMessageId === null) {
                   return;
                 }
+                liveTokenStream = true;
                 applyThreadLiveActivities(targetThreadKey, (prev) => {
                   const nextActivity = buildRetrievalLiveActivity(
                     {
@@ -2836,14 +3029,13 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                     t("skillBadgePrefix")
                   );
                   return {
-                    ...prev,
                     [assistantMessageId]: mergeLiveActivity(prev[assistantMessageId], nextActivity)
                   };
                 });
                 applyThreadMessages(targetThreadKey, (prev) =>
                   prev.map((message) =>
                     message.id === assistantMessageId
-                      ? { ...message, streamingTextActive: false }
+                      ? { ...message, status: "streaming", streamingTextActive: false }
                       : message
                   )
                 );
@@ -2859,29 +3051,14 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                 }
               },
               onCompleted: async () => {
-                const targetChatId = resolveKnownChatIdForThread(targetThreadKey);
-                const reconciled = targetChatId
-                  ? await refreshLatestHistory(targetChatId, { targetThreadKey })
-                  : false;
-                void refreshChatPlan();
-                latestResult = reconciled ? "terminal" : "terminal";
+                await finalizeAfterTerminal();
               },
               onInterrupted: async () => {
-                const targetChatId = resolveKnownChatIdForThread(targetThreadKey);
-                const reconciled = targetChatId
-                  ? await refreshLatestHistory(targetChatId, { targetThreadKey })
-                  : false;
-                void refreshChatPlan();
-                latestResult = reconciled ? "terminal" : latestResult;
+                await finalizeAfterTerminal();
               },
               onFailed: async (payload) => {
                 setIssue(toWebChatUxIssue(payload));
-                const targetChatId = resolveKnownChatIdForThread(targetThreadKey);
-                const reconciled = targetChatId
-                  ? await refreshLatestHistory(targetChatId, { targetThreadKey })
-                  : false;
-                void refreshChatPlan();
-                latestResult = reconciled ? "terminal" : "running";
+                await finalizeAfterTerminal();
               }
             },
             controller.signal
@@ -2892,6 +3069,11 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
             return latestResult;
           }
           return latestResult;
+        } finally {
+          const entry = abortControllersByThreadRef.current.get(targetThreadKey);
+          if (entry?.controller === controller) {
+            abortControllersByThreadRef.current.delete(targetThreadKey);
+          }
         }
       })();
       turnReattachInFlightByKeyRef.current.set(reattachKey, reattachPromise);
@@ -2904,9 +3086,11 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
       }
     },
     [
+      applyPendingBrowserLoginForThread,
       applyThreadLiveActivities,
       applyThreadMessages,
       applyTurnStatusState,
+      finalizeReconciledDetachedTurn,
       getToken,
       markDocumentActive,
       markMediaActive,
@@ -2915,6 +3099,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
       refreshChatPlan,
       refreshLatestHistory,
       resolveKnownChatIdForThread,
+      t,
       upsertAcceptedAsyncJob
     ]
   );
@@ -2953,15 +3138,18 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
             return;
           }
           if (statusResult === "terminal") {
+            // Stream terminal event path — refresh history then tear down.
             await refreshLatestHistory(targetChatId, {
               clearIssueOnReconcile: true,
               targetThreadKey
             });
-            abortControllersByThreadRef.current.delete(targetThreadKey);
+            finalizeReconciledDetachedTurn(targetThreadKey);
             return;
           }
           if (statusResult === "terminal_status") {
-            abortControllersByThreadRef.current.delete(targetThreadKey);
+            // turn_status/reattached already applied committed messages; do not
+            // re-merge an unrelated pagination window over that result.
+            finalizeReconciledDetachedTurn(targetThreadKey);
             return;
           }
         }
@@ -5260,16 +5448,20 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
       const id = jobNeedsContinuationReattach(job);
       if (id !== null) clientTurnIds.add(id);
     }
-    for (const startedId of continuationReattachStartedRef.current) {
-      // Clear sticky when job leaves claimed|dispatched (or loses clientTurnId).
+    const targetThreadKey = currentThreadKeyRef.current;
+    for (const startedId of [...continuationReattachStartedRef.current]) {
+      // Clear sticky + finalize whenever the job leaves claimed|dispatched.
       if (!clientTurnIds.has(startedId)) {
         continuationReattachStartedRef.current.delete(startedId);
+        const snapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
+        if (snapshot?.clientTurnId === startedId) {
+          finalizeReconciledDetachedTurnRef.current(targetThreadKey);
+        }
       }
     }
     if (clientTurnIds.size === 0) {
       return;
     }
-    const targetThreadKey = currentThreadKeyRef.current;
     for (const clientTurnId of clientTurnIds) {
       if (continuationReattachStartedRef.current.has(clientTurnId)) {
         continue;
@@ -5278,10 +5470,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
       void startTurnReattachRef.current(targetThreadKey, clientTurnId).then((result) => {
         if (result === "terminal" || result === "terminal_status") {
           continuationReattachStartedRef.current.delete(clientTurnId);
-          const snapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
-          if (snapshot?.clientTurnId === clientTurnId) {
-            finalizeReconciledDetachedTurnRef.current(targetThreadKey);
-          }
+          finalizeReconciledDetachedTurnRef.current(targetThreadKey);
           return;
         }
         // Allow retry after false-terminal / failed-to-start; keep sticky while
@@ -5292,33 +5481,30 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
       });
     }
   }, [activeDocumentJobs, activeMediaJobs, activeSandboxJobs]);
-  // Drop phantom "thinking" / blinking-cursor placeholders. If a streaming
-  // assistant message has empty content AND there's a NEWER assistant
-  // message below it, the older one is stale (background turn already
-  // landed but its `applyTurnStatusState` cleanup didn't fire for that
-  // exact id — e.g. the active turn registry was on a different pod, the
-  // GET /turns reattach completed, or the snapshot was constructed by a
-  // historical projection). Hide the stale placeholder so the chat area
-  // does not render a permanent "Думаю...".
-  const lastAssistantIndex = (() => {
-    for (let i = messages.length - 1; i >= 0; i--) {
-      if (messages[i]?.role === "assistant") return i;
+  // Drop phantom "thinking" / blinking-cursor placeholders (ADR-158).
+  const activeLiveTurnIdsForVisibility = (() => {
+    const snapshot = activeTurnSnapshotsRef.current.get(assistantScopedThreadKey);
+    if (snapshot === undefined) {
+      return undefined;
     }
-    return -1;
+    return new Set<string>(
+      [snapshot.liveUserMessageId, snapshot.liveAssistantMessageId].filter(
+        (value): value is string => typeof value === "string"
+      )
+    );
   })();
-  const visibleMessages = messages.filter((message, index) => {
-    if (
-      message.role === "assistant" &&
-      message.status === "streaming" &&
-      message.content.trim().length === 0 &&
-      index < lastAssistantIndex
-    ) {
-      return false;
-    }
-    return true;
-  });
+  const visibleMessages = stripEmptyActiveAssistantPlaceholders(
+    messages,
+    "stale-only",
+    activeLiveTurnIdsForVisibility
+  );
+  const liveAssistantMessageIdForActivities =
+    activeTurnSnapshotsRef.current.get(assistantScopedThreadKey)?.liveAssistantMessageId ?? null;
   const latestAssistantMessageId =
     [...visibleMessages].reverse().find((message) => message.role === "assistant")?.id ?? null;
+  // Prefer the active-turn live assistant; fall back to latest only when no
+  // live snapshot remains (e.g. tests that end the SSE without a terminal).
+  const activityTargetMessageId = liveAssistantMessageIdForActivities ?? latestAssistantMessageId;
   const entries: ChatEntry[] = [];
   const activityByMsg = new Map<string, ActivityEvent[]>();
   const orphanActivities: ActivityEvent[] = [];
@@ -5334,7 +5520,12 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
   for (const m of visibleMessages) {
     entries.push({ kind: "message", message: m });
     const live = liveActivitiesByMessageId[m.id];
-    if (live && !isHiddenMediaActivity(live) && m.id === latestAssistantMessageId) {
+    if (
+      live &&
+      !isHiddenMediaActivity(live) &&
+      activityTargetMessageId !== null &&
+      m.id === activityTargetMessageId
+    ) {
       const shadowRoutingLabel = shadowRoutingLabelsByMessageId[m.id];
       entries.push({
         kind: "activity",

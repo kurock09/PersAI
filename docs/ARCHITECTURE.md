@@ -249,10 +249,14 @@ locally. A SchedulerLease-backed API worker now validates and claims ready
 handle rows, dispatches through the ordinary runtime session lease/receipt seam,
 persists one Assistant output, and conservatively reconciles stale work. Web
 notify continuation prefers the resumable ADR-149 stream path (turn attempt +
-in-process stream registry + Stop + client reattach on
+ADR-158 durable turn-stream bus + Stop + client reattach on
 `continuationClientTurnId`, with null attempt `userMessageId` so history merge
 does not treat the source-user prior assistant as already-committed); Telegram
-keeps blocking JSON dispatch. The
+keeps blocking JSON dispatch. **ADR-158:** live web SSE catch-up
+(`delta`/`tool`/…) is an ephemeral Redis (or single-process memory) bus on the
+same coordination URL family as Stop; any API pod can replay+subscribe, while
+Postgres turn-attempt rows stay status authority and soft-detach still does not
+Stop. The
 same `assistant_async_job_handles` row now owns source-finalization, narration,
 depth, claim/dispatch/receipt/retry, and terminal state. Both media and document
 delivery paths consult that decision before legacy framing while preserving

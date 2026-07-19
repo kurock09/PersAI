@@ -2,7 +2,15 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { ReconcileOrphanWebChatTurnAttemptsService } from "../src/modules/workspace-management/application/reconcile-orphan-web-chat-turn-attempts.service";
 import { WebChatTurnStopDispatchService } from "../src/modules/workspace-management/application/web-chat-turn-stop-dispatch.service";
+import { MemoryTurnStreamEventStore } from "../src/modules/workspace-management/application/memory-turn-stream-event-store";
+import { WebChatTurnStreamBusService } from "../src/modules/workspace-management/application/web-chat-turn-stream-bus.service";
 import { WebChatTurnStreamRegistry } from "../src/modules/workspace-management/application/web-chat-turn-stream-registry.service";
+
+function createStreamRegistry(): WebChatTurnStreamRegistry {
+  const store = new MemoryTurnStreamEventStore();
+  const bus = new WebChatTurnStreamBusService(store);
+  return new WebChatTurnStreamRegistry(bus);
+}
 
 type AttemptRow = {
   id: string;
@@ -99,7 +107,7 @@ function createService(prisma: FakePrisma, stopDispatch: FakeStopDispatch) {
   return new ReconcileOrphanWebChatTurnAttemptsService(
     prisma as never,
     stopDispatch as unknown as WebChatTurnStopDispatchService,
-    new WebChatTurnStreamRegistry()
+    createStreamRegistry()
   );
 }
 
@@ -164,7 +172,7 @@ describe("ADR-149 orphan web turn attempt reconcile", () => {
   test("skips attempts with active stream or stop owners", async () => {
     const prisma = new FakePrisma();
     const stopDispatch = new FakeStopDispatch();
-    const streamRegistry = new WebChatTurnStreamRegistry();
+    const streamRegistry = createStreamRegistry();
     const service = new ReconcileOrphanWebChatTurnAttemptsService(
       prisma as never,
       stopDispatch as unknown as WebChatTurnStopDispatchService,
@@ -201,7 +209,7 @@ describe("ADR-149 orphan web turn attempt reconcile", () => {
       createdAt: staleAt,
       updatedAt: staleAt
     });
-    streamRegistry.register({
+    await streamRegistry.register({
       assistantId: "assistant-1",
       clientTurnId: "turn-3",
       userId: "user-1"

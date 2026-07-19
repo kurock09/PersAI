@@ -143,7 +143,7 @@ export class StreamWebAsyncContinuationService {
       ...registryIdentity,
       controller: abortController
     });
-    this.webChatTurnStreamRegistry.register(registryIdentity);
+    await this.webChatTurnStreamRegistry.register(registryIdentity);
 
     const publish = (event: string, payload: unknown): void => {
       this.webChatTurnStreamRegistry.publish({

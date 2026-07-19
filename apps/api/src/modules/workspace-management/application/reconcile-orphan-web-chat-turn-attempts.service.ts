@@ -77,7 +77,7 @@ export class ReconcileOrphanWebChatTurnAttemptsService {
       }
 
       if (
-        this.webChatTurnStreamRegistry.hasActiveStream(
+        await this.webChatTurnStreamRegistry.hasActiveStream(
           candidate.assistantId,
           candidate.clientTurnId
         )

@@ -318,7 +318,10 @@ import { InternalRuntimeDocumentJobClientService } from "./application/internal-
 import { InternalRuntimeMediaJobClientService } from "./application/internal-runtime-media-job.client.service";
 import { WebChatTurnAttemptService } from "./application/web-chat-turn-attempt.service";
 import { WebChatTurnStopDispatchService } from "./application/web-chat-turn-stop-dispatch.service";
+import { WebChatTurnStreamBusService } from "./application/web-chat-turn-stream-bus.service";
 import { WebChatTurnStreamRegistry } from "./application/web-chat-turn-stream-registry.service";
+import { createTurnStreamEventStore } from "./application/turn-stream-event-store.factory";
+import { TURN_STREAM_EVENT_STORE } from "./application/turn-stream-event-store";
 import { PrepareAssistantInboundTurnService } from "./application/prepare-assistant-inbound-turn.service";
 import { MergeStagedWebChatAttachmentsService } from "./application/merge-staged-web-chat-attachments.service";
 import { HandleInternalCronFireService } from "./application/handle-internal-cron-fire.service";
@@ -798,6 +801,11 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     InternalRuntimeMediaJobClientService,
     WebChatTurnAttemptService,
     WebChatTurnStopDispatchService,
+    {
+      provide: TURN_STREAM_EVENT_STORE,
+      useFactory: () => createTurnStreamEventStore()
+    },
+    WebChatTurnStreamBusService,
     WebChatTurnStreamRegistry,
     UpdateAssistantDraftService,
     SwitchActiveAssistantService,

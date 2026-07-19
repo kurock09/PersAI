@@ -2120,6 +2120,8 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
   const tSend = useTranslations("send");
   const isUser = message.role === "user";
   const isStreaming = message.status === "streaming" && message.role === "assistant";
+  // ADR-158: non-live reattach uses reconciling — show a quiet wait cursor, not «Думаю».
+  const isAssistantReconciling = message.role === "assistant" && message.status === "reconciling";
   const assistantSegments = useMemo(() => {
     if (message.role !== "assistant") {
       return { iterationBlocks: [], answerText: message.content };
@@ -2364,6 +2366,24 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
                     ) : null}
                   </div>
                 )}
+              </>
+            ) : isAssistantReconciling ? (
+              <>
+                {hasVisibleAnswerText ? (
+                  <MarkdownMessageContent
+                    content={assistantSegments.answerText}
+                    onAction={onAssistantAction}
+                  />
+                ) : null}
+                {!hasVisibleAnswerText ? (
+                  <div className="mt-2 flex items-center gap-2">
+                    <span
+                      aria-hidden="true"
+                      data-testid="reconciling-cursor"
+                      className="inline-block h-4 w-1.5 animate-pulse rounded-sm bg-accent/45 align-middle"
+                    />
+                  </div>
+                ) : null}
               </>
             ) : (
               <MarkdownMessageContent

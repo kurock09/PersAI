@@ -1,62 +1,36 @@
-import { Injectable, Logger } from "@nestjs/common";
-import { randomUUID } from "node:crypto";
+import { Injectable } from "@nestjs/common";
+import { WebChatTurnStreamBusService } from "./web-chat-turn-stream-bus.service";
 
-interface RegisteredStream {
-  assistantId: string;
-  userId: string;
-  registeredAt: number;
-  sinks: Map<string, (event: string, payload: unknown) => void>;
-}
-
-function buildStreamKey(assistantId: string, clientTurnId: string): string {
-  return `${assistantId}:${clientTurnId}`;
-}
-
+/**
+ * ADR-158 — thin facade over {@link WebChatTurnStreamBusService}.
+ *
+ * Controllers and continuation keep calling register/publish/attach/release;
+ * the bus owns durable Redis (or memory) catch-up plus same-pod sinks.
+ */
 @Injectable()
 export class WebChatTurnStreamRegistry {
-  private readonly logger = new Logger(WebChatTurnStreamRegistry.name);
-  private readonly streams = new Map<string, RegisteredStream>();
+  constructor(private readonly bus: WebChatTurnStreamBusService) {}
 
-  register(input: { assistantId: string; clientTurnId: string; userId: string }): void {
-    const key = buildStreamKey(input.assistantId, input.clientTurnId);
-    const existing = this.streams.get(key);
-    if (existing !== undefined) {
-      this.logger.warn(
-        `[web-turn-stream-registry] reregister assistantId=${input.assistantId} clientTurnId=${input.clientTurnId} userId=${input.userId}`
-      );
-    }
-    this.streams.set(key, {
-      assistantId: input.assistantId,
-      userId: input.userId,
-      registeredAt: Date.now(),
-      sinks: new Map()
-    });
+  async register(input: {
+    assistantId: string;
+    clientTurnId: string;
+    userId: string;
+  }): Promise<void> {
+    await this.bus.registerTurn(input);
   }
 
   release(input: { assistantId: string; clientTurnId: string; userId: string }): void {
-    const key = buildStreamKey(input.assistantId, input.clientTurnId);
-    const existing = this.streams.get(key);
-    if (existing === undefined || existing.userId !== input.userId) {
-      return;
-    }
-    this.streams.delete(key);
+    this.bus.release(input);
   }
 
-  attach(input: {
+  async attach(input: {
     assistantId: string;
     clientTurnId: string;
     userId: string;
     onEvent: (event: string, payload: unknown) => void;
-  }): (() => void) | null {
-    const existing = this.streams.get(buildStreamKey(input.assistantId, input.clientTurnId));
-    if (existing === undefined || existing.userId !== input.userId) {
-      return null;
-    }
-    const sinkId = randomUUID();
-    existing.sinks.set(sinkId, input.onEvent);
-    return () => {
-      existing.sinks.delete(sinkId);
-    };
+    fromSeq?: number;
+  }): Promise<(() => void) | null> {
+    return this.bus.attach(input);
   }
 
   publish(input: {
@@ -66,20 +40,14 @@ export class WebChatTurnStreamRegistry {
     event: string;
     payload: unknown;
   }): void {
-    const existing = this.streams.get(buildStreamKey(input.assistantId, input.clientTurnId));
-    if (existing === undefined || existing.userId !== input.userId) {
-      return;
-    }
-    for (const sink of existing.sinks.values()) {
-      sink(input.event, input.payload);
-    }
+    this.bus.publish(input);
   }
 
-  hasActiveStream(assistantId: string, clientTurnId: string): boolean {
-    return this.streams.has(buildStreamKey(assistantId, clientTurnId));
+  async hasActiveStream(assistantId: string, clientTurnId: string): Promise<boolean> {
+    return this.bus.hasActiveStream(assistantId, clientTurnId);
   }
 
   hasForTesting(assistantId: string, clientTurnId: string): boolean {
-    return this.hasActiveStream(assistantId, clientTurnId);
+    return this.bus.hasLocalRegistrationForTesting(assistantId, clientTurnId);
   }
 }

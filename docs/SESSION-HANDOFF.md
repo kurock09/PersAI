@@ -1,9 +1,19 @@
 # SESSION-HANDOFF
 
+## 2026-07-19 — ADR-158 durable multi-pod web turn stream bus
+
+Status: **CLEAN + AGENTS/CI-like gate green; push SHA after push. Deploy/live
+multi-replica smoke still open.** Baseline was clean `main` `20b55d5d`.
+Redis/memory turn stream bus (same URL family as Stop) + client reconciling /
+finalize / no phantom «Думаю» / chips on live assistant only. Independent
+re-audit CLEAN after Lua seq + attachLocal sink-before-list repairs. Gate:
+lint, format:check, api/web/runtime/sandbox typecheck, full `pnpm test`,
+`test:ci-detect-affected`, `test:step2`.
+
 ## 2026-07-19 — Notify resumable same-chat stream
 
-Status: **Pushed `main` `5434149d` (docs tip `8f113664`). Deploy still open.**
-Baseline was `c404baa8`. ADR-152 addendum: web notify
+Status: **Pushed `main` `5434149d`. Superseded as stream-delivery truth by
+ADR-158 above.** Baseline was `c404baa8`. ADR-152 addendum: web notify
 wake uses same-chat ADR-149 resumable turn (attempt + registry + reattach);
 Telegram keeps blocking execute; ordinary POST chat unchanged. Includes
 sandboxResult facts + prompt, audit P0/P1 repairs (null continuation
@@ -17,15 +27,17 @@ api/web/runtime/sandbox typecheck, full `pnpm test`, `test:ci-detect-affected`,
 Status: **Pushed `main` `b31adc71` (docs tip `c404baa8`). Deploy still open.**
 
 Founder live near «все по пизде пошло» (~23:06–23:09 UTC 2026-07-18):
+
 - `Router classifier failed … Provider gateway rejected … status 400`
 - `[self-check] failed requestId=ce61ad9e… Provider gateway rejected … 400`
   (short turn, 1 tool — not only perception path)
 - then `runtime_turn_busy` (`5f0747bb` / idempotency `1a44faeb`) while long
   turn `4bad13e1…` still running
-Phrase text itself is not in runtime logs (user message content); turn errors
-above sit in that window.
+  Phrase text itself is not in runtime logs (user message content); turn errors
+  above sit in that window.
 
 Repairs in this push:
+
 1. **Self-check crash:** omit `toolFollowUpUserContent`, todo_write-only tools;
    abort rethrows; stream finalize → terminal `failed` instead of hang.
 2. **Same-turn embed:** media/document delivery + `persistAssistantMessage`
@@ -154,12 +166,13 @@ not committed/deployed).** (1) `readCanonical` classifies
 `failed|expired|canceled` before delivery-visible success so Telegram
 failure-notice `deliveredAt` cannot observe as completed. (2) Shared
 `readCanonicalTerminal` unifies observe + scheduler `loadAndValidateContext`
-+ media/document subscribed reconcile — delivery-visible
-`completion_pending`+attachment marks notify `ready` and continuation claim
-validates without `failClaim`/`continuation_context_invalid`. Focused
-handle-state + continuation-scheduler tests green (52). Fresh full re-audit
-still **DIRTY** in other areas (web continuation live visibility; sandbox
-Stop/cap; Working pill labels) — do not treat tree as CLEAN.
+
+- media/document subscribed reconcile — delivery-visible
+  `completion_pending`+attachment marks notify `ready` and continuation claim
+  validates without `failClaim`/`continuation_context_invalid`. Focused
+  handle-state + continuation-scheduler tests green (52). Fresh full re-audit
+  still **DIRTY** in other areas (web continuation live visibility; sandbox
+  Stop/cap; Working pill labels) — do not treat tree as CLEAN.
 
 ## 2026-07-18 — ADR-152 post-fix residual sweep CLEAN (local) — SUPERSEDED
 

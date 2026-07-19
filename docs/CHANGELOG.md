@@ -5,6 +5,17 @@
 
 ## 2026-07-19
 
+- **Feature (ADR-158; push SHA in handoff): durable multi-pod web turn stream
+  bus + client status cleanup.** Replaces process-local-only live SSE fanout
+  with `WebChatTurnStreamBusService` (Redis LIST+pub/sub via
+  `PERSAI_TURN_COORDINATION_REDIS_URL` / `BROWSER_BRIDGE_REDIS_URL`, memory
+  fallback). Atomic Lua `INCR`+`RPUSH` seq; reattach any pod replays then
+  follows live; `reattached.live` when attach succeeds. Client: non-live →
+  `reconciling` (quiet wait, not «Думаю»); terminal/`async-cont` always
+  finalizes; activity chips only on live assistant. Soft-detach ≠ Stop
+  unchanged. Independent re-audit CLEAN; AGENTS + CI-like gate green before
+  push. Deploy/multi-replica live smoke still open.
+
 - **Feature pushed to `main` (`5434149d`): ADR-152 resumable web notify
   continuation + sandbox facts.** Web notify wake uses the same ADR-149
   resumable turn path as ordinary chat: runtime `streamAsyncContinuation` +
@@ -23,7 +34,7 @@
 - **Fix pushed to `main` (`b31adc71`): stale sandbox Working / await pending +
   late chat bubbles + self-check crash.** Detached `SandboxJob` rows stayed
   `pending` in await/Working until a rare scheduler inspect. `await
-  wait|notify`, snapshot, and Working list now refresh detached jobs via
+wait|notify`, snapshot, and Working list now refresh detached jobs via
   sandbox control-plane poll before reading canonical truth; reconciler logs
   inspect failures and rotates fairness. Background-wait copy moves into the
   last assistant bubble as italic footer. Web chat preserves `createdAt`,

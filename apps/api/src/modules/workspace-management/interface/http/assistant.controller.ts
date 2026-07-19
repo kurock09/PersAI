@@ -1180,12 +1180,13 @@ export class AssistantController {
       return;
     }
 
-    const detach = this.webChatTurnStreamRegistry.attach({
+    const detach = await this.webChatTurnStreamRegistry.attach({
       assistantId: resolvedAssistant.assistantId,
       clientTurnId: normalizedClientTurnId,
       userId,
       onEvent: sendSse
     });
+    // ADR-158: live when the durable bus (or same-pod registry) can replay/subscribe.
     sendSse("reattached", { turn: initialStatus, live: detach !== null });
 
     let lastStatusPayload = JSON.stringify(initialStatus);
@@ -1358,7 +1359,7 @@ export class AssistantController {
           userId: preparation.prepared.userId,
           controller: clientAbortController
         });
-        this.webChatTurnStreamRegistry.register({
+        await this.webChatTurnStreamRegistry.register({
           assistantId: preparation.prepared.assistantId,
           clientTurnId: clientTurnIdForRegistry,
           userId: preparation.prepared.userId
