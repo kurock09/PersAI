@@ -5,7 +5,7 @@
 
 ## 2026-07-20
 
-- **Repair (ADR-159 three-job live failure; local):** corrected the prior
+- **Repair (ADR-159 three-job live failure; deployed and web-accepted):** corrected the prior
   incomplete green claim. All three media files delivered, but the first
   synthetic catch-up failed because a post-headers/pre-output DeepSeek stream
   ended with bare `terminated`. Provider-gateway had classified that transport
@@ -15,8 +15,12 @@
   performs at most one same-provider retry only before any provider output when
   the configured fallback is absent or resolves to the same provider/model.
   Schema/auth/billing and post-output failures remain non-retried on the same
-  provider. Focused provider/runtime tests and typechecks pass. Baseline
-  `f16bd46e`; pending push, deploy, and live acceptance.
+  provider. Release `0bb19b64`, GitOps pin `3b98c6bd`; full local and GitHub
+  gates passed; Argo is Synced/Healthy with exact runtime/provider-gateway
+  images. Browser acceptance repeated three image jobs without F5: all
+  attachments became ready, FIFO live continuations arrived as `1/3`, `2/3`,
+  then complete, and an interleaved user turn succeeded with no new failure
+  bubble or banner.
 
 - **Web UI (deployed and accepted):** restored only the founder-requested
   Working pill visual refinements from the pre-ADR-159 stash: separate centered

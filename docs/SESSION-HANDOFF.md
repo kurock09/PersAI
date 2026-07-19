@@ -1,9 +1,11 @@
 # SESSION-HANDOFF
 
-## 2026-07-20 — ADR-159 three-job live failure diagnosed; transport repair local
+## 2026-07-20 — ADR-159 three-job transport repair deployed and accepted
 
-Status: **Live acceptance is not green; local repair on clean baseline
-`f16bd46e`, pending push, deploy, and acceptance.** Founder evidence
+Status: **Web end-to-end acceptance is green; Telegram remains pending.**
+Repair release `0bb19b64`, GitOps pin `3b98c6bd`; Argo is Synced/Healthy and
+both runtime plus provider-gateway replicas run the exact release image.
+Founder evidence
 from chat `b1be30a7-fefc-4e40-b799-2148c9ee621a` showed three media jobs whose
 files all delivered, but the first synthetic catch-up failed visibly. Cluster
 and durable turn evidence identified exact attempt
@@ -12,18 +14,23 @@ after headers and before model output with bare `terminated`; provider-gateway
 classified it as unknown `provider_request_failed`, so runtime did not enter
 its retry/fallback path. The other two FIFO catch-ups completed.
 
-The local repair classifies bounded transport disconnect signatures
+The shipped repair classifies bounded transport disconnect signatures
 (`terminated`, reset/socket/premature-close variants) as retryable
 `server_error`, adds structured failure classification to DeepSeek logs, and
 permits exactly one same-provider retry only when a retryable stream failure
 occurs before any provider output and configured fallback is absent or resolves
 to the same provider/model. Invalid request, auth, billing, and post-output
-failures are not same-provider retried. Focused DeepSeek classification,
-runtime fallback, turn execution tests, and provider/runtime typechecks pass.
-Next: full gate, commit/push, exact provider-gateway/runtime rollout, then repeat
-the three-job FIFO acceptance. The earlier discovery/reattach acceptance
-remains valid evidence, but it did not prove end-to-end continuation success.
-Do not claim ADR-159 green or closed.
+failures are not same-provider retried. Full local provider/runtime suites,
+recursive lint, format, and API/web/provider/runtime typechecks passed; GitHub
+CI and image publication passed.
+
+Exact-image browser acceptance then repeated three jobs with no F5. Circle,
+square, and triangle all produced ready attachments; three live continuations
+arrived FIFO as `1/3`, `2/3`, then complete, with no new follow-up failure or
+failed-turn banner. A real interleaved user turn also completed between source
+turn and catch-ups. ADR-159 remains open only for Telegram acceptance and final
+reconciliation. Next bounded product slice: resume durable web live-state
+restoration for F5 and A→B→A switching; do not mix it with this closed repair.
 
 ## 2026-07-20 — Working pill visual refinement deployed
 

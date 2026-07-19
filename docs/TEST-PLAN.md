@@ -85,7 +85,10 @@ Completed focused coverage plus S5 shipping coverage (no intermediate deploy unt
   iteration. Invalid request/auth/billing and any post-output failure must not
   use the same-provider retry. The failed first catch-up must not block FIFO
   siblings. Exact-image live acceptance must prove three successful
-  continuations and no generic failed-turn banner.
+  continuations and no generic failed-turn banner. Passed on release
+  `0bb19b64` / GitOps `3b98c6bd`: three ready image attachments, live FIFO
+  `1/3` → `2/3` → complete without F5, no new failure bubble/banner, and a real
+  interleaved user turn completed before catch-ups.
 - **S4 purge + CLEAN repair (local):** no production `claimReady` /
   `requeueBusyNotStarted`; finalize returns `autoSubscribed` (no
   `legacyChosen`); pre-accept busy uses `releaseClaimToReady` without retry
