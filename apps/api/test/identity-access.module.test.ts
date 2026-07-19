@@ -72,6 +72,14 @@ export async function runIdentityAccessModuleTest(): Promise<void> {
   );
   assert.equal(
     hasRoute(consumer.routes, {
+      path: "api/v1/assistant/chats/web/:chatId/continuations/stream",
+      method: RequestMethod.GET
+    }),
+    true,
+    "GET continuation discovery stream must be guarded by ClerkAuthMiddleware"
+  );
+  assert.equal(
+    hasRoute(consumer.routes, {
       path: "api/v1/assistant/switch",
       method: RequestMethod.POST
     }),
