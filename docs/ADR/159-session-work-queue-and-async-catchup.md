@@ -2,22 +2,24 @@
 
 ## Status
 
-**Open 2026-07-19 — S5 live BLOCKED.** Exact-image acceptance found
-PostgreSQL `42702` (`column reference "assistant_id" is ambiguous`) on every
-scheduler tick in `ChatWakeCoordinator.listCatchUpEligibleChats`, stranding a
-ready sandbox handle. Local repair now aliases `assistant_async_job_handles` as
-`h` and qualifies every handle reference in the joined inner query; a
-self-contained PostgreSQL temporary-table regression fixture covers the exact
-query with overlapping joined-table columns. The independent Terra code and
-real-PostgreSQL audit is **CLEAN/GO (15/15)**. This is a distinct hotfix audit;
-the earlier full repair-train CLEAN/GO remains historical and does not make
-this newly repaired exact image accepted. The hotfix is not committed, pushed,
-or redeployed. S5 remains BLOCKED until an exact-image redeploy and repeated
-smoke drain the stranded ready handle and pass a new multi-job test. ADR-159
-remains neither live-accepted nor closed. The additive migration
-`20260719180000_adr159_admission_linearization` still requires migration
-approval. Historical final-gate results below apply to the pre-live-failure
-tree only.
+**Open 2026-07-19 — S5 live BLOCKED by post-deploy continuation defects.**
+The scheduler SQL hotfix `b07ff3dd` is deployed on both API replicas through
+GitOps pin `5243a1a1`; it removed PostgreSQL `42702`, and ready handles dispatch
+again. Repeated live acceptance then exposed two further production defects:
+runtime removed the synthetic completion event and left historical user text
+as the active request, so a catch-up repeated completed jobs; and web transport
+ambiguity marked work `dispatched` without logical idempotency evidence,
+leaving a zombie handle and permitting unsafe retry under a new request id.
+The local repair makes exact `JOB_CATCHUP` facts the final model-facing event,
+adds logical `(conversation,idempotencyKey)` receipt evidence, requeues only
+authoritative never-accepted work, makes orphan-reconciled `async-cont:*`
+receipts non-reclaimable, and terminalizes accepted/unknown ambiguity once.
+Real-PostgreSQL concurrency coverage proves two request ids for one logical
+continuation produce one authoritative receipt and no reclaim. These repairs
+are not committed, pushed, deployed, or live-accepted. ADR-159 remains open
+until exact API/runtime images pass fresh web and Telegram background-job
+acceptance without duplicate execution, missing narration, zombie Working, or
+reload-only visibility.
 
 **Slice 2 final repair:** Working projections now include only
 canonical nonterminal media/document/sandbox jobs; terminal continuation facts
@@ -71,8 +73,10 @@ in continuation `facts` (ordinal/total, interleaved, originating vs latest
 user message, retained terminal/`sandboxResult`) via scheduler
 `buildRequest` (web + Telegram share the builder); quiet
 `AssistantChatMessage.metadata` flags on persisted catch-up bubbles; runtime
-developer section treats structured facts as the product signal (synthetic
-`[internal async completion]` strip retained, not sole cue). **S4** purges
+projects the final model-facing user message as an explicit bounded synthetic
+`JOB_CATCHUP` event with exact terminal facts and instructions to handle only
+that event (rather than stripping the transport placeholder and leaving an
+old user instruction active). **S4** purges
 dead wake APIs (`claimReady`, `requeueBusyNotStarted`), drops
 `legacyChosen` alias, confirms no client stuck-accepted absorb product path
 (ADR-158 history absorb for null-user async-cont remains), documents

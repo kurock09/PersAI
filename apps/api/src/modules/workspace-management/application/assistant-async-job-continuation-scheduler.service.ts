@@ -327,7 +327,7 @@ export class AssistantAsyncJobContinuationSchedulerService
           }
         });
         if (!isCatchUpLockHeld() || coordinationSignal?.aborted) {
-          await this.reconcileLockLostClaim(claim, context, dispatch, markDispatched);
+          await this.reconcileLockLostClaim(claim, context, dispatch);
         }
         return;
       }
@@ -368,7 +368,7 @@ export class AssistantAsyncJobContinuationSchedulerService
           coordinationSignal?.aborted ||
           !isCatchUpLockHeld()
         ) {
-          await this.reconcileLockLostClaim(claim, context, dispatch, markDispatched);
+          await this.reconcileLockLostClaim(claim, context, dispatch);
           return;
         }
         if (error instanceof AsyncContinuationDispatchAmbiguousError) {
@@ -380,17 +380,11 @@ export class AssistantAsyncJobContinuationSchedulerService
             ...dispatch.request,
             sessionId: context.session.id
           });
-          if (runtimeStatus.proof === "proven" && runtimeStatus.receiptStatus !== "absent") {
-            await markDispatched(dispatch.request.requestId);
-            this.logger.warn(
-              `Async continuation transport ambiguity reconciled to durable receipt id=${claim.id} status=${runtimeStatus.receiptStatus}`
-            );
-            return;
-          }
           if (
             runtimeStatus.proof === "proven" &&
             runtimeStatus.receiptStatus === "absent" &&
-            !runtimeStatus.exactInFlight
+            !runtimeStatus.exactInFlight &&
+            !runtimeStatus.logicalEverAccepted
           ) {
             await this.handleState.releaseClaimToReady({
               ...claim,
@@ -398,27 +392,35 @@ export class AssistantAsyncJobContinuationSchedulerService
             });
             return;
           }
-          // Status itself is ambiguous. Keep the claim for the existing
-          // receipt/orphan reconciler; re-executing here could duplicate a
-          // Telegram continuation.
+          // A logical key may have been accepted under another transport
+          // request id. Terminalize one honest failure rather than retaining
+          // a zombie FIFO head or executing the same wake again.
           this.logger.warn(
             `Async continuation dispatch status remains ambiguous id=${claim.id}: ${error.message}`
           );
+          await this.finalizeContinuationChildren(context, "failed");
+          await this.failClaimVisibly(claim, {
+            errorCode: "continuation_dispatch_ambiguous",
+            errorMessage:
+              "The continuation may have started but its result could not be recovered safely."
+          });
           return;
         }
         throw error;
       }
-      if (outcome.outcome === "busy" || outcome.outcome === "duplicate") {
-        // ADR-159 — busy / runtime duplicate (acceptTurn in_flight elsewhere):
-        // no markDispatched; releaseClaimToReady (not completeClaim).
+      if (outcome.outcome === "busy") {
         await this.handleState.releaseClaimToReady({
           ...claim,
           retryAt: this.retryAt(context.handle.retryCount)
         });
         return;
       }
+      if (outcome.outcome === "duplicate") {
+        await this.reconcileLockLostClaim(claim, context, dispatch);
+        return;
+      }
       if (!isCatchUpLockHeld() || coordinationSignal?.aborted) {
-        await this.reconcileLockLostClaim(claim, context, dispatch, markDispatched);
+        await this.reconcileLockLostClaim(claim, context, dispatch);
         return;
       }
       const marked = await markDispatched(dispatch.request.requestId);
@@ -433,19 +435,19 @@ export class AssistantAsyncJobContinuationSchedulerService
       }
       if (outcome.outcome !== "completed") return;
       if (!isCatchUpLockHeld() || coordinationSignal?.aborted) {
-        await this.reconcileLockLostClaim(claim, context, dispatch, markDispatched);
+        await this.reconcileLockLostClaim(claim, context, dispatch);
         return;
       }
       const persisted = await this.persistOutputOnce(claim, context, outcome.result);
       if (persisted.outcome === "lost") return;
       if (!isCatchUpLockHeld() || coordinationSignal?.aborted) {
-        await this.reconcileLockLostClaim(claim, context, dispatch, markDispatched);
+        await this.reconcileLockLostClaim(claim, context, dispatch);
         return;
       }
       const assistantMessageId = persisted.messageId;
       await this.finalizeContinuationChildren(context, "persisted", assistantMessageId);
       if (!isCatchUpLockHeld() || coordinationSignal?.aborted) {
-        await this.reconcileLockLostClaim(claim, context, dispatch, markDispatched);
+        await this.reconcileLockLostClaim(claim, context, dispatch);
         return;
       }
       await this.deliverContinuationArtifactsOnce(
@@ -480,23 +482,30 @@ export class AssistantAsyncJobContinuationSchedulerService
   private async reconcileLockLostClaim(
     claim: { id: string; claimToken: string },
     context: NonNullable<Awaited<ReturnType<typeof this.loadAndValidateContext>>>,
-    dispatch: { request: RuntimeTurnRequest },
-    markDispatched: (receiptRequestId: string) => Promise<boolean>
+    dispatch: { request: RuntimeTurnRequest }
   ): Promise<void> {
     const status = await this.runtimeClient.inspect({
       ...dispatch.request,
       sessionId: context.session.id
     });
-    if (status.proof === "proven" && status.receiptStatus === "absent" && !status.exactInFlight) {
+    if (
+      status.proof === "proven" &&
+      status.receiptStatus === "absent" &&
+      !status.exactInFlight &&
+      !status.logicalEverAccepted
+    ) {
       await this.handleState.releaseClaimToReady({
         ...claim,
         retryAt: this.retryAt(context.handle.retryCount)
       });
       return;
     }
-    if (status.proof === "proven" && status.receiptStatus !== "absent") {
-      await markDispatched(dispatch.request.requestId);
-    }
+    await this.finalizeContinuationChildren(context, "failed");
+    await this.failClaimVisibly(claim, {
+      errorCode: "continuation_dispatch_ambiguous",
+      errorMessage:
+        "The continuation may have started but its result could not be recovered safely."
+    });
   }
 
   private async loadAndValidateContext(id: string) {

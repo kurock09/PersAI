@@ -1,5 +1,29 @@
 # SESSION-HANDOFF
 
+## 2026-07-19 — ADR-159 post-deploy continuation repair local
+
+Status: **Local implementation on GitOps baseline `5243a1a1`; not committed,
+pushed, deployed, or live-accepted.** Deployed API hotfix `b07ff3dd` removed
+the scheduler SQL failure, but repeated live web acceptance exposed the actual
+continuation defects: A's terminal result was replaced by repeated source
+instructions, the catch-up launched duplicate A/B shell jobs, and an older
+non-authoritative stream left a zombie `dispatched` handle with no message.
+Cluster logs showed no matching runtime acceptance for that zombie; production
+rows proved the duplicate canonical jobs and continuation ancestry.
+
+Runtime now retains canonical history and appends an explicit final bounded
+`JOB_CATCHUP` event carrying exact terminal facts. API/runtime status now
+checks durable logical `(conversation,idempotencyKey)` receipt evidence, not
+only one transport request id. Proven never-accepted work may requeue;
+accepted/unknown ambiguity terminalizes once; orphan-reconciled
+`async-cont:*` receipts are non-reclaimable. Real-PostgreSQL two-client
+coverage proves one authoritative receipt and no second accepted request id.
+Focused runtime tests pass 4/4 and focused API continuation tests pass 63/63;
+`git diff --check` is clean. The unrelated durable user-admission redesign was
+explicitly frozen and removed from the tree. Next: required full gate, commit,
+push, exact API/runtime rollout, then fresh web + Telegram background-job live
+acceptance. Do not claim S5 or ADR-159 closed before that live pass.
+
 ## 2026-07-19 — ADR-159 S5 live BLOCKED; scheduler SQL hotfix local
 
 Status: **Exact-image S5 acceptance is blocked.** Every scheduler tick failed

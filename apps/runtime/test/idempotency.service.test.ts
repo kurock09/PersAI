@@ -245,4 +245,46 @@ export async function runIdempotencyServiceTest(): Promise<void> {
     ),
     "request-existing"
   );
+
+  const orphanedAsyncContinuation = createClaimInput({
+    requestId: "request-orphaned-async-original",
+    idempotencyKey: "async-cont:handle-1",
+    externalThreadKey: "thread-async"
+  });
+  const orphanedAsyncConversationKey = keyspace.createConversationKey(
+    orphanedAsyncContinuation.conversation
+  );
+  const orphanedReceipt = createReceipt(
+    {
+      runtimeSessionId: "session-1",
+      publishedVersionId: orphanedAsyncContinuation.bundle.publishedVersionId,
+      runtimeTier: orphanedAsyncContinuation.runtimeTier,
+      conversationKey: orphanedAsyncConversationKey,
+      conversation: orphanedAsyncContinuation.conversation,
+      requestId: orphanedAsyncContinuation.requestId,
+      idempotencyKey: orphanedAsyncContinuation.idempotencyKey,
+      bundleHash: orphanedAsyncContinuation.bundle.bundleHash
+    },
+    {
+      status: "failed",
+      errorCode: "orphan_reconciled",
+      errorMessage: "runtime ownership was lost"
+    }
+  );
+  postgres.receiptsByRequestId.set(orphanedReceipt.requestId, orphanedReceipt);
+  postgres.receiptsByConversationAndIdempotency.set(
+    `${orphanedReceipt.conversationKey}|${orphanedReceipt.idempotencyKey}`,
+    orphanedReceipt
+  );
+
+  const replayedOrphanedAsyncContinuation = await service.claimOrReplayAcceptedTurn({
+    ...orphanedAsyncContinuation,
+    requestId: "request-orphaned-async-retry"
+  });
+  assert.equal(replayedOrphanedAsyncContinuation.replayed, true);
+  assert.equal(
+    replayedOrphanedAsyncContinuation.receipt.requestId,
+    "request-orphaned-async-original"
+  );
+  assert.equal(replayedOrphanedAsyncContinuation.receipt.errorCode, "orphan_reconciled");
 }

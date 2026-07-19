@@ -5,6 +5,21 @@
 
 ## 2026-07-19
 
+- **Repair (ADR-159 post-deploy continuation; local):** after deployed SQL
+  hotfix `b07ff3dd` restored scheduler dispatch, live web evidence showed a
+  catch-up repeat both completed shell jobs, lose A's terminal narration, and
+  leave an older ambiguous continuation as zombie `dispatched`. Runtime now
+  projects a final bounded synthetic `JOB_CATCHUP` event with exact terminal
+  facts instead of stripping the active event. API/runtime status now carries
+  logical `(conversation,idempotencyKey)` receipt evidence; only proven
+  never-accepted work requeues, accepted/unknown ambiguity terminalizes once,
+  and orphan-reconciled `async-cont:*` receipts cannot reclaim under a new
+  request id. Deterministic projection tests assert exact A stdout and 1/2
+  ordering; a real-PostgreSQL two-client race proves one logical continuation
+  creates one authoritative receipt and no second execution authority.
+  Focused runtime tests (4/4) and API tests (63/63) pass. Not committed,
+  pushed, deployed, or live-accepted.
+
 - **Hotfix (ADR-159 S5 live BLOCKED; local CLEAN/GO, pending redeploy):**
   exact-image acceptance found PostgreSQL `42702` (`column reference
 "assistant_id" is ambiguous`) on every

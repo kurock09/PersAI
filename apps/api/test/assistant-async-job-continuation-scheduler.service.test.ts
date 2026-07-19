@@ -1177,12 +1177,21 @@ describe("AssistantAsyncJobContinuationSchedulerService", () => {
     assert.ok(calls[0]?.retryAt instanceof Date);
   });
 
-  test("ADR-159 runtime duplicate releases claimed→ready (not completeClaim)", async () => {
+  test("runtime duplicate releases claimed→ready only with never-accepted logical proof", async () => {
     const releaseCalls: Array<Record<string, unknown>> = [];
     let markDispatchedCalled = false;
     let completeClaimCalled = false;
     const { internal } = dispatchHarness({
       execute: async () => ({ outcome: "duplicate" }),
+      inspect: async () => ({
+        proof: "proven",
+        receiptStatus: "absent",
+        exactInFlight: false,
+        logicalReceiptStatus: "absent",
+        logicalReceiptRequestId: null,
+        logicalEverAccepted: false,
+        logicalOrphanReconciled: false
+      }),
       handleState: {
         markDispatched: async () => {
           markDispatchedCalled = true;
@@ -1197,6 +1206,10 @@ describe("AssistantAsyncJobContinuationSchedulerService", () => {
           return true;
         }
       }
+    });
+    internal.loadAndValidateContext = async () => ({
+      handle: { retryCount: 0, channel: "telegram" },
+      session: { id: "session-1" }
     });
     await internal.processClaim({ id: "handle-rt-dup", claimToken: "claim-rt-dup" });
     assert.equal(markDispatchedCalled, false);
@@ -1244,8 +1257,10 @@ describe("AssistantAsyncJobContinuationSchedulerService", () => {
     assert.equal(requeueClaimCalled, false);
   });
 
-  test("timed-out dispatch remains dispatched for reconciliation", async () => {
+  test("logical acceptance after timed-out dispatch terminalizes once instead of leaving a zombie", async () => {
     let requeued = false;
+    let failed = false;
+    let finalized = false;
     const { internal } = dispatchHarness({
       execute: async () => {
         throw new AsyncContinuationDispatchAmbiguousError("timed out");
@@ -1253,26 +1268,40 @@ describe("AssistantAsyncJobContinuationSchedulerService", () => {
       inspect: async () => ({
         proof: "proven",
         receiptStatus: "accepted",
-        exactInFlight: true
+        exactInFlight: true,
+        logicalReceiptStatus: "accepted",
+        logicalReceiptRequestId: "request-accepted",
+        logicalEverAccepted: true,
+        logicalOrphanReconciled: false
       }),
       handleState: {
-        markDispatched: async () => true,
         requeueClaim: async () => {
           requeued = true;
         },
+        finalizeSourceTurn: async () => {
+          finalized = true;
+        },
         failClaim: async () => {
-          requeued = true;
+          failed = true;
           return { applied: true, observation: null };
         },
         getPermanentFailureObservation: async () => null
       }
     });
     internal.loadAndValidateContext = async () => ({
-      handle: { retryCount: 0, channel: "telegram" },
+      handle: {
+        retryCount: 0,
+        channel: "telegram",
+        assistantId: "assistant-1",
+        chatId: "chat-1",
+        continuationClientTurnId: "async-cont:handle-2"
+      },
       session: { id: "session-1" }
     });
     await internal.processClaim({ id: "handle-2", claimToken: "claim-2" });
     assert.equal(requeued, false);
+    assert.equal(finalized, true);
+    assert.equal(failed, true);
   });
 
   test("durable continuation output immediately finalizes only its child source turn", async () => {

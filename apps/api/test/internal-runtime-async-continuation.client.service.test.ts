@@ -89,9 +89,48 @@ describe("InternalRuntimeAsyncContinuationClientService", () => {
       await service.inspect({ requestId: "inspect-1", sessionId: "session-1" } as never, {
         timeoutMs: 5
       }),
-      { proof: "ambiguous", receiptStatus: "absent", exactInFlight: false }
+      {
+        proof: "ambiguous",
+        receiptStatus: "absent",
+        exactInFlight: false,
+        logicalReceiptStatus: "absent",
+        logicalReceiptRequestId: null,
+        logicalEverAccepted: false,
+        logicalOrphanReconciled: false
+      }
     );
     assert.equal(signal?.aborted, true);
+  });
+
+  test("accepts logical idempotency evidence when the exact request receipt is absent", async () => {
+    mock.method(globalThis, "fetch", async () =>
+      Response.json(
+        {
+          proof: "proven",
+          receiptStatus: "absent",
+          exactInFlight: false,
+          logicalReceiptStatus: "failed",
+          logicalReceiptRequestId: "prior-request",
+          logicalEverAccepted: true,
+          logicalOrphanReconciled: true
+        },
+        { status: 200 }
+      )
+    );
+
+    const service = new InternalRuntimeAsyncContinuationClientService();
+    assert.deepEqual(
+      await service.inspect({ requestId: "exact-request", sessionId: "session-1" } as never),
+      {
+        proof: "proven",
+        receiptStatus: "absent",
+        exactInFlight: false,
+        logicalReceiptStatus: "failed",
+        logicalReceiptRequestId: "prior-request",
+        logicalEverAccepted: true,
+        logicalOrphanReconciled: true
+      }
+    );
   });
 
   for (const outcome of ["busy", "duplicate"] as const) {

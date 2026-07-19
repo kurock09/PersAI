@@ -43,9 +43,22 @@ Completed focused coverage plus S5 shipping coverage (no intermediate deploy unt
   `resolveCatchUpWakeMarkers` / `buildRequest` / `loadAndValidateContext`
   emit `wakeKind=job_catchup`, `queueOrdinal`/`queueTotal`, `interleaved`,
   originating vs latest user ids, retained `jobRef` + terminal/`sandboxResult`;
-  quiet `AssistantChatMessage.metadata` on catch-up persist; runtime developer
-  section names structured facts; synthetic strip not sole cue. Focused tests
-  in `assistant-async-job-continuation-scheduler.service.test.ts`
+  quiet `AssistantChatMessage.metadata` on catch-up persist. Runtime tests
+  prove its final model-facing message is an explicit `JOB_CATCHUP` terminal
+  event with exact sandbox stdout/ordinal/interleave facts, not an old source
+  instruction; developer guidance prohibits repeating completed jobs or
+  answering interleaved user text. Focused tests in
+  `assistant-async-job-continuation-scheduler.service.test.ts` and
+  `apps/runtime/test/turn-execution.service.test.ts`
+- **Post-deploy ambiguity repair:** API scheduler/client/web-stream tests must
+  prove that only logical never-accepted absence returns a claim to ready;
+  logical acceptance or unknown status terminalizes exactly once and frees the
+  FIFO/Working state. Runtime receipt tests must preserve ordinary ADR-149
+  reclaim while making orphan-reconciled `async-cont:*` non-reclaimable.
+  `apps/runtime/test/async-continuation-receipt-postgres.integration.test.ts`
+  uses two real PostgreSQL clients and different request ids for one
+  `(conversation,idempotencyKey)` to prove one authoritative receipt, logical
+  lookup across exact-id mismatch, and no second accepted execution authority.
 - **S4 purge + CLEAN repair (local):** no production `claimReady` /
   `requeueBusyNotStarted`; finalize returns `autoSubscribed` (no
   `legacyChosen`); pre-accept busy uses `releaseClaimToReady` without retry

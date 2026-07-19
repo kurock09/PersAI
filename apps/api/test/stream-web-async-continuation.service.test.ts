@@ -386,6 +386,15 @@ describe("StreamWebAsyncContinuationService", () => {
         stream: async () => ({
           mode: "outcome",
           result: { outcome: "duplicate" }
+        }),
+        inspect: async () => ({
+          proof: "proven",
+          receiptStatus: "absent",
+          exactInFlight: false,
+          logicalReceiptStatus: "absent",
+          logicalReceiptRequestId: null,
+          logicalEverAccepted: false,
+          logicalOrphanReconciled: false
         })
       } as never,
       attemptMock(attemptCalls),
@@ -695,7 +704,7 @@ describe("StreamWebAsyncContinuationService", () => {
     assert.ok(callbackCalls.includes("fail:continuation_stream_unterminated"));
   });
 
-  test("true AmbiguousError leaves dispatched without interrupt finalize", async () => {
+  test("logical acceptance after ambiguity terminalizes visibly without redispatch", async () => {
     const callbackCalls: string[] = [];
     const attemptCalls: string[] = [];
     const published: string[] = [];
@@ -705,7 +714,16 @@ describe("StreamWebAsyncContinuationService", () => {
           throw new AsyncContinuationDispatchAmbiguousError(
             "Runtime continuation stream connection failed after acceptance became possible."
           );
-        }
+        },
+        inspect: async () => ({
+          proof: "proven",
+          receiptStatus: "absent",
+          exactInFlight: false,
+          logicalReceiptStatus: "failed",
+          logicalReceiptRequestId: "prior-request",
+          logicalEverAccepted: true,
+          logicalOrphanReconciled: true
+        })
       } as never,
       attemptMock(attemptCalls),
       streamRegistryMock({
@@ -727,11 +745,86 @@ describe("StreamWebAsyncContinuationService", () => {
     assert.ok(attemptCalls.includes("markFailed"));
     assert.ok(!attemptCalls.includes("markInterrupted"));
     assert.ok(published.includes("failed"));
-    assert.ok(callbackCalls.includes("markDispatched"));
-    assert.deepEqual(
-      callbackCalls.filter((c) => c !== "markDispatched"),
-      []
+    assert.ok(!callbackCalls.includes("markDispatched"));
+    assert.deepEqual(callbackCalls, ["finalize:failed", "fail:continuation_dispatch_ambiguous"]);
+  });
+
+  test("proven fresh pre-accept absence releases ready without marking dispatched", async () => {
+    const callbackCalls: string[] = [];
+    const attemptCalls: string[] = [];
+    const service = new StreamWebAsyncContinuationService(
+      {
+        stream: async () => {
+          throw new AsyncContinuationDispatchAmbiguousError(
+            "fresh API response was non-authoritative"
+          );
+        },
+        inspect: async () => ({
+          proof: "proven",
+          receiptStatus: "absent",
+          exactInFlight: false,
+          logicalReceiptStatus: "absent",
+          logicalReceiptRequestId: null,
+          logicalEverAccepted: false,
+          logicalOrphanReconciled: false
+        })
+      } as never,
+      attemptMock(attemptCalls),
+      streamRegistryMock(),
+      stopDispatchMock()
     );
+
+    await service.processWebClaim({
+      claim: { id: "handle-fresh-absence", claimToken: "claim-fresh-absence" },
+      context: baseContext({ continuationClientTurnId: "async-cont:fresh-absence" }),
+      request: {
+        requestId: "request-fresh-absence",
+        idempotencyKey: "async-cont:fresh-absence"
+      } as never,
+      timeoutMs: 30_000,
+      callbacks: baseCallbacks(callbackCalls)
+    });
+
+    assert.ok(attemptCalls.includes("abandonPreAcceptanceAttempt"));
+    assert.deepEqual(callbackCalls, ["busy"]);
+    assert.ok(!attemptCalls.includes("markFailed"));
+    assert.ok(!callbackCalls.includes("markDispatched"));
+  });
+
+  test("unknown ambiguity terminalizes the attempt and releases the FIFO head visibly", async () => {
+    const callbackCalls: string[] = [];
+    const attemptCalls: string[] = [];
+    const service = new StreamWebAsyncContinuationService(
+      {
+        stream: async () => {
+          throw new AsyncContinuationDispatchAmbiguousError("status unavailable");
+        },
+        inspect: async () => ({
+          proof: "ambiguous",
+          receiptStatus: "absent",
+          exactInFlight: false,
+          logicalReceiptStatus: "absent",
+          logicalReceiptRequestId: null,
+          logicalEverAccepted: false,
+          logicalOrphanReconciled: false
+        })
+      } as never,
+      attemptMock(attemptCalls),
+      streamRegistryMock(),
+      stopDispatchMock()
+    );
+
+    await service.processWebClaim({
+      claim: { id: "handle-unknown", claimToken: "claim-unknown" },
+      context: baseContext({ continuationClientTurnId: "async-cont:unknown" }),
+      request: { requestId: "request-unknown", idempotencyKey: "async-cont:unknown" } as never,
+      timeoutMs: 30_000,
+      callbacks: baseCallbacks(callbackCalls)
+    });
+
+    assert.ok(attemptCalls.includes("markFailed"));
+    assert.deepEqual(callbackCalls, ["finalize:failed", "fail:continuation_dispatch_ambiguous"]);
+    assert.ok(!callbackCalls.includes("markDispatched"));
   });
 
   test("ADR-159 admission boundary denial releases busy without stream", async () => {

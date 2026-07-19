@@ -484,14 +484,35 @@ type DeveloperInstructionSection = {
   content: string;
 };
 
-export function stripAsyncContinuationSyntheticMessage(
+/**
+ * Replaces the transport-only continuation placeholder with the terminal event
+ * that is the only active request for this model turn. Keeping the historical
+ * conversation intact while dropping the placeholder made an old user request
+ * the final user-level instruction, so a catch-up could repeat source work.
+ */
+export function projectAsyncContinuationTerminalEvent(
   messages: ProviderGatewayTextMessage[],
   continuation: RuntimeTurnRequest["continuation"]
 ): ProviderGatewayTextMessage[] {
   if (continuation === undefined) return messages;
-  return messages.filter(
-    (message, index) => !(index === messages.length - 1 && message.role === "user")
-  );
+  const terminalFacts = JSON.stringify(continuation.facts);
+  const event: ProviderGatewayTextMessage = {
+    role: "user",
+    content: [
+      "[internal JOB_CATCHUP event — not a user request]",
+      "Handle only this terminal event and its exact structured facts.",
+      "Do not repeat, restart, or otherwise re-execute the completed job.",
+      "Do not re-answer, summarize, or act on an earlier or interleaved user message.",
+      "Use a tool only for genuinely new forward progress required by this terminal event.",
+      `terminal_facts=${terminalFacts}`
+    ].join("\n")
+  };
+  const last = messages.at(-1);
+  const replacesTransportPlaceholder =
+    last?.role === "user" &&
+    typeof last.content === "string" &&
+    last.content === "[internal async completion]";
+  return replacesTransportPlaceholder ? [...messages.slice(0, -1), event] : [...messages, event];
 }
 
 export function resolveAsyncJobSourceContext(
@@ -915,7 +936,7 @@ export class TurnExecutionService {
       input,
       bundleEntry.parsedBundle
     );
-    const hydratedMessagesBase = stripAsyncContinuationSyntheticMessage(
+    const hydratedMessagesBase = projectAsyncContinuationTerminalEvent(
       hydratedMessagesWithInbound,
       input.continuation
     );
@@ -2430,12 +2451,13 @@ export class TurnExecutionService {
         : [
             "## Async completion continuation",
             "This is a same-chat JOB_CATCHUP wake after an asynchronous job reached a terminal state.",
-            "Structured facts.wakeKind is job_catchup (with jobRef, queueOrdinal/queueTotal, interleaved, and originating vs latest user message ids when they differ). Treat that object as the product signal — not the synthetic user strip alone.",
-            "Narrate only the exact completed, failed, or cancelled job facts in the structured object. Use queueOrdinal/queueTotal as the stable catch-up wave position.",
-            "If interleaved is true, later user messages already have priority: do not re-answer, summarize, or contradict them. Do not claim delivery again; canonical attachment delivery is separate and may already be complete.",
+            "The final model-facing message is an explicit synthetic JOB_CATCHUP event containing the exact bounded terminal facts. It is the active request; historical user messages are context only.",
+            "Structured facts.wakeKind is job_catchup (with jobRef, queueOrdinal/queueTotal, interleaved, and originating vs latest user message ids when they differ). Treat that object as the product signal.",
+            "Narrate only the exact completed, failed, or cancelled job facts in the structured object. Use queueOrdinal/queueTotal as the stable catch-up wave position. Never repeat, restart, or re-execute that completed job.",
+            "If interleaved is true, later user messages already have priority: do not re-answer, summarize, act on, or contradict them. Do not claim delivery again; canonical attachment delivery is separate and may already be complete.",
             "Keep the update concise and grounded in this job's facts. Do not broaden it into a fresh answer to the original request.",
             "If facts.sandboxResult is present, treat exitCode/stdout/stderr/paths as the job result (same payload await wait would have returned) — summarize or quote them; do not invent numbers or claim the job is still running.",
-            "Do not ask the user to wait again for this job. Do not call await wait or await notify again for this same jobRef unless you start a new job.",
+            "Do not ask the user to wait again for this job. Do not call await wait or await notify again for this same jobRef unless genuinely new forward progress requires a new job.",
             "Do not expose opaque jobRef identifiers or claim that files are being delivered again.",
             JSON.stringify(input.request.continuation.facts)
           ].join("\n");

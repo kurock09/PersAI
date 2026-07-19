@@ -162,7 +162,16 @@ acquires first.” Never `markDispatched` before lease acquired and (web) turn
 attempt is running; pre-acceptance busy → `releaseClaimToReady` (no parked
 `accepted`, no `requeueBusyNotStarted`). Catch-up model facts include
 `wakeKind=job_catchup`, ordinal, interleaved, `jobRef`, and bounded terminal
-facts (S3). Sync in-turn `await.wait` is unchanged (same bubble).
+facts (S3). Runtime replaces the transport-only continuation placeholder with
+a final synthetic `JOB_CATCHUP` event containing those exact facts; it directs
+the model to handle only that event, never repeat/restart its completed job or
+re-answer interleaved user text, and use tools only for genuinely new forward
+progress. Internal continuation status resolves both the exact transport
+request id and the durable `(conversation,idempotencyKey)` receipt identity.
+Only authoritative never-accepted absence may return a claim to ready;
+accepted, orphan-reconciled, or unknown logical ambiguity terminalizes once
+and cannot reclaim the same `async-cont:*` key under another request id. Sync
+in-turn `await.wait` is unchanged (same bubble).
 Telegram keeps blocking `async-continuations`; same queue rules. Permanent
 continuation failure must surface one visible observation (contract); terminal
 observations are history/result truth and never remain in the Working projection.

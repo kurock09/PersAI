@@ -79,8 +79,8 @@ import { BuildActiveScenarioBlockService } from "../src/modules/turns/build-acti
 import { BuildSystemReminderBlocksService } from "../src/modules/turns/build-system-reminder-blocks.service";
 import { ToolBudgetPolicy } from "../src/modules/turns/tool-budget-policy";
 import {
+  projectAsyncContinuationTerminalEvent,
   resolveAsyncJobSourceContext,
-  stripAsyncContinuationSyntheticMessage,
   TurnExecutionService
 } from "../src/modules/turns/turn-execution.service";
 import { OUTPUT_BUDGET_FALLBACK } from "../src/modules/turns/model-output-budget";
@@ -9314,20 +9314,68 @@ export async function runAsyncContinuationAcceptanceTest(): Promise<void> {
     completionBlock?.content.includes("facts.sandboxResult"),
     "notify wake must tell the model to use sandboxResult like await wait"
   );
+  assert.ok(
+    completionBlock?.content.includes(
+      "final model-facing message is an explicit synthetic JOB_CATCHUP"
+    ),
+    "developer guidance must make the terminal event the active request"
+  );
+  assert.ok(
+    completionBlock?.content.includes("Never repeat, restart, or re-execute"),
+    "developer guidance must prohibit duplicate completed-job execution"
+  );
   assert.equal(completionBlock?.content.includes("async-cont:turn-1"), false);
   assert.ok(
     completionBlock?.content.includes("00000000-0000-4000-8000-000000000124"),
     "interleaved catch-up facts expose the later-user marker needed to preserve ordering"
   );
-  assert.deepEqual(
-    stripAsyncContinuationSyntheticMessage(
-      [
-        { role: "assistant", content: "Earlier reply." },
-        { role: "user", content: "[internal async completion]" }
-      ],
-      request.continuation
-    ),
-    [{ role: "assistant", content: "Earlier reply." }]
+  const projectedMessages = projectAsyncContinuationTerminalEvent(
+    [
+      { role: "user", content: "Start two background jobs, then tell me both are queued." },
+      { role: "assistant", content: "Both jobs are queued." },
+      { role: "user", content: "ADR159_USER_PRIORITY_OK" },
+      { role: "user", content: "[internal async completion]" }
+    ],
+    {
+      ...request.continuation,
+      facts: {
+        kind: "sandbox",
+        status: "completed",
+        errorCode: null,
+        message: "Sandbox job completed.",
+        jobRef: "jr1.sandbox.a",
+        wakeKind: "job_catchup",
+        queueOrdinal: 1,
+        queueTotal: 2,
+        interleaved: true,
+        originatingUserMessageId: "00000000-0000-4000-8000-000000000123",
+        latestUserMessageId: "00000000-0000-4000-8000-000000000124",
+        sandboxResult: {
+          toolCode: "shell",
+          exitCode: 0,
+          stdout: "ADR159_JOB_A_OK\n",
+          stderr: null,
+          paths: []
+        }
+      }
+    }
+  );
+  assert.equal(projectedMessages.length, 4);
+  assert.equal(projectedMessages[2]?.content, "ADR159_USER_PRIORITY_OK");
+  const activeRequest = projectedMessages.at(-1);
+  const activeRequestContent =
+    typeof activeRequest?.content === "string" ? activeRequest.content : "";
+  assert.equal(activeRequest?.role, "user");
+  assert.ok(activeRequestContent.includes("[internal JOB_CATCHUP event"));
+  assert.ok(activeRequestContent.includes('"queueOrdinal":1'));
+  assert.ok(activeRequestContent.includes('"queueTotal":2'));
+  assert.ok(activeRequestContent.includes('"interleaved":true'));
+  assert.ok(activeRequestContent.includes("ADR159_JOB_A_OK\\n"));
+  assert.ok(activeRequestContent.includes("Do not re-answer, summarize, or act on an earlier"));
+  assert.equal(
+    activeRequestContent.includes("Start two background jobs"),
+    false,
+    "the old source instruction must not remain the active final request"
   );
   let acceptedInput: unknown;
   (service as unknown as { turnAcceptanceService: unknown }).turnAcceptanceService = {

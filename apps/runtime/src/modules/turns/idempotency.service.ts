@@ -59,7 +59,11 @@ export class IdempotencyService {
         conversationKey,
         input.idempotencyKey
       );
-    if (existingReceipt !== null && !this.isOrphanReconciledReceipt(existingReceipt)) {
+    if (
+      existingReceipt !== null &&
+      (!this.isOrphanReconciledReceipt(existingReceipt) ||
+        this.isNonReclaimableAsyncContinuation(input.idempotencyKey))
+    ) {
       await this.tryWriteReceiptMarker(input, existingReceipt.requestId);
       return this.toClaimResult(conversationKey, existingReceipt, true);
     }
@@ -101,7 +105,10 @@ export class IdempotencyService {
       if (replayedReceipt === null) {
         throw error;
       }
-      if (this.isOrphanReconciledReceipt(replayedReceipt)) {
+      if (
+        this.isOrphanReconciledReceipt(replayedReceipt) &&
+        !this.isNonReclaimableAsyncContinuation(input.idempotencyKey)
+      ) {
         const reclaimed = await this.runtimeStatePostgresService.reclaimOrphanReconciledTurnReceipt(
           {
             conversationKey,
@@ -161,6 +168,25 @@ export class IdempotencyService {
       return null;
     }
     return this.toReceiptSummary(receipt);
+  }
+
+  /**
+   * The durable idempotency row, not a transport request id, is the authority
+   * for async-continuation ambiguity reconciliation.
+   */
+  async inspectLogicalReceipt(input: {
+    idempotencyKey: string;
+    conversation: RuntimeTurnRequest["conversation"];
+  }): Promise<RuntimeTurnReceiptSummary | null> {
+    const conversationKey = this.runtimeStateKeyspaceService.createConversationKey(
+      input.conversation
+    );
+    const receipt =
+      await this.runtimeStatePostgresService.findTurnReceiptByConversationAndIdempotencyKey(
+        conversationKey,
+        input.idempotencyKey
+      );
+    return receipt === null ? null : this.toReceiptSummary(receipt);
   }
 
   private async resolveFromMarker(
@@ -252,6 +278,10 @@ export class IdempotencyService {
     >
   ): boolean {
     return receipt.errorCode === ORPHAN_RECEIPT_RECONCILE_ERROR_CODE;
+  }
+
+  private isNonReclaimableAsyncContinuation(idempotencyKey: string): boolean {
+    return idempotencyKey.startsWith("async-cont:");
   }
 
   private isUniqueConstraintError(error: unknown): boolean {

@@ -284,14 +284,15 @@ export class StreamWebAsyncContinuationService {
         status.proof === "proven" &&
         status.receiptStatus === "absent" &&
         !status.exactInFlight &&
+        !status.logicalEverAccepted &&
         !dispatched
       ) {
         await releaseBusyPreDispatch();
         return;
       }
-      if (!dispatched) {
-        await ensureDispatched();
-      }
+      await terminalizeAmbiguousContinuation(
+        "Runtime coordination was lost after logical continuation acceptance became possible."
+      );
     };
 
     const terminalizeFailedAttempt = async (code: string, message: string): Promise<void> => {
@@ -307,20 +308,32 @@ export class StreamWebAsyncContinuationService {
       });
     };
 
-    const leaveDispatchedAmbiguous = async (message: string): Promise<void> => {
+    const terminalizeAmbiguousContinuation = async (message: string): Promise<void> => {
       this.logger.warn(`web_async_continuation_dispatch_ambiguous id=${claim.id}: ${message}`);
-      if (!dispatched) {
-        const marked = await callbacks.markDispatched({
-          ...claim,
-          receiptRequestId: request.requestId
-        });
-        if (marked) {
-          dispatched = true;
-        }
-        // !marked ⇒ already dispatched (or lost) — still terminalize below.
-      }
-      // Never silent early-return: leave an honest failed attempt, not a zombie running row.
       await terminalizeFailedAttempt("continuation_dispatch_ambiguous", message);
+      await callbacks.finalizeContinuationChildren(context, "failed");
+      await callbacks.failClaimVisibly(claim, {
+        errorCode: "continuation_dispatch_ambiguous",
+        errorMessage:
+          "The continuation may have started but its result could not be recovered safely."
+      });
+    };
+
+    const leaveDispatchedAmbiguous = async (message: string): Promise<void> => {
+      const status = await this.runtimeClient.inspect({
+        ...request,
+        sessionId: context.sessionId
+      });
+      if (
+        status.proof === "proven" &&
+        status.receiptStatus === "absent" &&
+        !status.exactInFlight &&
+        !status.logicalEverAccepted
+      ) {
+        await releaseBusyPreDispatch();
+        return;
+      }
+      await terminalizeAmbiguousContinuation(message);
     };
 
     const terminalizeAttemptBeforeRethrow = async (error: unknown): Promise<void> => {
@@ -386,10 +399,17 @@ export class StreamWebAsyncContinuationService {
           await reconcileCoordinationLoss();
           return;
         }
-        if (started.result.outcome === "busy" || started.result.outcome === "duplicate") {
-          // ADR-159: busy / runtime duplicate (acceptTurn in_flight elsewhere) —
-          // abandon pre-accept attempt + releaseClaimToReady (not completeClaim).
+        if (started.result.outcome === "busy") {
+          // Runtime reported the session busy before accepting this continuation.
           await releaseBusyPreDispatch();
+          return;
+        }
+        if (started.result.outcome === "duplicate") {
+          // `in_flight` can be the same logical continuation under another
+          // request id. Requeue only after durable logical absence proof.
+          await leaveDispatchedAmbiguous(
+            "Runtime reported an in-flight continuation for this logical key."
+          );
           return;
         }
         if (!(await ensureDispatched())) return;
@@ -399,6 +419,7 @@ export class StreamWebAsyncContinuationService {
           threadKey,
           continuationClientTurnId,
           outcome: started.result,
+          request,
           receiptRequestId: request.requestId,
           callbacks,
           publish
@@ -658,15 +679,22 @@ export class StreamWebAsyncContinuationService {
     threadKey: string;
     continuationClientTurnId: string;
     outcome: Awaited<ReturnType<InternalRuntimeAsyncContinuationClientService["execute"]>>;
+    request: RuntimeTurnRequest;
     receiptRequestId: string;
     callbacks: StreamWebAsyncContinuationCallbacks;
     publish: (event: string, payload: unknown) => void;
   }): Promise<void> {
-    const { claim, context, threadKey, continuationClientTurnId, outcome, callbacks, publish } =
-      input;
-    if (outcome.outcome === "busy" || outcome.outcome === "duplicate") {
-      // Fail-closed mirror of pre-ensureDispatched busy/duplicate: in-flight
-      // elsewhere → abandon + releaseClaimToReady (never completeClaim).
+    const {
+      claim,
+      context,
+      threadKey,
+      continuationClientTurnId,
+      outcome,
+      request,
+      callbacks,
+      publish
+    } = input;
+    if (outcome.outcome === "busy") {
       await this.webChatTurnAttemptService.abandonPreAcceptanceAttempt({
         assistantId: context.handle.assistantId,
         userId: context.handle.userId,
@@ -676,6 +704,50 @@ export class StreamWebAsyncContinuationService {
       await callbacks.releasePreDispatchBusy({
         ...claim,
         retryAt: callbacks.retryAt(context.handle.retryCount)
+      });
+      return;
+    }
+    if (outcome.outcome === "duplicate") {
+      const status = await this.runtimeClient.inspect({
+        ...request,
+        sessionId: context.sessionId
+      });
+      if (
+        status.proof === "proven" &&
+        status.receiptStatus === "absent" &&
+        !status.exactInFlight &&
+        !status.logicalEverAccepted
+      ) {
+        await this.webChatTurnAttemptService.abandonPreAcceptanceAttempt({
+          assistantId: context.handle.assistantId,
+          userId: context.handle.userId,
+          surfaceThreadKey: threadKey,
+          clientTurnId: continuationClientTurnId
+        });
+        await callbacks.releasePreDispatchBusy({
+          ...claim,
+          retryAt: callbacks.retryAt(context.handle.retryCount)
+        });
+        return;
+      }
+      await this.webChatTurnAttemptService.markFailed({
+        assistantId: context.handle.assistantId,
+        userId: context.handle.userId,
+        surfaceThreadKey: threadKey,
+        clientTurnId: continuationClientTurnId,
+        code: "continuation_dispatch_ambiguous",
+        message: "Runtime reported an in-flight continuation for this logical key."
+      });
+      publish("failed", {
+        code: "continuation_dispatch_ambiguous",
+        message: "Runtime reported an in-flight continuation for this logical key.",
+        transport: null
+      });
+      await callbacks.finalizeContinuationChildren(context, "failed");
+      await callbacks.failClaimVisibly(claim, {
+        errorCode: "continuation_dispatch_ambiguous",
+        errorMessage:
+          "The continuation may have started but its result could not be recovered safely."
       });
       return;
     }

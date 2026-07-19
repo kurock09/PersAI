@@ -118,6 +118,10 @@ export class InternalRuntimeAsyncContinuationsController {
     proof: "proven" | "ambiguous";
     receiptStatus: "absent" | "accepted" | "completed" | "interrupted" | "failed";
     exactInFlight: boolean;
+    logicalReceiptStatus: "absent" | "accepted" | "completed" | "interrupted" | "failed";
+    logicalReceiptRequestId: string | null;
+    logicalEverAccepted: boolean;
+    logicalOrphanReconciled: boolean;
   }> {
     assertRuntimeInternalApiAuthorized(
       req,
@@ -126,12 +130,16 @@ export class InternalRuntimeAsyncContinuationsController {
       "Internal async continuation status authorization failed."
     );
     try {
-      const [receipt, markerRequestId] = await Promise.all([
+      const [receipt, logicalReceipt, markerRequestId] = await Promise.all([
         this.idempotencyService.inspectExactReceipt({
           requestId: body.requestId,
           idempotencyKey: body.idempotencyKey,
           conversation: body.conversation,
           sessionId: body.sessionId
+        }),
+        this.idempotencyService.inspectLogicalReceipt({
+          idempotencyKey: body.idempotencyKey,
+          conversation: body.conversation
         }),
         this.sessionLeaseService.readAcceptedTurnInFlight({
           conversation: body.conversation,
@@ -141,10 +149,22 @@ export class InternalRuntimeAsyncContinuationsController {
       return {
         proof: "proven",
         receiptStatus: receipt?.status ?? "absent",
-        exactInFlight: markerRequestId === body.requestId
+        exactInFlight: markerRequestId === body.requestId,
+        logicalReceiptStatus: logicalReceipt?.status ?? "absent",
+        logicalReceiptRequestId: logicalReceipt?.requestId ?? null,
+        logicalEverAccepted: logicalReceipt !== null,
+        logicalOrphanReconciled: logicalReceipt?.errorCode === "orphan_reconciled"
       };
     } catch {
-      return { proof: "ambiguous", receiptStatus: "absent", exactInFlight: false };
+      return {
+        proof: "ambiguous",
+        receiptStatus: "absent",
+        exactInFlight: false,
+        logicalReceiptStatus: "absent",
+        logicalReceiptRequestId: null,
+        logicalEverAccepted: false,
+        logicalOrphanReconciled: false
+      };
     }
   }
 }

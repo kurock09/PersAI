@@ -357,12 +357,16 @@ export class InternalRuntimeAsyncContinuationClientService {
     proof: "proven" | "ambiguous";
     receiptStatus: "absent" | "accepted" | "completed" | "interrupted" | "failed";
     exactInFlight: boolean;
+    logicalReceiptStatus: "absent" | "accepted" | "completed" | "interrupted" | "failed";
+    logicalReceiptRequestId: string | null;
+    logicalEverAccepted: boolean;
+    logicalOrphanReconciled: boolean;
   }> {
     const config = loadApiConfig(process.env);
     const baseUrl = config.PERSAI_RUNTIME_BASE_URL?.trim();
     const token = config.PERSAI_INTERNAL_API_TOKEN?.trim();
     if (!baseUrl || !token) {
-      return { proof: "ambiguous", receiptStatus: "absent", exactInFlight: false };
+      return this.ambiguousInspection();
     }
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), Math.max(1, options.timeoutMs ?? 10_000));
@@ -387,19 +391,51 @@ export class InternalRuntimeAsyncContinuationClientService {
         !["absent", "accepted", "completed", "interrupted", "failed"].includes(
           String(body.receiptStatus)
         ) ||
-        typeof body.exactInFlight !== "boolean"
+        typeof body.exactInFlight !== "boolean" ||
+        !["absent", "accepted", "completed", "interrupted", "failed"].includes(
+          String(body.logicalReceiptStatus)
+        ) ||
+        !(
+          body.logicalReceiptRequestId === null || typeof body.logicalReceiptRequestId === "string"
+        ) ||
+        typeof body.logicalEverAccepted !== "boolean" ||
+        typeof body.logicalOrphanReconciled !== "boolean"
       ) {
-        return { proof: "ambiguous", receiptStatus: "absent", exactInFlight: false };
+        return this.ambiguousInspection();
       }
       return body as {
         proof: "proven" | "ambiguous";
         receiptStatus: "absent" | "accepted" | "completed" | "interrupted" | "failed";
         exactInFlight: boolean;
+        logicalReceiptStatus: "absent" | "accepted" | "completed" | "interrupted" | "failed";
+        logicalReceiptRequestId: string | null;
+        logicalEverAccepted: boolean;
+        logicalOrphanReconciled: boolean;
       };
     } catch {
-      return { proof: "ambiguous", receiptStatus: "absent", exactInFlight: false };
+      return this.ambiguousInspection();
     } finally {
       clearTimeout(timer);
     }
+  }
+
+  private ambiguousInspection(): {
+    proof: "ambiguous";
+    receiptStatus: "absent";
+    exactInFlight: false;
+    logicalReceiptStatus: "absent";
+    logicalReceiptRequestId: null;
+    logicalEverAccepted: false;
+    logicalOrphanReconciled: false;
+  } {
+    return {
+      proof: "ambiguous",
+      receiptStatus: "absent",
+      exactInFlight: false,
+      logicalReceiptStatus: "absent",
+      logicalReceiptRequestId: null,
+      logicalEverAccepted: false,
+      logicalOrphanReconciled: false
+    };
   }
 }
