@@ -27,12 +27,19 @@ function notifyStateLabel(t: (key: string) => string, state: WebChatNotifyState)
   return t("notifyEnabled");
 }
 
-function WorkingBounceDots({ className, size = "md" }: { className?: string; size?: "sm" | "md" }) {
+function WorkingBounceDots({
+  className,
+  size = "md"
+}: {
+  className?: string;
+  size?: "sm" | "md" | "lg";
+}) {
   return (
     <span
       className={cn(
         "working-bounce-dots text-text-muted",
         size === "sm" && "working-bounce-dots-sm",
+        size === "lg" && "working-bounce-dots-lg",
         className
       )}
       aria-hidden
@@ -121,7 +128,7 @@ export function ChatWorkingJobsPill({
       className={cn(
         // Match composer shell height (min-h-11 / h-11 + p-[3px] + same border).
         // Grow left from the right-edge pill; list opens upward via flex-col-reverse.
-        "ml-auto overflow-hidden border border-border/45 bg-surface-raised transition-[width,border-color,background-color,box-shadow] duration-300 ease-out",
+        "pointer-events-auto relative z-20 ml-auto overflow-hidden border border-border/45 bg-surface-raised transition-[width,border-color,background-color,box-shadow] duration-300 ease-out",
         countsCollapsed
           ? "h-11 w-11 @[500px]:h-11 @[500px]:w-auto @[500px]:min-w-[7.5rem]"
           : "h-11 w-full",
@@ -132,37 +139,41 @@ export function ChatWorkingJobsPill({
       <div className="flex flex-col-reverse">
         {countsCollapsed ? (
           <>
+            {/* Mobile resting: large dots centered; tiny gray count badge above. */}
             <button
               type="button"
               data-testid="chat-working-mobile-circle"
-              className="flex h-full w-full items-center justify-center gap-1 whitespace-nowrap p-[3px] text-text @[500px]:hidden"
+              className="relative flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center text-text @[500px]:hidden"
               onClick={handleHeaderClick}
               aria-label={t("workingJobs", { count })}
             >
-              <WorkingBounceDots size="sm" />
-              <span className="text-[10px] font-semibold leading-none tabular-nums text-text-muted">
+              <span className="absolute top-[7px] text-[9px] font-semibold leading-none tabular-nums text-text-muted/70">
                 {count}
               </span>
+              <WorkingBounceDots size="lg" className="mt-2.5" />
             </button>
+            {/* Desktop resting: vertically centered chip content. */}
             <button
               type="button"
               data-testid="chat-working-collapsed-chip"
-              className="hidden h-full w-full items-center justify-center gap-1.5 whitespace-nowrap p-[3px] px-3.5 @[500px]:flex"
+              className="hidden h-11 w-full cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap px-3.5 @[500px]:flex"
               onClick={handleHeaderClick}
               aria-label={t("workingJobs", { count })}
             >
-              <WorkingBounceDots />
-              <span className="text-[11px] font-medium uppercase tracking-[0.06em] text-text-subtle">
+              <WorkingBounceDots className="shrink-0" />
+              <span className="text-[11px] font-medium leading-none uppercase tracking-[0.06em] text-text-subtle">
                 {t("workingTitle")}
               </span>
-              <span className="text-[11px] font-semibold tabular-nums text-text">{count}</span>
+              <span className="text-[11px] font-semibold leading-none tabular-nums text-text">
+                {count}
+              </span>
             </button>
           </>
         ) : (
-          <div className="flex h-11 items-center gap-1.5 p-[3px] pl-3">
+          <div className="flex h-11 w-full items-stretch">
             <button
               type="button"
-              className="group flex min-w-0 flex-1 items-center gap-1.5 text-left"
+              className="group flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 py-0 pl-3 text-left"
               onClick={handleHeaderClick}
               aria-expanded={expanded}
               aria-controls={bodyId}
@@ -170,10 +181,12 @@ export function ChatWorkingJobsPill({
               data-testid="chat-working-header"
             >
               <WorkingBounceDots className="shrink-0" />
-              <span className="shrink-0 text-[11px] font-medium uppercase tracking-[0.06em] text-text-subtle">
+              <span className="shrink-0 text-[11px] font-medium leading-none uppercase tracking-[0.06em] text-text-subtle">
                 {t("workingTitle")}
               </span>
-              <span className="shrink-0 text-[11px] tabular-nums text-text-muted/80">{count}</span>
+              <span className="shrink-0 text-[11px] leading-none tabular-nums text-text-muted/80">
+                {count}
+              </span>
 
               {!expanded && oldestJob !== null ? (
                 <span className="flex min-w-0 flex-1 items-center gap-1.5">
@@ -183,17 +196,28 @@ export function ChatWorkingJobsPill({
                   <span className="working-job-emoji shrink-0 text-[12px] leading-none" aria-hidden>
                     {oldestJob.emoji}
                   </span>
-                  <span className="truncate text-[12px] font-medium text-text">
+                  <span className="truncate text-[12px] font-medium leading-none text-text">
                     {oldestJob.label}
                   </span>
                 </span>
               ) : (
                 <span className="flex-1" />
               )}
+            </button>
 
+            {/* Right rounded cap: h-11 × w-11 zone; chevron geometrically centered. */}
+            <button
+              type="button"
+              data-testid="chat-working-chevron"
+              className="flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center text-text-muted/50 transition-colors hover:text-text-muted"
+              onClick={handleHeaderClick}
+              aria-expanded={expanded}
+              aria-controls={bodyId}
+              aria-label={t("workingJobs", { count })}
+            >
               <ChevronDown
                 className={cn(
-                  "ml-1 h-3.5 w-3.5 shrink-0 text-text-muted/50 transition-transform duration-200 group-hover:text-text-muted",
+                  "h-3.5 w-3.5 transition-transform duration-200",
                   // List opens upward — chevron points up when expanded.
                   expanded ? "rotate-180" : "rotate-0"
                 )}

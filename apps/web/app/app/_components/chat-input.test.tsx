@@ -453,6 +453,53 @@ describe("ChatInput", () => {
     expect(screen.getByTestId("chat-working-jobs-pill")).toHaveAttribute("aria-live", "polite");
   });
 
+  it("uses clickable centered Working controls and collapses through its separate chevron", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-05T12:02:00Z"));
+
+    render(
+      <ChatInput
+        onSend={vi.fn()}
+        onTranscribeVoice={vi.fn(async () => "")}
+        onStop={vi.fn()}
+        isStreaming={false}
+        activeMediaJobs={[
+          {
+            id: "job-1",
+            kind: "image",
+            operation: "image_generate",
+            status: "running",
+            createdAt: "2026-05-05T12:00:00Z",
+            startedAt: "2026-05-05T12:00:18Z",
+            updatedAt: "2026-05-05T12:01:50Z"
+          }
+        ]}
+      />
+    );
+
+    const pill = screen.getByTestId("chat-working-jobs-pill");
+    const mobileCircle = screen.getByTestId("chat-working-mobile-circle");
+    const desktopChip = screen.getByTestId("chat-working-collapsed-chip");
+    expect(pill).toHaveClass("pointer-events-auto", "relative", "z-20");
+    expect(mobileCircle).toHaveClass("relative", "h-11", "w-11", "cursor-pointer");
+    expect(desktopChip).toHaveClass("h-11", "cursor-pointer", "items-center");
+    expect(desktopChip.querySelector(".working-bounce-dots")).toHaveClass("shrink-0");
+    expect(mobileCircle.querySelector(".working-bounce-dots-lg")).toHaveClass("mt-2.5");
+    expect(mobileCircle.querySelector("span.absolute")).toHaveClass("top-[7px]", "text-[9px]");
+
+    fireEvent.click(desktopChip);
+    const header = screen.getByTestId("chat-working-header");
+    expect(header).toHaveClass("cursor-pointer", "items-center");
+    fireEvent.click(header);
+    expect(screen.getByTestId("chat-working-jobs-body")).toBeInTheDocument();
+
+    const chevron = screen.getByTestId("chat-working-chevron");
+    expect(chevron).toHaveClass("h-11", "w-11", "cursor-pointer", "items-center", "justify-center");
+    fireEvent.click(chevron);
+    expect(screen.queryByTestId("chat-working-jobs-body")).toBeNull();
+    expect(screen.getByTestId("chat-working-collapsed-chip")).toBeInTheDocument();
+  });
+
   it("falls back to createdAt when a media job is still queued", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-05-05T12:01:42Z"));

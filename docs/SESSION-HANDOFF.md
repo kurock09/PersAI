@@ -1,5 +1,18 @@
 # SESSION-HANDOFF
 
+## 2026-07-20 — Working pill visual refinement local
+
+Status: **Local only; not committed, pushed, deployed, or live-accepted.**
+Baseline `bb1c5611`. Restored only the founder-requested Working pill UI from
+the isolated stash diff: a separate centered 44×44 chevron cap, larger mobile
+resting dots with muted count above, vertically centered desktop chip content,
+and overlay-safe clickable controls. The canonical ADR-159 Working projection,
+resting → compact → expanded progression, idle/outside collapse, and
+accessibility remain unchanged; no stashed API, runtime, or `use-chat` logic
+was restored. Focused chat-input test (30/30), web typecheck, web lint,
+format check, and `git diff --check` pass. Next: parent audit and commit with
+the ongoing ADR-159 work.
+
 ## 2026-07-20 — live web continuation discovery deployed and accepted
 
 Status: **Web repair deployed and live-accepted; ADR-159 remains open for

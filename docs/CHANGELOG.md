@@ -3,6 +3,15 @@
 > Archive: detailed historical entries from 2026-06-05 and earlier moved to `docs/CHANGELOG.archive-2026-06-05-details-and-earlier.md`; entries from 2026-05-19 and earlier remain in `docs/CHANGELOG.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: current entries plus concise recent summaries only.
 
+## 2026-07-20
+
+- **Web UI (local):** restored only the founder-requested Working pill visual
+  refinements from the pre-ADR-159 stash: separate centered 44×44 chevron cap,
+  larger mobile resting dots with count above, vertically centered desktop
+  chip content, and overlay-safe clickable controls. The canonical ADR-159
+  Working projection and interaction behavior are unchanged. Focused chat
+  input coverage, web typecheck/lint, format check, and diff check pass.
+
 ## 2026-07-19
 
 - **Repair (live web continuation discovery; deployed and web-accepted):**

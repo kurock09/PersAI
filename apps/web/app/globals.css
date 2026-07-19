@@ -531,6 +531,17 @@ textarea::-webkit-resizer {
   height: 2.5px;
 }
 
+/* Mobile resting circle — accent on larger bounce dots. */
+.working-bounce-dots-lg {
+  height: 0.72rem;
+  gap: 3px;
+}
+
+.working-bounce-dots-lg > span {
+  width: 4.5px;
+  height: 4.5px;
+}
+
 .working-job-emoji {
   filter: grayscale(1);
   opacity: 0.55;
