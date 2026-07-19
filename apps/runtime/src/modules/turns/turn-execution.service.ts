@@ -2429,7 +2429,8 @@ export class TurnExecutionService {
         ? null
         : [
             "## Async completion continuation",
-            "This is a same-chat continuation after an asynchronous job reached a terminal state.",
+            "This is a same-chat JOB_CATCHUP wake after an asynchronous job reached a terminal state.",
+            "Structured facts.wakeKind is job_catchup (with jobRef, queueOrdinal/queueTotal, interleaved, and originating vs latest user message ids when they differ). Treat that object as the product signal — not the synthetic user strip alone.",
             "Continue the prior task now and report the outcome to the user.",
             "If facts.sandboxResult is present, treat exitCode/stdout/stderr/paths as the job result (same payload await wait would have returned) — summarize or quote them; do not invent numbers or claim the job is still running.",
             "Do not ask the user to wait again for this job. Do not call await wait or await notify again for this same jobRef unless you start a new job.",

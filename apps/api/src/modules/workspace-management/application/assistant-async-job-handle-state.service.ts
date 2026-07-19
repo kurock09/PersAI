@@ -57,6 +57,7 @@ type LockedHandle = {
   id: string;
   kind: "media" | "document" | "sandbox";
   canonicalJobId: string;
+  chatId: string;
   state: string;
   narrationOwner: AsyncJobNarrationOwner | null;
   narrationDecision: string | null;
@@ -537,11 +538,9 @@ export class AssistantAsyncJobHandleStateService {
 
   /**
    * Marks the source turn finalized and auto-subscribes every unresolved child
-   * handle to continuation wake (Cursor-like). Live product no longer assigns
-   * `narrationOwner: "legacy"` — that path is abolished.
-   *
-   * `legacyChosen` is retained as a compatibility alias for the auto-subscribe
-   * count (historical field name from the legacy-stamping era).
+   * handle to continuation wake (Cursor-like). Live product never stamps
+   * `narrationOwner: "legacy"` — that enum value remains only for historical
+   * rows healed on subscribe/completion (ADR-159 S4 residual; no data migration).
    */
   async finalizeSourceTurn(input: {
     assistantId: string;
@@ -551,7 +550,6 @@ export class AssistantAsyncJobHandleStateService {
     assistantMessageId?: string;
   }): Promise<{
     finalized: number;
-    legacyChosen: number;
     autoSubscribed: number;
     currentTurnPreserved: number;
     currentTurnReleased: number;
@@ -663,8 +661,6 @@ export class AssistantAsyncJobHandleStateService {
             });
       return {
         finalized: finalized.count,
-        // Compatibility alias: formerly "rows stamped legacy"; now auto-subscribed.
-        legacyChosen: autoSubscribed,
         autoSubscribed,
         currentTurnPreserved: preserved,
         currentTurnReleased
@@ -733,44 +729,79 @@ export class AssistantAsyncJobHandleStateService {
           ...terminalData
         }
       });
+      if (continuationReady) {
+        await this.stampCatchUpQueueMarkersInTx(tx, {
+          handleId: row.id,
+          chatId: row.chatId
+        });
+      }
       return { decision: "skip_legacy_frame", state: terminalData.state };
     });
   }
 
-  async claimReady(input: {
-    limit: number;
+  /** ADR-159 — claim at most one ready head handle for a single chat (FIFO). */
+  async claimReadyHeadForChat(input: {
+    chatId: string;
     claimTtlMs: number;
-  }): Promise<Array<{ id: string; claimToken: string }>> {
+  }): Promise<{ id: string; claimToken: string } | null> {
     return this.prisma.$transaction(async (tx) => {
       const rows = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
         SELECT "id"
         FROM "assistant_async_job_handles"
         WHERE "state" = 'ready'
+          AND "chat_id" = ${input.chatId}::uuid
           AND "source_finalized_at" IS NOT NULL
           AND ("next_retry_at" IS NULL OR "next_retry_at" <= NOW())
           AND "retry_count" < "max_retries"
         ORDER BY "ready_at" ASC NULLS LAST, "updated_at" ASC
         FOR UPDATE SKIP LOCKED
-        LIMIT ${Math.max(1, Math.floor(input.limit))}
+        LIMIT 1
       `);
+      const row = rows[0];
+      if (row === undefined) return null;
       const now = new Date();
-      const expires = new Date(now.getTime() + input.claimTtlMs);
-      const claimed: Array<{ id: string; claimToken: string }> = [];
-      for (const row of rows) {
-        const claimToken = randomUUID();
-        await tx.assistantAsyncJobHandle.update({
-          where: { id: row.id },
-          data: {
-            state: "claimed",
-            claimToken,
-            claimedAt: now,
-            claimExpiresAt: expires
-          }
-        });
-        claimed.push({ id: row.id, claimToken });
-      }
-      return claimed;
+      const claimToken = randomUUID();
+      await tx.assistantAsyncJobHandle.update({
+        where: { id: row.id },
+        data: {
+          state: "claimed",
+          claimToken,
+          claimedAt: now,
+          claimExpiresAt: new Date(now.getTime() + input.claimTtlMs)
+        }
+      });
+      return { id: row.id, claimToken };
     });
+  }
+
+  /**
+   * ADR-159 — pre-acceptance busy: reclaim claimed→ready without consuming
+   * retry budget and without requiring a dispatched receipt.
+   */
+  async releaseClaimToReady(input: {
+    id: string;
+    claimToken: string;
+    retryAt: Date;
+    errorCode?: string;
+    errorMessage?: string;
+  }): Promise<"released" | "lost"> {
+    const result = await this.prisma.assistantAsyncJobHandle.updateMany({
+      where: { id: input.id, state: "claimed", claimToken: input.claimToken },
+      data: {
+        state: "ready",
+        claimToken: null,
+        claimedAt: null,
+        claimExpiresAt: null,
+        dispatchedAt: null,
+        dispatchReceiptRequestId: null,
+        nextRetryAt: input.retryAt,
+        lastErrorCode: input.errorCode ?? "continuation_busy",
+        lastErrorMessage:
+          input.errorMessage ??
+          "Runtime rejected the continuation before acceptance because the session was busy."
+      }
+    });
+    return result.count === 1 ? "released" : "lost";
   }
 
   async markDispatched(input: {
@@ -789,50 +820,6 @@ export class AssistantAsyncJobHandleStateService {
       }
     });
     return result.count === 1;
-  }
-
-  async requeueBusyNotStarted(input: {
-    id: string;
-    claimToken: string;
-    receiptRequestId: string;
-    retryAt: Date;
-  }): Promise<"requeued" | "lost"> {
-    return this.prisma.$transaction(async (tx) => {
-      const rows = await tx.$queryRaw<LockedHandle[]>(Prisma.sql`
-        SELECT "id", "state"::text AS "state", "narration_owner" AS "narrationOwner",
-          "narration_decision" AS "narrationDecision",
-          "source_finalized_at" AS "sourceFinalizedAt",
-          "continuation_depth" AS "continuationDepth",
-          "continuation_client_turn_id" AS "continuationClientTurnId",
-          "claim_token" AS "claimToken", "retry_count" AS "retryCount",
-          "max_retries" AS "maxRetries"
-        FROM "assistant_async_job_handles"
-        WHERE "id" = ${input.id}::uuid
-          AND "state" = 'dispatched'
-          AND "claim_token" = ${input.claimToken}
-          AND "dispatch_receipt_request_id" = ${input.receiptRequestId}
-        FOR UPDATE
-      `);
-      const row = rows[0];
-      if (row === undefined) return "lost";
-      // Busy-before-acceptance must not consume the continuation retry budget.
-      await tx.assistantAsyncJobHandle.update({
-        where: { id: row.id },
-        data: {
-          state: "ready",
-          claimToken: null,
-          claimedAt: null,
-          claimExpiresAt: null,
-          dispatchedAt: null,
-          dispatchReceiptRequestId: null,
-          nextRetryAt: input.retryAt,
-          lastErrorCode: "continuation_busy",
-          lastErrorMessage:
-            "Runtime rejected the continuation before acceptance because the session was busy."
-        }
-      });
-      return "requeued";
-    });
   }
 
   async claimDeliveryAttempt(input: {
@@ -986,9 +973,18 @@ export class AssistantAsyncJobHandleStateService {
     });
   }
 
+  /**
+   * Terminalize a catch-up claim. Accepts `claimed` (e.g. web attempt already
+   * completed / `duplicate_handled`) or `dispatched` so the FIFO head frees
+   * immediately without waiting for claim TTL reconcile.
+   */
   async completeClaim(input: { id: string; claimToken: string }): Promise<boolean> {
     const result = await this.prisma.assistantAsyncJobHandle.updateMany({
-      where: { id: input.id, state: "dispatched", claimToken: input.claimToken },
+      where: {
+        id: input.id,
+        claimToken: input.claimToken,
+        state: { in: ["claimed", "dispatched"] }
+      },
       data: {
         state: "completed",
         completedAt: new Date(),
@@ -1202,6 +1198,7 @@ export class AssistantAsyncJobHandleStateService {
   ): Promise<LockedHandle | null> {
     const rows = await tx.$queryRaw<LockedHandle[]>(Prisma.sql`
       SELECT h."id", h."kind"::text AS "kind", h."canonical_job_id" AS "canonicalJobId",
+        h."chat_id" AS "chatId",
         h."state"::text AS "state", h."narration_owner" AS "narrationOwner",
         h."narration_decision" AS "narrationDecision",
         h."source_finalized_at" AS "sourceFinalizedAt",
@@ -1234,6 +1231,7 @@ export class AssistantAsyncJobHandleStateService {
   ): Promise<LockedHandle | null> {
     const rows = await tx.$queryRaw<LockedHandle[]>(Prisma.sql`
       SELECT "id", "kind"::text AS "kind", "canonical_job_id" AS "canonicalJobId",
+        "chat_id" AS "chatId",
         "state"::text AS "state", "narration_owner" AS "narrationOwner",
         "narration_decision" AS "narrationDecision",
         "source_finalized_at" AS "sourceFinalizedAt",
@@ -1527,6 +1525,96 @@ export class AssistantAsyncJobHandleStateService {
               terminalObservedAt: now,
               ...this.terminalStateData(terminal.status, now)
             })
+      }
+    });
+    if (continuationReady) {
+      await this.stampCatchUpQueueMarkersInTx(tx, {
+        handleId: row.id,
+        chatId: row.chatId
+      });
+    }
+  }
+
+  /**
+   * ADR-159 — stamp durable catch-up ordinal/total when a handle becomes ready.
+   * Joins an open wave (any ready/claimed/dispatched sibling with a wave id) or
+   * starts a new wave; bumps catchUpWaveTotal on all members so sequential
+   * dispatches keep the same N (1/2 then 2/2, not 1/1).
+   */
+  private async stampCatchUpQueueMarkersInTx(
+    tx: Prisma.TransactionClient,
+    input: { handleId: string; chatId: string }
+  ): Promise<void> {
+    const handles = tx.assistantAsyncJobHandle as {
+      findUnique?: (args: unknown) => Promise<{
+        id: string;
+        catchUpOrdinal: number | null;
+        catchUpWaveId: string | null;
+        catchUpWaveTotal: number | null;
+      } | null>;
+      findFirst?: (args: unknown) => Promise<{ catchUpWaveId: string } | null>;
+      findMany?: (args: unknown) => Promise<Array<{ id: string; catchUpOrdinal: number | null }>>;
+      update?: (args: unknown) => Promise<unknown>;
+      updateMany?: (args: unknown) => Promise<unknown>;
+    };
+    if (
+      typeof handles.findUnique !== "function" ||
+      typeof handles.findFirst !== "function" ||
+      typeof handles.findMany !== "function" ||
+      typeof handles.update !== "function" ||
+      typeof handles.updateMany !== "function"
+    ) {
+      return;
+    }
+    if (typeof (tx as { $queryRaw?: unknown }).$queryRaw === "function") {
+      // Serialize ordinal assignment per chat (skip result).
+      await tx.$queryRaw(Prisma.sql`
+        SELECT "id" FROM "assistant_chats" WHERE "id" = ${input.chatId}::uuid FOR UPDATE
+      `);
+    }
+    const self = await handles.findUnique({
+      where: { id: input.handleId },
+      select: {
+        id: true,
+        catchUpOrdinal: true,
+        catchUpWaveId: true,
+        catchUpWaveTotal: true
+      }
+    });
+    if (self === null || self.catchUpOrdinal !== null) {
+      return;
+    }
+    const open = await handles.findFirst({
+      where: {
+        chatId: input.chatId,
+        state: { in: ["ready", "claimed", "dispatched"] },
+        catchUpWaveId: { not: null },
+        NOT: { id: input.handleId }
+      },
+      select: { catchUpWaveId: true }
+    });
+    const waveId = open?.catchUpWaveId ?? randomUUID();
+    const members = await handles.findMany({
+      where: { chatId: input.chatId, catchUpWaveId: waveId },
+      select: { id: true, catchUpOrdinal: true }
+    });
+    let maxOrdinal = 0;
+    for (const member of members) {
+      if (typeof member.catchUpOrdinal === "number" && member.catchUpOrdinal > maxOrdinal) {
+        maxOrdinal = member.catchUpOrdinal;
+      }
+    }
+    const ordinal = maxOrdinal + 1;
+    await handles.updateMany({
+      where: { chatId: input.chatId, catchUpWaveId: waveId },
+      data: { catchUpWaveTotal: ordinal }
+    });
+    await handles.update({
+      where: { id: input.handleId },
+      data: {
+        catchUpOrdinal: ordinal,
+        catchUpWaveTotal: ordinal,
+        catchUpWaveId: waveId
       }
     });
   }

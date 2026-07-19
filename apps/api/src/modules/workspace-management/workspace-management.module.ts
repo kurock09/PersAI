@@ -311,6 +311,7 @@ import { EnqueueRuntimeDeferredMediaJobService } from "./application/enqueue-run
 import { ResolveAssistantAsyncJobService } from "./application/resolve-assistant-async-job.service";
 import { AssistantAsyncJobHandleStateService } from "./application/assistant-async-job-handle-state.service";
 import { AssistantAsyncJobContinuationSchedulerService } from "./application/assistant-async-job-continuation-scheduler.service";
+import { ChatWakeCoordinator } from "./application/chat-wake-coordinator.service";
 import { InternalRuntimeAsyncContinuationClientService } from "./application/internal-runtime-async-continuation.client.service";
 import { StreamWebAsyncContinuationService } from "./application/stream-web-async-continuation.service";
 import { CheckpointMediaJobAcceptedProviderTaskService } from "./application/checkpoint-media-job-accepted-provider-task.service";
@@ -682,6 +683,7 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     EnqueueRuntimeDeferredMediaJobService,
     ResolveAssistantAsyncJobService,
     AssistantAsyncJobHandleStateService,
+    ChatWakeCoordinator,
     InternalRuntimeAsyncContinuationClientService,
     StreamWebAsyncContinuationService,
     AssistantAsyncJobContinuationSchedulerService,

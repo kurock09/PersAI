@@ -56,6 +56,14 @@ catch-up plane was incomplete.
 - Changing soft-detach (SSE death still does not Stop)
 - Telegram live seconds UI
 
+## Supersession note (ADR-159)
+
+**Stream bus stays** as the multi-pod live SSE catch-up plane. Client
+sticky/absorb **wake** crutches (stuck-accepted absorb as product, empty
+«Думаю» papering for raced async-cont) are **temporary** until ADR-159
+Session Work Queue owns wake dispatch (S1–S4 delete path). Soft-detach and
+ordinary history absorb for committed server rows remain valid.
+
 ## Acceptance
 
 - Soft-detach reattach on another API pod shows live deltas/tools

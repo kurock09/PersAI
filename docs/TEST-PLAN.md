@@ -4,6 +4,55 @@ This document defines the current verification baseline for the active PersAI-na
 
 ADR-072 is closed as the historical native migration ADR. Current continuation work should be checked against `docs/ADR/078-consolidated-follow-through-program.md`. `Step 15a` is cancelled and is not an active verification track. ADR-087 defines the unified quota-advisory and paid light-mode target state. ADR-088 defines the unified notification platform target state.
 
+## 2026-07-19 ADR-159 Session Work Queue (S4 local; S5 open)
+
+Required coverage as slices land (no intermediate deploy until S5):
+
+- **S1+S2 landed (local):** `apps/api/test/chat-wake-coordinator.service.test.ts`,
+  `assistant-async-job-continuation-scheduler.service.test.ts`,
+  `stream-web-async-continuation.service.test.ts`,
+  `assistant-async-job-handle-state.service.test.ts` — per-chat lock + head
+  claim; busy → `releaseClaimToReady` / abandon attempt; no
+  `resetToAccepted`; `markDispatched` only after runtime accept + (web)
+  running attempt; user-turn-active skip (durable
+  `last_user_turn_started_at` open window + web attempt + TG accepted
+  receipt); durable idle-pause (`last_user_turn_terminal_at` +
+  `CATCHUP_IDLE_PAUSE_MS`); post-lock + pre-runtime TOCTOU (incl. focused TG
+  scheduler gate-denial → no execute / release claim); async_continuation
+  terminals do not stamp user-turn started/terminal; FIFO one-at-a-time while
+  lock held
+- **S3 markers landed (local):** scheduler
+  `resolveCatchUpWakeMarkers` / `buildRequest` / `loadAndValidateContext`
+  emit `wakeKind=job_catchup`, `queueOrdinal`/`queueTotal`, `interleaved`,
+  originating vs latest user ids, retained `jobRef` + terminal/`sandboxResult`;
+  quiet `AssistantChatMessage.metadata` on catch-up persist; runtime developer
+  section names structured facts; synthetic strip not sole cue. Focused tests
+  in `assistant-async-job-continuation-scheduler.service.test.ts`
+- **S4 purge + CLEAN repair (local):** no production `claimReady` /
+  `requeueBusyNotStarted`; finalize returns `autoSubscribed` (no
+  `legacyChosen`); pre-accept busy uses `releaseClaimToReady` without retry
+  budget burn; no stuck-accepted absorb product path on web client; historical
+  `legacy` heal residual documented only; durable
+  `catch_up_ordinal`/`catch_up_wave_total`/`catch_up_wave_id` stamped at
+  ready; sequential markers 1/2 then 2/2; web `duplicate_handled` →
+  `completeClaim` (no claimed stall); TG ambiguous `markDispatched` P2
+  residual documented
+- **Interleave (S2):** user POST while ≥1 handle is `ready` → user turn runs
+  first; after idle-pause, catch-ups run; no parallel agent turns for the
+  same chat
+- **Multi-job FIFO:** two ready handles same chat → sequential heads with
+  stable ordinal 1/2 then 2/2; second cannot claim while first catch-up lock
+  is held
+- **Sync wait:** in-turn `await.wait` / current_turn stays same bubble; does
+  not take catch-up lock or open a second continuation
+- **Dispatch invariant:** `markDispatched` only after runtime lease acquired
+  and (web) attempt running; pre-acceptance busy never `resetToAccepted` /
+  parked reconcile
+- **Telegram busy:** blocking async-continuation obeys same serial rules;
+  no web SSE zombie / stuck-accepted absorb as product path
+- Retain ADR-157/152 coverage for auto-subscribe intent, opaque `jobRef`,
+  Stop≠cancel background job, ADR-158 stream bus replay
+
 ## 2026-07-19 ScriptRef isolation (broken Script ≠ dead chat)
 
 - `apps/api/test/script-ref-materialization.test.ts`: unresolvable pin, missing

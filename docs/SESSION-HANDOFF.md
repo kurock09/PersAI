@@ -1,10 +1,116 @@
 # SESSION-HANDOFF
 
+## 2026-07-19 — ADR-152 Browser Script SDK live PASS (Telega / any profile)
+
+Status: **Live PASS accepted.** Chat
+`373e47bc-6219-4e68-815a-8fa7c3ddfabe`
+(`adr152-telega-any-profile-live-20260719`), Scenario
+`adr152_browser_sdk_live_smoke`, Script `adr152_live_browser`, profile
+`adr152-test` (active, origin telega.in). Founder + MCP-confirmed result:
+`sentinel=ADR152_BROWSER_SDK_OK`, `provider=local_bridge`,
+`snapshotAction=snapshot`, `actAction=acted`, both URLs
+`https://telega.in/catalog` (observed ~2026-07-19T14:52:37Z / 14:52:41Z).
+Proves profile-backed Script browser SDK works through local bridge with a
+non-hardcoded profile key. Full ADR-152 program closure still depends on
+remaining await/job/deploy gates — this is Browser Script SDK Telega live
+acceptance only.
+
+## 2026-07-19 — ADR-159 S0–S4 commit + S5 push/deploy gate
+
+Status: **Committing S0–S4 (+ runtime-duplicate P0 + post-CLEAN comment
+cleanup) on baseline `b41adb6a`; push starts S5 (one deploy + live).** Dual
+Grok+Composer CLEAN after cleanup. Migrations:
+`20260719160000_adr159_s2_chat_idle_pause`,
+`20260719170000_adr159_catchup_ordinal` — need migration-approved pin path.
+Full AGENTS lint/format/typecheck + recursive test + `test:ci-detect-affected`
++ `test:step2` before push. Live acceptance after exact images: web interleave
+user↔catch-up, multi-job 1/2→2/2, sync `await.wait`, Telegram serial busy.
+Working-pill trash / bandage stash still out of scope.
+
+## 2026-07-19 — ADR-159 post-CLEAN wake-comment cleanup (local)
+
+Status: **Superseded by S0–S4 commit + S5 push gate above.** After dual-audit
+CLEAN on S0–S4, founder-asked safe cleanup of leftover old+new wake mix in
+product comments/logs only (no semantics, migrations, or Working-pill).
+
+## 2026-07-19 — ADR-159 runtime-duplicate claim release P0 (local)
+
+Status: **Superseded by post-CLEAN comment cleanup above.** P0: runtime
+`outcome === "duplicate"` (acceptTurn in_flight) bare-returned while
+catch-up claim stayed held (web after `markRunning`, TG blocking path).
+Fixed like pre-accept busy / `duplicate_inflight`: web
+`abandonPreAcceptanceAttempt` + `releaseClaimToReady`; TG
+`releaseClaimToReady`. `duplicate_handled` → `completeClaim` unchanged.
+
+## 2026-07-19 — ADR-159 S4 CLEAN repair (local)
+
+Status: **Superseded by runtime-duplicate P0 repair above.** Parent S4 audit
+returned DIRTY; repaired toward CLEAN:
+
+1. **Honest queueOrdinal/queueTotal** — durable
+   `catch_up_ordinal` / `catch_up_wave_total` / `catch_up_wave_id` stamped at
+   ready-promotion (open-wave join); sequential dispatch keeps 1/2 then 2/2.
+2. **Sequential two-handle test** — scheduler markers assert stable N=2.
+3. **`duplicate_handled` stall** — web async-cont completes claimed handle
+   immediately via `completeClaim` (claimed|dispatched); no 2min claimed park.
+4. **Cleanup** — dead-path comments; TG ambiguous `markDispatched` documented
+   as P2 reconcile residual in ADR-159.
+
+Migration `20260719170000_adr159_catchup_ordinal`.
+
+## 2026-07-19 — ADR-159 S4 wake-crutch purge (local)
+
+Status: **Superseded by S4 CLEAN repair above.** S4 purged dead wake paths
+(`claimReady`, `requeueBusyNotStarted`, `legacyChosen`); historical `legacy`
+heal residual documented.
+
+## 2026-07-19 — ADR-159 S3 catch-up markers (local)
+
+Status: **Superseded by S4 local landing above.** S3 audit CLEAN. Markers:
+`wakeKind=job_catchup` in scheduler facts, quiet message metadata (web+TG
+share `persistOutputOnce`), runtime developer section, focused tests.
+
+## 2026-07-19 — ADR-159 S2 P1 audit repair (TG preparing + TOCTOU tests)
+
+Status: **Superseded by S3 local landing above.** Independent S2 audit
+returned DIRTY (3 P1, no P0); repaired then re-audited CLEAN before S3.
+
+## 2026-07-19 — ADR-159 S2 local landing (user priority + idle-pause + TOCTOU)
+
+Status: **Superseded by S2 P1 audit repair above.** S2 hardens
+`ChatWakeCoordinator`: durable idle-pause + user priority + TOCTOU + FIFO.
+
+## 2026-07-19 — ADR-159 S1 P0 audit repair (pre/post-accept terminalize)
+
+Status: **Superseded by S2 local landing above.** Independent S1 audit
+returned DIRTY then repaired: after accept mid-stream failure `markFailed`
+only; pre-accept clear errors skip `markDispatched`; no silent zombie
+running attempt.
+
+## 2026-07-19 — ADR-159 S1 local landing (dispatch gate + per-chat claim)
+
+Status: **Superseded by S1 P0 audit repair above.** Local on baseline
+`b41adb6a` (not committed / not pushed / not deployed). S1 lands
+`ChatWakeCoordinator`: select catch-up-eligible chats → exclusive
+`SchedulerLease` key `async-catchup:{chatId}` → claim at most one ready head
+per chat (FIFO `readyAt`). Dispatch gate: never `markDispatched` until
+runtime session lease is acquired for the continuation **and** (web) turn
+attempt is running; pre-accept busy → `releaseClaimToReady` + abandon
+async-continuation attempt — **no** `resetToAccepted` park. Minimal S1 user
+priority: skip catch-up while non-`async_continuation` web attempt is
+accepted/running (idle-pause debounce deferred to **S2**).
+
+## 2026-07-19 — ADR-159 Session Work Queue opened (docs S0)
+
+Status: **Superseded by S1 local landing above.** Docs-only S0 on clean
+`main` `b41adb6a` opened the Session Work Queue design lock.
+
 ## 2026-07-19 — Abolish legacy + auto-wake bg jobs
 
 Status: **Pushed `main` `88badd39`.** Baseline was `7f268dd0` (GitOps pin of
 `e1ce2424`). Founder: eradicate `legacy` narration; Cursor-like wake on bg
 completion without explicit notify; stop EN “already being handled…” chat leak.
+**Wake dispatch superseded by ADR-159** (auto-subscribe intent remains).
 
 Live evidence (chat `0ea8ab3b…`): notify continuation
 `async-cont:35255749` called `await wait` on sibling job stamped `legacy` →

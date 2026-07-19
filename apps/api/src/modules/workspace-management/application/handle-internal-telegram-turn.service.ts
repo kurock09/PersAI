@@ -45,6 +45,7 @@ import { stripToolInvocationsForClient } from "./strip-tool-invocations-for-clie
 import { resolvePendingBrowserLoginFromRuntimeTurn } from "./resolve-pending-browser-login-for-web-chat";
 import type { PendingBrowserLoginState } from "@persai/runtime-contract";
 import { WebRuntimeSessionStateClientService } from "./web-runtime-session-state-client.service";
+import { ChatWakeCoordinator } from "./chat-wake-coordinator.service";
 
 export interface InternalTelegramTurnResult {
   assistantMessage: string;
@@ -122,12 +123,13 @@ export class HandleInternalTelegramTurnService {
     > = {
       finalizeSourceTurn: async () => ({
         finalized: 0,
-        legacyChosen: 0,
         autoSubscribed: 0,
         currentTurnPreserved: 0,
         currentTurnReleased: 0
       })
-    }
+    },
+    @Optional()
+    private readonly chatWakeCoordinator?: ChatWakeCoordinator
   ) {}
 
   async execute(input: TelegramAdapterTurnRequest): Promise<InternalTelegramTurnResult> {
@@ -285,6 +287,10 @@ export class HandleInternalTelegramTurnService {
         chatId: chat.id,
         sourceClientTurnId: userMessage.id
       };
+      // ADR-159 S2 — durable preparing window before runtime accept (receipt).
+      if (this.chatWakeCoordinator !== undefined) {
+        await this.chatWakeCoordinator.recordUserTurnStarted(chat.id);
+      }
       trace.stage("user_message_saved");
 
       let enrichedMessage = input.message;
@@ -593,6 +599,11 @@ export class HandleInternalTelegramTurnService {
       }
       trace.finish({ status: "failed" });
       throw error;
+    } finally {
+      // ADR-159 S2 — durable idle-pause origin after Telegram USER_TURN terminals.
+      if (sourceFinalizationContext !== null && this.chatWakeCoordinator !== undefined) {
+        await this.chatWakeCoordinator.recordUserTurnTerminal(sourceFinalizationContext.chatId);
+      }
     }
   }
 

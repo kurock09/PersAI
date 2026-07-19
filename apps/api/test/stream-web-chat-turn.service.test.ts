@@ -2380,7 +2380,6 @@ describe("StreamWebChatTurnService", () => {
       {
         finalizeSourceTurn: async () => ({
           finalized: 0,
-          legacyChosen: 0,
           autoSubscribed: 0,
           currentTurnPreserved: 0,
           currentTurnReleased: 0

@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger } from "@nestjs/common";
+import { BadRequestException, Injectable, Logger, Optional } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import type {
   AssistantWebChatActiveTurnState,
@@ -14,6 +14,7 @@ import type { CompletedWebTurnReplayState } from "../domain/assistant-channel-su
 import type { AssistantChatSkillDecisionState } from "../domain/assistant-chat.entity";
 import { ResolveActiveAssistantService } from "./resolve-active-assistant.service";
 import { toAssistantWebChatMessageAttachmentState } from "./media/media.types";
+import { ChatWakeCoordinator } from "./chat-wake-coordinator.service";
 
 export type WebChatTurnAttemptStatus =
   | "unknown"
@@ -171,7 +172,8 @@ export class WebChatTurnAttemptService {
 
   constructor(
     private readonly prisma: WorkspaceManagementPrismaService,
-    private readonly resolveActiveAssistantService: ResolveActiveAssistantService
+    private readonly resolveActiveAssistantService: ResolveActiveAssistantService,
+    @Optional() private readonly chatWakeCoordinator?: ChatWakeCoordinator
   ) {}
 
   async claim(input: {
@@ -275,50 +277,45 @@ export class WebChatTurnAttemptService {
         ...(input.surfaceClient === undefined ? {} : { surfaceClient: input.surfaceClient })
       }
     });
+    // ADR-159 S2 — optional durable parity with Telegram preparing stamp.
+    // Gate still primarily uses the non-async_continuation attempt row.
+    if (input.surfaceClient !== "async_continuation" && this.chatWakeCoordinator !== undefined) {
+      await this.chatWakeCoordinator.recordUserTurnStarted(input.chatId);
+    }
     this.logger.log(
       `web_turn_attempt_running assistantId=${input.assistantId} threadKey=${input.surfaceThreadKey} clientTurnId=${input.clientTurnId} chatId=${input.chatId} userMessageId=${input.userMessageId ?? "null"}`
     );
   }
 
   /**
-   * ADR-152 — busy before acceptance must not leave the attempt `running`
-   * (duplicate_inflight) or terminal-failed (client toast). Reset to accepted
-   * so the scheduler reclaim can claim again after requeue.
+   * ADR-159 — pre-acceptance busy cleanup: delete the async-continuation
+   * attempt so the next catch-up claim can create a fresh row.
+   * (`resetToAccepted` deleted.)
    */
-  async resetToAccepted(input: {
+  async abandonPreAcceptanceAttempt(input: {
     assistantId: string;
     userId: string;
     surfaceThreadKey: string;
     clientTurnId: string;
   }): Promise<void> {
-    const updated = await this.prisma.assistantWebChatTurnAttempt.updateMany({
+    const deleted = await this.prisma.assistantWebChatTurnAttempt.deleteMany({
       where: {
         assistantId: input.assistantId,
         userId: input.userId,
         surfaceThreadKey: input.surfaceThreadKey,
         clientTurnId: input.clientTurnId,
-        status: { in: ["accepted", "running"] }
-      },
-      data: {
-        status: "accepted",
-        runningAt: null,
-        currentActivity: Prisma.DbNull,
-        errorCode: null,
-        errorMessage: null,
-        userMessageId: null,
-        assistantMessageId: null,
-        respondedAt: null,
-        terminalPayload: Prisma.DbNull
+        status: { in: ["accepted", "running"] },
+        surfaceClient: "async_continuation"
       }
     });
-    if (updated.count === 0) {
+    if (deleted.count === 0) {
       this.logger.log(
-        `web_turn_attempt_reset_accepted_ignored assistantId=${input.assistantId} threadKey=${input.surfaceThreadKey} clientTurnId=${input.clientTurnId} reason=already_terminal`
+        `web_turn_attempt_abandon_preaccept_ignored assistantId=${input.assistantId} threadKey=${input.surfaceThreadKey} clientTurnId=${input.clientTurnId}`
       );
       return;
     }
     this.logger.log(
-      `web_turn_attempt_reset_accepted assistantId=${input.assistantId} threadKey=${input.surfaceThreadKey} clientTurnId=${input.clientTurnId}`
+      `web_turn_attempt_abandon_preaccept assistantId=${input.assistantId} threadKey=${input.surfaceThreadKey} clientTurnId=${input.clientTurnId}`
     );
   }
 
@@ -331,6 +328,7 @@ export class WebChatTurnAttemptService {
     respondedAt: string;
     terminalPayload: CompletedWebTurnReplayState;
   }): Promise<void> {
+    const prior = await this.findActiveAttemptIdentity(input);
     const updated = await this.prisma.assistantWebChatTurnAttempt.updateMany({
       where: {
         assistantId: input.assistantId,
@@ -356,6 +354,7 @@ export class WebChatTurnAttemptService {
       );
       return;
     }
+    await this.recordUserTurnTerminalIfNeeded(prior);
     this.logger.log(
       `web_turn_attempt_completed assistantId=${input.assistantId} threadKey=${input.surfaceThreadKey} clientTurnId=${input.clientTurnId} assistantMessageId=${input.assistantMessageId}`
     );
@@ -539,6 +538,7 @@ export class WebChatTurnAttemptService {
     code?: string | null;
     message?: string | null;
   }): Promise<void> {
+    const prior = await this.findActiveAttemptIdentity(input);
     const updated = await this.prisma.assistantWebChatTurnAttempt.updateMany({
       where: {
         assistantId: input.assistantId,
@@ -562,7 +562,48 @@ export class WebChatTurnAttemptService {
       this.logger.log(
         `web_turn_attempt_terminal_write_ignored assistantId=${input.assistantId} threadKey=${input.surfaceThreadKey} clientTurnId=${input.clientTurnId} status=${input.status} reason=already_terminal`
       );
+      return;
     }
+    await this.recordUserTurnTerminalIfNeeded(prior);
+  }
+
+  private async findActiveAttemptIdentity(input: {
+    assistantId: string;
+    userId: string;
+    surfaceThreadKey: string;
+    clientTurnId: string;
+  }): Promise<{ chatId: string | null; surfaceClient: string | null } | null> {
+    if (
+      typeof (this.prisma.assistantWebChatTurnAttempt as { findFirst?: unknown }).findFirst !==
+      "function"
+    ) {
+      return null;
+    }
+    return this.prisma.assistantWebChatTurnAttempt.findFirst({
+      where: {
+        assistantId: input.assistantId,
+        userId: input.userId,
+        surfaceThreadKey: input.surfaceThreadKey,
+        clientTurnId: input.clientTurnId,
+        status: { in: ["accepted", "running"] }
+      },
+      select: { chatId: true, surfaceClient: true }
+    });
+  }
+
+  /** ADR-159 S2 — stamp idle-pause origin for ordinary user turns only. */
+  private async recordUserTurnTerminalIfNeeded(
+    prior: { chatId: string | null; surfaceClient: string | null } | null
+  ): Promise<void> {
+    if (
+      prior === null ||
+      prior.chatId === null ||
+      prior.surfaceClient === "async_continuation" ||
+      this.chatWakeCoordinator === undefined
+    ) {
+      return;
+    }
+    await this.chatWakeCoordinator.recordUserTurnTerminal(prior.chatId);
   }
 
   private async buildStatus(attemptId: string): Promise<WebChatTurnStatusState> {

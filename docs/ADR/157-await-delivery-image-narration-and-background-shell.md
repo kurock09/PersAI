@@ -114,6 +114,11 @@ Founder override 2026-07-19 (Cursor-like; supersedes prior “no auto-subscribe�
 | Explicit `await.notify` | Idempotent with auto-subscribe (duplicate subscribe); same wake path |
 | Background job still open; user may send ordinary messages between enqueue and wake | Interleaved user bubbles are first-class; wake remains a **new** assistant bubble, never a patch onto an old one |
 
+**Wake dispatch (2026-07-19):** D4.1 auto-subscribe **intent** stays.
+**Dispatch** of those wakes is owned by **ADR-159** Session Work Queue
+(`ChatWakeCoordinator`: user priority, idle-pause, FIFO catch-ups, no
+parked-accepted parallel wakes). Do not reopen this ADR for queue work.
+
 `narrationOwner: "legacy"` is abolished on the live finalize path. Historical
 legacy rows heal into continuation on subscribe/completion. `await.wait` /
 `already_owned` must never write “already being handled…” into chat

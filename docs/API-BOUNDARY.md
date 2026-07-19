@@ -143,11 +143,24 @@ count against the unified 8-cap (same SQL as media/document/register).
 
 Notify is non-terminal: an owned pending ref durably subscribes/reserves
 continuation narration and returns `turnControl:"continue"`; terminal-before-
-subscribe returns inline. Scheduler dispatch requires `sourceFinalizedAt`,
-revalidates before dispatch, and shares the existing same-chat runtime lease
-with ordinary user turns in both directions. Permanent continuation failure
-must surface one visible observation (contract); that projection may still be
-incomplete locally. `async_job_accepted` SSE for mid-turn Working updates is
+subscribe returns inline. Scheduler dispatch requires `sourceFinalizedAt` and
+revalidates before dispatch. **ADR-159 wake/catch-up contract (S4 local):**
+dispatch is session-queue owned — `ChatWakeCoordinator` enforces
+`USER_TURN` > `JOB_CATCHUP`, durable preparing open window
+(`assistant_chats.last_user_turn_started_at`) + idle-pause debounce
+(`last_user_turn_terminal_at` + `CATCHUP_IDLE_PAUSE_MS`), at most one active
+catch-up per chat, and ready FIFO (`claimReadyHeadForChat`; global
+`claimReady` deleted). Gate is re-checked after lock acquire and
+immediately before runtime accept. The runtime session lease
+remains the execution gate but must not race user turns via “whichever
+acquires first.” Never `markDispatched` before lease acquired and (web) turn
+attempt is running; pre-acceptance busy → `releaseClaimToReady` (no parked
+`accepted`, no `requeueBusyNotStarted`). Catch-up model facts include
+`wakeKind=job_catchup`, ordinal, interleaved, `jobRef`, and bounded terminal
+facts (S3). Sync in-turn `await.wait` is unchanged (same bubble).
+Telegram keeps blocking `async-continuations`; same queue rules. Permanent
+continuation failure must surface one visible observation (contract); that
+projection may still be incomplete locally. `async_job_accepted` SSE for mid-turn Working updates is
 landed: runtime emits it immediately after opaque media/document/sandbox
 `jobRef` acceptance; API relays through the web turn stream; the web client
 upserts `activeMediaJobs` / `activeDocumentJobs` / `activeSandboxJobs` before

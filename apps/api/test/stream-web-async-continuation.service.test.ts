@@ -39,7 +39,11 @@ function baseCallbacks(callbackCalls: string[]) {
     failClaimVisibly: async (_claim: unknown, error: { errorCode: string }) => {
       callbackCalls.push(`fail:${error.errorCode}`);
     },
-    requeueBusyNotStarted: async () => {
+    markDispatched: async () => {
+      callbackCalls.push("markDispatched");
+      return true;
+    },
+    releasePreDispatchBusy: async () => {
       callbackCalls.push("busy");
     },
     completeClaim: async () => {
@@ -83,6 +87,41 @@ function stopDispatchMock(options?: {
       options?.onRelease?.();
     },
     wasUserStopped: () => options?.wasUserStopped?.() ?? false
+  } as never;
+}
+
+function attemptMock(attemptCalls: string[], extras?: Record<string, unknown>) {
+  return {
+    claim: async () => {
+      attemptCalls.push("claim");
+      return "claimed";
+    },
+    markRunning: async (input?: { userMessageId: string | null }) => {
+      attemptCalls.push("markRunning");
+      if (input !== undefined) {
+        (attemptMock as { lastUserMessageId?: string | null }).lastUserMessageId =
+          input.userMessageId;
+      }
+    },
+    markCompleted: async () => {
+      attemptCalls.push("markCompleted");
+    },
+    markFailed: async () => {
+      attemptCalls.push("markFailed");
+    },
+    markInterrupted: async () => {
+      attemptCalls.push("markInterrupted");
+    },
+    markCurrentActivity: async () => {
+      attemptCalls.push("markCurrentActivity");
+    },
+    touchRunningAttempt: async () => {
+      attemptCalls.push("touchRunningAttempt");
+    },
+    abandonPreAcceptanceAttempt: async () => {
+      attemptCalls.push("abandonPreAcceptanceAttempt");
+    },
+    ...extras
   } as never;
 }
 
@@ -154,8 +193,8 @@ describe("StreamWebAsyncContinuationService", () => {
         touchRunningAttempt: async () => {
           attemptCalls.push("touchRunningAttempt");
         },
-        resetToAccepted: async () => {
-          attemptCalls.push("resetToAccepted");
+        abandonPreAcceptanceAttempt: async () => {
+          attemptCalls.push("abandonPreAcceptanceAttempt");
         }
       } as never,
       streamRegistryMock({
@@ -198,10 +237,49 @@ describe("StreamWebAsyncContinuationService", () => {
     assert.deepEqual(attemptCalls.slice(0, 3), ["claim", "markRunning", "markCompleted"]);
     assert.ok(published.some((row) => row.event === "delta"));
     assert.ok(published.some((row) => row.event === "completed"));
-    assert.deepEqual(callbackCalls, ["persist", "finalize:persisted", "deliver", "complete"]);
+    assert.ok(callbackCalls.includes("markDispatched"));
+    assert.deepEqual(
+      callbackCalls.filter((c) => c !== "markDispatched"),
+      ["persist", "finalize:persisted", "deliver", "complete"]
+    );
   });
 
-  test("typed busy outcome requeues without failed publish or markFailed", async () => {
+  test("ADR-159 duplicate_handled completes claim immediately (no claimed stall)", async () => {
+    const callbackCalls: string[] = [];
+    const attemptCalls: string[] = [];
+    const service = new StreamWebAsyncContinuationService(
+      {
+        stream: async () => {
+          throw new Error("must not stream after duplicate_handled");
+        }
+      } as never,
+      {
+        ...attemptMock(attemptCalls),
+        claim: async () => {
+          attemptCalls.push("claim");
+          return "duplicate_handled";
+        }
+      } as never,
+      streamRegistryMock(),
+      stopDispatchMock()
+    );
+
+    await service.processWebClaim({
+      claim: { id: "handle-dup", claimToken: "claim-dup" },
+      context: baseContext({ continuationClientTurnId: "async-cont:dup" }),
+      request: { requestId: "req-dup", idempotencyKey: "async-cont:dup" } as never,
+      timeoutMs: 30_000,
+      callbacks: baseCallbacks(callbackCalls)
+    });
+
+    assert.deepEqual(callbackCalls, ["complete"]);
+    assert.deepEqual(attemptCalls, ["claim"]);
+    assert.ok(!callbackCalls.includes("markDispatched"));
+    assert.ok(!callbackCalls.includes("busy"));
+    assert.ok(!attemptCalls.includes("markRunning"));
+  });
+
+  test("typed busy outcome releases claim without markDispatched or resetToAccepted", async () => {
     const callbackCalls: string[] = [];
     const attemptCalls: string[] = [];
     const published: string[] = [];
@@ -212,26 +290,7 @@ describe("StreamWebAsyncContinuationService", () => {
           result: { outcome: "busy" }
         })
       } as never,
-      {
-        claim: async () => "claimed",
-        markRunning: async () => {
-          attemptCalls.push("markRunning");
-        },
-        markFailed: async () => {
-          attemptCalls.push("markFailed");
-        },
-        markCompleted: async () => {
-          attemptCalls.push("markCompleted");
-        },
-        markInterrupted: async () => {
-          attemptCalls.push("markInterrupted");
-        },
-        markCurrentActivity: async () => undefined,
-        touchRunningAttempt: async () => undefined,
-        resetToAccepted: async () => {
-          attemptCalls.push("resetToAccepted");
-        }
-      } as never,
+      attemptMock(attemptCalls),
       streamRegistryMock({
         onPublish: (input) => {
           published.push(input.event);
@@ -249,8 +308,48 @@ describe("StreamWebAsyncContinuationService", () => {
     });
 
     assert.deepEqual(callbackCalls, ["busy"]);
+    assert.ok(!callbackCalls.includes("markDispatched"));
     assert.ok(!attemptCalls.includes("markFailed"));
-    assert.ok(attemptCalls.includes("resetToAccepted"));
+    assert.ok(attemptCalls.includes("abandonPreAcceptanceAttempt"));
+    assert.ok(!attemptCalls.includes("resetToAccepted"));
+    assert.ok(!published.includes("failed"));
+  });
+
+  test("ADR-159 runtime duplicate releases claim like busy (not completeClaim)", async () => {
+    const callbackCalls: string[] = [];
+    const attemptCalls: string[] = [];
+    const published: string[] = [];
+    const service = new StreamWebAsyncContinuationService(
+      {
+        stream: async () => ({
+          mode: "outcome",
+          result: { outcome: "duplicate" }
+        })
+      } as never,
+      attemptMock(attemptCalls),
+      streamRegistryMock({
+        onPublish: (input) => {
+          published.push(input.event);
+        }
+      }),
+      stopDispatchMock()
+    );
+
+    await service.processWebClaim({
+      claim: { id: "handle-rt-dup", claimToken: "claim-rt-dup" },
+      context: baseContext({ continuationClientTurnId: "async-cont:rt-dup" }),
+      request: { requestId: "req-rt-dup", idempotencyKey: "async-cont:rt-dup" } as never,
+      timeoutMs: 30_000,
+      callbacks: baseCallbacks(callbackCalls)
+    });
+
+    assert.deepEqual(callbackCalls, ["busy"]);
+    assert.ok(!callbackCalls.includes("complete"));
+    assert.ok(!callbackCalls.includes("markDispatched"));
+    assert.ok(attemptCalls.includes("markRunning"));
+    assert.ok(attemptCalls.includes("abandonPreAcceptanceAttempt"));
+    assert.ok(!attemptCalls.includes("markFailed"));
+    assert.ok(!attemptCalls.includes("markCompleted"));
     assert.ok(!published.includes("failed"));
   });
 
@@ -267,22 +366,7 @@ describe("StreamWebAsyncContinuationService", () => {
           );
         }
       } as never,
-      {
-        claim: async () => "claimed",
-        markRunning: async () => {
-          attemptCalls.push("markRunning");
-        },
-        markFailed: async () => {
-          attemptCalls.push("markFailed");
-        },
-        markInterrupted: async () => {
-          attemptCalls.push("markInterrupted");
-        },
-        markCompleted: async () => undefined,
-        markCurrentActivity: async () => undefined,
-        touchRunningAttempt: async () => undefined,
-        resetToAccepted: async () => undefined
-      } as never,
+      attemptMock(attemptCalls),
       streamRegistryMock({
         onPublish: (input) => {
           published.push(input.event);
@@ -309,6 +393,7 @@ describe("StreamWebAsyncContinuationService", () => {
   test("mid-stream throw terminalizes attempt before rethrow so reclaim is not stuck", async () => {
     const attemptCalls: string[] = [];
     const published: string[] = [];
+    const callbackCalls: string[] = [];
     const service = new StreamWebAsyncContinuationService(
       {
         stream: async () => ({
@@ -323,22 +408,7 @@ describe("StreamWebAsyncContinuationService", () => {
           })()
         })
       } as never,
-      {
-        claim: async () => "claimed",
-        markRunning: async () => {
-          attemptCalls.push("markRunning");
-        },
-        markFailed: async () => {
-          attemptCalls.push("markFailed");
-        },
-        markInterrupted: async () => {
-          attemptCalls.push("markInterrupted");
-        },
-        markCompleted: async () => undefined,
-        markCurrentActivity: async () => undefined,
-        touchRunningAttempt: async () => undefined,
-        resetToAccepted: async () => undefined
-      } as never,
+      attemptMock(attemptCalls),
       streamRegistryMock({
         onPublish: (input) => {
           published.push(input.event);
@@ -353,12 +423,171 @@ describe("StreamWebAsyncContinuationService", () => {
         context: baseContext({ continuationClientTurnId: "async-cont:throw" }),
         request: { requestId: "req-throw", idempotencyKey: "async-cont:throw" } as never,
         timeoutMs: 30_000,
-        callbacks: baseCallbacks([])
+        callbacks: baseCallbacks(callbackCalls)
       }),
       (error: unknown) => error instanceof Error && error.message === "provider exploded"
     );
+    assert.ok(callbackCalls.includes("markDispatched"));
     assert.ok(attemptCalls.includes("markFailed"));
     assert.ok(published.includes("failed"));
+    assert.ok(!attemptCalls.includes("abandonPreAcceptanceAttempt"));
+    assert.ok(!callbackCalls.includes("busy"));
+  });
+
+  test("mid-stream throw after accept with second markDispatched false does not abandon", async () => {
+    const attemptCalls: string[] = [];
+    const published: string[] = [];
+    const callbackCalls: string[] = [];
+    let markDispatchedCalls = 0;
+    const service = new StreamWebAsyncContinuationService(
+      {
+        stream: async () => ({
+          mode: "events",
+          events: (async function* () {
+            yield {
+              type: "started",
+              requestId: "req-second-false",
+              sessionId: "session-1"
+            };
+            throw new Error("mid-stream after accept");
+          })()
+        })
+      } as never,
+      attemptMock(attemptCalls),
+      streamRegistryMock({
+        onPublish: (input) => {
+          published.push(input.event);
+        }
+      }),
+      stopDispatchMock()
+    );
+
+    const callbacks = {
+      ...baseCallbacks(callbackCalls),
+      markDispatched: async () => {
+        markDispatchedCalls += 1;
+        callbackCalls.push("markDispatched");
+        // First call (ensureDispatched) succeeds; any later call is already-dispatched.
+        return markDispatchedCalls === 1;
+      }
+    };
+
+    await assert.rejects(
+      service.processWebClaim({
+        claim: { id: "handle-second-false", claimToken: "claim-second-false" },
+        context: baseContext({ continuationClientTurnId: "async-cont:second-false" }),
+        request: {
+          requestId: "req-second-false",
+          idempotencyKey: "async-cont:second-false"
+        } as never,
+        timeoutMs: 30_000,
+        callbacks
+      }),
+      (error: unknown) => error instanceof Error && error.message === "mid-stream after accept"
+    );
+
+    assert.equal(markDispatchedCalls, 1);
+    assert.ok(attemptCalls.includes("markFailed"));
+    assert.ok(published.includes("failed"));
+    assert.ok(!attemptCalls.includes("abandonPreAcceptanceAttempt"));
+    assert.ok(!callbackCalls.includes("busy"));
+  });
+
+  test("stream accept (events mode) occurs before first markDispatched", async () => {
+    const order: string[] = [];
+    const callbackCalls: string[] = [];
+    const service = new StreamWebAsyncContinuationService(
+      {
+        stream: async () => {
+          order.push("stream_accept");
+          return {
+            mode: "events",
+            events: (async function* () {
+              order.push("first_event");
+              yield {
+                type: "started",
+                requestId: "req-order",
+                sessionId: "session-1"
+              };
+              yield {
+                type: "completed",
+                result: {
+                  requestId: "req-order",
+                  sessionId: "session-1",
+                  assistantText: "ok",
+                  answerText: "ok",
+                  respondedAt: "2026-07-19T00:00:00.000Z",
+                  artifacts: [],
+                  usage: null
+                }
+              };
+            })()
+          };
+        }
+      } as never,
+      attemptMock([]),
+      streamRegistryMock(),
+      stopDispatchMock()
+    );
+
+    await service.processWebClaim({
+      claim: { id: "handle-order", claimToken: "claim-order" },
+      context: baseContext({ continuationClientTurnId: "async-cont:order" }),
+      request: { requestId: "req-order", idempotencyKey: "async-cont:order" } as never,
+      timeoutMs: 30_000,
+      callbacks: {
+        ...baseCallbacks(callbackCalls),
+        markDispatched: async () => {
+          order.push("markDispatched");
+          callbackCalls.push("markDispatched");
+          return true;
+        }
+      }
+    });
+
+    // Runtime events-mode accept proves the lease before parking dispatched.
+    assert.deepEqual(order.slice(0, 3), ["stream_accept", "markDispatched", "first_event"]);
+  });
+
+  test("pre-accept clear error releases busy without markDispatched", async () => {
+    const attemptCalls: string[] = [];
+    const callbackCalls: string[] = [];
+    const published: string[] = [];
+    const service = new StreamWebAsyncContinuationService(
+      {
+        stream: async () => {
+          throw new Error("runtime continuation client is not configured");
+        }
+      } as never,
+      attemptMock(attemptCalls),
+      streamRegistryMock({
+        onPublish: (input) => {
+          published.push(input.event);
+        }
+      }),
+      stopDispatchMock()
+    );
+
+    await assert.rejects(
+      service.processWebClaim({
+        claim: { id: "handle-preaccept", claimToken: "claim-preaccept" },
+        context: baseContext({ continuationClientTurnId: "async-cont:preaccept" }),
+        request: {
+          requestId: "req-preaccept",
+          idempotencyKey: "async-cont:preaccept"
+        } as never,
+        timeoutMs: 30_000,
+        callbacks: baseCallbacks(callbackCalls)
+      }),
+      (error: unknown) =>
+        error instanceof Error && error.message === "runtime continuation client is not configured"
+    );
+
+    assert.ok(!callbackCalls.includes("markDispatched"));
+    assert.ok(attemptCalls.includes("abandonPreAcceptanceAttempt"));
+    assert.ok(callbackCalls.includes("busy"));
+    assert.ok(!attemptCalls.includes("markFailed"));
+    assert.ok(!published.includes("failed"));
   });
 
   test("unterminated stream markFailed + publish failed + failClaimVisibly", async () => {
@@ -378,20 +607,7 @@ describe("StreamWebAsyncContinuationService", () => {
           })()
         })
       } as never,
-      {
-        claim: async () => "claimed",
-        markRunning: async () => {
-          attemptCalls.push("markRunning");
-        },
-        markFailed: async () => {
-          attemptCalls.push("markFailed");
-        },
-        markInterrupted: async () => undefined,
-        markCompleted: async () => undefined,
-        markCurrentActivity: async () => undefined,
-        touchRunningAttempt: async () => undefined,
-        resetToAccepted: async () => undefined
-      } as never,
+      attemptMock(attemptCalls),
       streamRegistryMock({
         onPublish: (input) => {
           published.push(input.event);
@@ -413,7 +629,8 @@ describe("StreamWebAsyncContinuationService", () => {
 
     assert.ok(attemptCalls.includes("markFailed"));
     assert.ok(published.includes("failed"));
-    assert.deepEqual(callbackCalls, ["fail:continuation_stream_unterminated"]);
+    assert.ok(callbackCalls.includes("markDispatched"));
+    assert.ok(callbackCalls.includes("fail:continuation_stream_unterminated"));
   });
 
   test("true AmbiguousError leaves dispatched without interrupt finalize", async () => {
@@ -428,22 +645,7 @@ describe("StreamWebAsyncContinuationService", () => {
           );
         }
       } as never,
-      {
-        claim: async () => "claimed",
-        markRunning: async () => {
-          attemptCalls.push("markRunning");
-        },
-        markFailed: async () => {
-          attemptCalls.push("markFailed");
-        },
-        markInterrupted: async () => {
-          attemptCalls.push("markInterrupted");
-        },
-        markCompleted: async () => undefined,
-        markCurrentActivity: async () => undefined,
-        touchRunningAttempt: async () => undefined,
-        resetToAccepted: async () => undefined
-      } as never,
+      attemptMock(attemptCalls),
       streamRegistryMock({
         onPublish: (input) => {
           published.push(input.event);
@@ -463,6 +665,43 @@ describe("StreamWebAsyncContinuationService", () => {
     assert.ok(attemptCalls.includes("markFailed"));
     assert.ok(!attemptCalls.includes("markInterrupted"));
     assert.ok(published.includes("failed"));
-    assert.deepEqual(callbackCalls, []);
+    assert.ok(callbackCalls.includes("markDispatched"));
+    assert.deepEqual(
+      callbackCalls.filter((c) => c !== "markDispatched"),
+      []
+    );
+  });
+
+  test("ADR-159 S2 TOCTOU: pre-runtime gate denial releases busy without stream", async () => {
+    const callbackCalls: string[] = [];
+    const attemptCalls: string[] = [];
+    let streamed = false;
+    const service = new StreamWebAsyncContinuationService(
+      {
+        stream: async () => {
+          streamed = true;
+          throw new Error("must not stream when gate denies");
+        }
+      } as never,
+      attemptMock(attemptCalls),
+      streamRegistryMock(),
+      stopDispatchMock(),
+      {
+        evaluateCatchUpGate: async () => ({ allowed: false, reason: "idle_pause" })
+      } as never
+    );
+
+    await service.processWebClaim({
+      claim: { id: "handle-gate", claimToken: "claim-gate" },
+      context: baseContext({ continuationClientTurnId: "async-cont:gate" }),
+      request: { requestId: "req-gate", idempotencyKey: "async-cont:gate" } as never,
+      timeoutMs: 30_000,
+      callbacks: baseCallbacks(callbackCalls)
+    });
+
+    assert.equal(streamed, false);
+    assert.ok(attemptCalls.includes("abandonPreAcceptanceAttempt"));
+    assert.ok(callbackCalls.includes("busy"));
+    assert.ok(!callbackCalls.includes("markDispatched"));
   });
 });

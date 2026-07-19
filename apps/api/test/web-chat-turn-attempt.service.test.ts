@@ -164,6 +164,74 @@ describe("WebChatTurnAttemptService", () => {
     assert.equal(attempt.currentActivity, null);
   });
 
+  test("async_continuation terminals do not stamp last_user_turn_terminal_at", async () => {
+    const terminalStamps: string[] = [];
+    const startedStamps: string[] = [];
+    const prisma = {
+      assistantWebChatTurnAttempt: {
+        findFirst: async () => ({
+          chatId: "chat-async",
+          surfaceClient: "async_continuation"
+        }),
+        update: async () => ({}),
+        updateMany: async () => ({ count: 1 })
+      }
+    };
+    const coordinator = {
+      recordUserTurnTerminal: async (chatId: string) => {
+        terminalStamps.push(chatId);
+      },
+      recordUserTurnStarted: async (chatId: string) => {
+        startedStamps.push(chatId);
+      }
+    };
+    const service = new WebChatTurnAttemptService(
+      prisma as never,
+      { execute: async () => ({ assistantId: "assistant-1" }) } as never,
+      coordinator as never
+    );
+
+    await service.markRunning({
+      assistantId: "assistant-1",
+      userId: "user-1",
+      surfaceThreadKey: "thread-1",
+      clientTurnId: "async-cont:job-1",
+      chatId: "chat-async",
+      userMessageId: null,
+      surfaceClient: "async_continuation"
+    });
+    await service.markCompleted({
+      assistantId: "assistant-1",
+      userId: "user-1",
+      surfaceThreadKey: "thread-1",
+      clientTurnId: "async-cont:job-1",
+      assistantMessageId: "assistant-msg-async",
+      respondedAt: "2026-07-19T13:00:00.000Z",
+      terminalPayload: {
+        clientTurnId: "async-cont:job-1",
+        chatId: "chat-async",
+        userMessageId: null,
+        assistantMessageId: "assistant-msg-async",
+        respondedAt: "2026-07-19T13:00:00.000Z",
+        degradedByQuotaFallback: false,
+        quotaFallbackReason: null,
+        quotaFallbackModel: null,
+        completedAt: "2026-07-19T13:00:01.000Z"
+      }
+    });
+    await service.markFailed({
+      assistantId: "assistant-1",
+      userId: "user-1",
+      surfaceThreadKey: "thread-1",
+      clientTurnId: "async-cont:job-2",
+      code: "continuation_failed",
+      message: "boom"
+    });
+
+    assert.deepEqual(startedStamps, []);
+    assert.deepEqual(terminalStamps, []);
+  });
+
   test("returns unknown when the active assistant differs from the turn owner", async () => {
     let lookedUpAssistantId: string | null = null;
     const prisma = {

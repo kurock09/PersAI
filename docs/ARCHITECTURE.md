@@ -72,11 +72,13 @@ ADR-109 and ADR-111 add one bounded HeyGen-backed product seam inside the active
   not defer on narration; image user text is chat-model owned (no image
   ghostwriter framing); explicit background shell returns `jobRef` and stays
   visible until warm pod idle TTL. Honest bubbles (ADR-157 D4.1): in-turn
-  wait/sync embed into the open assistant reply; explicit notify wake is a
-  **new** continuation bubble (user may interleave). Notify stays explicit —
-  no silent auto-subscribe of every background job. Each dispatched turn
-  admits 20 replay-deduped waits. No runtime Prisma access or parallel job
-  registry is introduced.
+  wait/sync embed into the open assistant reply; source-finalize
+  auto-subscribes unresolved children (explicit `await.notify` idempotent);
+  wake is a **new** continuation bubble (user may interleave). **ADR-159**
+  owns wake **dispatch**: per-chat serial `ChatWakeCoordinator`
+  (`USER_TURN` > `JOB_CATCHUP`, idle-pause, ready FIFO) — not lease-race
+  parallel wakes. Each dispatched turn admits 20 replay-deduped waits. No
+  runtime Prisma access or parallel job registry is introduced.
 
 ### Provider plane
 
@@ -242,12 +244,29 @@ registry or mega-transaction is introduced. F0–F5 run with no intermediate
 deploy; rollout is migration → API → runtime → sandbox → web and reverses on
 rollback.
 
+**ADR-159 Session Work Queue (S4 local 2026-07-19; S5 open):** Cursor-like
+per-chat serial agent execution. `ChatWakeCoordinator` admits at most one
+active agent turn per chat; `USER_TURN` always beats `JOB_CATCHUP` (durable
+`last_user_turn_started_at` open window covers TG preparing); after durable
+user idle-pause (`assistant_chats.last_user_turn_terminal_at`), ready
+subscribed handles dispatch FIFO with structured `wakeKind=job_catchup`
+markers. Design: exclusive per-chat catch-up lock +
+ready FIFO on existing `assistant_async_job_handles` (no companion queue
+table). Hard invariant: never `markDispatched` before runtime lease + (web)
+running attempt. Parked-accepted busy / global `claimReady` /
+`requeueBusyNotStarted` / stuck-accepted absorb wake crutches purged (S1/S4);
+historical `legacy` heal residual only. Supersedes ADR-152 “whichever
+acquires first” lease-race wake; ADR-157 D4.1 auto-subscribe intent unchanged;
+ADR-158 stream bus unchanged.
+
 **ADR-152 (checkpoint 3 committed `a0d9d368`; checkpoint 4 Admin/MCP authoring CLEAN):** checkpoint 1, the
 API/data/delivery ownership core, exact `wait|notify` terminal control,
 source-turn finalization, and serialized same-chat continuation are implemented
 locally. A SchedulerLease-backed API worker now validates and claims ready
 handle rows, dispatches through the ordinary runtime session lease/receipt seam,
-persists one Assistant output, and conservatively reconciles stale work. Web
+persists one Assistant output, and conservatively reconciles stale work.
+**Wake dispatch serialization is superseded by ADR-159** (`ChatWakeCoordinator`
++ per-chat catch-up lock + ready FIFO; no parked-accepted busy strategy). Web
 notify continuation prefers the resumable ADR-149 stream path (turn attempt +
 ADR-158 durable turn-stream bus + Stop + client reattach on
 `continuationClientTurnId`, with null attempt `userMessageId` so history merge
@@ -256,7 +275,7 @@ keeps blocking JSON dispatch. **ADR-158:** live web SSE catch-up
 (`delta`/`tool`/…) is an ephemeral Redis (or single-process memory) bus on the
 same coordination URL family as Stop; any API pod can replay+subscribe, while
 Postgres turn-attempt rows stay status authority and soft-detach still does not
-Stop. The
+Stop. Sticky/absorb **wake** crutches purged in ADR-159 S4 (stream bus remains). The
 same `assistant_async_job_handles` row now owns source-finalization, narration,
 depth, claim/dispatch/receipt/retry, and terminal state. Both media and document
 delivery paths consult that decision before legacy framing while preserving

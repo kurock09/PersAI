@@ -117,6 +117,52 @@ source user-message id (the runtime turn idempotency key), so both media and
 document handles participate in exact source-turn finalization without a second
 table.
 
+### ADR-159 Session Work Queue (S3 local — no new queue table)
+
+ADR-159 does **not** add `assistant_chat_work_items` or a second backlog
+table. Ready subscribed rows on `assistant_async_job_handles` remain the
+durable catch-up backlog. Serialization moves to a `ChatWakeCoordinator`:
+
+- **Exclusive per-chat catch-up lock** — `SchedulerLease` key
+  `async-catchup:{chatId}`. At most one catch-up active per chat.
+- **Ready FIFO** — chat-head scoped (`ORDER BY readyAt` for an eligible chat),
+  not global grab-any-ready.
+- **User priority** — ordinary user turns are not enqueued as rows; the
+  coordinator refuses catch-up while a user turn is active or inside the
+  post-user idle-pause window.
+- **Idle-pause (S2, durable):** nullable
+  `assistant_chats.last_user_turn_terminal_at`, stamped when a `USER_TURN`
+  becomes terminal (web non-`async_continuation` attempt terminal; Telegram
+  inbound finally after user message). Catch-up waits
+  `CATCHUP_IDLE_PAUSE_MS` (2000ms) after that stamp before lock/claim.
+- **Preparing / open window (S2, durable):** nullable
+  `assistant_chats.last_user_turn_started_at`, stamped when a `USER_TURN`
+  begins (Telegram after user message persist; web ordinary `markRunning`).
+  Open = started without terminal, or started after last terminal. Covers
+  Telegram pre-runtime-accept without inventing parked accepted receipts.
+  `async_continuation` must not stamp started or terminal.
+- **Active user signal:** durable open window above; web
+  `AssistantWebChatTurnAttempt` accepted/running with
+  `surfaceClient ≠ async_continuation`; Telegram accepted
+  `RuntimeTurnReceipt` on the thread whose `idempotencyKey` does not start
+  with `async-cont:` (no TG attempt row).
+- **S3 markers + durable ordinals:** continuation `facts` carry
+  `wakeKind=job_catchup`, `queueOrdinal`/`queueTotal`, `interleaved`,
+  `originatingUserMessageId` / `latestUserMessageId` when different; quiet
+  copy on persisted catch-up `AssistantChatMessage.metadata`. Additive
+  nullable handle columns `catch_up_ordinal`, `catch_up_wave_total`,
+  `catch_up_wave_id` are stamped at ready-promotion (open-wave join or new
+  wave) so sequential dispatches keep stable N (1/2 then 2/2).
+- **S4 residual:** `narrationOwner` enum still includes `legacy` for historical
+  rows; live `finalizeSourceTurn` never stamps it. Subscribe/completion may
+  one-shot heal `legacy` → `continuation`+`notify_subscribed`. No enum
+  migration in ADR-159.
+- **Invariant** — `dispatched` / `markDispatched` only after runtime lease +
+  (web) running attempt; no parked `accepted` attempt rows as wake state.
+
+Rejected: companion durable queue of `USER_TURN`/`JOB_CATCHUP` rows
+(dual authority with handles). Revisit only if handle-scoped FIFO fails live.
+
 ## Runtime-plane ownership
 
 The native runtime path uses PersAI-owned runtime state models for:

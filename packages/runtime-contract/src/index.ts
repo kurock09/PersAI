@@ -3419,6 +3419,24 @@ export interface RuntimeTurnRequest {
       /** Opaque handle for ADR-157 perception hydration (not user-visible). */
       jobRef?: string;
       sandboxResult?: RuntimeAwaitToolResult["sandboxResult"];
+      /**
+       * ADR-159 S3 — structured catch-up wake markers. Present on scheduler-built
+       * JOB_CATCHUP continuations; not a fake-user-only cue.
+       */
+      wakeKind?: "job_catchup";
+      /** 1-based FIFO ordinal among ready backlog + this handle for the chat. */
+      queueOrdinal?: number;
+      /** Count of ready backlog + this handle for the chat. */
+      queueTotal?: number;
+      /** True when a user message landed after source finalize before this wake. */
+      interleaved?: boolean;
+      /** User message that originated the async job / source turn. */
+      originatingUserMessageId?: string;
+      /**
+       * Latest user message in the chat when it differs from
+       * `originatingUserMessageId` (interleave / follow-up anchor).
+       */
+      latestUserMessageId?: string;
     };
   };
 }

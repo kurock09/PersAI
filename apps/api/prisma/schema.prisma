@@ -2254,6 +2254,13 @@ model AssistantChat {
   archivedAt                  DateTime?                         @map("archived_at") @db.Timestamptz(6)
   lastMessageAt               DateTime?                         @map("last_message_at") @db.Timestamptz(6)
   lastCrossSessionCarryOverAt DateTime?                         @map("last_cross_session_carry_over_at") @db.Timestamptz(6)
+  /// ADR-159 S2 — stamped when a USER_TURN begins (TG inbound after user
+  /// message; web markRunning for ordinary turns). Open window = started
+  /// without terminal, or started after last terminal (preparing/running).
+  lastUserTurnStartedAt       DateTime?                         @map("last_user_turn_started_at") @db.Timestamptz(6)
+  /// ADR-159 S2 — stamped when a USER_TURN becomes terminal; catch-up waits
+  /// CATCHUP_IDLE_PAUSE_MS after this before claiming the per-chat lock.
+  lastUserTurnTerminalAt      DateTime?                         @map("last_user_turn_terminal_at") @db.Timestamptz(6)
   createdAt                   DateTime                          @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt                   DateTime                          @updatedAt @map("updated_at") @db.Timestamptz(6)
   assistant                   Assistant                         @relation(fields: [assistantId, userId], references: [id, userId], onDelete: Restrict, onUpdate: Cascade)
@@ -2466,6 +2473,12 @@ model AssistantAsyncJobHandle {
   claimedAt                        DateTime?                    @map("claimed_at") @db.Timestamptz(6)
   claimExpiresAt                   DateTime?                    @map("claim_expires_at") @db.Timestamptz(6)
   readyAt                          DateTime?                    @map("ready_at") @db.Timestamptz(6)
+  /// ADR-159 — 1-based FIFO ordinal in the open catch-up wave (stamped at ready).
+  catchUpOrdinal                   Int?                         @map("catch_up_ordinal")
+  /// ADR-159 — stable wave size N for queueOrdinal/queueTotal (bumped as siblings join).
+  catchUpWaveTotal                 Int?                         @map("catch_up_wave_total")
+  /// ADR-159 — open-wave id shared by ready/claimed/dispatched siblings until the wave drains.
+  catchUpWaveId                    String?                      @map("catch_up_wave_id") @db.Uuid
   dispatchedAt                     DateTime?                    @map("dispatched_at") @db.Timestamptz(6)
   dispatchReceiptRequestId         String?                      @map("dispatch_receipt_request_id") @db.VarChar(128)
   continuationAssistantMessageId   String?                      @map("continuation_assistant_message_id") @db.Uuid

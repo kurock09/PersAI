@@ -44,8 +44,38 @@ export class SchedulerLeaseService implements OnModuleInit {
   }
 
   async acquire(key: SchedulerKey): Promise<{ token: string } | null> {
+    return this.acquireKey(key, { ttlMs: LEASE_TTL_MS });
+  }
+
+  /**
+   * ADR-159 — dynamic keys (e.g. `async-catchup:{chatId}`). Ensures the row
+   * exists, then CAS-acquires like the fixed scheduler keys.
+   */
+  async acquireOrCreate(
+    key: string,
+    options?: { ttlMs?: number }
+  ): Promise<{ token: string } | null> {
     const now = new Date();
-    const expiresAt = new Date(now.getTime() + LEASE_TTL_MS);
+    await this.prisma.$executeRaw(Prisma.sql`
+      INSERT INTO "scheduler_leases" (
+        "scheduler_key",
+        "holder_id",
+        "lease_token",
+        "expires_at",
+        "last_heartbeat",
+        "created_at",
+        "updated_at"
+      )
+      VALUES (${key}, '', '', ${now}, ${now}, ${now}, ${now})
+      ON CONFLICT ("scheduler_key") DO NOTHING
+    `);
+    return this.acquireKey(key, { ttlMs: options?.ttlMs ?? LEASE_TTL_MS });
+  }
+
+  async acquireKey(key: string, options?: { ttlMs?: number }): Promise<{ token: string } | null> {
+    const now = new Date();
+    const ttlMs = options?.ttlMs ?? LEASE_TTL_MS;
+    const expiresAt = new Date(now.getTime() + ttlMs);
     const token = randomUUID();
 
     return this.prisma.$transaction(
@@ -70,8 +100,12 @@ export class SchedulerLeaseService implements OnModuleInit {
   }
 
   async heartbeat(key: SchedulerKey, token: string): Promise<boolean> {
+    return this.heartbeatKey(key, token, { ttlMs: LEASE_TTL_MS });
+  }
+
+  async heartbeatKey(key: string, token: string, options?: { ttlMs?: number }): Promise<boolean> {
     const now = new Date();
-    const expiresAt = new Date(now.getTime() + LEASE_TTL_MS);
+    const expiresAt = new Date(now.getTime() + (options?.ttlMs ?? LEASE_TTL_MS));
 
     const updated = await this.prisma.$executeRaw(Prisma.sql`
       UPDATE "scheduler_leases"
@@ -86,6 +120,10 @@ export class SchedulerLeaseService implements OnModuleInit {
   }
 
   async release(key: SchedulerKey, token: string): Promise<void> {
+    await this.releaseKey(key, token);
+  }
+
+  async releaseKey(key: string, token: string): Promise<void> {
     const now = new Date();
 
     await this.prisma.$executeRaw(Prisma.sql`

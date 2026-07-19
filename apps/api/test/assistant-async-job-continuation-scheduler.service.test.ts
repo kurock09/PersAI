@@ -6,6 +6,14 @@ import { AsyncContinuationDispatchAmbiguousError } from "../src/modules/workspac
 
 const ORIGINAL_ENV = process.env;
 
+const wakeCoordinatorStub = {
+  claimReadyCatchUps: async () => [],
+  releaseCatchUp: async () => undefined,
+  heartbeatCatchUp: async () => true,
+  catchUpHeartbeatIntervalMs: () => 20_000,
+  evaluateCatchUpGate: async () => ({ allowed: true as const })
+};
+
 function dispatchHarness(input: {
   execute: () => Promise<Record<string, unknown>>;
   handleState?: Record<string, unknown>;
@@ -15,6 +23,7 @@ function dispatchHarness(input: {
   const service = new AssistantAsyncJobContinuationSchedulerService(
     (input.prisma ?? {}) as never,
     (input.handleState ?? {}) as never,
+    wakeCoordinatorStub as never,
     { execute: input.execute } as never,
     {} as never,
     {} as never,
@@ -61,6 +70,7 @@ describe("AssistantAsyncJobContinuationSchedulerService", () => {
         const service = new AssistantAsyncJobContinuationSchedulerService(
           {} as never,
           {} as never,
+          wakeCoordinatorStub as never,
           {} as never,
           { resolveByAssistantId: async () => "paid_shared_restricted" } as never,
           {} as never,
@@ -116,6 +126,268 @@ describe("AssistantAsyncJobContinuationSchedulerService", () => {
     });
   }
 
+  test("ADR-159 S3: buildRequest emits structured job_catchup wake markers in continuation.facts", async () => {
+    process.env = {
+      ...ORIGINAL_ENV,
+      APP_ENV: "local",
+      DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/persai_v2?schema=public",
+      CLERK_SECRET_KEY: "clerk-secret",
+      PERSAI_INTERNAL_API_TOKEN: "persai-internal-token",
+      PERSAI_RUNTIME_BASE_URL: "http://runtime.local",
+      PERSAI_RUNTIME_TURN_WALL_CLOCK_MS: "1800000",
+      PERSAI_RUNTIME_TURN_IDLE_STALL_MS: "300000"
+    };
+    try {
+      const service = new AssistantAsyncJobContinuationSchedulerService(
+        {} as never,
+        {} as never,
+        wakeCoordinatorStub as never,
+        {} as never,
+        { resolveByAssistantId: async () => "paid_shared_restricted" } as never,
+        {} as never,
+        {} as never,
+        {} as never,
+        {} as never,
+        {} as never,
+        {} as never,
+        {
+          findByPublishedVersionId: async () => ({
+            id: "spec-1",
+            assistantId: "assistant-1",
+            createdAt: new Date("2026-07-18T00:00:00.000Z"),
+            runtimeBundle: {},
+            runtimeBundleDocument: "{}"
+          })
+        } as never
+      );
+      const built = await (
+        service as unknown as {
+          buildRequest: (context: Record<string, unknown>) => Promise<{
+            request: {
+              message: { text: string };
+              continuation?: {
+                sourceUserMessageId: string;
+                facts: Record<string, unknown>;
+              };
+            };
+          }>;
+        }
+      ).buildRequest({
+        handle: {
+          assistantId: "assistant-1",
+          workspaceId: "workspace-1",
+          channel: "telegram",
+          threadKey: "telegram:1:session:main",
+          continuationClientTurnId: "async-cont:s3-markers",
+          continuationDepth: 0,
+          assistant: { applyAppliedVersionId: "version-1" },
+          chat: {
+            chatMode: "normal",
+            deepModeEnabled: false,
+            skillDecisionState: null
+          }
+        },
+        session: { externalUserKey: null, mode: "direct" },
+        sourceUserMessage: { id: "00000000-0000-4000-8000-0000000000aa" },
+        facts: {
+          kind: "sandbox",
+          status: "completed",
+          errorCode: null,
+          message: "Sandbox job completed.",
+          jobRef: "job_sandbox_s3",
+          wakeKind: "job_catchup",
+          queueOrdinal: 1,
+          queueTotal: 2,
+          interleaved: true,
+          originatingUserMessageId: "00000000-0000-4000-8000-0000000000aa",
+          latestUserMessageId: "00000000-0000-4000-8000-0000000000bb",
+          sandboxResult: {
+            toolCode: "shell",
+            exitCode: 0,
+            stdout: "ok",
+            stderr: null,
+            paths: []
+          }
+        }
+      });
+      assert.equal(built.request.message.text, "[internal async completion]");
+      assert.equal(
+        built.request.continuation?.sourceUserMessageId,
+        "00000000-0000-4000-8000-0000000000aa"
+      );
+      const facts = built.request.continuation?.facts;
+      assert.ok(facts);
+      assert.equal(facts.wakeKind, "job_catchup");
+      assert.equal(facts.jobRef, "job_sandbox_s3");
+      assert.equal(facts.queueOrdinal, 1);
+      assert.equal(facts.queueTotal, 2);
+      assert.equal(facts.interleaved, true);
+      assert.equal(facts.originatingUserMessageId, "00000000-0000-4000-8000-0000000000aa");
+      assert.equal(facts.latestUserMessageId, "00000000-0000-4000-8000-0000000000bb");
+      assert.equal(facts.kind, "sandbox");
+      assert.equal(facts.status, "completed");
+      assert.deepEqual(facts.sandboxResult, {
+        toolCode: "shell",
+        exitCode: 0,
+        stdout: "ok",
+        stderr: null,
+        paths: []
+      });
+    } finally {
+      process.env = ORIGINAL_ENV;
+    }
+  });
+
+  test("ADR-159: resolveCatchUpWakeMarkers prefers durable stamped ordinal/total", async () => {
+    const readyAtB = new Date("2026-07-19T12:01:00.000Z");
+    const sourceFinalizedAt = new Date("2026-07-19T11:59:00.000Z");
+    const prisma = {
+      assistantAsyncJobHandle: {
+        findMany: async () => {
+          throw new Error("must not fall back to ready-sibling count when stamped");
+        }
+      },
+      assistantChatMessage: {
+        findFirst: async (args: {
+          where?: { createdAt?: { gt?: Date }; NOT?: { id?: string } };
+          orderBy?: { createdAt?: "asc" | "desc" };
+        }) => {
+          if (args.where?.createdAt?.gt !== undefined) {
+            return { id: "user-followup" };
+          }
+          if (args.orderBy?.createdAt === "desc") {
+            return { id: "user-followup" };
+          }
+          return null;
+        }
+      }
+    };
+    const service = new AssistantAsyncJobContinuationSchedulerService(
+      prisma as never,
+      {} as never,
+      wakeCoordinatorStub as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never
+    );
+    const markers = await (
+      service as unknown as {
+        resolveCatchUpWakeMarkers: (input: Record<string, unknown>) => Promise<{
+          wakeKind: string;
+          queueOrdinal: number;
+          queueTotal: number;
+          interleaved: boolean;
+          originatingUserMessageId: string;
+          latestUserMessageId?: string;
+        }>;
+      }
+    ).resolveCatchUpWakeMarkers({
+      handleId: "handle-b",
+      chatId: "chat-1",
+      assistantId: "assistant-1",
+      readyAt: readyAtB,
+      updatedAt: readyAtB,
+      sourceFinalizedAt,
+      catchUpOrdinal: 2,
+      catchUpWaveTotal: 2,
+      catchUpWaveId: "wave-1",
+      originatingUserMessageId: "user-source",
+      sourceUserMessageCreatedAt: new Date("2026-07-19T11:58:00.000Z")
+    });
+    assert.deepEqual(markers, {
+      wakeKind: "job_catchup",
+      queueOrdinal: 2,
+      queueTotal: 2,
+      interleaved: true,
+      originatingUserMessageId: "user-source",
+      latestUserMessageId: "user-followup"
+    });
+  });
+
+  test("ADR-159: sequential two-handle dispatch keeps stable ordinal 1/2 then 2/2", async () => {
+    const waveId = "00000000-0000-4000-8000-0000000000w1";
+    const readyAtA = new Date("2026-07-19T12:00:00.000Z");
+    const readyAtB = new Date("2026-07-19T12:01:00.000Z");
+    const sourceFinalizedAt = new Date("2026-07-19T11:59:00.000Z");
+    // Simulate durable stamps after both became ready (wave total already 2).
+    const stamped = {
+      "handle-a": { catchUpOrdinal: 1, catchUpWaveTotal: 2, catchUpWaveId: waveId },
+      "handle-b": { catchUpOrdinal: 2, catchUpWaveTotal: 2, catchUpWaveId: waveId }
+    };
+    const service = new AssistantAsyncJobContinuationSchedulerService(
+      {
+        assistantAsyncJobHandle: {
+          findMany: async () => {
+            throw new Error("stamped path must not query siblings");
+          }
+        },
+        assistantChatMessage: {
+          findFirst: async () => null
+        }
+      } as never,
+      {} as never,
+      wakeCoordinatorStub as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never
+    );
+    const resolve = (
+      service as unknown as {
+        resolveCatchUpWakeMarkers: (input: Record<string, unknown>) => Promise<{
+          queueOrdinal: number;
+          queueTotal: number;
+        }>;
+      }
+    ).resolveCatchUpWakeMarkers.bind(service);
+
+    // Dispatch #1 — handle-a claimed; handle-b still ready. Remaining-ready
+    // count would wrongly yield 1/1; durable stamps keep 1/2.
+    const first = await resolve({
+      handleId: "handle-a",
+      chatId: "chat-1",
+      assistantId: "assistant-1",
+      readyAt: readyAtA,
+      updatedAt: readyAtA,
+      sourceFinalizedAt,
+      ...stamped["handle-a"],
+      originatingUserMessageId: "user-source",
+      sourceUserMessageCreatedAt: new Date("2026-07-19T11:58:00.000Z")
+    });
+    assert.deepEqual(
+      { queueOrdinal: first.queueOrdinal, queueTotal: first.queueTotal },
+      { queueOrdinal: 1, queueTotal: 2 }
+    );
+
+    // Dispatch #2 — handle-a completed (gone from ready); stamps still 2/2.
+    const second = await resolve({
+      handleId: "handle-b",
+      chatId: "chat-1",
+      assistantId: "assistant-1",
+      readyAt: readyAtB,
+      updatedAt: readyAtB,
+      sourceFinalizedAt,
+      ...stamped["handle-b"],
+      originatingUserMessageId: "user-source",
+      sourceUserMessageCreatedAt: new Date("2026-07-19T11:58:00.000Z")
+    });
+    assert.deepEqual(
+      { queueOrdinal: second.queueOrdinal, queueTotal: second.queueTotal },
+      { queueOrdinal: 2, queueTotal: 2 }
+    );
+  });
+
   test("loadAndValidateContext rejects a handle at the shared MAX_ASYNC_CONTINUATION_DEPTH constant, not a private hardcoded literal", async () => {
     const prisma = {
       assistantAsyncJobHandle: {
@@ -148,6 +420,7 @@ describe("AssistantAsyncJobContinuationSchedulerService", () => {
     const service = new AssistantAsyncJobContinuationSchedulerService(
       prisma as never,
       {} as never,
+      wakeCoordinatorStub as never,
       {} as never,
       {} as never,
       {} as never,
@@ -247,8 +520,12 @@ describe("AssistantAsyncJobContinuationSchedulerService", () => {
         chatId: "chat-1",
         channel,
         kind: "media" as const,
+        jobRef: "jr-media-1",
         canonicalJobId: "job-1",
         runtimeSessionId: null,
+        readyAt: new Date("2026-07-18T12:00:00.000Z"),
+        updatedAt: new Date("2026-07-18T12:00:00.000Z"),
+        sourceFinalizedAt: new Date("2026-07-18T11:59:00.000Z"),
         chat: {
           archivedAt: null,
           assistantId: "assistant-1",
@@ -296,7 +573,16 @@ describe("AssistantAsyncJobContinuationSchedulerService", () => {
         };
       })();
       const prisma = {
-        assistantAsyncJobHandle: { findUnique: async () => handle },
+        assistantAsyncJobHandle: {
+          findUnique: async () => handle,
+          findMany: async () => [
+            {
+              id: handle.id,
+              readyAt: handle.readyAt,
+              updatedAt: handle.updatedAt
+            }
+          ]
+        },
         assistantChannelSurfaceBinding: {
           findUnique: async () => {
             bindingLookups += 1;
@@ -310,7 +596,18 @@ describe("AssistantAsyncJobContinuationSchedulerService", () => {
               : { id: "session-1", assistantId: "assistant-1", workspaceId: "workspace-1" }
         },
         assistantChatMessage: {
-          findFirst: async () => ({ id: "00000000-0000-4000-8000-000000000001" })
+          findFirst: async (args: {
+            where?: { createdAt?: { gt?: Date }; NOT?: unknown };
+            orderBy?: { createdAt?: "asc" | "desc" };
+          }) => {
+            if (args.where?.createdAt?.gt !== undefined || args.orderBy?.createdAt === "desc") {
+              return null;
+            }
+            return {
+              id: "00000000-0000-4000-8000-000000000001",
+              createdAt: new Date("2026-07-18T11:58:00.000Z")
+            };
+          }
         }
       };
       const service = new AssistantAsyncJobContinuationSchedulerService(
@@ -318,6 +615,7 @@ describe("AssistantAsyncJobContinuationSchedulerService", () => {
         {
           readCanonicalTerminal: async () => terminalForScenario
         } as never,
+        wakeCoordinatorStub as never,
         {} as never,
         {} as never,
         { enforceInboundTurn: async () => undefined } as never,
@@ -364,6 +662,9 @@ describe("AssistantAsyncJobContinuationSchedulerService", () => {
       jobRef: "jr1.sandbox.opaque",
       canonicalJobId: "sandbox-job-1",
       runtimeSessionId: "session-1",
+      readyAt: new Date("2026-07-19T12:00:00.000Z"),
+      updatedAt: new Date("2026-07-19T12:00:00.000Z"),
+      sourceFinalizedAt: new Date("2026-07-19T11:59:00.000Z"),
       chat: {
         archivedAt: null,
         assistantId: "assistant-1",
@@ -380,7 +681,16 @@ describe("AssistantAsyncJobContinuationSchedulerService", () => {
     };
     const service = new AssistantAsyncJobContinuationSchedulerService(
       {
-        assistantAsyncJobHandle: { findUnique: async () => handle },
+        assistantAsyncJobHandle: {
+          findUnique: async () => handle,
+          findMany: async () => [
+            {
+              id: handle.id,
+              readyAt: handle.readyAt,
+              updatedAt: handle.updatedAt
+            }
+          ]
+        },
         runtimeSession: {
           findFirst: async () => ({
             id: "session-1",
@@ -391,7 +701,18 @@ describe("AssistantAsyncJobContinuationSchedulerService", () => {
           })
         },
         assistantChatMessage: {
-          findFirst: async () => ({ id: "00000000-0000-4000-8000-000000000001" })
+          findFirst: async (args: {
+            where?: { createdAt?: { gt?: Date } };
+            orderBy?: { createdAt?: "asc" | "desc" };
+          }) => {
+            if (args.where?.createdAt?.gt !== undefined || args.orderBy?.createdAt === "desc") {
+              return null;
+            }
+            return {
+              id: "00000000-0000-4000-8000-000000000001",
+              createdAt: new Date("2026-07-19T11:58:00.000Z")
+            };
+          }
         }
       } as never,
       {
@@ -402,6 +723,7 @@ describe("AssistantAsyncJobContinuationSchedulerService", () => {
           sandboxResult
         })
       } as never,
+      wakeCoordinatorStub as never,
       {} as never,
       {} as never,
       { enforceInboundTurn: async () => undefined } as never,
@@ -419,6 +741,12 @@ describe("AssistantAsyncJobContinuationSchedulerService", () => {
             kind: string;
             sandboxResult?: typeof sandboxResult;
             jobRef?: string;
+            wakeKind?: string;
+            queueOrdinal?: number;
+            queueTotal?: number;
+            interleaved?: boolean;
+            originatingUserMessageId?: string;
+            latestUserMessageId?: string;
           };
         } | null>;
       }
@@ -427,6 +755,12 @@ describe("AssistantAsyncJobContinuationSchedulerService", () => {
     assert.equal(context.facts.kind, "sandbox");
     assert.equal(context.facts.jobRef, "jr1.sandbox.opaque");
     assert.deepEqual(context.facts.sandboxResult, sandboxResult);
+    assert.equal(context.facts.wakeKind, "job_catchup");
+    assert.equal(context.facts.queueOrdinal, 1);
+    assert.equal(context.facts.queueTotal, 1);
+    assert.equal(context.facts.interleaved, false);
+    assert.equal(context.facts.originatingUserMessageId, "00000000-0000-4000-8000-000000000001");
+    assert.equal(context.facts.latestUserMessageId, undefined);
   });
 
   test("delivery-visible reconciler promotes subscribed media when attachment is visible", async () => {
@@ -453,7 +787,6 @@ describe("AssistantAsyncJobContinuationSchedulerService", () => {
         }
       } as never,
       {
-        claimReady: async () => [],
         readCanonicalTerminal: async () => ({
           status: "completed",
           errorCode: null,
@@ -465,6 +798,7 @@ describe("AssistantAsyncJobContinuationSchedulerService", () => {
           return { decision: "skip_legacy_frame", state: "ready" };
         }
       } as never,
+      wakeCoordinatorStub as never,
       {} as never,
       {} as never,
       {} as never,
@@ -494,7 +828,8 @@ describe("AssistantAsyncJobContinuationSchedulerService", () => {
           }
         }
       } as never,
-      { claimReady: async () => [] } as never,
+      {} as never,
+      wakeCoordinatorStub as never,
       {} as never,
       {} as never,
       {} as never,
@@ -536,11 +871,11 @@ describe("AssistantAsyncJobContinuationSchedulerService", () => {
         }
       } as never,
       {
-        claimReady: async () => [],
         finalizeSourceTurn: async (input: Record<string, unknown>) => {
           finalized.push(input);
         }
       } as never,
+      wakeCoordinatorStub as never,
       {} as never,
       {} as never,
       {} as never,
@@ -586,16 +921,28 @@ describe("AssistantAsyncJobContinuationSchedulerService", () => {
         calls.push("requeue");
         requeues.push(input);
         return "requeued";
-      },
-      async claimReady() {
+      }
+    };
+    const coordinator = {
+      async claimReadyCatchUps() {
         calls.push("claim");
         return [];
+      },
+      async releaseCatchUp() {},
+      async heartbeatCatchUp() {
+        return true;
+      },
+      catchUpHeartbeatIntervalMs() {
+        return 20_000;
+      },
+      async evaluateCatchUpGate() {
+        return { allowed: true as const };
       }
     };
     const service = new AssistantAsyncJobContinuationSchedulerService(
       prisma as never,
       handleState as never,
-      {} as never,
+      coordinator as never,
       {} as never,
       {} as never,
       {} as never,
@@ -644,15 +991,12 @@ describe("AssistantAsyncJobContinuationSchedulerService", () => {
       async requeueClaim() {
         requeued = true;
         return "requeued";
-      },
-      async claimReady() {
-        return [];
       }
     };
     const service = new AssistantAsyncJobContinuationSchedulerService(
       prisma as never,
       handleState as never,
-      {} as never,
+      wakeCoordinatorStub as never,
       {} as never,
       {} as never,
       {} as never,
@@ -692,11 +1036,11 @@ describe("AssistantAsyncJobContinuationSchedulerService", () => {
         runtimeTurnReceipt: { findUnique: async () => null }
       } as never,
       {
-        claimReady: async () => [],
         requeueClaim: async () => {
           requeued = true;
         }
       } as never,
+      wakeCoordinatorStub as never,
       {
         inspect: async () => ({
           proof: "proven",
@@ -726,35 +1070,145 @@ describe("AssistantAsyncJobContinuationSchedulerService", () => {
     assert.equal(requeued, false);
   });
 
-  test("typed busy uses the exact pre-acceptance CAS and never fabricates dispatched proof", async () => {
+  test("ADR-159 S2 TOCTOU: TG pre-runtime gate denial releases claim without execute", async () => {
+    let executeCalled = false;
+    let markDispatchedCalled = false;
+    const releases: Array<Record<string, unknown>> = [];
+    const gateArgs: Array<Record<string, unknown>> = [];
+    const service = new AssistantAsyncJobContinuationSchedulerService(
+      {} as never,
+      {
+        markDispatched: async () => {
+          markDispatchedCalled = true;
+          return true;
+        },
+        releaseClaimToReady: async (value: Record<string, unknown>) => {
+          releases.push(value);
+          return "released";
+        }
+      } as never,
+      {
+        ...wakeCoordinatorStub,
+        evaluateCatchUpGate: async (input: Record<string, unknown>) => {
+          gateArgs.push(input);
+          return { allowed: false as const, reason: "user_turn_active" as const };
+        }
+      } as never,
+      {
+        execute: async () => {
+          executeCalled = true;
+          return { outcome: "completed" };
+        }
+      } as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never
+    );
+    const internal = service as unknown as {
+      loadAndValidateContext: () => Promise<Record<string, unknown>>;
+      buildRequest: () => Promise<{ request: Record<string, unknown>; timeoutMs: number }>;
+      processClaim: (claim: { id: string; claimToken: string }) => Promise<void>;
+    };
+    internal.loadAndValidateContext = async () => ({
+      handle: {
+        id: "handle-tg-toctou",
+        retryCount: 0,
+        channel: "telegram",
+        chatId: "chat-tg",
+        assistantId: "assistant-1",
+        userId: "user-1",
+        threadKey: "telegram:1:session:main"
+      },
+      sourceUserMessage: { id: "user-msg-1" }
+    });
+    internal.buildRequest = async () => ({
+      request: { requestId: "dispatch-tg-toctou" },
+      timeoutMs: 50
+    });
+    await internal.processClaim({ id: "handle-tg-toctou", claimToken: "claim-tg" });
+    assert.equal(executeCalled, false);
+    assert.equal(markDispatchedCalled, false);
+    assert.equal(releases.length, 1);
+    assert.equal(releases[0]?.id, "handle-tg-toctou");
+    assert.ok(releases[0]?.retryAt instanceof Date);
+    assert.equal(gateArgs.length, 1);
+    assert.equal(gateArgs[0]?.chatId, "chat-tg");
+    assert.equal(gateArgs[0]?.surfaceThreadKey, "telegram:1:session:main");
+  });
+
+  test("typed busy releases claimed→ready without markDispatched or parked accepted", async () => {
     const calls: Array<Record<string, unknown>> = [];
+    let markDispatchedCalled = false;
     const { internal } = dispatchHarness({
       execute: async () => ({ outcome: "busy" }),
       handleState: {
-        markDispatched: async () => true,
-        requeueBusyNotStarted: async (value: Record<string, unknown>) => {
+        markDispatched: async () => {
+          markDispatchedCalled = true;
+          return true;
+        },
+        releaseClaimToReady: async (value: Record<string, unknown>) => {
           calls.push(value);
-          return "requeued";
+          return "released";
         }
       }
     });
     await internal.processClaim({ id: "handle-1", claimToken: "claim-1" });
+    assert.equal(markDispatchedCalled, false);
     assert.equal(calls.length, 1);
-    assert.equal(calls[0]?.receiptRequestId, "dispatch-1");
-    assert.equal("dispatchedProof" in (calls[0] ?? {}), false);
+    assert.equal("receiptRequestId" in (calls[0] ?? {}), false);
+    assert.ok(calls[0]?.retryAt instanceof Date);
   });
 
-  test("busy-before-acceptance still requeues via busy CAS when retryCount is already at max-1", async () => {
+  test("ADR-159 runtime duplicate releases claimed→ready (not completeClaim)", async () => {
+    const releaseCalls: Array<Record<string, unknown>> = [];
+    let markDispatchedCalled = false;
+    let completeClaimCalled = false;
+    const { internal } = dispatchHarness({
+      execute: async () => ({ outcome: "duplicate" }),
+      handleState: {
+        markDispatched: async () => {
+          markDispatchedCalled = true;
+          return true;
+        },
+        releaseClaimToReady: async (value: Record<string, unknown>) => {
+          releaseCalls.push(value);
+          return "released";
+        },
+        completeClaim: async () => {
+          completeClaimCalled = true;
+          return true;
+        }
+      }
+    });
+    await internal.processClaim({ id: "handle-rt-dup", claimToken: "claim-rt-dup" });
+    assert.equal(markDispatchedCalled, false);
+    assert.equal(completeClaimCalled, false);
+    assert.equal(releaseCalls.length, 1);
+    assert.equal(releaseCalls[0]?.id, "handle-rt-dup");
+    assert.equal("receiptRequestId" in (releaseCalls[0] ?? {}), false);
+    assert.ok(releaseCalls[0]?.retryAt instanceof Date);
+  });
+
+  test("busy-before-acceptance still releases claimed→ready when retryCount is already at max-1", async () => {
     const busyCalls: Array<Record<string, unknown>> = [];
     let failCalled = false;
     let requeueClaimCalled = false;
+    let markDispatchedCalled = false;
     const { internal } = dispatchHarness({
       execute: async () => ({ outcome: "busy" }),
       handleState: {
-        markDispatched: async () => true,
-        requeueBusyNotStarted: async (value: Record<string, unknown>) => {
+        markDispatched: async () => {
+          markDispatchedCalled = true;
+          return true;
+        },
+        releaseClaimToReady: async (value: Record<string, unknown>) => {
           busyCalls.push(value);
-          return "requeued";
+          return "released";
         },
         requeueClaim: async () => {
           requeueClaimCalled = true;
@@ -768,11 +1222,11 @@ describe("AssistantAsyncJobContinuationSchedulerService", () => {
       }
     });
     internal.loadAndValidateContext = async () => ({
-      handle: { retryCount: 7, channel: "web" }
+      handle: { retryCount: 7, channel: "telegram" }
     });
     await internal.processClaim({ id: "handle-busy-budget", claimToken: "claim-busy" });
+    assert.equal(markDispatchedCalled, false);
     assert.equal(busyCalls.length, 1);
-    assert.equal(busyCalls[0]?.receiptRequestId, "dispatch-1");
     assert.equal(failCalled, false);
     assert.equal(requeueClaimCalled, false);
   });
@@ -893,7 +1347,6 @@ describe("AssistantAsyncJobContinuationSchedulerService", () => {
         }
       } as never,
       {
-        claimReady: async () => [],
         finalizeSourceTurn: async (input: Record<string, unknown>) => {
           finalized.push(input);
         },
@@ -903,6 +1356,7 @@ describe("AssistantAsyncJobContinuationSchedulerService", () => {
         },
         getPermanentFailureObservation: async () => null
       } as never,
+      wakeCoordinatorStub as never,
       {} as never,
       {} as never,
       {} as never,
@@ -997,13 +1451,13 @@ describe("AssistantAsyncJobContinuationSchedulerService", () => {
         }
       } as never,
       {
-        claimReady: async () => [],
         failClaim: async (input: Record<string, unknown>) => {
           failCalls.push(input);
           return { applied: true, observation: null };
         },
         getPermanentFailureObservation: async () => null
       } as never,
+      wakeCoordinatorStub as never,
       {} as never,
       {} as never,
       {} as never,

@@ -1,4 +1,4 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable, Logger, Optional } from "@nestjs/common";
 import type { RuntimeTurnRequest, RuntimeTurnResult } from "@persai/runtime-contract";
 import type { CompletedWebTurnReplayState } from "../domain/assistant-channel-surface-binding.repository";
 import {
@@ -6,6 +6,7 @@ import {
   AsyncContinuationInterruptedError,
   InternalRuntimeAsyncContinuationClientService
 } from "./internal-runtime-async-continuation.client.service";
+import { ChatWakeCoordinator } from "./chat-wake-coordinator.service";
 import { WebChatTurnAttemptService } from "./web-chat-turn-attempt.service";
 import { WebChatTurnStopDispatchService } from "./web-chat-turn-stop-dispatch.service";
 import { WebChatTurnStreamRegistry } from "./web-chat-turn-stream-registry.service";
@@ -49,10 +50,16 @@ export type StreamWebAsyncContinuationCallbacks = {
     claim: { id: string; claimToken: string },
     error: { errorCode: string; errorMessage: string }
   ) => Promise<void>;
-  requeueBusyNotStarted: (input: {
+  /** ADR-159 — markDispatched only after runtime lease acquired + attempt running. */
+  markDispatched: (input: {
     id: string;
     claimToken: string;
     receiptRequestId: string;
+  }) => Promise<boolean>;
+  /** ADR-159 — pre-accept busy / runtime duplicate: release claimed→ready. */
+  releasePreDispatchBusy: (input: {
+    id: string;
+    claimToken: string;
     retryAt: Date;
   }) => Promise<unknown>;
   completeClaim: (claim: { id: string; claimToken: string }) => Promise<boolean>;
@@ -64,9 +71,11 @@ export type StreamWebAsyncContinuationCallbacks = {
 };
 
 /**
- * ADR-152 — web notify continuation uses the same ADR-149 turn-attempt /
- * stream-registry / Stop path as ordinary web chat. Telegram keeps the
- * blocking runtime execute path on the scheduler.
+ * ADR-152 / ADR-159 — web notify continuation uses the same ADR-149 turn-attempt /
+ * stream-registry / Stop path as ordinary web chat. Dispatch proof
+ * (`markDispatched`) is deferred until the runtime session lease is acquired
+ * and the web attempt is running. Telegram keeps the blocking execute path on
+ * the scheduler.
  */
 @Injectable()
 export class StreamWebAsyncContinuationService {
@@ -76,7 +85,8 @@ export class StreamWebAsyncContinuationService {
     private readonly runtimeClient: InternalRuntimeAsyncContinuationClientService,
     private readonly webChatTurnAttemptService: WebChatTurnAttemptService,
     private readonly webChatTurnStreamRegistry: WebChatTurnStreamRegistry,
-    private readonly webChatTurnStopDispatchService: WebChatTurnStopDispatchService
+    private readonly webChatTurnStopDispatchService: WebChatTurnStopDispatchService,
+    @Optional() private readonly chatWakeCoordinator?: ChatWakeCoordinator
   ) {}
 
   async processWebClaim(input: {
@@ -111,12 +121,24 @@ export class StreamWebAsyncContinuationService {
       this.logger.log(
         `web_async_continuation_attempt_already_completed clientTurnId=${continuationClientTurnId}`
       );
+      // ADR-159 — attempt already terminal; complete the handle now so the FIFO
+      // head frees immediately (do not leave claimed for claim-TTL reconcile).
+      const completed = await callbacks.completeClaim(claim);
+      if (!completed) {
+        this.logger.warn(
+          `web_async_continuation_duplicate_handled_complete_lost id=${claim.id} clientTurnId=${continuationClientTurnId}`
+        );
+      }
       return;
     }
     if (claimResult === "duplicate_inflight") {
       this.logger.warn(
-        `web_async_continuation_attempt_inflight clientTurnId=${continuationClientTurnId}; leaving dispatched for reconcile`
+        `web_async_continuation_attempt_inflight clientTurnId=${continuationClientTurnId}; release claim to ready`
       );
+      await callbacks.releasePreDispatchBusy({
+        ...claim,
+        retryAt: callbacks.retryAt(context.handle.retryCount)
+      });
       return;
     }
 
@@ -178,7 +200,16 @@ export class StreamWebAsyncContinuationService {
         continuationClientTurnId
       );
 
+    const releaseBusyPreDispatch = async (): Promise<void> => {
+      await this.webChatTurnAttemptService.abandonPreAcceptanceAttempt(attemptIdentity);
+      await callbacks.releasePreDispatchBusy({
+        ...claim,
+        retryAt: callbacks.retryAt(context.handle.retryCount)
+      });
+    };
+
     const finalizeInterrupted = async (): Promise<void> => {
+      // failClaim accepts claimed|dispatched; Stop may land before runtime accept.
       await callbacks.finalizeContinuationChildren(context, "stopped");
       await this.webChatTurnAttemptService.markInterrupted({
         ...attemptIdentity,
@@ -192,35 +223,80 @@ export class StreamWebAsyncContinuationService {
       });
     };
 
-    const leaveDispatchedAmbiguous = async (message: string): Promise<void> => {
-      this.logger.warn(`web_async_continuation_dispatch_ambiguous id=${claim.id}: ${message}`);
+    // ADR-159 — local proof that markDispatched already succeeded after runtime accept.
+    // A later markDispatched false means already-dispatched, never pre-accept busy.
+    let dispatched = false;
+
+    const ensureDispatched = async (): Promise<boolean> => {
+      if (dispatched) return true;
+      const marked = await callbacks.markDispatched({
+        ...claim,
+        receiptRequestId: request.requestId
+      });
+      dispatched = marked;
+      return marked;
+    };
+
+    const terminalizeFailedAttempt = async (code: string, message: string): Promise<void> => {
       await this.webChatTurnAttemptService.markFailed({
         ...attemptIdentity,
-        code: "continuation_dispatch_ambiguous",
+        code,
         message
       });
       publish("failed", {
-        code: "continuation_dispatch_ambiguous",
+        code,
         message,
         transport: null
       });
+    };
+
+    const leaveDispatchedAmbiguous = async (message: string): Promise<void> => {
+      this.logger.warn(`web_async_continuation_dispatch_ambiguous id=${claim.id}: ${message}`);
+      if (!dispatched) {
+        const marked = await callbacks.markDispatched({
+          ...claim,
+          receiptRequestId: request.requestId
+        });
+        if (marked) {
+          dispatched = true;
+        }
+        // !marked ⇒ already dispatched (or lost) — still terminalize below.
+      }
+      // Never silent early-return: leave an honest failed attempt, not a zombie running row.
+      await terminalizeFailedAttempt("continuation_dispatch_ambiguous", message);
     };
 
     const terminalizeAttemptBeforeRethrow = async (error: unknown): Promise<void> => {
       const message = error instanceof Error ? error.message : String(error);
-      await this.webChatTurnAttemptService.markFailed({
-        ...attemptIdentity,
-        code: "continuation_dispatch_failed",
-        message
-      });
-      publish("failed", {
-        code: "continuation_dispatch_failed",
-        message,
-        transport: null
-      });
+      if (dispatched) {
+        // Post-accept / mid-stream: markFailed + publish. Never abandon the live attempt
+        // and never treat a redundant markDispatched false as pre-accept busy.
+        await terminalizeFailedAttempt("continuation_dispatch_failed", message);
+        return;
+      }
+      // Pre-accept clear error (e.g. runtime unconfigured): no markDispatched.
+      await releaseBusyPreDispatch();
     };
 
     try {
+      // ADR-159 S2 TOCTOU — re-check user-active / idle-pause immediately before
+      // runtime accept (not only before catch-up lock / head claim).
+      if (this.chatWakeCoordinator !== undefined) {
+        const gate = await this.chatWakeCoordinator.evaluateCatchUpGate({
+          chatId: context.handle.chatId,
+          assistantId: context.handle.assistantId,
+          userId: context.handle.userId,
+          surfaceThreadKey: threadKey
+        });
+        if (!gate.allowed) {
+          this.logger.log(
+            `web_async_continuation_pre_runtime_gate id=${claim.id} reason=${gate.reason}`
+          );
+          await releaseBusyPreDispatch();
+          return;
+        }
+      }
+
       let started;
       try {
         started = await this.runtimeClient.stream(request, {
@@ -241,6 +317,13 @@ export class StreamWebAsyncContinuationService {
       }
 
       if (started.mode === "outcome") {
+        if (started.result.outcome === "busy" || started.result.outcome === "duplicate") {
+          // ADR-159: busy / runtime duplicate (acceptTurn in_flight elsewhere) —
+          // abandon pre-accept attempt + releaseClaimToReady (not completeClaim).
+          await releaseBusyPreDispatch();
+          return;
+        }
+        if (!(await ensureDispatched())) return;
         await this.handleOutcome({
           claim,
           context,
@@ -253,6 +336,9 @@ export class StreamWebAsyncContinuationService {
         });
         return;
       }
+
+      // NDJSON stream ⇒ runtime accepted and holds the session lease.
+      if (!(await ensureDispatched())) return;
 
       let terminal: RuntimeTurnResult | null = null;
       let failedCode: string | null = null;
@@ -488,21 +574,17 @@ export class StreamWebAsyncContinuationService {
   }): Promise<void> {
     const { claim, context, threadKey, continuationClientTurnId, outcome, callbacks, publish } =
       input;
-    if (outcome.outcome === "duplicate") {
-      return;
-    }
-    if (outcome.outcome === "busy") {
-      // Retriable: no user-visible fail, no failed SSE. Reset attempt so reclaim
-      // is not stuck on duplicate_inflight / terminal failed.
-      await this.webChatTurnAttemptService.resetToAccepted({
+    if (outcome.outcome === "busy" || outcome.outcome === "duplicate") {
+      // Fail-closed mirror of pre-ensureDispatched busy/duplicate: in-flight
+      // elsewhere → abandon + releaseClaimToReady (never completeClaim).
+      await this.webChatTurnAttemptService.abandonPreAcceptanceAttempt({
         assistantId: context.handle.assistantId,
         userId: context.handle.userId,
         surfaceThreadKey: threadKey,
         clientTurnId: continuationClientTurnId
       });
-      await callbacks.requeueBusyNotStarted({
+      await callbacks.releasePreDispatchBusy({
         ...claim,
-        receiptRequestId: input.receiptRequestId,
         retryAt: callbacks.retryAt(context.handle.retryCount)
       });
       return;

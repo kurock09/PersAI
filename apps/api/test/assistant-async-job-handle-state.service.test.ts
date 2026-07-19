@@ -232,7 +232,6 @@ describe("AssistantAsyncJobHandleStateService", () => {
     });
     assert.deepEqual(result, {
       finalized: 1,
-      legacyChosen: 1,
       autoSubscribed: 1,
       currentTurnPreserved: 0,
       currentTurnReleased: 0
@@ -399,43 +398,215 @@ describe("AssistantAsyncJobHandleStateService", () => {
     assert.equal(subject.row.state, "ready");
   });
 
-  test("typed busy rejection requeues an exact dispatched claim without fabricated proof", async () => {
+  test("ADR-159 releaseClaimToReady returns claimed→ready without consuming retry budget", async () => {
     const subject = fixture({
-      state: "dispatched",
+      state: "claimed",
       claimToken: "claim-1",
-      retryCount: 0
+      retryCount: 2
     });
-    const result = await subject.service.requeueBusyNotStarted({
+    const result = await subject.service.releaseClaimToReady({
       id: subject.row.id,
       claimToken: "claim-1",
-      receiptRequestId: "dispatch-1",
-      retryAt: new Date()
+      retryAt: new Date("2026-07-19T12:00:00.000Z")
     });
-    assert.equal(result, "requeued");
+    assert.equal(result, "released");
     assert.equal(subject.row.state, "ready");
     assert.equal(subject.row.claimToken, null);
-    assert.equal(subject.row.retryCount, 0, "busy requeue must not consume retry budget");
+    assert.equal(subject.row.retryCount, 2);
+    assert.equal(subject.row.lastErrorCode, "continuation_busy");
   });
 
-  test("repeated busy requeues never exhaust retry budget", async () => {
+  test("ADR-159 claimReadyHeadForChat claims at most one FIFO head for a chat", async () => {
     const subject = fixture({
-      state: "dispatched",
+      state: "ready",
+      sourceFinalizedAt: new Date("2026-07-19T11:00:00.000Z")
+    });
+    const claimed = await subject.service.claimReadyHeadForChat({
+      chatId: owned.chatId,
+      claimTtlMs: 60_000
+    });
+    assert.ok(claimed !== null);
+    assert.equal(claimed?.id, subject.row.id);
+    assert.equal(typeof claimed?.claimToken, "string");
+    assert.equal(subject.row.state, "claimed");
+    assert.equal(subject.row.claimToken, claimed?.claimToken);
+  });
+
+  test("ADR-159 completeClaim terminals claimed handles (duplicate_handled path)", async () => {
+    const subject = fixture({
+      state: "claimed",
+      claimToken: "claim-dup"
+    });
+    const completed = await subject.service.completeClaim({
+      id: subject.row.id,
+      claimToken: "claim-dup"
+    });
+    assert.equal(completed, true);
+    assert.equal(subject.row.state, "completed");
+    assert.equal(subject.row.claimToken, null);
+  });
+
+  test("ADR-159 ready promotion stamps stable catch-up ordinals across two handles", async () => {
+    type StampRow = {
+      id: string;
+      chatId: string;
+      state: string;
+      catchUpOrdinal: number | null;
+      catchUpWaveTotal: number | null;
+      catchUpWaveId: string | null;
+      narrationOwner: string | null;
+      narrationDecision: string | null;
+      continuationClientTurnId: string | null;
+      maxRetries: number;
+      terminalSnapshotJson?: unknown;
+      readyAt?: Date | null;
+      nextRetryAt?: Date | null;
+      terminalObservedAt?: Date | null;
+      narrationDecisionAt?: Date | null;
+    };
+    const chatId = owned.chatId;
+    const rows: StampRow[] = [
+      {
+        id: "00000000-0000-4000-8000-0000000000a1",
+        chatId,
+        state: "subscribed",
+        catchUpOrdinal: null,
+        catchUpWaveTotal: null,
+        catchUpWaveId: null,
+        narrationOwner: "continuation",
+        narrationDecision: "notify_subscribed",
+        continuationClientTurnId: "async-cont:a1",
+        maxRetries: 8
+      },
+      {
+        id: "00000000-0000-4000-8000-0000000000a2",
+        chatId,
+        state: "subscribed",
+        catchUpOrdinal: null,
+        catchUpWaveTotal: null,
+        catchUpWaveId: null,
+        narrationOwner: "continuation",
+        narrationDecision: "notify_subscribed",
+        continuationClientTurnId: "async-cont:a2",
+        maxRetries: 8
+      }
+    ];
+    const tx = {
+      $queryRaw: async (query: unknown) => {
+        const sql = String((query as { strings?: readonly string[] }).strings?.join("") ?? "");
+        if (sql.includes("assistant_chats")) {
+          return [{ id: chatId }];
+        }
+        const row = rows.find((entry) => entry.state === "subscribed") ?? rows[0];
+        return [row];
+      },
+      assistantAsyncJobHandle: {
+        findUnique: async ({ where }: { where: { id: string } }) =>
+          rows.find((row) => row.id === where.id) ?? null,
+        findFirst: async ({
+          where
+        }: {
+          where: {
+            chatId: string;
+            state?: { in: string[] };
+            catchUpWaveId?: { not: null };
+            NOT?: { id: string };
+          };
+        }) => {
+          const states = where.state?.in ?? [];
+          return (
+            rows.find(
+              (row) =>
+                row.chatId === where.chatId &&
+                row.catchUpWaveId !== null &&
+                states.includes(row.state) &&
+                row.id !== where.NOT?.id
+            ) ?? null
+          );
+        },
+        findMany: async ({ where }: { where: { chatId: string; catchUpWaveId: string } }) =>
+          rows.filter(
+            (row) => row.chatId === where.chatId && row.catchUpWaveId === where.catchUpWaveId
+          ),
+        update: async ({
+          where,
+          data
+        }: {
+          where: { id: string };
+          data: Record<string, unknown>;
+        }) => {
+          const row = rows.find((entry) => entry.id === where.id);
+          if (row === undefined) return null;
+          Object.assign(row, data);
+          return row;
+        },
+        updateMany: async ({
+          where,
+          data
+        }: {
+          where: { chatId: string; catchUpWaveId: string };
+          data: Record<string, unknown>;
+        }) => {
+          let count = 0;
+          for (const row of rows) {
+            if (row.chatId === where.chatId && row.catchUpWaveId === where.catchUpWaveId) {
+              Object.assign(row, data);
+              count += 1;
+            }
+          }
+          return { count };
+        }
+      },
+      assistantMediaJob: {
+        findUnique: async () => ({ status: "completed", lastErrorCode: null })
+      },
+      assistantDocumentRenderJob: { findUnique: async () => null }
+    };
+    const service = new AssistantAsyncJobHandleStateService({
+      $transaction: async <T>(callback: (value: typeof tx) => Promise<T>) => callback(tx)
+    } as never);
+
+    const first = await service.recordCanonicalCompletion({
+      kind: "media",
+      canonicalJobId: "job-a1",
+      terminalStatus: "completed",
+      terminalSnapshot: { status: "completed" }
+    });
+    assert.equal(first.state, "ready");
+    assert.equal(rows[0]?.state, "ready");
+    assert.equal(rows[0]?.catchUpOrdinal, 1);
+    assert.equal(rows[0]?.catchUpWaveTotal, 1);
+    assert.equal(typeof rows[0]?.catchUpWaveId, "string");
+
+    const second = await service.recordCanonicalCompletion({
+      kind: "media",
+      canonicalJobId: "job-a2",
+      terminalStatus: "completed",
+      terminalSnapshot: { status: "completed" }
+    });
+    assert.equal(second.state, "ready");
+    assert.equal(rows[1]?.catchUpOrdinal, 2);
+    assert.equal(rows[1]?.catchUpWaveTotal, 2);
+    assert.equal(rows[0]?.catchUpWaveTotal, 2);
+    assert.equal(rows[0]?.catchUpWaveId, rows[1]?.catchUpWaveId);
+  });
+
+  test("ADR-159 repeated pre-accept busy releases never exhaust retry budget", async () => {
+    const subject = fixture({
+      state: "claimed",
       claimToken: "claim-1",
-      dispatchReceiptRequestId: "dispatch-1",
       retryCount: 99,
       maxRetries: 3
     });
     for (let i = 0; i < 5; i += 1) {
-      subject.row.state = "dispatched";
+      subject.row.state = "claimed";
       subject.row.claimToken = "claim-1";
-      subject.row.dispatchReceiptRequestId = "dispatch-1";
-      const result = await subject.service.requeueBusyNotStarted({
+      const result = await subject.service.releaseClaimToReady({
         id: subject.row.id,
         claimToken: "claim-1",
-        receiptRequestId: "dispatch-1",
         retryAt: new Date()
       });
-      assert.equal(result, "requeued");
+      assert.equal(result, "released");
       assert.equal(subject.row.state, "ready");
       assert.equal(subject.row.retryCount, 99);
       assert.equal(subject.row.lastErrorCode, "continuation_busy");

@@ -33,6 +33,7 @@ import { MediaDeliveryService } from "./media/media-delivery.service";
 import { resolveMaterializedNativeRuntimeBundle } from "./native-runtime-bundle-hash";
 import { resolveNativeRuntimeTurnTimeoutMs } from "./native-runtime-turn-timeout";
 import { ResolveAssistantRuntimeTierService } from "./resolve-assistant-runtime-tier.service";
+import { ChatWakeCoordinator, type CatchUpClaim } from "./chat-wake-coordinator.service";
 import { LEASE_HEARTBEAT_INTERVAL_MS } from "./scheduler-lease.constants";
 import { SchedulerLeaseService } from "./scheduler-lease.service";
 import { SandboxControlPlaneClientService } from "./sandbox-control-plane.client.service";
@@ -58,6 +59,7 @@ export class AssistantAsyncJobContinuationSchedulerService
   constructor(
     private readonly prisma: WorkspaceManagementPrismaService,
     private readonly handleState: AssistantAsyncJobHandleStateService,
+    private readonly chatWakeCoordinator: ChatWakeCoordinator,
     private readonly runtimeClient: InternalRuntimeAsyncContinuationClientService,
     private readonly runtimeTier: ResolveAssistantRuntimeTierService,
     private readonly capabilityAndQuota: EnforceAssistantCapabilityAndQuotaService,
@@ -90,12 +92,25 @@ export class AssistantAsyncJobContinuationSchedulerService
     await this.reconcileSubscribedDeliveryVisibleHandles(limit);
     await this.reconcileUnfinalizedSourceTurns(limit);
     await this.reconcileExpiredClaims(limit);
-    const claims = await this.handleState.claimReady({
+    // ADR-159 — ChatWakeCoordinator: per-chat lock + FIFO head claim.
+    const claims = await this.chatWakeCoordinator.claimReadyCatchUps({
       limit,
       claimTtlMs: PRE_DISPATCH_CLAIM_TTL_MS
     });
     for (const claim of claims) {
-      await this.processClaim(claim);
+      let heartbeat: NodeJS.Timeout | null = null;
+      try {
+        heartbeat = setInterval(() => {
+          void this.chatWakeCoordinator
+            .heartbeatCatchUp(claim.chatId, claim.lockToken)
+            .catch(() => undefined);
+        }, this.chatWakeCoordinator.catchUpHeartbeatIntervalMs());
+        heartbeat.unref?.();
+        await this.processClaim(claim);
+      } finally {
+        if (heartbeat !== null) clearInterval(heartbeat);
+        await this.chatWakeCoordinator.releaseCatchUp(claim.chatId, claim.lockToken);
+      }
     }
     return claims.length;
   }
@@ -221,7 +236,9 @@ export class AssistantAsyncJobContinuationSchedulerService
     }
   }
 
-  private async processClaim(claim: { id: string; claimToken: string }): Promise<void> {
+  private async processClaim(
+    claim: Pick<CatchUpClaim, "id" | "claimToken"> | { id: string; claimToken: string }
+  ): Promise<void> {
     try {
       const context = await this.loadAndValidateContext(claim.id);
       if (context === null) {
@@ -233,14 +250,15 @@ export class AssistantAsyncJobContinuationSchedulerService
         return;
       }
       const dispatch = await this.buildRequest(context);
-      const marked = await this.handleState.markDispatched({
-        ...claim,
-        receiptRequestId: dispatch.request.requestId,
-        dispatchExpiresAt: new Date(Date.now() + dispatch.timeoutMs + DISPATCH_DEADLINE_GRACE_MS)
-      });
-      if (!marked) return;
+      const markDispatched = async (receiptRequestId: string): Promise<boolean> =>
+        this.handleState.markDispatched({
+          ...claim,
+          receiptRequestId,
+          dispatchExpiresAt: new Date(Date.now() + dispatch.timeoutMs + DISPATCH_DEADLINE_GRACE_MS)
+        });
       // Web prefers the resumable ADR-149 stream path; Telegram (and unit
       // tests without the stream helper) keep blocking execute.
+      // ADR-159: never markDispatched until runtime lease + (web) attempt running.
       if (context.handle.channel === "web" && this.streamWebAsyncContinuation !== undefined) {
         await this.streamWebAsyncContinuation.processWebClaim({
           claim,
@@ -268,11 +286,29 @@ export class AssistantAsyncJobContinuationSchedulerService
             deliverContinuationArtifactsOnce: (c, ctx, assistantMessageId, result) =>
               this.deliverContinuationArtifactsOnce(c, ctx as never, assistantMessageId, result),
             failClaimVisibly: (c, error) => this.failClaimVisibly(c, error),
-            requeueBusyNotStarted: (value) => this.handleState.requeueBusyNotStarted(value),
+            markDispatched: (value) => markDispatched(value.receiptRequestId),
+            releasePreDispatchBusy: (value) => this.handleState.releaseClaimToReady(value),
             completeClaim: (c) => this.handleState.completeClaim(c),
             deliveryAttemptsSettled: (c, channel) => this.deliveryAttemptsSettled(c, channel),
             retryAt: (retryCount) => this.retryAt(retryCount)
           }
+        });
+        return;
+      }
+      // ADR-159 S2 TOCTOU — Telegram blocking path: re-check gate before runtime.
+      const preRuntimeGate = await this.chatWakeCoordinator.evaluateCatchUpGate({
+        chatId: context.handle.chatId,
+        assistantId: context.handle.assistantId,
+        userId: context.handle.userId,
+        surfaceThreadKey: context.handle.threadKey
+      });
+      if (!preRuntimeGate.allowed) {
+        this.logger.log(
+          `async_continuation_pre_runtime_gate id=${claim.id} reason=${preRuntimeGate.reason}`
+        );
+        await this.handleState.releaseClaimToReady({
+          ...claim,
+          retryAt: this.retryAt(context.handle.retryCount)
         });
         return;
       }
@@ -283,24 +319,29 @@ export class AssistantAsyncJobContinuationSchedulerService
         });
       } catch (error) {
         if (error instanceof AsyncContinuationDispatchAmbiguousError) {
+          // ADR-159 P2 residual (Telegram blocking path): acceptance may have
+          // landed before the transport error — stamp dispatched so ordinary
+          // claim TTL / orphan reconcile can finish. Web uses
+          // leaveDispatchedAmbiguous after accept.
+          await markDispatched(dispatch.request.requestId);
           this.logger.warn(
-            `Async continuation dispatch is ambiguous; leaving dispatched id=${claim.id}: ${error.message}`
+            `Async continuation dispatch is ambiguous; stamped dispatched id=${claim.id}: ${error.message}`
           );
           return;
         }
         throw error;
       }
-      if (outcome.outcome === "duplicate") {
-        return;
-      }
-      if (outcome.outcome === "busy") {
-        await this.handleState.requeueBusyNotStarted({
+      if (outcome.outcome === "busy" || outcome.outcome === "duplicate") {
+        // ADR-159 — busy / runtime duplicate (acceptTurn in_flight elsewhere):
+        // no markDispatched; releaseClaimToReady (not completeClaim).
+        await this.handleState.releaseClaimToReady({
           ...claim,
-          receiptRequestId: dispatch.request.requestId,
           retryAt: this.retryAt(context.handle.retryCount)
         });
         return;
       }
+      const marked = await markDispatched(dispatch.request.requestId);
+      if (!marked) return;
       if (outcome.outcome === "failed") {
         await this.finalizeContinuationChildren(context, "failed");
         await this.failClaimVisibly(claim, {
@@ -409,21 +450,181 @@ export class AssistantAsyncJobContinuationSchedulerService
         assistantId: handle.assistantId,
         author: "user"
       },
-      select: { id: true }
+      select: { id: true, createdAt: true }
     });
     if (sourceUserMessage === null) return null;
+    const catchUpMarkers = await this.resolveCatchUpWakeMarkers({
+      handleId: handle.id,
+      chatId: handle.chatId,
+      assistantId: handle.assistantId,
+      readyAt: handle.readyAt,
+      updatedAt: handle.updatedAt,
+      sourceFinalizedAt: handle.sourceFinalizedAt,
+      catchUpOrdinal: handle.catchUpOrdinal,
+      catchUpWaveTotal: handle.catchUpWaveTotal,
+      catchUpWaveId: handle.catchUpWaveId,
+      originatingUserMessageId: sourceUserMessage.id,
+      sourceUserMessageCreatedAt: sourceUserMessage.createdAt
+    });
     // Include sandboxResult (stdout/stderr/exitCode/paths) so notify wake has the
     // same job outcome await wait would have returned inline. Without it the model
     // only sees "Sandbox job completed." and invents / stalls.
+    // ADR-159 S3 — structured wake markers (wakeKind/ordinal/interleaved/…) so the
+    // model does not rely on the synthetic "[internal async completion]" strip alone.
     const facts = {
       kind: handle.kind,
       status: terminal.status,
       errorCode: terminal.errorCode,
       message: terminal.message,
       jobRef: handle.jobRef,
+      ...catchUpMarkers,
       ...(terminal.sandboxResult !== null ? { sandboxResult: terminal.sandboxResult } : {})
     };
     return { handle, session, sourceUserMessage, facts };
+  }
+
+  /** Quiet message.metadata projection from continuation facts (S3). */
+  private catchUpMessageMetadataFromFacts(
+    facts: ({ jobRef?: string } & Record<string, unknown>) | null | undefined
+  ): Record<string, unknown> {
+    if (facts === null || facts === undefined) {
+      return { wakeKind: "job_catchup" };
+    }
+    return {
+      wakeKind: "job_catchup",
+      ...(typeof facts.jobRef === "string" ? { jobRef: facts.jobRef } : {}),
+      ...(typeof facts.queueOrdinal === "number" ? { queueOrdinal: facts.queueOrdinal } : {}),
+      ...(typeof facts.queueTotal === "number" ? { queueTotal: facts.queueTotal } : {}),
+      ...(typeof facts.interleaved === "boolean" ? { interleaved: facts.interleaved } : {}),
+      ...(typeof facts.originatingUserMessageId === "string"
+        ? { originatingUserMessageId: facts.originatingUserMessageId }
+        : {}),
+      ...(typeof facts.latestUserMessageId === "string"
+        ? { latestUserMessageId: facts.latestUserMessageId }
+        : {})
+    };
+  }
+
+  /**
+   * ADR-159 — catch-up markers at dispatch. Prefer durable
+   * `catchUpOrdinal` / `catchUpWaveTotal` stamped at ready-promotion (stable
+   * N across sequential dispatches). Historical unstamped rows fall back to
+   * wave membership by catchUpWaveId or ready/claimed/dispatched/completed
+   * siblings ordered by readyAt.
+   */
+  private async resolveCatchUpWakeMarkers(input: {
+    handleId: string;
+    chatId: string;
+    assistantId: string;
+    readyAt: Date | null;
+    updatedAt: Date;
+    sourceFinalizedAt: Date | null;
+    catchUpOrdinal?: number | null;
+    catchUpWaveTotal?: number | null;
+    catchUpWaveId?: string | null;
+    originatingUserMessageId: string;
+    sourceUserMessageCreatedAt: Date;
+  }): Promise<{
+    wakeKind: "job_catchup";
+    queueOrdinal: number;
+    queueTotal: number;
+    interleaved: boolean;
+    originatingUserMessageId: string;
+    latestUserMessageId?: string;
+  }> {
+    let queueOrdinal =
+      typeof input.catchUpOrdinal === "number" && input.catchUpOrdinal >= 1
+        ? input.catchUpOrdinal
+        : null;
+    let queueTotal =
+      typeof input.catchUpWaveTotal === "number" && input.catchUpWaveTotal >= 1
+        ? input.catchUpWaveTotal
+        : null;
+
+    if (
+      (queueOrdinal === null || queueTotal === null) &&
+      typeof (this.prisma.assistantAsyncJobHandle as { findMany?: unknown }).findMany === "function"
+    ) {
+      const queueRows = await this.prisma.assistantAsyncJobHandle.findMany({
+        where:
+          typeof input.catchUpWaveId === "string" && input.catchUpWaveId.length > 0
+            ? { chatId: input.chatId, catchUpWaveId: input.catchUpWaveId }
+            : {
+                chatId: input.chatId,
+                OR: [{ state: { in: ["ready", "claimed", "dispatched"] } }, { id: input.handleId }]
+              },
+        select: {
+          id: true,
+          readyAt: true,
+          updatedAt: true,
+          catchUpOrdinal: true,
+          catchUpWaveTotal: true
+        },
+        orderBy: [{ readyAt: "asc" }, { updatedAt: "asc" }]
+      });
+      if (queueTotal === null) {
+        const stampedTotal = queueRows.find(
+          (row) => typeof row.catchUpWaveTotal === "number" && row.catchUpWaveTotal >= 1
+        )?.catchUpWaveTotal;
+        queueTotal = Math.max(1, stampedTotal ?? queueRows.length);
+      }
+      if (queueOrdinal === null) {
+        const self = queueRows.find((row) => row.id === input.handleId);
+        if (typeof self?.catchUpOrdinal === "number" && self.catchUpOrdinal >= 1) {
+          queueOrdinal = self.catchUpOrdinal;
+        } else {
+          const ordinalIndex = queueRows.findIndex((row) => row.id === input.handleId);
+          queueOrdinal = ordinalIndex >= 0 ? ordinalIndex + 1 : 1;
+        }
+      }
+    }
+    if (queueOrdinal === null) queueOrdinal = 1;
+    if (queueTotal === null) queueTotal = 1;
+    if (queueOrdinal > queueTotal) queueTotal = queueOrdinal;
+
+    const interleaveAfter =
+      input.sourceFinalizedAt instanceof Date
+        ? input.sourceFinalizedAt
+        : input.sourceUserMessageCreatedAt;
+    let interleaved = false;
+    let latestUserMessageId: string | undefined;
+    if (
+      typeof (this.prisma.assistantChatMessage as { findFirst?: unknown }).findFirst === "function"
+    ) {
+      const laterUser = await this.prisma.assistantChatMessage.findFirst({
+        where: {
+          chatId: input.chatId,
+          assistantId: input.assistantId,
+          author: "user",
+          createdAt: { gt: interleaveAfter },
+          NOT: { id: input.originatingUserMessageId }
+        },
+        select: { id: true },
+        orderBy: { createdAt: "asc" }
+      });
+      interleaved = laterUser !== null;
+      const latestUser = await this.prisma.assistantChatMessage.findFirst({
+        where: {
+          chatId: input.chatId,
+          assistantId: input.assistantId,
+          author: "user"
+        },
+        select: { id: true },
+        orderBy: { createdAt: "desc" }
+      });
+      if (latestUser !== null && latestUser.id !== input.originatingUserMessageId) {
+        latestUserMessageId = latestUser.id;
+      }
+    }
+
+    return {
+      wakeKind: "job_catchup",
+      queueOrdinal,
+      queueTotal,
+      interleaved,
+      originatingUserMessageId: input.originatingUserMessageId,
+      ...(latestUserMessageId === undefined ? {} : { latestUserMessageId })
+    };
   }
 
   private async buildRequest(
@@ -511,8 +712,10 @@ export class AssistantAsyncJobContinuationSchedulerService
           assistantId: context.handle.assistantId,
           author: "assistant",
           content: result.answerText ?? result.assistantText,
+          // Quiet ADR-159 S3 catch-up markers for web clients (no UX redesign).
           metadata: {
-            asyncContinuationClientTurnId: context.handle.continuationClientTurnId
+            asyncContinuationClientTurnId: context.handle.continuationClientTurnId,
+            ...this.catchUpMessageMetadataFromFacts(context.facts)
           } as Prisma.InputJsonValue,
           ...(result.toolExchanges && result.toolExchanges.length > 0
             ? {

@@ -263,10 +263,16 @@ compare-and-set transitions, and reconciliation close the completion-versus-
 subscribe race; no path produces double framing or double delivery.
 
 The notify scheduler reuses `SchedulerLease` and same-row CAS claim fields.
-The runtime session lease is the sole no-parallel gate. Busy sessions or user
-turns durably requeue. Existing `RuntimeTurnReceipt` provides deterministic
-idempotency. A conservative stale-claim/dispatched reconciler requeues only
-when there is no live receipt or session lease.
+**Superseded for wake dispatch by ADR-159 (2026-07-19):** the former
+“runtime session lease is the sole no-parallel gate / whichever acquires
+first” race and parked busy requeue are no longer product truth.
+`ChatWakeCoordinator` owns per-chat serial catch-up (`USER_TURN` >
+`JOB_CATCHUP`, idle-pause, ready FIFO, exclusive catch-up lock). Opaque
+`jobRef` / await / Stop≠cancel job stay. Busy must not park web attempts as
+`accepted`; leave handles ready until lease+attempt prove running before
+`markDispatched`. Existing `RuntimeTurnReceipt` provides deterministic
+idempotency. A conservative stale-claim/dispatched reconciler may recover
+missed work but is **not** the session-serialization architecture.
 
 Before dispatch, the scheduler revalidates Assistant, workspace, user,
 plan/subscription entitlement, active chat, and channel binding. It dispatches
