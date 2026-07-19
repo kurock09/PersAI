@@ -3,11 +3,13 @@
 ## 2026-07-19 — ADR-159 repair train CLEAN/GO; S5 shipping pending
 
 Status: **Slices 1–3 and final frozen integration/cleanup audits are
-CLEAN/GO locally.** Baseline is clean `main` `209f2d18`; additive migration
-`20260719180000_adr159_admission_linearization` remains uncommitted and needs
-migration approval. No deploy/live/CLOSED claim: S5 requires mandatory gate
-rerun, commit/push, migration approval, exact images/GitOps, then live
-multi-replica web + Telegram acceptance.
+CLEAN/GO locally and committed in `9c8b95e8`
+(`fix(adr159): harden async catch-up coordination`).** Baseline is clean
+`main` `209f2d18`; additive migration
+`20260719180000_adr159_admission_linearization` needs migration approval.
+The commit is not pushed. No deploy/live/CLOSED claim: S5 next action is push
+once, then migration approval, exact images/GitOps, and live multi-replica web
+Telegram acceptance.
 
 Final local gate record: recursive lint, `format:check`, API typecheck, and
 Web typecheck PASS; full workspace tests PASS on the final tree (latest

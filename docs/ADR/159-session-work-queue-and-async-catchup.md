@@ -4,16 +4,17 @@
 
 **Open 2026-07-19 — local repair train Slices 1–3 CLEAN/GO; final frozen
 integration + cleanup audit CLEAN/GO.** Clean baseline is `209f2d18`.
-The additive migration `20260719180000_adr159_admission_linearization` remains
-uncommitted and requires migration approval. S5 shipping remains pending:
-commit/push, migration approval, exact-image/GitOps rollout, and founder live
-acceptance. Final recursive lint, `format:check`, API/Web typechecks, full
-workspace tests, `test:step2` (web 85 files / 1060 tests), and
+The repair train is committed locally as `9c8b95e8`
+(`fix(adr159): harden async catch-up coordination`). The additive migration
+`20260719180000_adr159_admission_linearization` requires migration approval.
+S5 shipping remains pending: push once, migration approval, exact-image/GitOps
+rollout, and founder live acceptance. Final recursive lint, `format:check`,
+API/Web typechecks, full workspace tests, `test:step2` (web 85 files / 1060 tests), and
 `test:ci-detect-affected` (30/30) PASS. `prisma:migrate:check` is locally
 blocked only by pre-existing historical migration
 `20260501120000_adr079_knowledge_skills_foundation` (P3009); schema validation
-and migration-file audit are clean. ADR-159 is not deployed, live-accepted, or
-closed.
+and migration-file audit are clean. The commit is not pushed; ADR-159 is not
+deployed, live-accepted, or closed.
 
 **Slice 2 final repair:** Working projections now include only
 canonical nonterminal media/document/sandbox jobs; terminal continuation facts

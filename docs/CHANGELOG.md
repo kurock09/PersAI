@@ -13,9 +13,10 @@
   cross-replica Stop with honest non-live reattach. Full workspace tests passed
   twice on the final tree (latest 2026-07-19, exit 0, ~12m40s). Baseline
   `209f2d18`; additive migration `20260719180000_adr159_admission_linearization`;
-  no commit SHA, deploy, live acceptance, or closure. Next: commit/push,
-  migration approval, exact-image/GitOps rollout, live multi-replica web +
-  Telegram acceptance.
+  committed locally as `9c8b95e8` (`fix(adr159): harden async catch-up
+coordination`), but not pushed, deployed, live-accepted, or closed. Next:
+  push once, migration approval, exact-image/GitOps rollout, live
+  multi-replica web + Telegram acceptance.
 
 - **ADR-159 final local gate record:** recursive lint, `format:check`, API
   typecheck, and Web typecheck PASS; full workspace tests PASS on the final
