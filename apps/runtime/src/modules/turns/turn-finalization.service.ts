@@ -59,7 +59,7 @@ export class TurnFinalizationService {
       terminalReceiptPersisted = true;
       const contextPressureTokens = resolveSessionContextPressureTokens({
         usage: result.usage,
-        usageAccounting: result.usageAccounting ?? null
+        textUsageAccounting: result.textUsageAccounting ?? null
       });
       session = await this.sessionStoreService.updateSessionSummary({
         sessionId: acceptedTurn.session.sessionId,

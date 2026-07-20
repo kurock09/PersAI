@@ -427,7 +427,6 @@ export class StreamWebChatTurnService {
     let respondedAt: string | null = null;
     let mainAssistantReplyPersisted = false;
     let persistedAssistantMessageId: string | null = null;
-    let usageAccounting: AssistantRuntimeWebChatTurnStreamChunk["usageAccounting"] = undefined;
     let textUsageAccounting: AssistantRuntimeWebChatTurnStreamChunk["textUsageAccounting"] =
       undefined;
     let turnRouting: AssistantRuntimeWebChatTurnStreamChunk["turnRouting"] = null;
@@ -586,7 +585,6 @@ export class StreamWebChatTurnService {
 
         accumulated = result.accumulated;
         respondedAt = result.respondedAt;
-        usageAccounting = result.usageAccounting;
         textUsageAccounting = result.textUsageAccounting;
         turnRouting = result.turnRouting;
         deferredMediaJobs = result.deferredMediaJobs;
@@ -851,7 +849,6 @@ export class StreamWebChatTurnService {
             assistantMessageId,
             respondedAt: completedAt,
             traceId: trace.getTraceId(),
-            ...(usageAccounting === undefined ? {} : { usageAccounting }),
             ...(textUsageAccounting === undefined ? {} : { textUsageAccounting }),
             ...(toolInvocations === undefined ? {} : { toolInvocations })
           }),
@@ -867,7 +864,6 @@ export class StreamWebChatTurnService {
         assistantText: contentToPersist,
         mediaArtifacts: collectedMedia,
         respondedAt: respondedAt ?? assistantMessage.createdAt.toISOString(),
-        ...(usageAccounting === undefined ? {} : { usageAccounting }),
         ...(textUsageAccounting === undefined ? {} : { textUsageAccounting }),
         traceId: trace.getTraceId(),
         quotaSource: "web_chat_turn_stream_completed",
@@ -1266,7 +1262,6 @@ export class StreamWebChatTurnService {
     finalAnswer: string | null;
     workingNotes: string[];
     respondedAt: string | null;
-    usageAccounting: AssistantRuntimeWebChatTurnStreamChunk["usageAccounting"];
     textUsageAccounting: AssistantRuntimeWebChatTurnStreamChunk["textUsageAccounting"];
     turnRouting: AssistantRuntimeWebChatTurnStreamChunk["turnRouting"];
     deferredMediaJobs: AssistantRuntimeWebChatTurnStreamChunk["deferredMediaJobs"];
@@ -1285,7 +1280,6 @@ export class StreamWebChatTurnService {
     let workingNotes: string[] = [];
     let truncated: true | undefined = undefined;
     let respondedAt: string | null = null;
-    let usageAccounting: AssistantRuntimeWebChatTurnStreamChunk["usageAccounting"] = undefined;
     let textUsageAccounting: AssistantRuntimeWebChatTurnStreamChunk["textUsageAccounting"] =
       undefined;
     let turnRouting: AssistantRuntimeWebChatTurnStreamChunk["turnRouting"] = null;
@@ -1338,7 +1332,6 @@ export class StreamWebChatTurnService {
             finalAnswer: null,
             workingNotes: [],
             respondedAt,
-            usageAccounting,
             textUsageAccounting,
             turnRouting,
             deferredMediaJobs,
@@ -1571,7 +1564,6 @@ export class StreamWebChatTurnService {
         if (chunk.type === "done" && typeof chunk.respondedAt === "string") {
           watchdog.recordActivity();
           respondedAt = chunk.respondedAt;
-          usageAccounting = chunk.usageAccounting;
           textUsageAccounting = chunk.textUsageAccounting;
           turnRouting = chunk.turnRouting ?? null;
           deferredMediaJobs = chunk.deferredMediaJobs;
@@ -1612,7 +1604,6 @@ export class StreamWebChatTurnService {
           finalAnswer: null,
           workingNotes: [],
           respondedAt,
-          usageAccounting,
           textUsageAccounting,
           turnRouting,
           deferredMediaJobs,
@@ -1645,7 +1636,6 @@ export class StreamWebChatTurnService {
           finalAnswer: null,
           workingNotes: [],
           respondedAt,
-          usageAccounting,
           textUsageAccounting,
           turnRouting,
           deferredMediaJobs,
@@ -1671,7 +1661,6 @@ export class StreamWebChatTurnService {
         finalAnswer: null,
         workingNotes: [],
         respondedAt,
-        usageAccounting,
         textUsageAccounting,
         turnRouting,
         deferredMediaJobs,
@@ -1695,7 +1684,6 @@ export class StreamWebChatTurnService {
         finalAnswer,
         workingNotes,
         respondedAt,
-        usageAccounting,
         textUsageAccounting,
         turnRouting,
         deferredMediaJobs,
@@ -1716,7 +1704,6 @@ export class StreamWebChatTurnService {
       finalAnswer,
       workingNotes,
       respondedAt,
-      usageAccounting,
       textUsageAccounting,
       turnRouting,
       deferredMediaJobs,
@@ -2021,7 +2008,6 @@ export class StreamWebChatTurnService {
     assistantMessageId: string;
     respondedAt: string;
     traceId: string;
-    usageAccounting?: AssistantRuntimeWebChatTurnStreamChunk["usageAccounting"];
     textUsageAccounting?: AssistantRuntimeWebChatTurnStreamChunk["textUsageAccounting"];
     toolInvocations?: AssistantRuntimeWebChatTurnStreamChunk["toolInvocations"];
   }): Promise<void> {
@@ -2036,7 +2022,6 @@ export class StreamWebChatTurnService {
         occurredAt: input.respondedAt,
         sourceEventId: input.assistantMessageId,
         requestCorrelationId: input.traceId,
-        ...(input.usageAccounting === undefined ? {} : { usageAccounting: input.usageAccounting }),
         ...(input.textUsageAccounting === undefined
           ? {}
           : { textUsageAccounting: input.textUsageAccounting })

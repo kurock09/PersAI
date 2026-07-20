@@ -1,7 +1,4 @@
-import type {
-  RuntimeUsageAccounting,
-  TextGenerationUsageAccountingEnvelope
-} from "@persai/runtime-contract";
+import type { TextGenerationUsageAccountingEnvelope } from "@persai/runtime-contract";
 import type { AssistantChatMessage } from "../domain/assistant-chat-message.entity";
 import type { AssistantChatRepository } from "../domain/assistant-chat.repository";
 import type {
@@ -258,7 +255,6 @@ export async function finalizePersistedWebTurn(input: {
   assistantText: string;
   mediaArtifacts: RuntimeMediaArtifact[];
   respondedAt: string;
-  usageAccounting?: RuntimeUsageAccounting;
   textUsageAccounting?: TextGenerationUsageAccountingEnvelope;
   traceId: string;
   quotaSource: "web_chat_turn_sync" | "web_chat_turn_stream_completed";
@@ -320,7 +316,6 @@ export async function finalizePersistedWebTurn(input: {
       assistant: input.assistant,
       userContent: input.userContent,
       assistantContent: finalAssistantContent,
-      ...(input.usageAccounting === undefined ? {} : { usageAccounting: input.usageAccounting }),
       ...(input.textUsageAccounting === undefined
         ? {}
         : { textUsageAccounting: input.textUsageAccounting }),

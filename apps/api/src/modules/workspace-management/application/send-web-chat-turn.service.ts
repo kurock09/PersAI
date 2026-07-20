@@ -542,9 +542,6 @@ export class SendWebChatTurnService {
             assistantMessageId,
             respondedAt,
             traceId: trace.getTraceId(),
-            ...(runtimeResponse.usageAccounting === undefined
-              ? {}
-              : { usageAccounting: runtimeResponse.usageAccounting }),
             ...(runtimeResponse.textUsageAccounting === undefined
               ? {}
               : { textUsageAccounting: runtimeResponse.textUsageAccounting }),
@@ -564,9 +561,6 @@ export class SendWebChatTurnService {
         assistantText: runtimeResponse.assistantMessage,
         mediaArtifacts: runtimeResponse.media,
         respondedAt: runtimeResponse.respondedAt,
-        ...(runtimeResponse.usageAccounting === undefined
-          ? {}
-          : { usageAccounting: runtimeResponse.usageAccounting }),
         ...(runtimeResponse.textUsageAccounting === undefined
           ? {}
           : { textUsageAccounting: runtimeResponse.textUsageAccounting }),
@@ -1018,7 +1012,6 @@ export class SendWebChatTurnService {
     assistantMessageId: string;
     respondedAt: string;
     traceId: string;
-    usageAccounting?: AssistantRuntimeWebChatTurnResult["usageAccounting"];
     textUsageAccounting?: AssistantRuntimeWebChatTurnResult["textUsageAccounting"];
     toolInvocations?: AssistantRuntimeWebChatTurnResult["toolInvocations"];
   }): Promise<void> {
@@ -1033,7 +1026,6 @@ export class SendWebChatTurnService {
         occurredAt: input.respondedAt,
         sourceEventId: input.assistantMessageId,
         requestCorrelationId: input.traceId,
-        ...(input.usageAccounting === undefined ? {} : { usageAccounting: input.usageAccounting }),
         ...(input.textUsageAccounting === undefined
           ? {}
           : { textUsageAccounting: input.textUsageAccounting })

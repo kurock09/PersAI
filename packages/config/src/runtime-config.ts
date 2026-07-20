@@ -17,17 +17,6 @@ const optionalNonEmptyString = z.preprocess((value) => {
   return value;
 }, z.string().min(1).optional());
 
-const TRUE_VALUES = new Set(["1", "true", "yes", "on"]);
-const FALSE_VALUES = new Set(["0", "false", "no", "off", ""]);
-const envBoolean = z.preprocess((value) => {
-  if (typeof value === "string") {
-    const normalized = value.trim().toLowerCase();
-    if (TRUE_VALUES.has(normalized)) return true;
-    if (FALSE_VALUES.has(normalized)) return false;
-  }
-  return value;
-}, z.boolean());
-
 const baseRuntimeConfigSchema = z.object({
   APP_ENV: z.enum(APP_ENVS).default("local"),
   DATABASE_URL: z.string().min(1),
@@ -43,12 +32,6 @@ const baseRuntimeConfigSchema = z.object({
   PERSAI_WEB_BASE_URL: optionalUrl,
   PERSAI_INTERNAL_API_TOKEN: optionalNonEmptyString,
   RUNTIME_PROVIDER_GATEWAY_BASE_URL: optionalUrl,
-  /**
-   * ADR-161 Release A/B rollout seam. DELETE IN RELEASE C.
-   * Runtime always understands explicit v2 from provider-gateway; this gates
-   * only its external runtime-to-API producer boundary.
-   */
-  RUNTIME_TEXT_USAGE_V2_PRODUCER_ENABLED: envBoolean.optional(),
   PERSAI_MEDIA_BUCKET_NAME: optionalNonEmptyString,
   // Operational GCS bucket prefix for workspace media objects (ADR-126 v3
   // Amendment 2026-06-24). Must be in sync with the api-side default so the

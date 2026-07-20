@@ -2,8 +2,6 @@ import { Inject, Injectable, NotFoundException } from "@nestjs/common";
 import type { Prisma } from "@prisma/client";
 import { loadApiConfig } from "@persai/config";
 import type {
-  RuntimeUsageAccounting,
-  RuntimeUsageAccountingEntry,
   TextGenerationUsageAccountingEnvelope,
   TextGenerationUsageAccountingV2
 } from "@persai/runtime-contract";
@@ -34,12 +32,7 @@ import {
 } from "../domain/workspace-tool-daily-usage.repository";
 import { ResolveEffectiveSubscriptionStateService } from "./resolve-effective-subscription-state.service";
 import { ResolvePlatformRuntimeProviderSettingsService } from "./resolve-platform-runtime-provider-settings.service";
-import {
-  DEFAULT_RUNTIME_PROVIDER_MODEL_TOKEN_WEIGHT,
-  findRuntimeProviderCatalogProfile,
-  type ManagedRuntimeProvider,
-  type RuntimeProviderModelProfile
-} from "./runtime-provider-profile";
+import { findRuntimeProviderCatalogProfile } from "./runtime-provider-profile";
 import { resolveRecurringQuotaPeriod, type RecurringQuotaPeriod } from "./recurring-quota-period";
 import { ManageMediaPackagePurchaseService } from "./manage-media-package-purchase.service";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
@@ -70,24 +63,6 @@ type PlanQuotaHints = {
 type TokenBudgetUsageCalculation = {
   delta: bigint;
   metadata: Record<string, unknown>;
-};
-
-type RuntimeUsageEntryAccountingMetadata = {
-  stepType: string;
-  modelRole: string | null;
-  providerKey: string | null;
-  modelKey: string | null;
-  inputTokens: number;
-  cacheCreationInputTokens: number;
-  cachedInputTokens: number;
-  outputTokens: number;
-  billableInputTokens: number;
-  inputTokenWeight: number;
-  cacheCreationInputTokenWeight: number;
-  cachedInputTokenWeight: number;
-  outputTokenWeight: number;
-  weightedCredits: number;
-  profileMatched: boolean;
 };
 
 export type AssistantQuotaBucketCode =
@@ -332,41 +307,6 @@ function parsePlanQuotaHints(
   };
 }
 
-function estimateTokens(message: string): number {
-  const trimmedLength = message.trim().length;
-  if (trimmedLength === 0) {
-    return 0;
-  }
-  return Math.max(1, Math.ceil(trimmedLength / 4));
-}
-
-function asNonNegativeInteger(value: number | null | undefined): number {
-  return Number.isInteger(value) && Number(value) > 0 ? Number(value) : 0;
-}
-
-function normalizeManagedProvider(value: string | null): ManagedRuntimeProvider | null {
-  return value === "openai" || value === "anthropic" || value === "deepseek" ? value : null;
-}
-
-function defaultTokenWeights(): Pick<
-  RuntimeProviderModelProfile,
-  "inputTokenWeight" | "cachedInputTokenWeight" | "outputTokenWeight"
-> {
-  return {
-    inputTokenWeight: DEFAULT_RUNTIME_PROVIDER_MODEL_TOKEN_WEIGHT,
-    cachedInputTokenWeight: DEFAULT_RUNTIME_PROVIDER_MODEL_TOKEN_WEIGHT,
-    outputTokenWeight: DEFAULT_RUNTIME_PROVIDER_MODEL_TOKEN_WEIGHT
-  };
-}
-
-function resolveCacheCreationInputTokenWeight(profile: RuntimeProviderModelProfile | null): number {
-  if (profile === null || profile.billingMode !== "token_metered") {
-    return DEFAULT_RUNTIME_PROVIDER_MODEL_TOKEN_WEIGHT;
-  }
-  const configured = profile.providerPriceMetadata.tokenPricing.cacheCreationInputPer1M;
-  return configured > 0 ? configured : profile.inputTokenWeight;
-}
-
 /**
  * ADR-108 Slice 8 — `video_generate` is VC-priced and has no plan-side
  * unit limit, so its `limitKey` is `null`. Consumers that index
@@ -432,14 +372,10 @@ export class TrackWorkspaceQuotaUsageService {
     private readonly manageMediaPackagePurchaseService: ManageMediaPackagePurchaseService
   ) {}
 
-  private static readonly TOKEN_USAGE_ESTIMATOR = "chars_div_4_ceil_v1";
-  private static readonly RUNTIME_USAGE_ACCOUNTING = "runtime_usage_accounting_weighted_v1";
-
   async recordInboundTurnUsage(params: {
     assistant: Assistant;
     userContent: string;
     assistantContent: string;
-    usageAccounting?: RuntimeUsageAccounting;
     textUsageAccounting?: TextGenerationUsageAccountingEnvelope;
     source:
       | "web_chat_turn_sync"
@@ -455,7 +391,6 @@ export class TrackWorkspaceQuotaUsageService {
     const tokenUsage = await this.resolveTokenBudgetUsage({
       userContent: params.userContent,
       assistantContent: params.assistantContent,
-      ...(params.usageAccounting === undefined ? {} : { usageAccounting: params.usageAccounting }),
       ...(params.textUsageAccounting === undefined
         ? {}
         : { textUsageAccounting: params.textUsageAccounting })
@@ -484,7 +419,6 @@ export class TrackWorkspaceQuotaUsageService {
     assistant: Assistant;
     userContent: string;
     assistantContent: string;
-    usageAccounting?: RuntimeUsageAccounting;
     textUsageAccounting?: TextGenerationUsageAccountingEnvelope;
     source:
       | "web_chat_turn_sync"
@@ -497,34 +431,15 @@ export class TrackWorkspaceQuotaUsageService {
   private async resolveTokenBudgetUsage(params: {
     userContent: string;
     assistantContent: string;
-    usageAccounting?: RuntimeUsageAccounting;
     textUsageAccounting?: TextGenerationUsageAccountingEnvelope;
   }): Promise<TokenBudgetUsageCalculation> {
-    const decoded = decodeTextGenerationUsageForApi({
-      textUsageAccounting: params.textUsageAccounting,
-      legacyUsageAccounting: params.usageAccounting
-    });
+    const decoded = decodeTextGenerationUsageForApi(params.textUsageAccounting);
     if (decoded.kind === "v2") {
       return this.resolveWeightedV2RuntimeTokenUsage(decoded.usage.entries);
     }
-    if (decoded.kind === "invalid" && params.textUsageAccounting !== undefined) {
-      return {
-        delta: BigInt(0),
-        metadata: { accounting: "text_generation_usage_v2_rejected", reason: decoded.reason }
-      };
-    }
-    if (params.usageAccounting?.entries && params.usageAccounting.entries.length > 0) {
-      return this.resolveWeightedRuntimeTokenUsage(params.usageAccounting);
-    }
-
-    const estimatedTokens =
-      estimateTokens(params.userContent) + estimateTokens(params.assistantContent);
     return {
-      delta: BigInt(estimatedTokens),
-      metadata: {
-        estimator: TrackWorkspaceQuotaUsageService.TOKEN_USAGE_ESTIMATOR,
-        accounting: "estimator_fallback"
-      }
+      delta: BigInt(0),
+      metadata: { accounting: "text_generation_usage_v2_rejected", reason: decoded.reason }
     };
   }
 
@@ -583,99 +498,6 @@ export class TrackWorkspaceQuotaUsageService {
         entryCount: entries.length,
         entries: metadata
       }
-    };
-  }
-
-  private async resolveWeightedRuntimeTokenUsage(
-    usageAccounting: RuntimeUsageAccounting
-  ): Promise<TokenBudgetUsageCalculation> {
-    const runtimeProviderSettings =
-      await this.resolvePlatformRuntimeProviderSettingsService.execute();
-    const entryMetadata: RuntimeUsageEntryAccountingMetadata[] = [];
-    let weightedCredits = 0;
-    let inputTokens = 0;
-    let cacheCreationInputTokens = 0;
-    let cachedInputTokens = 0;
-    let outputTokens = 0;
-    let unmatchedProfileCount = 0;
-
-    for (const entry of usageAccounting.entries) {
-      const accounted = this.resolveWeightedRuntimeUsageEntry(entry, runtimeProviderSettings);
-      weightedCredits += accounted.weightedCredits;
-      inputTokens += accounted.inputTokens;
-      cacheCreationInputTokens += accounted.cacheCreationInputTokens;
-      cachedInputTokens += accounted.cachedInputTokens;
-      outputTokens += accounted.outputTokens;
-      if (!accounted.profileMatched) {
-        unmatchedProfileCount += 1;
-      }
-      entryMetadata.push(accounted);
-    }
-
-    return {
-      delta: BigInt(Math.ceil(weightedCredits)),
-      metadata: {
-        accounting: TrackWorkspaceQuotaUsageService.RUNTIME_USAGE_ACCOUNTING,
-        inputTokens,
-        cacheCreationInputTokens,
-        cachedInputTokens,
-        outputTokens,
-        weightedCredits,
-        roundedCredits: Math.ceil(weightedCredits),
-        entryCount: usageAccounting.entries.length,
-        unmatchedProfileCount,
-        entries: entryMetadata
-      }
-    };
-  }
-
-  private resolveWeightedRuntimeUsageEntry(
-    entry: RuntimeUsageAccountingEntry,
-    runtimeProviderSettings: Awaited<
-      ReturnType<ResolvePlatformRuntimeProviderSettingsService["execute"]>
-    >
-  ): RuntimeUsageEntryAccountingMetadata {
-    const inputTokens = asNonNegativeInteger(entry.inputTokens);
-    const cacheCreationInputTokens = asNonNegativeInteger(entry.cacheCreationInputTokens);
-    const cachedInputTokens = asNonNegativeInteger(entry.cachedInputTokens);
-    const outputTokens = asNonNegativeInteger(entry.outputTokens);
-    const billableInputTokens = inputTokens;
-    const provider = normalizeManagedProvider(entry.providerKey);
-    const modelKey =
-      typeof entry.modelKey === "string" && entry.modelKey.trim().length > 0
-        ? entry.modelKey.trim()
-        : null;
-    const profile =
-      provider === null || modelKey === null
-        ? null
-        : findRuntimeProviderCatalogProfile(
-            runtimeProviderSettings.availableModelCatalogByProvider[provider],
-            modelKey
-          );
-    const weights = profile ?? defaultTokenWeights();
-    const cacheCreationInputTokenWeight = resolveCacheCreationInputTokenWeight(profile);
-    const weightedCredits =
-      billableInputTokens * weights.inputTokenWeight +
-      cacheCreationInputTokens * cacheCreationInputTokenWeight +
-      cachedInputTokens * weights.cachedInputTokenWeight +
-      outputTokens * weights.outputTokenWeight;
-
-    return {
-      stepType: entry.stepType,
-      modelRole: entry.modelRole,
-      providerKey: entry.providerKey,
-      modelKey: entry.modelKey,
-      inputTokens,
-      cacheCreationInputTokens,
-      cachedInputTokens,
-      outputTokens,
-      billableInputTokens,
-      inputTokenWeight: weights.inputTokenWeight,
-      cacheCreationInputTokenWeight,
-      cachedInputTokenWeight: weights.cachedInputTokenWeight,
-      outputTokenWeight: weights.outputTokenWeight,
-      weightedCredits,
-      profileMatched: profile !== null
     };
   }
 

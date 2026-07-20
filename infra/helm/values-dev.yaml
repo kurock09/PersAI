@@ -11,27 +11,6 @@ global:
     # the next full-rebuild push. See ADR-102 Slice 9 and docs/TEST-PLAN.md.
     tag: ddc3aadfca11cc6fabe7d3e8c9e60aca9124c525
 
-# ADR-161 Release A defaults. DELETE IN RELEASE C.
-adr161TextUsageRollout:
-  providerGatewayV2Producer: false
-  runtimeV2Producer: false
-  runtimeConsumerFloor:
-    active: false
-    imageTag: ""
-    approvedImageTags: []
-  apiConsumerFloor:
-    active: false
-    imageTag: ""
-    approvedImageTags: []
-  providerGatewayProducerFloor:
-    active: false
-    imageTag: ""
-    approvedImageTags: []
-  runtimeProducerFloor:
-    active: false
-    imageTag: ""
-    approvedImageTags: []
-
 networkPolicy:
   # Renders Kubernetes NetworkPolicy API objects only.
   # ADR-146 Slice 0.1: enabling the Calico engine is NOT controlled here.

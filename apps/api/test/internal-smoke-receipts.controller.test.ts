@@ -73,41 +73,53 @@ async function run(): Promise<void> {
         createdAt: new Date("2026-04-20T12:00:00.000Z"),
         completedAt: new Date("2026-04-20T12:00:01.234Z"),
         resultPayload: {
-          usageAccounting: {
-            inputTokens: 1500,
-            cachedInputTokens: 1200,
-            outputTokens: 80,
-            totalTokens: 1580,
+          textUsageAccounting: {
+            schemaVersion: 2,
+            totalInputTokens: 1920,
+            uncachedInputTokens: 720,
+            cacheWriteInputTokens: 0,
+            cacheReadInputTokens: 1200,
+            outputTokens: 135,
+            totalTokens: 2055,
             entries: [
               {
-                stepType: "ordinary",
-                modelRole: "normal",
+                schemaVersion: 2,
+                stepType: "main_turn",
+                modelRole: "normal_reply",
                 providerKey: "openai",
                 modelKey: "gpt-5.4-mini",
-                inputTokens: 1500,
-                cachedInputTokens: 1200,
+                totalInputTokens: 1500,
+                uncachedInputTokens: 300,
+                cacheWriteInputTokens: 0,
+                cacheReadInputTokens: 1200,
                 outputTokens: 80,
                 totalTokens: 1580
               },
               {
-                stepType: "tool",
-                modelRole: null,
+                schemaVersion: 2,
+                stepType: "tool_worker",
+                modelRole: "tool_worker",
                 providerKey: "openai",
                 modelKey: "gpt-5.4-mini",
                 toolCode: "web_search",
-                inputTokens: 200,
-                cachedInputTokens: 0,
+                totalInputTokens: 200,
+                uncachedInputTokens: 200,
+                cacheWriteInputTokens: 0,
+                cacheReadInputTokens: 0,
                 outputTokens: 30,
                 totalTokens: 230
               },
               {
-                stepType: "tool",
-                modelRole: null,
+                schemaVersion: 2,
+                stepType: "tool_worker",
+                modelRole: "tool_worker",
                 providerKey: "openai",
                 modelKey: "gpt-5.4-mini",
                 toolCode: "web_search",
-                inputTokens: 220,
-                cachedInputTokens: 0,
+                totalInputTokens: 220,
+                uncachedInputTokens: 220,
+                cacheWriteInputTokens: 0,
+                cacheReadInputTokens: 0,
                 outputTokens: 25,
                 totalTokens: 245
               }
@@ -130,10 +142,10 @@ async function run(): Promise<void> {
     const item = result.items[0] as SmokeTurnReceiptItem;
     assert.equal(item.requestId, "req-1");
     assert.equal(item.status, "completed");
-    assert.equal(item.usage?.inputTokens, 1500);
-    assert.equal(item.usage?.cachedInputTokens, 1200);
-    assert.equal(item.usage?.outputTokens, 80);
-    assert.equal(item.usage?.totalTokens, 1580);
+    assert.equal(item.usage?.totalInputTokens, 1920);
+    assert.equal(item.usage?.cacheReadInputTokens, 1200);
+    assert.equal(item.usage?.outputTokens, 135);
+    assert.equal(item.usage?.totalTokens, 2055);
     assert.equal(item.usage?.entries.length, 3);
     assert.deepEqual(item.toolCalls, [{ toolCode: "web_search", count: 2 }]);
     assert.equal(item.toolCallsSource, "usage_entries");
@@ -342,6 +354,7 @@ async function run(): Promise<void> {
       { assistantId: "assistant-1" }
     );
     const item = result.items[0] as SmokeTurnReceiptItem;
+    assert.equal(item.usage, null);
     assert.equal(item.toolCallsSource, "tool_invocations");
     assert.deepEqual(item.toolCalls, [
       { toolCode: "image_generate", count: 1 },

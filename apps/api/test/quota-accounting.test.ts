@@ -447,6 +447,7 @@ async function run(): Promise<void> {
                 effectiveFrom: null,
                 effectiveTo: null,
                 inputTokenWeight: 1,
+                cacheWriteInputTokenWeight: 1.25,
                 cachedInputTokenWeight: 0.25,
                 outputTokenWeight: 4,
                 displayLabel: null,
@@ -543,21 +544,25 @@ async function run(): Promise<void> {
     assistant,
     userContent: "hello world",
     assistantContent: "response from assistant",
-    usageAccounting: {
-      inputTokens: 100,
-      cacheCreationInputTokens: 20,
-      cachedInputTokens: 40,
+    textUsageAccounting: {
+      schemaVersion: 2,
+      totalInputTokens: 160,
+      uncachedInputTokens: 100,
+      cacheWriteInputTokens: 20,
+      cacheReadInputTokens: 40,
       outputTokens: 25,
       totalTokens: 185,
       entries: [
         {
+          schemaVersion: 2,
           stepType: "main_turn",
           modelRole: "normal_reply",
           providerKey: "openai",
           modelKey: "gpt-5-mini",
-          inputTokens: 100,
-          cacheCreationInputTokens: 20,
-          cachedInputTokens: 40,
+          totalInputTokens: 160,
+          uncachedInputTokens: 100,
+          cacheWriteInputTokens: 20,
+          cacheReadInputTokens: 40,
           outputTokens: 25,
           totalTokens: 185
         }
@@ -613,10 +618,11 @@ async function run(): Promise<void> {
   });
 
   assert.equal(tokenCalls.length, 1);
-  assert.equal(tokenCalls[0]?.delta, BigInt(230));
-  assert.equal(tokenCalls[0]?.metadata?.accounting, "runtime_usage_accounting_weighted_v1");
-  assert.equal(tokenCalls[0]?.metadata?.cacheCreationInputTokens, 20);
-  assert.equal(tokenCalls[0]?.metadata?.cachedInputTokens, 40);
+  assert.equal(tokenCalls[0]?.delta, BigInt(235));
+  assert.equal(tokenCalls[0]?.metadata?.accounting, "text_generation_usage_v2_weighted");
+  const tokenEntries = tokenCalls[0]?.metadata?.entries as Array<Record<string, unknown>>;
+  assert.equal(tokenEntries[0]?.cacheWriteInputTokens, 20);
+  assert.equal(tokenEntries[0]?.cacheReadInputTokens, 40);
   assert.equal(refreshCalls.length, 1);
   assert.equal(refreshCalls[0]?.currentActiveWebChats, 7);
   assert.deepEqual(knowledgeQuota, {

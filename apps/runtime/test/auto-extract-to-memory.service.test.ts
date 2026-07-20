@@ -178,6 +178,7 @@ class FakeProviderGateway {
       outputTokens: 50,
       totalTokens: 150
     },
+    textUsage: { status: "usage_unavailable", reason: "test_fixture" },
     stopReason: "completed",
     toolCalls: []
   };

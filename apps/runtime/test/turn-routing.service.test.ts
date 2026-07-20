@@ -44,6 +44,7 @@ class FakeProviderGatewayClientService {
       outputTokens: 5,
       totalTokens: 14
     },
+    textUsage: { status: "usage_unavailable", reason: "test_fixture" },
     stopReason: "completed",
     toolCalls: []
   };
@@ -782,6 +783,7 @@ async function runTurnRoutingFallbackTests(): Promise<void> {
           outputTokens: 4,
           totalTokens: 12
         },
+        textUsage: { status: "usage_unavailable", reason: "test_fixture" },
         stopReason: "completed",
         toolCalls: []
       }

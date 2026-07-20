@@ -17,7 +17,6 @@ function wp(relativePath: string): string {
 type TurnExecutionState = {
   artifacts: RuntimeOutputArtifact[];
   fileHandles: RuntimeFileHandle[];
-  usageEntries: unknown[];
   toolInvocations: unknown[];
   deferredMediaJobs: unknown[];
   deferredDocumentJobs: unknown[];
@@ -37,7 +36,6 @@ function createTurnState(): TurnExecutionState {
   return {
     artifacts: [],
     fileHandles: [],
-    usageEntries: [],
     toolInvocations: [],
     deferredMediaJobs: [],
     deferredDocumentJobs: [],

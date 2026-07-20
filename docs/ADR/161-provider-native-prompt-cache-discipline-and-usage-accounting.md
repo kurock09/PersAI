@@ -2,7 +2,7 @@
 
 ## Status
 
-**Open — 2026-07-20; S0-S5 implemented locally, S6 pending.**
+**Open — final canonical cutover implemented locally; deployment and S6 live acceptance pending.**
 
 This is a new parent-orchestrated program. The opening baseline is
 `d4bd32679929bef89cc13120cf2719ad9a2b0df3`. The documentation opening is
@@ -56,14 +56,16 @@ and migration fixtures. S6 live provider matrix, sequential 50-iteration
 benchmarks, authenticated 40–50-tool turn, deployment, and live acceptance
 remain pending.
 
-The founder selected strict staged closure over the earlier one-push
-constraint. Temporary Release A/B rollout controls are implemented locally:
-runtime/API advertise v2 consumer capability; provider-gateway/runtime v2
-production defaults off; exact immutable consumer/producer image floors and
-approved-tag rollback guards gate B1/B2; and a deploy-truth/probe script checks
-every pod image and `/ready` capability marker. Every temporary control is
-marked for deletion in Release C. Release A push/deploy is the next external
-mutation.
+Release A deployed and was founder-accepted at exact SHA `03bacd5d`: all
+API/runtime/provider-gateway/web/sandbox replicas were healthy, API and
+runtime consumer markers were observed, producer flags remained false, full CI
+was green, and migration
+`20260720161500_adr161_s0_cache_write_catalog_backfill` was applied. The
+founder then directed one final maintenance cutover rather than B1/B2 because
+there are no commercial users. The final release removes every rollout flag,
+image floor, capability marker, probe, v1/missing-discriminator consumer, and
+old text-accounting carrier. A bounded rolling deployment overlap is accepted;
+steady state contains only validated canonical v2 accounting.
 
 The parent agent orchestrates, audits, reconciles documentation, and commits
 only after an accepted coherent checkpoint. Founder-directed implementation
@@ -539,6 +541,13 @@ Each adapter normalizes its provider-native response once:
 If provider fields disagree with totals, fail accounting closed for billing,
 emit a safe mismatch metric, and retain the provider request outcome; never
 invent a residual or silently double-charge.
+
+The provider text result contract always carries `textUsage`: either one
+validated `accounted` entry or an explicit bounded `usage_unavailable` /
+`usage_mismatch` result. Successful `RuntimeTurnResult` values always carry a
+canonical `textUsageAccounting` envelope; successful non-text synthetic turns
+carry the valid zero-entry envelope. Generic `usage` is telemetry only and is
+never converted into canonical v2 accounting.
 
 Cost ledger formula:
 

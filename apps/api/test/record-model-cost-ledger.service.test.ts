@@ -121,33 +121,40 @@ describe("RecordModelCostLedgerService", () => {
       occurredAt: "2026-04-15T12:00:00.000Z",
       sourceEventId: "assistant-msg-1",
       requestCorrelationId: "trace-1",
-      usageAccounting: {
-        inputTokens: 160,
-        cachedInputTokens: 20,
-        outputTokens: 40,
-        totalTokens: 200,
+      textUsageAccounting: {
+        schemaVersion: 2,
+        totalInputTokens: 150,
+        uncachedInputTokens: 130,
+        cacheWriteInputTokens: 0,
+        cacheReadInputTokens: 20,
+        outputTokens: 42,
+        totalTokens: 192,
         entries: [
           {
-            stepType: "turn_routing",
+            schemaVersion: 2,
+            stepType: "router",
             modelRole: "system_tool",
             providerKey: "openai",
             modelKey: "gpt-5-mini",
-            inputTokens: 10,
-            cacheCreationInputTokens: 0,
-            cachedInputTokens: 0,
+            totalInputTokens: 10,
+            uncachedInputTokens: 10,
+            cacheWriteInputTokens: 0,
+            cacheReadInputTokens: 0,
             outputTokens: 2,
             totalTokens: 12
           },
           {
+            schemaVersion: 2,
             stepType: "main_turn",
             modelRole: "normal_reply",
             providerKey: "openai",
             modelKey: "gpt-5-mini",
-            inputTokens: 120,
-            cacheCreationInputTokens: 0,
-            cachedInputTokens: 20,
+            totalInputTokens: 140,
+            uncachedInputTokens: 120,
+            cacheWriteInputTokens: 0,
+            cacheReadInputTokens: 20,
             outputTokens: 40,
-            totalTokens: 160
+            totalTokens: 180
           }
         ]
       }
@@ -178,7 +185,7 @@ describe("RecordModelCostLedgerService", () => {
           sourceEventId: "assistant-msg-1",
           requestCorrelationId: "trace-1",
           actualCostMicros: BigInt(36),
-          stepType: "turn_routing",
+          stepType: "router",
           effectiveTo: "2026-05-01T00:00:00.000Z"
         },
         {
@@ -311,21 +318,27 @@ describe("RecordModelCostLedgerService", () => {
       occurredAt: "2026-04-15T12:00:00.000Z",
       sourceEventId: "assistant-msg-1",
       requestCorrelationId: "trace-1",
-      usageAccounting: {
-        inputTokens: 120,
-        cachedInputTokens: 20,
+      textUsageAccounting: {
+        schemaVersion: 2,
+        totalInputTokens: 140,
+        uncachedInputTokens: 120,
+        cacheWriteInputTokens: 0,
+        cacheReadInputTokens: 20,
         outputTokens: 40,
-        totalTokens: 160,
+        totalTokens: 180,
         entries: [
           {
+            schemaVersion: 2,
             stepType: "main_turn",
             modelRole: "normal_reply",
             providerKey: "openai",
             modelKey: "gpt-5-mini",
-            inputTokens: 120,
-            cachedInputTokens: 20,
+            totalInputTokens: 140,
+            uncachedInputTokens: 120,
+            cacheWriteInputTokens: 0,
+            cacheReadInputTokens: 20,
             outputTokens: 40,
-            totalTokens: 160
+            totalTokens: 180
           }
         ]
       }
@@ -433,31 +446,40 @@ describe("RecordModelCostLedgerService", () => {
       occurredAt: "2026-05-20T20:00:00.000Z",
       sourceEventId: "assistant-msg-1",
       requestCorrelationId: "trace-1",
-      usageAccounting: {
-        inputTokens: 132,
-        cachedInputTokens: 20,
+      textUsageAccounting: {
+        schemaVersion: 2,
+        totalInputTokens: 152,
+        uncachedInputTokens: 132,
+        cacheWriteInputTokens: 0,
+        cacheReadInputTokens: 20,
         outputTokens: 42,
-        totalTokens: 174,
+        totalTokens: 194,
         entries: [
           {
-            stepType: "turn_routing",
+            schemaVersion: 2,
+            stepType: "router",
             modelRole: "system_tool" as const,
             providerKey: "openai",
             modelKey: "gpt-5-mini",
-            inputTokens: 12,
-            cachedInputTokens: 0,
+            totalInputTokens: 12,
+            uncachedInputTokens: 12,
+            cacheWriteInputTokens: 0,
+            cacheReadInputTokens: 0,
             outputTokens: 2,
             totalTokens: 14
           },
           {
+            schemaVersion: 2,
             stepType: "main_turn",
             modelRole: "normal_reply" as const,
             providerKey: "openai",
             modelKey: "gpt-5-mini",
-            inputTokens: 120,
-            cachedInputTokens: 20,
+            totalInputTokens: 140,
+            uncachedInputTokens: 120,
+            cacheWriteInputTokens: 0,
+            cacheReadInputTokens: 20,
             outputTokens: 40,
-            totalTokens: 160
+            totalTokens: 180
           }
         ]
       }
@@ -1887,21 +1909,25 @@ describe("RecordModelCostLedgerService", () => {
       occurredAt: "2026-06-06T20:00:00.000Z",
       sourceEventId: "assistant-msg-cache-write",
       requestCorrelationId: "trace-cache-write",
-      usageAccounting: {
-        inputTokens: 80,
-        cacheCreationInputTokens: 20,
-        cachedInputTokens: 10,
+      textUsageAccounting: {
+        schemaVersion: 2,
+        totalInputTokens: 110,
+        uncachedInputTokens: 80,
+        cacheWriteInputTokens: 20,
+        cacheReadInputTokens: 10,
         outputTokens: 40,
         totalTokens: 150,
         entries: [
           {
+            schemaVersion: 2,
             stepType: "main_turn",
             modelRole: "normal_reply",
             providerKey: "anthropic",
             modelKey: "claude-sonnet-4-5",
-            inputTokens: 80,
-            cacheCreationInputTokens: 20,
-            cachedInputTokens: 10,
+            totalInputTokens: 110,
+            uncachedInputTokens: 80,
+            cacheWriteInputTokens: 20,
+            cacheReadInputTokens: 10,
             outputTokens: 40,
             totalTokens: 150
           }
@@ -1921,8 +1947,7 @@ describe("RecordModelCostLedgerService", () => {
       }
     );
     assert.deepEqual(
-      (createdRows[0]?.rawUsage as { cacheCreationInputTokens?: unknown })
-        ?.cacheCreationInputTokens,
+      (createdRows[0]?.rawUsage as { cacheWriteInputTokens?: unknown })?.cacheWriteInputTokens,
       20
     );
   });

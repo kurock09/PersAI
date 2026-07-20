@@ -214,6 +214,7 @@ describe("RuntimeImageGenerateToolService", () => {
           }),
           respondedAt: "2026-05-25T12:00:01.000Z",
           usage: null,
+          textUsage: { status: "usage_unavailable", reason: "test_fixture" },
           stopReason: "completed",
           toolCalls: []
         };
@@ -281,6 +282,7 @@ describe("RuntimeImageGenerateToolService", () => {
             }),
             respondedAt: "2026-05-25T12:00:02.000Z",
             usage: null,
+            textUsage: { status: "usage_unavailable", reason: "test_fixture" },
             stopReason: "completed",
             toolCalls: []
           };

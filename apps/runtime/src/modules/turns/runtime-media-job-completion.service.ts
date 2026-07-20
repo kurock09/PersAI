@@ -24,6 +24,7 @@ import { ProviderGatewayClientService } from "./provider-gateway.client.service"
 import { RuntimeExecutionAdmissionService } from "./runtime-execution-admission.service";
 import { TurnAcceptanceService, type AcceptedRuntimeTurn } from "./turn-acceptance.service";
 import { TurnFinalizationService } from "./turn-finalization.service";
+import { buildTextGenerationUsageEnvelopeFromResult } from "./text-generation-usage-envelope";
 import {
   hydrateMediaJobCompletionVisionContent,
   type MediaJobCompletionVisionArtifactRef
@@ -120,6 +121,7 @@ export class RuntimeMediaJobCompletionService {
         artifacts: [],
         respondedAt: new Date().toISOString(),
         usage: response.usage,
+        textUsageAccounting: buildTextGenerationUsageEnvelopeFromResult(response.textUsage),
         toolInvocations: []
       };
       await this.turnFinalizationService.completeAcceptedTurn(acceptedTurn, turnResult);

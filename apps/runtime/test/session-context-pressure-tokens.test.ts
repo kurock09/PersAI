@@ -13,32 +13,38 @@ describe("resolveSessionContextPressureTokens", () => {
           outputTokens: 2_000,
           totalTokens: 50_000
         },
-        usageAccounting: {
-          inputTokens: 90_000,
-          cacheCreationInputTokens: null,
-          cachedInputTokens: null,
+        textUsageAccounting: {
+          schemaVersion: 2,
+          totalInputTokens: 90_000,
+          uncachedInputTokens: 86_000,
+          cacheWriteInputTokens: 0,
+          cacheReadInputTokens: 4_000,
           outputTokens: 5_000,
           totalTokens: 95_000,
           entries: [
             {
+              schemaVersion: 2,
               stepType: "main_turn",
               modelRole: "premium_reply",
               providerKey: "deepseek",
               modelKey: "deepseek-v4-pro",
-              inputTokens: 12_000,
-              cacheCreationInputTokens: null,
-              cachedInputTokens: 4_000,
+              totalInputTokens: 12_000,
+              uncachedInputTokens: 8_000,
+              cacheWriteInputTokens: 0,
+              cacheReadInputTokens: 4_000,
               outputTokens: 400,
               totalTokens: 12_400
             },
             {
+              schemaVersion: 2,
               stepType: "tool_loop_followup",
               modelRole: "premium_reply",
               providerKey: "deepseek",
               modelKey: "deepseek-v4-pro",
-              inputTokens: 48_000,
-              cacheCreationInputTokens: null,
-              cachedInputTokens: 4_000,
+              totalInputTokens: 48_000,
+              uncachedInputTokens: 44_000,
+              cacheWriteInputTokens: 0,
+              cacheReadInputTokens: 4_000,
               outputTokens: 2_000,
               totalTokens: 50_000
             }

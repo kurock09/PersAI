@@ -8,8 +8,6 @@ import {
   type RuntimeBillingFactMetering,
   type RuntimeBillingFacts,
   type RuntimeUsageSnapshot,
-  type RuntimeUsageAccounting,
-  type RuntimeUsageAccountingEntry,
   type TextGenerationUsageAccountingEnvelope,
   type TextGenerationUsageAccountingV2
 } from "@persai/runtime-contract";
@@ -62,7 +60,6 @@ type RecordModelCostLedgerInput = {
   surface: ModelCostLedgerSurface;
   purpose: ModelCostLedgerPurpose;
   source: string;
-  usageAccounting?: RuntimeUsageAccounting;
   textUsageAccounting?: TextGenerationUsageAccountingEnvelope;
   occurredAt: string;
   sourceEventId?: string | null;
@@ -101,7 +98,9 @@ const CHAT_MAIN_REPLY_MODEL_ROLES = new Set<PersaiRuntimeModelRole>([
 ]);
 
 const CHAT_MAIN_REPLY_STEP_TYPES = new Set(["main_turn", "tool_loop_followup"]);
-const ROUTER_STEP_TYPES = new Set(["turn_routing", "skill_state_routing"]);
+const ROUTER_STEP_TYPES = new Set(["router"]);
+
+type LedgerTextUsageEntry = Pick<TextGenerationUsageAccountingV2, "stepType" | "modelRole">;
 
 function normalizeManagedProvider(value: string | null): ManagedRuntimeProvider | null {
   return value === "openai" || value === "anthropic" || value === "deepseek" ? value : null;
@@ -115,7 +114,7 @@ function asNonNegativeInteger(value: number | null | undefined): number {
   return Number.isInteger(value) && Number(value) > 0 ? Number(value) : 0;
 }
 
-function isChatMainReplyUsageEntry(entry: RuntimeUsageAccountingEntry): boolean {
+function isChatMainReplyUsageEntry(entry: LedgerTextUsageEntry): boolean {
   return (
     entry.modelRole !== null &&
     CHAT_MAIN_REPLY_MODEL_ROLES.has(entry.modelRole) &&
@@ -123,12 +122,12 @@ function isChatMainReplyUsageEntry(entry: RuntimeUsageAccountingEntry): boolean 
   );
 }
 
-function isRouterUsageEntry(entry: RuntimeUsageAccountingEntry): boolean {
+function isRouterUsageEntry(entry: LedgerTextUsageEntry): boolean {
   return entry.modelRole === "system_tool" && ROUTER_STEP_TYPES.has(entry.stepType);
 }
 
 function resolveLedgerPurpose(
-  entry: RuntimeUsageAccountingEntry,
+  entry: LedgerTextUsageEntry,
   defaultPurpose: ModelCostLedgerPurpose
 ): ModelCostLedgerPurpose | null {
   if (isRouterUsageEntry(entry)) {
@@ -904,125 +903,11 @@ export class RecordModelCostLedgerService {
   }
 
   async recordChatMainReplyEvents(input: RecordModelCostLedgerInput): Promise<number> {
-    const decoded = decodeTextGenerationUsageForApi({
-      textUsageAccounting: input.textUsageAccounting,
-      legacyUsageAccounting: input.usageAccounting
-    });
-    if (decoded.kind === "v2") {
-      return this.recordV2ChatMainReplyEvents(input, decoded.usage.entries);
-    }
-    if (decoded.kind === "invalid" && input.textUsageAccounting !== undefined) {
+    const decoded = decodeTextGenerationUsageForApi(input.textUsageAccounting);
+    if (decoded.kind !== "v2") {
       return 0;
     }
-    const entries = input.usageAccounting?.entries ?? [];
-    const eligibleEntries = entries
-      .map((entry, index) => ({
-        entry,
-        index,
-        purpose: resolveLedgerPurpose(entry, input.purpose)
-      }))
-      .filter(
-        (
-          candidate
-        ): candidate is {
-          entry: RuntimeUsageAccountingEntry;
-          index: number;
-          purpose: ModelCostLedgerPurpose;
-        } => candidate.purpose !== null
-      );
-    if (eligibleEntries.length === 0) {
-      return 0;
-    }
-
-    const runtimeProviderSettings =
-      await this.resolvePlatformRuntimeProviderSettingsService.execute();
-    const occurredAt = new Date(input.occurredAt);
-    if (Number.isNaN(occurredAt.getTime())) {
-      return 0;
-    }
-
-    const rows: Prisma.ModelCostLedgerEventCreateManyInput[] = [];
-    for (const { entry, index, purpose } of eligibleEntries) {
-      const provider = normalizeManagedProvider(entry.providerKey);
-      const model = normalizeModelKey(entry.modelKey);
-      if (provider === null || model === null) {
-        continue;
-      }
-      const profile = findRuntimeProviderCatalogProfileForTimestamp(
-        runtimeProviderSettings.availableModelCatalogByProvider[provider],
-        model,
-        occurredAt
-      );
-      if (profile === null || profile.billingMode !== "token_metered") {
-        continue;
-      }
-      if (!profile.capabilities.includes("chat")) {
-        continue;
-      }
-      const usage = extractTokenUsageFacts(entry);
-      const priceCatalogSnapshot = buildPriceCatalogSnapshot({ provider, profile });
-      const priceCatalogVersion = buildPriceCatalogVersion(priceCatalogSnapshot);
-      const actualCostMicros = calculateTokenMeteredCostMicros({ usage, profile });
-      const sourceEventId = input.sourceEventId ?? null;
-      const requestCorrelationId = input.requestCorrelationId ?? null;
-
-      rows.push({
-        id: buildDeterministicLedgerEventId({
-          workspaceId: input.workspaceId,
-          assistantId: input.assistantId,
-          userId: input.userId,
-          surface: input.surface,
-          purpose,
-          source: input.source,
-          sourceEventId,
-          requestCorrelationId,
-          entryOrdinal: index,
-          provider,
-          model,
-          stepType: entry.stepType,
-          modelRole: entry.modelRole,
-          toolCode: entry.toolCode ?? null
-        }),
-        workspaceId: input.workspaceId,
-        assistantId: input.assistantId,
-        userId: input.userId,
-        provider,
-        model,
-        capability: "chat",
-        purpose,
-        surface: input.surface,
-        source: input.source,
-        billingMode: profile.billingMode,
-        rawUsage: {
-          stepType: entry.stepType,
-          modelRole: entry.modelRole,
-          toolCode: entry.toolCode ?? null,
-          inputTokens: usage.inputTokens,
-          cacheCreationInputTokens: usage.cacheCreationInputTokens,
-          cachedInputTokens: usage.cachedInputTokens,
-          outputTokens: usage.outputTokens,
-          totalTokens: usage.totalTokens,
-          billableInputTokens: usage.billableInputTokens
-        } as Prisma.InputJsonValue,
-        actualCostMicros,
-        currency: profile.providerPriceMetadata.currency,
-        priceCatalogVersion,
-        priceCatalogSnapshot: priceCatalogSnapshot as Prisma.InputJsonValue,
-        sourceEventId,
-        requestCorrelationId,
-        occurredAt
-      });
-    }
-
-    if (rows.length === 0) {
-      return 0;
-    }
-
-    const result = await this.prisma.modelCostLedgerEvent.createMany({
-      data: rows,
-      skipDuplicates: true
-    });
-    return result.count;
+    return this.recordV2ChatMainReplyEvents(input, decoded.usage.entries);
   }
 
   private async recordV2ChatMainReplyEvents(
@@ -1034,10 +919,7 @@ export class RecordModelCostLedgerService {
     const settings = await this.resolvePlatformRuntimeProviderSettingsService.execute();
     const rows: Prisma.ModelCostLedgerEventCreateManyInput[] = [];
     for (const [index, entry] of entries.entries()) {
-      const purpose = resolveLedgerPurpose(
-        entry as unknown as RuntimeUsageAccountingEntry,
-        input.purpose
-      );
+      const purpose = resolveLedgerPurpose(entry, input.purpose);
       if (purpose === null) continue;
       const profile = findRuntimeProviderCatalogProfileForTimestamp(
         settings.availableModelCatalogByProvider[entry.providerKey],

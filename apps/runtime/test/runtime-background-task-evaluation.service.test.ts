@@ -23,6 +23,16 @@ class FakeTurnExecutionService {
       artifacts: [],
       respondedAt: "2026-05-01T20:00:00.000Z",
       usage: null,
+      textUsageAccounting: {
+        schemaVersion: 2,
+        totalInputTokens: 0,
+        uncachedInputTokens: 0,
+        cacheWriteInputTokens: 0,
+        cacheReadInputTokens: 0,
+        outputTokens: 0,
+        totalTokens: 0,
+        entries: []
+      },
       toolInvocations: []
     };
   }

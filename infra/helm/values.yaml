@@ -6,29 +6,6 @@ global:
     repository: persai
     tag: dev-main
 
-# ADR-161 temporary consumer-first accounting rollout. DELETE IN RELEASE C.
-# Image floors use exact immutable tags; approvedImageTags is the explicit
-# non-semver upgrade set permitted while a floor is active.
-adr161TextUsageRollout:
-  providerGatewayV2Producer: false
-  runtimeV2Producer: false
-  runtimeConsumerFloor:
-    active: false
-    imageTag: ""
-    approvedImageTags: []
-  apiConsumerFloor:
-    active: false
-    imageTag: ""
-    approvedImageTags: []
-  providerGatewayProducerFloor:
-    active: false
-    imageTag: ""
-    approvedImageTags: []
-  runtimeProducerFloor:
-    active: false
-    imageTag: ""
-    approvedImageTags: []
-
 networkPolicy:
   enabled: false
   sandboxDns:

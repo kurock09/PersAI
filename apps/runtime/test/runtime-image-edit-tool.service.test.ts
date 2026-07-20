@@ -125,6 +125,7 @@ describe("RuntimeImageEditToolService", () => {
           }),
           respondedAt: "2026-05-25T12:05:01.000Z",
           usage: null,
+          textUsage: { status: "usage_unavailable", reason: "test_fixture" },
           stopReason: "completed",
           toolCalls: []
         };
@@ -212,6 +213,7 @@ describe("RuntimeImageEditToolService", () => {
             }),
             respondedAt: "2026-05-25T12:05:02.000Z",
             usage: null,
+            textUsage: { status: "usage_unavailable", reason: "test_fixture" },
             stopReason: "completed",
             toolCalls: []
           };

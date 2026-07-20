@@ -37,56 +37,6 @@ the rollout prerequisite.
 {{- end -}}
 
 {{/*
-ADR-161 temporary exact-image rollout floors. DELETE IN RELEASE C.
-Git SHAs have no sortable ordering, so an active floor permits only the
-explicit immutable tag allowlist maintained with that floor. This rejects a
-rollback to any unapproved image instead of guessing ordering from a SHA.
-*/}}
-{{- define "persai.adr161.assertTextUsageRolloutFloors" -}}
-{{- $rollout := .Values.adr161TextUsageRollout -}}
-{{- $runtimeTag := default .Values.global.images.tag .Values.runtime.image.tag -}}
-{{- $apiTag := default .Values.global.images.tag .Values.api.image.tag -}}
-{{- $gatewayTag := default .Values.global.images.tag .Values.providerGateway.image.tag -}}
-{{- range $name, $floor := dict "runtimeConsumerFloor" $rollout.runtimeConsumerFloor "apiConsumerFloor" $rollout.apiConsumerFloor "providerGatewayProducerFloor" $rollout.providerGatewayProducerFloor "runtimeProducerFloor" $rollout.runtimeProducerFloor -}}
-{{- if $floor.active -}}
-{{- if or (not $floor.imageTag) (not (has $floor.imageTag $floor.approvedImageTags)) -}}
-{{- fail (printf "ADR-161: active %s requires imageTag in approvedImageTags" $name) -}}
-{{- end -}}
-{{- end -}}
-{{- end -}}
-{{- if $rollout.runtimeConsumerFloor.active -}}
-{{- if not (has $runtimeTag $rollout.runtimeConsumerFloor.approvedImageTags) -}}
-{{- fail "ADR-161: runtime image is not approved by the active runtime consumer floor" -}}
-{{- end -}}
-{{- end -}}
-{{- if $rollout.apiConsumerFloor.active -}}
-{{- if not (has $apiTag $rollout.apiConsumerFloor.approvedImageTags) -}}
-{{- fail "ADR-161: api image is not approved by the active API consumer floor" -}}
-{{- end -}}
-{{- end -}}
-{{- if $rollout.providerGatewayProducerFloor.active -}}
-{{- if not (has $gatewayTag $rollout.providerGatewayProducerFloor.approvedImageTags) -}}
-{{- fail "ADR-161: provider-gateway image is not approved by the active producer floor" -}}
-{{- end -}}
-{{- end -}}
-{{- if $rollout.runtimeProducerFloor.active -}}
-{{- if not (has $runtimeTag $rollout.runtimeProducerFloor.approvedImageTags) -}}
-{{- fail "ADR-161: runtime image is not approved by the active producer floor" -}}
-{{- end -}}
-{{- end -}}
-{{- if $rollout.providerGatewayV2Producer -}}
-{{- if or (not $rollout.runtimeConsumerFloor.active) (not $rollout.providerGatewayProducerFloor.active) -}}
-{{- fail "ADR-161: provider-gateway v2 producer requires active runtime consumer and provider-gateway producer floors" -}}
-{{- end -}}
-{{- end -}}
-{{- if $rollout.runtimeV2Producer -}}
-{{- if or (not $rollout.apiConsumerFloor.active) (not $rollout.runtimeProducerFloor.active) -}}
-{{- fail "ADR-161: runtime v2 producer requires active API consumer and runtime producer floors" -}}
-{{- end -}}
-{{- end -}}
-{{- end -}}
-
-{{/*
 Exact sandbox-egress-proxy squid.conf body (byte-stable). Used both for the
 ConfigMap data and the Deployment pod-template checksum annotation so ConfigMap
 content changes force a Pod recreate despite subPath mounts.

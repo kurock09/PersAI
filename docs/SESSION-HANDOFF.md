@@ -1,5 +1,20 @@
 # SESSION-HANDOFF
 
+## 2026-07-20 — ADR-161 founder-directed final canonical cutover
+
+Release A is deployed and accepted at `03bacd5d`; the migration is applied,
+all active replicas are healthy, and no commercial users exist. The founder
+rejected B1/B2. The next release is the sole final maintenance cutover:
+provider-gateway, runtime, and API use canonical v2 text accounting only;
+temporary producer flags, consumer markers, Helm floors, probe scripts, and
+v1/missing-discriminator reads are deleted. A bounded rolling overlap is
+accepted, but the final repository and steady-state cluster contain no v1
+accounting compatibility path. Provider text results require explicit
+`textUsage`, and successful runtime turns require canonical v2 envelopes;
+synthetic non-text turns use a zero-entry envelope rather than converting
+generic telemetry. Do not deploy or push from this session without explicit
+authorization.
+
 ## 2026-07-20 — ADR-161 S0-S4 implemented locally
 
 Status: **S0-S5 committed through `083773ad`; temporary Release A/B rollout

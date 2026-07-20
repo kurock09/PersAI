@@ -415,9 +415,6 @@ export class WebRuntimeStreamClientService {
               respondedAt: event.result.respondedAt,
               finalAnswer: event.result.answerText ?? event.result.assistantText,
               workingNotes: event.result.workingNotes ?? [],
-              ...(event.result.usageAccounting === undefined
-                ? {}
-                : { usageAccounting: event.result.usageAccounting }),
               ...(event.result.textUsageAccounting === undefined
                 ? {}
                 : { textUsageAccounting: event.result.textUsageAccounting }),

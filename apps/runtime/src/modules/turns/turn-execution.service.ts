@@ -78,15 +78,13 @@ import {
   type RuntimeWebSearchToolResult,
   type RuntimeWebFetchToolResult,
   type RuntimeToolContractDescribeResult,
-  type RuntimeUsageAccounting,
-  type RuntimeUsageAccountingEntry,
   type RuntimeUsageSnapshot,
   type TextGenerationUsageAccountingV2,
-  type TextGenerationUsageAccountingEnvelope,
   type PersaiRuntimeKnowledgeSource,
   type PersaiRuntimeModelRole,
   type RuntimeTrace,
-  buildAssistantSessionRoot
+  buildAssistantSessionRoot,
+  decodeTextGenerationUsageEnvelope
 } from "@persai/runtime-contract";
 import { RuntimeBundleRegistryService } from "../bundles/runtime-bundle-registry.service";
 import { RUNTIME_CONFIG } from "../../runtime-config";
@@ -176,6 +174,7 @@ import {
 } from "./runtime-text-only-multimodal-sanitizer";
 import { TurnAcceptanceService, type AcceptedRuntimeTurn } from "./turn-acceptance.service";
 import { TurnFinalizationService } from "./turn-finalization.service";
+import { buildTextGenerationUsageEnvelope } from "./text-generation-usage-envelope";
 import { TurnLeaseHeartbeatService } from "./turn-lease-heartbeat.service";
 import {
   buildRuntimeFileHandleFromDocumentConvert,
@@ -269,7 +268,6 @@ type PreparedTurnExecution = {
   deepModeEnabled: boolean;
   selectedModelRole: PersaiRuntimeModelRole;
   routeDecision: TurnRouteDecision;
-  preludeUsageEntries: RuntimeUsageAccountingEntry[];
   // ADR-074 Slice T1: rendered presence developer-tail block, computed once
   // per `prepareTurnExecution`. `null` when the bundle has no presence
   // template (legacy bundle compiled before T1) or the channel doesn't have
@@ -307,7 +305,6 @@ type TurnExecutionState = {
   };
   artifacts: RuntimeOutputArtifact[];
   fileHandles: RuntimeFileHandle[];
-  usageEntries: RuntimeUsageAccountingEntry[];
   textUsageEntries: TextGenerationUsageAccountingV2[];
   toolInvocations: RuntimeTurnToolInvocation[];
   toolExchanges: ProviderGatewayToolExchange[];
@@ -653,7 +650,6 @@ export class TurnExecutionService {
         return this.runtimeExecutionAdmissionService.runWithAdmission(executionClass, async () => {
           const turnState = this.createTurnExecutionState();
           await this.initializeTurnDeliveryContext(turnState, input, execution.bundle);
-          this.applyPreparedTurnExecutionState(turnState, execution);
           const result = await this.executeAcceptedTurn(acceptedTurn, execution, input, turnState);
           return this.finalizeAcceptedTurnWithPostTurnEffects({
             acceptedTurn,
@@ -691,7 +687,6 @@ export class TurnExecutionService {
         allowModelToolExposure: true
       });
       await this.initializeTurnDeliveryContext(turnState, input, execution.bundle);
-      this.applyPreparedTurnExecutionState(turnState, execution);
       const result = await this.runtimeExecutionAdmissionService.runWithAdmission(
         this.classifyInteractiveExecutionClass(input, execution),
         () => this.executeAcceptedTurn(acceptedTurn, execution, input, turnState)
@@ -750,7 +745,6 @@ export class TurnExecutionService {
     const executionClass = this.classifyInteractiveExecutionClass(input, execution);
     const turnState = this.createTurnExecutionState();
     await this.initializeTurnDeliveryContext(turnState, input, execution.bundle);
-    this.applyPreparedTurnExecutionState(turnState, execution);
     return {
       outcome: "stream",
       events: await this.runtimeExecutionAdmissionService.runStreamWithAdmission(
@@ -814,7 +808,6 @@ export class TurnExecutionService {
           });
           const turnState = this.createTurnExecutionState();
           await this.initializeTurnDeliveryContext(turnState, input, execution.bundle);
-          this.applyPreparedTurnExecutionState(turnState, execution);
           const result = await this.executeAcceptedTurn(acceptedTurn, execution, input, turnState);
           return this.finalizeAcceptedTurnWithPostTurnEffects({
             acceptedTurn,
@@ -858,7 +851,6 @@ export class TurnExecutionService {
         const executionClass = this.classifyInteractiveExecutionClass(input, execution);
         const turnState = this.createTurnExecutionState();
         await this.initializeTurnDeliveryContext(turnState, input, execution.bundle);
-        this.applyPreparedTurnExecutionState(turnState, execution);
         return this.runtimeExecutionAdmissionService.runStreamWithAdmission(executionClass, () => {
           return this.streamAcceptedTurn(
             acceptedTurn,
@@ -1123,7 +1115,6 @@ export class TurnExecutionService {
       deepModeEnabled: input.deepMode === true,
       selectedModelRole: executionPlan.modelRole,
       routeDecision: executionPlan.routeDecision,
-      preludeUsageEntries: executionPlan.usageEntries,
       providerRequest,
       presenceBlock,
       volatilePrefixLength: volatilePrefix.length,
@@ -1447,7 +1438,6 @@ export class TurnExecutionService {
                 this.recordUsageEntry(turnState, {
                   stepType: iteration === 0 ? "main_turn" : "tool_loop_followup",
                   modelRole: execution.selectedModelRole,
-                  usage: event.result.usage,
                   textUsage: event.result.textUsage
                 });
                 assembledText = this.resolveCompletedStreamAssistantText(
@@ -1802,7 +1792,6 @@ export class TurnExecutionService {
                 this.recordUsageEntry(turnState, {
                   stepType: iteration === 0 ? "main_turn" : "tool_loop_followup",
                   modelRole: execution.selectedModelRole,
-                  usage: correctedProviderResult.usage,
                   textUsage: correctedProviderResult.textUsage
                 });
                 // Answer-only text = corrections applied to the FINAL iteration's
@@ -2221,13 +2210,7 @@ export class TurnExecutionService {
       usage: providerResult.usage,
       ...(trace === undefined ? {} : { trace }),
       ...(turnRouting === null ? {} : { turnRouting }),
-      ...(turnState.usageEntries.length === 0
-        ? {}
-        : { usageAccounting: this.buildUsageAccounting(turnState.usageEntries) }),
-      ...(turnState.textUsageEntries.length === 0 ||
-      this.config?.RUNTIME_TEXT_USAGE_V2_PRODUCER_ENABLED !== true
-        ? {}
-        : { textUsageAccounting: this.buildTextUsageAccounting(turnState.textUsageEntries) }),
+      textUsageAccounting: buildTextGenerationUsageEnvelope(turnState.textUsageEntries),
       ...(turnState.toolInvocations.length === 0
         ? {}
         : { toolInvocations: [...turnState.toolInvocations] }),
@@ -3068,7 +3051,6 @@ export class TurnExecutionService {
   ): Promise<{
     modelRole: PersaiRuntimeModelRole;
     routeDecision: TurnRouteDecision;
-    usageEntries: RuntimeUsageAccountingEntry[];
   }> {
     void hydratedMessages;
 
@@ -3102,15 +3084,13 @@ export class TurnExecutionService {
     if (input.modelRoleOverride !== undefined) {
       return {
         modelRole: input.modelRoleOverride,
-        routeDecision: defaultRouteDecision,
-        usageEntries: []
+        routeDecision: defaultRouteDecision
       };
     }
     if (input.providerOverride !== undefined || input.modelOverride !== undefined) {
       return {
         modelRole: "normal_reply",
-        routeDecision: defaultRouteDecision,
-        usageEntries: []
+        routeDecision: defaultRouteDecision
       };
     }
     const routeDecision = await this.turnRoutingService.decide({
@@ -3118,7 +3098,6 @@ export class TurnExecutionService {
       request: input,
       projectedTools
     });
-    const usageEntries = this.toTurnRoutingUsageEntries(routeDecision.usage);
     const modelRole =
       routeDecision.mode === "active"
         ? this.mapExecutionModeToModelRole(routeDecision.executionMode)
@@ -3127,8 +3106,7 @@ export class TurnExecutionService {
           : "normal_reply";
     return {
       modelRole,
-      routeDecision,
-      usageEntries
+      routeDecision
     };
   }
 
@@ -3143,27 +3121,6 @@ export class TurnExecutionService {
       default:
         return "normal_reply";
     }
-  }
-
-  private toTurnRoutingUsageEntries(
-    usage: RuntimeUsageSnapshot | null
-  ): RuntimeUsageAccountingEntry[] {
-    if (usage === null) {
-      return [];
-    }
-    return [
-      {
-        stepType: "turn_routing",
-        modelRole: "system_tool",
-        providerKey: usage.providerKey,
-        modelKey: usage.modelKey,
-        inputTokens: usage.inputTokens,
-        cacheCreationInputTokens: usage.cacheCreationInputTokens ?? null,
-        cachedInputTokens: usage.cachedInputTokens ?? null,
-        outputTokens: usage.outputTokens,
-        totalTokens: usage.totalTokens
-      }
-    ];
   }
 
   private assertSupportedTurnRequest(
@@ -3302,7 +3259,6 @@ export class TurnExecutionService {
       this.recordUsageEntry(turnState, {
         stepType: iteration === 0 ? "main_turn" : "tool_loop_followup",
         modelRole: execution.selectedModelRole,
-        usage: providerResult.usage,
         textUsage: providerResult.textUsage
       });
       accumulatedText = this.mergeAssistantTurnText(accumulatedText, providerResult.text);
@@ -5795,7 +5751,6 @@ export class TurnExecutionService {
       },
       artifacts: [],
       fileHandles: [],
-      usageEntries: [],
       textUsageEntries: [],
       toolInvocations: [],
       toolExchanges: [],
@@ -6058,15 +6013,6 @@ export class TurnExecutionService {
     return buildAssistantSessionRoot(assistantId, normalizedSessionId);
   }
 
-  private applyPreparedTurnExecutionState(
-    turnState: TurnExecutionState,
-    execution: PreparedTurnExecution
-  ): void {
-    if (execution.preludeUsageEntries.length > 0) {
-      turnState.usageEntries.push(...execution.preludeUsageEntries);
-    }
-  }
-
   private mergePendingFilePreviewBlocks(
     existing: ProviderGatewayMessageContentBlock[] | undefined,
     incoming: ProviderGatewayMessageContentBlock[]
@@ -6271,15 +6217,6 @@ export class TurnExecutionService {
           turnState.discoveredFilePathSet.push(discoveredRef.storagePath);
         }
       }
-    }
-    const toolUsage = this.extractToolUsageSnapshot(outcome.payload);
-    if (toolUsage !== null) {
-      this.recordUsageEntry(turnState, {
-        stepType: "tool_execution",
-        modelRole: this.resolveToolUsageModelRole(outcome.exchange.toolCall.name),
-        usage: toolUsage,
-        toolCode: outcome.exchange.toolCall.name
-      });
     }
     if (outcome.sharedCompaction === undefined) {
       const deferredMediaJob = this.extractDeferredMediaJob(outcome.payload);
@@ -6561,7 +6498,6 @@ export class TurnExecutionService {
     this.recordUsageEntry(input.turnState, {
       stepType: "tool_loop_followup",
       modelRole: input.execution.selectedModelRole,
-      usage: result.usage,
       textUsage: result.textUsage
     });
     return result;
@@ -7255,26 +7191,10 @@ export class TurnExecutionService {
     input: {
       stepType: string;
       modelRole: PersaiRuntimeModelRole | null;
-      usage: RuntimeUsageSnapshot | null;
       textUsage?: ProviderGatewayTextGenerateResult["textUsage"];
       toolCode?: string;
     }
   ): void {
-    if (input.usage === null) {
-      return;
-    }
-    turnState.usageEntries.push({
-      stepType: input.stepType,
-      modelRole: input.modelRole,
-      providerKey: input.usage.providerKey,
-      modelKey: input.usage.modelKey,
-      inputTokens: input.usage.inputTokens,
-      cacheCreationInputTokens: input.usage.cacheCreationInputTokens ?? null,
-      cachedInputTokens: input.usage.cachedInputTokens ?? null,
-      outputTokens: input.usage.outputTokens,
-      totalTokens: input.usage.totalTokens,
-      ...(input.toolCode === undefined ? {} : { toolCode: input.toolCode })
-    });
     if (input.textUsage?.status === "accounted") {
       turnState.textUsageEntries.push({
         ...input.textUsage.entry,
@@ -7333,82 +7253,6 @@ export class TurnExecutionService {
         throw fallbackError;
       }
     }
-  }
-
-  private buildUsageAccounting(entries: RuntimeUsageAccountingEntry[]): RuntimeUsageAccounting {
-    const sum = (
-      selector: (entry: RuntimeUsageAccountingEntry) => number | null
-    ): number | null => {
-      let total = 0;
-      let seen = false;
-      for (const entry of entries) {
-        const value = selector(entry);
-        if (value === null) {
-          continue;
-        }
-        total += value;
-        seen = true;
-      }
-      return seen ? total : null;
-    };
-    return {
-      inputTokens: sum((entry) => entry.inputTokens),
-      cacheCreationInputTokens: sum((entry) => entry.cacheCreationInputTokens),
-      cachedInputTokens: sum((entry) => entry.cachedInputTokens),
-      outputTokens: sum((entry) => entry.outputTokens),
-      totalTokens: sum((entry) => entry.totalTokens),
-      entries: [...entries]
-    };
-  }
-
-  private buildTextUsageAccounting(
-    entries: TextGenerationUsageAccountingV2[]
-  ): TextGenerationUsageAccountingEnvelope {
-    const sum = (selector: (entry: TextGenerationUsageAccountingV2) => number): number =>
-      entries.reduce((total, entry) => total + selector(entry), 0);
-    return {
-      schemaVersion: 2,
-      totalInputTokens: sum((entry) => entry.totalInputTokens),
-      uncachedInputTokens: sum((entry) => entry.uncachedInputTokens),
-      cacheWriteInputTokens: sum((entry) => entry.cacheWriteInputTokens),
-      cacheReadInputTokens: sum((entry) => entry.cacheReadInputTokens),
-      outputTokens: sum((entry) => entry.outputTokens),
-      totalTokens: sum((entry) => entry.totalTokens),
-      entries: [...entries]
-    };
-  }
-
-  private extractToolUsageSnapshot(
-    payload: ToolExecutionOutcome["payload"]
-  ): RuntimeUsageSnapshot | null {
-    const record =
-      payload !== null && typeof payload === "object" && !Array.isArray(payload)
-        ? (payload as Record<string, unknown>)
-        : null;
-    const usage =
-      record?.usage !== null && typeof record?.usage === "object" && !Array.isArray(record?.usage)
-        ? (record.usage as Record<string, unknown>)
-        : null;
-    if (usage === null) {
-      return null;
-    }
-    return {
-      providerKey: this.asNonEmptyString(usage.providerKey),
-      modelKey: this.asNonEmptyString(usage.modelKey),
-      inputTokens: typeof usage.inputTokens === "number" ? usage.inputTokens : null,
-      cacheCreationInputTokens:
-        typeof usage.cacheCreationInputTokens === "number" ? usage.cacheCreationInputTokens : null,
-      cachedInputTokens:
-        typeof usage.cachedInputTokens === "number" ? usage.cachedInputTokens : null,
-      outputTokens: typeof usage.outputTokens === "number" ? usage.outputTokens : null,
-      totalTokens: typeof usage.totalTokens === "number" ? usage.totalTokens : null
-    };
-  }
-
-  private resolveToolUsageModelRole(toolCode: string): PersaiRuntimeModelRole {
-    return toolCode === "summarize_context" || toolCode === "compact_context"
-      ? "system_tool"
-      : "tool_worker";
   }
 
   private readOptionalInstructions(
@@ -7862,12 +7706,22 @@ export class TurnExecutionService {
       typeof row.assistantText === "string" &&
       Array.isArray(row.artifacts) &&
       typeof row.respondedAt === "string" &&
+      this.isTextGenerationUsageEnvelope(row.textUsageAccounting) &&
       (row.turnRouting === undefined ||
         row.turnRouting === null ||
         this.isRuntimeTurnRoutingSnapshot(row.turnRouting)) &&
       (row.usage === null ||
         (typeof row.usage === "object" && row.usage !== null && !Array.isArray(row.usage)))
     );
+  }
+
+  private isTextGenerationUsageEnvelope(value: unknown): boolean {
+    try {
+      decodeTextGenerationUsageEnvelope(value);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   private isRuntimeTurnRoutingSnapshot(value: unknown): value is RuntimeTurnRoutingSnapshot {

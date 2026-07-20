@@ -3,7 +3,7 @@ import {
   assertFixedFamilyCacheLoop,
   assertReusableSealedBoundary,
   calculateTextGenerationCacheCostComparison,
-  decodeTextGenerationUsageMixedVersion,
+  decodeTextGenerationUsageEnvelope,
   hashProviderCacheSemanticPrefix,
   normalizeProviderTextGenerationUsageV2,
   type TextGenerationCacheZoneTelemetry
@@ -250,25 +250,12 @@ export async function runAdr161ContractsTest(): Promise<void> {
   });
 
   assert.throws(
-    () => decodeTextGenerationUsageMixedVersion({ schemaVersion: 3, usage: [] }),
-    /text_generation_usage_unknown_schema_version/
-  );
-  assert.equal(
-    decodeTextGenerationUsageMixedVersion({
-      usage: {
-        inputTokens: 1,
-        cacheCreationInputTokens: 0,
-        cachedInputTokens: 0,
-        outputTokens: 1,
-        totalTokens: 2,
-        entries: []
-      }
-    }).schemaVersion,
-    1
+    () => decodeTextGenerationUsageEnvelope({ schemaVersion: 3, entries: [] }),
+    /text_generation_usage_schema_version_unknown/
   );
   assert.throws(
     () =>
-      decodeTextGenerationUsageMixedVersion({
+      decodeTextGenerationUsageEnvelope({
         schemaVersion: 2,
         entries: [
           {
@@ -296,7 +283,7 @@ export async function runAdr161ContractsTest(): Promise<void> {
   );
   assert.throws(
     () =>
-      decodeTextGenerationUsageMixedVersion({
+      decodeTextGenerationUsageEnvelope({
         schemaVersion: 2,
         entries: [
           {

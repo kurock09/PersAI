@@ -20,6 +20,7 @@ function createCompletionService(overrides?: {
   generateText?: (input: ProviderGatewayTextGenerateRequest) => Promise<{
     text: string;
     usage: null;
+    textUsage: { status: "usage_unavailable"; reason: string };
   }>;
   downloadObject?: (storagePath: string) => Promise<Buffer | null>;
 }) {
@@ -35,7 +36,8 @@ function createCompletionService(overrides?: {
           providerRequest = input;
           return {
             text: JSON.stringify({ assistantText: "Fresh completion framing." }),
-            usage: null
+            usage: null,
+            textUsage: { status: "usage_unavailable", reason: "test_fixture" }
           };
         })
     } as never,
@@ -222,7 +224,8 @@ describe("RuntimeMediaJobCompletionService", () => {
               assistantText:
                 "Не получилось дорисовать ваш закат: провайдер заблокировал запрос по политике."
             }),
-            usage: null
+            usage: null,
+            textUsage: { status: "usage_unavailable", reason: "test_fixture" }
           };
         }
       } as never,
@@ -375,7 +378,13 @@ describe("RuntimeMediaJobCompletionService", () => {
 
   test("rejects requests that supply both workerResult and failure", async () => {
     const service = new RuntimeMediaJobCompletionService(
-      { generateText: async () => ({ text: "{}", usage: null }) } as never,
+      {
+        generateText: async () => ({
+          text: "{}",
+          usage: null,
+          textUsage: { status: "usage_unavailable", reason: "test_fixture" }
+        })
+      } as never,
       { acceptTurn: async () => ({ outcome: "accepted" }) } as never,
       {
         completeAcceptedTurn: async () => ({

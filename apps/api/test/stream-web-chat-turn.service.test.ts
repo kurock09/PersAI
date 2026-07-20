@@ -1185,21 +1185,27 @@ describe("StreamWebChatTurnService", () => {
           yield {
             type: "done",
             respondedAt: "2026-04-05T12:00:01.000Z",
-            usageAccounting: {
-              inputTokens: 120,
-              cachedInputTokens: 20,
+            textUsageAccounting: {
+              schemaVersion: 2,
+              totalInputTokens: 140,
+              uncachedInputTokens: 120,
+              cacheWriteInputTokens: 0,
+              cacheReadInputTokens: 20,
               outputTokens: 40,
-              totalTokens: 160,
+              totalTokens: 180,
               entries: [
                 {
+                  schemaVersion: 2,
                   stepType: "main_turn",
                   modelRole: "normal_reply",
                   providerKey: "openai",
                   modelKey: "gpt-5-mini",
-                  inputTokens: 120,
-                  cachedInputTokens: 20,
+                  totalInputTokens: 140,
+                  uncachedInputTokens: 120,
+                  cacheWriteInputTokens: 0,
+                  cacheReadInputTokens: 20,
                   outputTokens: 40,
-                  totalTokens: 160
+                  totalTokens: 180
                 }
               ]
             }

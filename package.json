@@ -20,8 +20,6 @@
     "test:adr146-release-gate": "node --test scripts/ci/adr146-foundation-release-gate.test.mjs",
     "test:adr146-active-code-audit": "node --test scripts/ci/adr146-active-code-audit.test.mjs",
     "test:adr146-cross-layer-contract": "node --test scripts/ci/adr146-cross-layer-contract.test.mjs",
-    "test:adr161-rollout-floor": "node --test scripts/ci/adr161-rollout-floor.test.mjs",
-    "validate:adr161-rollout-floor": "node scripts/ci/adr161-rollout-floor.mjs",
     "audit:adr146-active-code": "node scripts/ci/adr146-active-code-audit.mjs",
     "audit:adr146-cross-layer-contract": "node scripts/ci/adr146-cross-layer-contract.mjs",
     "test:adr146-slice5": "node scripts/ci/adr146-active-code-audit.mjs && node scripts/ci/adr146-cross-layer-contract.mjs && node --test scripts/ci/adr146-active-code-audit.test.mjs scripts/ci/adr146-cross-layer-contract.test.mjs infra/bootstrap/adr146-s6-live-acceptance.test.mjs"

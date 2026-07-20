@@ -1,6 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import { ApiErrorHttpException } from "../../platform-core/interface/http/api-error";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
+import { decodeTextGenerationUsageForApi } from "./text-generation-usage-accounting";
 
 export interface ReadSmokeTurnReceiptsInput {
   assistantId: string;
@@ -10,32 +11,28 @@ export interface ReadSmokeTurnReceiptsInput {
 }
 
 export interface SmokeTurnReceiptUsageEntry {
-  schemaVersion: 1 | 2;
+  schemaVersion: 2;
   stepType: string;
   modelRole: string | null;
   providerKey: string | null;
   modelKey: string | null;
   toolCode: string | null;
-  inputTokens: number | null;
-  totalInputTokens: number | null;
-  uncachedInputTokens: number | null;
-  cacheWriteInputTokens: number | null;
-  cacheReadInputTokens: number | null;
-  cachedInputTokens: number | null;
-  outputTokens: number | null;
-  totalTokens: number | null;
+  totalInputTokens: number;
+  uncachedInputTokens: number;
+  cacheWriteInputTokens: number;
+  cacheReadInputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
 }
 
 export interface SmokeTurnReceiptUsage {
-  schemaVersion: 1 | 2;
-  inputTokens: number | null;
-  totalInputTokens: number | null;
-  uncachedInputTokens: number | null;
-  cacheWriteInputTokens: number | null;
-  cacheReadInputTokens: number | null;
-  cachedInputTokens: number | null;
-  outputTokens: number | null;
-  totalTokens: number | null;
+  schemaVersion: 2;
+  totalInputTokens: number;
+  uncachedInputTokens: number;
+  cacheWriteInputTokens: number;
+  cacheReadInputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
   entries: SmokeTurnReceiptUsageEntry[];
 }
 
@@ -207,52 +204,33 @@ function pickFirst(value: string | string[] | undefined): string | undefined {
 }
 
 function extractUsage(payload: Record<string, unknown>): SmokeTurnReceiptUsage | null {
-  const hasExplicitTextUsage = payload.textUsageAccounting !== undefined;
-  const raw = payload.textUsageAccounting ?? payload.usageAccounting;
-  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+  const decoded = decodeTextGenerationUsageForApi(payload.textUsageAccounting);
+  if (decoded.kind !== "v2") {
     return null;
   }
-  const usage = raw as Record<string, unknown>;
-  if (hasExplicitTextUsage && usage.schemaVersion !== 2) {
-    return null;
-  }
-  const schemaVersion = usage.schemaVersion === 2 ? 2 : 1;
-  const entriesRaw = Array.isArray(usage.entries) ? (usage.entries as unknown[]) : [];
-  const entries = entriesRaw
-    .map((entryRaw): SmokeTurnReceiptUsageEntry | null => {
-      if (entryRaw === null || typeof entryRaw !== "object" || Array.isArray(entryRaw)) {
-        return null;
-      }
-      const entry = entryRaw as Record<string, unknown>;
-      return {
-        schemaVersion,
-        stepType: typeof entry.stepType === "string" ? entry.stepType : "unknown",
-        modelRole: typeof entry.modelRole === "string" ? entry.modelRole : null,
-        providerKey: typeof entry.providerKey === "string" ? entry.providerKey : null,
-        modelKey: typeof entry.modelKey === "string" ? entry.modelKey : null,
-        toolCode: typeof entry.toolCode === "string" ? entry.toolCode : null,
-        inputTokens: numberOrNull(entry.inputTokens),
-        totalInputTokens: numberOrNull(entry.totalInputTokens),
-        uncachedInputTokens: numberOrNull(entry.uncachedInputTokens),
-        cacheWriteInputTokens: numberOrNull(entry.cacheWriteInputTokens),
-        cacheReadInputTokens: numberOrNull(entry.cacheReadInputTokens),
-        cachedInputTokens: numberOrNull(entry.cachedInputTokens),
-        outputTokens: numberOrNull(entry.outputTokens),
-        totalTokens: numberOrNull(entry.totalTokens)
-      };
-    })
-    .filter((entry): entry is SmokeTurnReceiptUsageEntry => entry !== null);
+  const usage = decoded.usage;
   return {
-    schemaVersion,
-    inputTokens: numberOrNull(usage.inputTokens),
-    totalInputTokens: numberOrNull(usage.totalInputTokens),
-    uncachedInputTokens: numberOrNull(usage.uncachedInputTokens),
-    cacheWriteInputTokens: numberOrNull(usage.cacheWriteInputTokens),
-    cacheReadInputTokens: numberOrNull(usage.cacheReadInputTokens),
-    cachedInputTokens: numberOrNull(usage.cachedInputTokens),
-    outputTokens: numberOrNull(usage.outputTokens),
-    totalTokens: numberOrNull(usage.totalTokens),
-    entries
+    schemaVersion: 2,
+    totalInputTokens: usage.totalInputTokens,
+    uncachedInputTokens: usage.uncachedInputTokens,
+    cacheWriteInputTokens: usage.cacheWriteInputTokens,
+    cacheReadInputTokens: usage.cacheReadInputTokens,
+    outputTokens: usage.outputTokens,
+    totalTokens: usage.totalTokens,
+    entries: usage.entries.map((entry) => ({
+      schemaVersion: 2,
+      stepType: entry.stepType,
+      modelRole: entry.modelRole,
+      providerKey: entry.providerKey,
+      modelKey: entry.modelKey,
+      toolCode: entry.toolCode ?? null,
+      totalInputTokens: entry.totalInputTokens,
+      uncachedInputTokens: entry.uncachedInputTokens,
+      cacheWriteInputTokens: entry.cacheWriteInputTokens,
+      cacheReadInputTokens: entry.cacheReadInputTokens,
+      outputTokens: entry.outputTokens,
+      totalTokens: entry.totalTokens
+    }))
   };
 }
 

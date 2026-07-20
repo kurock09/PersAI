@@ -37,6 +37,7 @@ class FakeProviderTextGenerationService {
           text: "done",
           respondedAt: "2026-04-18T09:30:00.000Z",
           usage: null,
+          textUsage: { status: "usage_unavailable", reason: "test_fixture" },
           stopReason: "completed",
           toolCalls: []
         }
@@ -146,6 +147,7 @@ export async function runProviderTextGenerationControllerTest(): Promise<void> {
           text: "Hello",
           respondedAt: "2026-04-18T09:30:01.000Z",
           usage: null,
+          textUsage: { status: "usage_unavailable", reason: "test_fixture" },
           stopReason: "completed",
           toolCalls: []
         }

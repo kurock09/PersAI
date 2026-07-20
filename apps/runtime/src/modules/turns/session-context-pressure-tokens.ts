@@ -1,4 +1,7 @@
-import type { RuntimeUsageAccounting, RuntimeUsageSnapshot } from "@persai/runtime-contract";
+import type {
+  RuntimeUsageSnapshot,
+  TextGenerationUsageAccountingEnvelope
+} from "@persai/runtime-contract";
 
 /**
  * Session `currentTokens` for the context meter + auto-compaction trigger.
@@ -10,16 +13,13 @@ import type { RuntimeUsageAccounting, RuntimeUsageSnapshot } from "@persai/runti
  */
 export function resolveSessionContextPressureTokens(input: {
   usage: RuntimeUsageSnapshot | null;
-  usageAccounting?: RuntimeUsageAccounting | null;
+  textUsageAccounting?: TextGenerationUsageAccountingEnvelope | null;
 }): number | null {
-  const mainTurn = input.usageAccounting?.entries.find((entry) => entry.stepType === "main_turn");
+  const mainTurn = input.textUsageAccounting?.entries.find(
+    (entry) => entry.stepType === "main_turn"
+  );
   if (mainTurn !== undefined) {
-    if (typeof mainTurn.inputTokens === "number") {
-      return mainTurn.inputTokens;
-    }
-    if (typeof mainTurn.totalTokens === "number") {
-      return mainTurn.totalTokens;
-    }
+    return mainTurn.totalInputTokens;
   }
 
   if (input.usage !== null && typeof input.usage.inputTokens === "number") {

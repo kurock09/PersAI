@@ -23,6 +23,7 @@ import {
 import { RuntimeExecutionAdmissionService } from "./runtime-execution-admission.service";
 import { TurnAcceptanceService, type AcceptedRuntimeTurn } from "./turn-acceptance.service";
 import { TurnFinalizationService } from "./turn-finalization.service";
+import { buildTextGenerationUsageEnvelope } from "./text-generation-usage-envelope";
 
 const MEDIA_JOB_RUN_KEY_PREFIX = "media-job-run";
 
@@ -120,6 +121,7 @@ export class RuntimeMediaJobRunService {
         artifacts: result.artifacts,
         respondedAt: new Date().toISOString(),
         usage: this.toUsageSnapshot(result.usage),
+        textUsageAccounting: buildTextGenerationUsageEnvelope([]),
         ...(result.usage === null || this.isUsageSnapshot(result.usage)
           ? {}
           : { usageAccounting: result.usage }),

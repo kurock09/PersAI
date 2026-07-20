@@ -62,7 +62,16 @@ function createAcceptedTurn(): AcceptedRuntimeTurn {
 
 function createTurnResult(
   usage: RuntimeUsageSnapshot | null,
-  usageAccounting?: RuntimeTurnResult["usageAccounting"]
+  textUsageAccounting: RuntimeTurnResult["textUsageAccounting"] = {
+    schemaVersion: 2,
+    totalInputTokens: 0,
+    uncachedInputTokens: 0,
+    cacheWriteInputTokens: 0,
+    cacheReadInputTokens: 0,
+    outputTokens: 0,
+    totalTokens: 0,
+    entries: []
+  }
 ): RuntimeTurnResult {
   return {
     requestId: "request-1",
@@ -71,7 +80,7 @@ function createTurnResult(
     artifacts: [],
     respondedAt: "2026-04-11T12:05:00.000Z",
     usage,
-    ...(usageAccounting === undefined ? {} : { usageAccounting })
+    textUsageAccounting
   };
 }
 
@@ -203,31 +212,37 @@ export async function runTurnFinalizationServiceTest(): Promise<void> {
         totalTokens: 50_000
       },
       {
-        inputTokens: 60_000,
-        cacheCreationInputTokens: null,
-        cachedInputTokens: null,
+        schemaVersion: 2,
+        totalInputTokens: 60_000,
+        uncachedInputTokens: 60_000,
+        cacheWriteInputTokens: 0,
+        cacheReadInputTokens: 0,
         outputTokens: 2_400,
         totalTokens: 62_400,
         entries: [
           {
+            schemaVersion: 2,
             stepType: "main_turn",
             modelRole: "premium_reply",
             providerKey: "deepseek",
             modelKey: "deepseek-v4-pro",
-            inputTokens: 12_000,
-            cacheCreationInputTokens: null,
-            cachedInputTokens: null,
+            totalInputTokens: 12_000,
+            uncachedInputTokens: 12_000,
+            cacheWriteInputTokens: 0,
+            cacheReadInputTokens: 0,
             outputTokens: 400,
             totalTokens: 12_400
           },
           {
+            schemaVersion: 2,
             stepType: "tool_loop_followup",
             modelRole: "premium_reply",
             providerKey: "deepseek",
             modelKey: "deepseek-v4-pro",
-            inputTokens: 48_000,
-            cacheCreationInputTokens: null,
-            cachedInputTokens: null,
+            totalInputTokens: 48_000,
+            uncachedInputTokens: 48_000,
+            cacheWriteInputTokens: 0,
+            cacheReadInputTokens: 0,
             outputTokens: 2_000,
             totalTokens: 50_000
           }

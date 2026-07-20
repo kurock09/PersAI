@@ -1,37 +1,27 @@
 import {
   validateTextGenerationUsageAccountingV2,
-  type RuntimeUsageAccounting,
   type TextGenerationUsageAccountingEnvelope,
   type TextGenerationUsageAccountingV2
 } from "@persai/runtime-contract";
 
 export type DecodedTextGenerationUsage =
-  | { kind: "v1"; usage: RuntimeUsageAccounting }
   | { kind: "v2"; usage: TextGenerationUsageAccountingEnvelope & { schemaVersion: 2 } }
   | { kind: "invalid"; reason: string };
 
-/**
- * ADR-161 Release A/B consumer-first seam.
- * DELETE IN RELEASE C after the runtime v2 producer floor is active and all
- * v1-producing runtime pods and queued turn retries have drained.
- */
-export function decodeTextGenerationUsageForApi(input: {
-  textUsageAccounting: unknown;
-  legacyUsageAccounting: RuntimeUsageAccounting | undefined;
-}): DecodedTextGenerationUsage {
-  if (input.textUsageAccounting === undefined) {
-    return input.legacyUsageAccounting === undefined
-      ? { kind: "invalid", reason: "usage_missing" }
-      : { kind: "v1", usage: input.legacyUsageAccounting };
+export function decodeTextGenerationUsageForApi(
+  textUsageAccounting: unknown
+): DecodedTextGenerationUsage {
+  if (textUsageAccounting === undefined) {
+    return { kind: "invalid", reason: "usage_missing" };
   }
   if (
-    input.textUsageAccounting === null ||
-    typeof input.textUsageAccounting !== "object" ||
-    Array.isArray(input.textUsageAccounting)
+    textUsageAccounting === null ||
+    typeof textUsageAccounting !== "object" ||
+    Array.isArray(textUsageAccounting)
   ) {
     return { kind: "invalid", reason: "usage_envelope_invalid" };
   }
-  const row = input.textUsageAccounting as Record<string, unknown>;
+  const row = textUsageAccounting as Record<string, unknown>;
   if (row.schemaVersion !== 2) {
     return { kind: "invalid", reason: "usage_schema_version_unknown" };
   }

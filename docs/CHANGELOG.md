@@ -5,6 +5,19 @@
 
 ## 2026-07-20
 
+- **ADR-161 final canonical maintenance cutover:** after Release A was
+  deployed and accepted at `03bacd5d`, the founder rejected separate B1/B2
+  stages because there are no commercial users. Provider-gateway and runtime
+  now emit canonical v2 text accounting unconditionally; API accepts only
+  validated v2 and fails closed for missing, unknown, or malformed accounting.
+  The temporary v1 carrier/reads, producer flags, consumer markers, Helm
+  rollout floors, and rollout probe are removed. Bounded rolling overlap is
+  accepted for deployment, while repository and steady-state cluster truth is
+  v2-only. Provider text results now require explicit canonical `textUsage`,
+  and every successful runtime turn requires a validated v2 envelope (including
+  a zero-entry envelope for synthetic non-text turns); generic telemetry usage
+  is never promoted into accounting.
+
 - **ADR-161 strict staged rollout floors implemented locally:** after the
   founder selected strict no-legacy closure over the previous single-push
   constraint, added temporary Release A/B controls. Runtime/API advertise v2

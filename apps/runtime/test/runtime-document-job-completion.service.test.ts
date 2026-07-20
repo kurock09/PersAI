@@ -22,7 +22,8 @@ describe("RuntimeDocumentJobCompletionService", () => {
           providerRequest = input;
           return {
             text: JSON.stringify({ assistantText: "Fresh document completion framing." }),
-            usage: null
+            usage: null,
+            textUsage: { status: "usage_unavailable", reason: "test_fixture" }
           };
         }
       } as never,
@@ -191,7 +192,8 @@ describe("RuntimeDocumentJobCompletionService", () => {
             text: JSON.stringify({
               assistantText: "I couldn't finish that document request. Please try again."
             }),
-            usage: null
+            usage: null,
+            textUsage: { status: "usage_unavailable", reason: "test_fixture" }
           };
         }
       } as never,

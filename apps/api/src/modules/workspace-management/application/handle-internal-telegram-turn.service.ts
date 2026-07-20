@@ -502,9 +502,6 @@ export class HandleInternalTelegramTurnService {
             assistant: resolved.assistant,
             userContent: enrichedMessage,
             assistantContent: assistantMessage,
-            ...(runtimeResponse.usageAccounting === undefined
-              ? {}
-              : { usageAccounting: runtimeResponse.usageAccounting }),
             ...(runtimeResponse.textUsageAccounting === undefined
               ? {}
               : { textUsageAccounting: runtimeResponse.textUsageAccounting }),
@@ -528,9 +525,6 @@ export class HandleInternalTelegramTurnService {
           assistantMessageId,
           respondedAt: runtimeResponse.respondedAt,
           traceId: trace.getTraceId(),
-          ...(runtimeResponse.usageAccounting === undefined
-            ? {}
-            : { usageAccounting: runtimeResponse.usageAccounting }),
           ...(runtimeResponse.textUsageAccounting === undefined
             ? {}
             : { textUsageAccounting: runtimeResponse.textUsageAccounting }),
@@ -662,7 +656,6 @@ export class HandleInternalTelegramTurnService {
     assistantMessageId: string;
     respondedAt: string;
     traceId: string;
-    usageAccounting?: AssistantRuntimeWebChatTurnResult["usageAccounting"];
     textUsageAccounting?: AssistantRuntimeWebChatTurnResult["textUsageAccounting"];
     toolInvocations?: AssistantRuntimeWebChatTurnResult["toolInvocations"];
   }): Promise<void> {
@@ -677,7 +670,6 @@ export class HandleInternalTelegramTurnService {
         occurredAt: input.respondedAt,
         sourceEventId: input.assistantMessageId,
         requestCorrelationId: input.traceId,
-        ...(input.usageAccounting === undefined ? {} : { usageAccounting: input.usageAccounting }),
         ...(input.textUsageAccounting === undefined
           ? {}
           : { textUsageAccounting: input.textUsageAccounting })

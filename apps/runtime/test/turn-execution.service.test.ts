@@ -779,6 +779,27 @@ export class FakeRuntimeBundleRegistryService {
   }
 }
 
+type ProviderTextResultFixture = Omit<ProviderGatewayTextGenerateResult, "textUsage"> & {
+  textUsage?: ProviderGatewayTextGenerateResult["textUsage"];
+};
+
+type ProviderTextStreamEventFixture =
+  | Exclude<ProviderGatewayTextStreamEvent, { type: "completed" | "tool_calls" }>
+  | { type: "completed"; result: ProviderTextResultFixture }
+  | { type: "tool_calls"; result: ProviderTextResultFixture };
+
+function materializeProviderTextResult(
+  fixture: ProviderTextResultFixture
+): ProviderGatewayTextGenerateResult {
+  return {
+    ...fixture,
+    textUsage: fixture.textUsage ?? {
+      status: "usage_unavailable",
+      reason: "test_fixture"
+    }
+  };
+}
+
 export class FakeProviderGatewayClientService {
   calls: ProviderGatewayTextGenerateRequest[] = [];
   streamCalls: ProviderGatewayTextGenerateRequest[] = [];
@@ -800,7 +821,7 @@ export class FakeProviderGatewayClientService {
     input: ProviderGatewayBrowserActionRequest;
     options?: { timeoutMs?: number };
   }> = [];
-  result: ProviderGatewayTextGenerateResult = {
+  result: ProviderTextResultFixture = {
     provider: "openai",
     model: "gpt-5.4",
     text: "runtime reply",
@@ -812,10 +833,26 @@ export class FakeProviderGatewayClientService {
       outputTokens: 20,
       totalTokens: 30
     },
+    textUsage: {
+      status: "accounted",
+      entry: {
+        schemaVersion: 2,
+        stepType: "main_turn",
+        modelRole: null,
+        providerKey: "openai",
+        modelKey: "gpt-5.4",
+        totalInputTokens: 10,
+        uncachedInputTokens: 10,
+        cacheWriteInputTokens: 0,
+        cacheReadInputTokens: 0,
+        outputTokens: 20,
+        totalTokens: 30
+      }
+    },
     stopReason: "completed",
     toolCalls: []
   };
-  resultQueue: ProviderGatewayTextGenerateResult[] = [];
+  resultQueue: ProviderTextResultFixture[] = [];
   error: Error | null = null;
   streamError: Error | null = null;
   streamErrorQueue: Error[] = [];
@@ -964,8 +1001,8 @@ export class FakeProviderGatewayClientService {
       provider: "browserless"
     }
   };
-  streamEventsQueue: ProviderGatewayTextStreamEvent[][] = [];
-  streamEvents: ProviderGatewayTextStreamEvent[] = [
+  streamEventsQueue: ProviderTextStreamEventFixture[][] = [];
+  streamEvents: ProviderTextStreamEventFixture[] = [
     {
       type: "text_delta",
       delta: "runtime ",
@@ -984,6 +1021,22 @@ export class FakeProviderGatewayClientService {
           inputTokens: 10,
           outputTokens: 20,
           totalTokens: 30
+        },
+        textUsage: {
+          status: "accounted",
+          entry: {
+            schemaVersion: 2,
+            stepType: "main_turn",
+            modelRole: null,
+            providerKey: "openai",
+            modelKey: "gpt-5.4",
+            totalInputTokens: 10,
+            uncachedInputTokens: 10,
+            cacheWriteInputTokens: 0,
+            cacheReadInputTokens: 0,
+            outputTokens: 20,
+            totalTokens: 30
+          }
         },
         stopReason: "completed",
         toolCalls: []
@@ -1004,7 +1057,7 @@ export class FakeProviderGatewayClientService {
     if (this.error !== null) {
       throw this.error;
     }
-    return this.resultQueue.shift() ?? this.result;
+    return materializeProviderTextResult(this.resultQueue.shift() ?? this.result);
   }
 
   async streamText(
@@ -1022,7 +1075,13 @@ export class FakeProviderGatewayClientService {
     const events = [...(this.streamEventsQueue.shift() ?? this.streamEvents)];
     return (async function* (): AsyncGenerator<ProviderGatewayTextStreamEvent> {
       for (const event of events) {
-        yield event;
+        if (event.type === "completed") {
+          yield { type: "completed", result: materializeProviderTextResult(event.result) };
+        } else if (event.type === "tool_calls") {
+          yield { type: "tool_calls", result: materializeProviderTextResult(event.result) };
+        } else {
+          yield event;
+        }
       }
     })();
   }
@@ -2563,12 +2622,12 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
 
   const completed = await service.createTurn(request);
   assert.equal(completed.assistantText, "runtime reply");
-  assert.equal(completed.usageAccounting?.inputTokens, 10);
-  assert.equal(completed.usageAccounting?.outputTokens, 20);
-  assert.equal(completed.usageAccounting?.totalTokens, 30);
-  assert.equal(completed.usageAccounting?.entries.length, 1);
-  assert.equal(completed.usageAccounting?.entries[0]?.stepType, "main_turn");
-  assert.equal(completed.usageAccounting?.entries[0]?.modelRole, "normal_reply");
+  assert.equal(completed.textUsageAccounting?.totalInputTokens, 10);
+  assert.equal(completed.textUsageAccounting?.outputTokens, 20);
+  assert.equal(completed.textUsageAccounting?.totalTokens, 30);
+  assert.equal(completed.textUsageAccounting?.entries.length, 1);
+  assert.equal(completed.textUsageAccounting?.entries[0]?.stepType, "main_turn");
+  assert.equal(completed.textUsageAccounting?.entries[0]?.modelRole, "normal_reply");
   assert.deepEqual(completed.turnRouting?.retrievalPlan, {
     useSkills: false,
     selectedSkillIds: [],
@@ -2741,6 +2800,22 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
         outputTokens: 7,
         totalTokens: 18
       },
+      textUsage: {
+        status: "accounted",
+        entry: {
+          schemaVersion: 2,
+          stepType: "main_turn",
+          modelRole: null,
+          providerKey: "anthropic",
+          modelKey: "claude-sonnet-4-5",
+          totalInputTokens: 11,
+          uncachedInputTokens: 11,
+          cacheWriteInputTokens: 0,
+          cacheReadInputTokens: 0,
+          outputTokens: 7,
+          totalTokens: 18
+        }
+      },
       stopReason: "completed",
       toolCalls: []
     }
@@ -2772,7 +2847,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   assert.equal(fallbackProviders[0], "openai");
   assert.equal(fallbackProviders.includes("anthropic"), true);
   assert.equal(
-    fallbackCompleted.usageAccounting?.entries.at(-1)?.providerKey,
+    fallbackCompleted.textUsageAccounting?.entries.at(-1)?.providerKey,
     "anthropic",
     "usage accounting must reflect the successful fallback provider"
   );
@@ -3012,13 +3087,29 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       outputTokens: 26,
       totalTokens: 40
     },
+    textUsage: {
+      status: "accounted",
+      entry: {
+        schemaVersion: 2,
+        stepType: "main_turn",
+        modelRole: null,
+        providerKey: "openai",
+        modelKey: "gpt-5.4-pro",
+        totalInputTokens: 14,
+        uncachedInputTokens: 14,
+        cacheWriteInputTokens: 0,
+        cacheReadInputTokens: 0,
+        outputTokens: 26,
+        totalTokens: 40
+      }
+    },
     stopReason: "completed",
     toolCalls: []
   };
   const premiumCompleted = await service.createTurn(premiumRequest);
   assert.equal(premiumCompleted.assistantText, "premium reply");
   assert.equal(providerGatewayClient.calls.at(-1)?.model, "gpt-5.4-pro");
-  assert.equal(premiumCompleted.usageAccounting?.entries.at(-1)?.modelRole, "premium_reply");
+  assert.equal(premiumCompleted.textUsageAccounting?.entries.at(-1)?.modelRole, "premium_reply");
   await flushTaskQueue();
   assert.equal(sessionCompactionService.calls.length, 0);
 
@@ -3089,6 +3180,22 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
         outputTokens: 26,
         totalTokens: 40
       },
+      textUsage: {
+        status: "accounted",
+        entry: {
+          schemaVersion: 2,
+          stepType: "main_turn",
+          modelRole: null,
+          providerKey: "openai",
+          modelKey: "gpt-5.4-thinking",
+          totalInputTokens: 14,
+          uncachedInputTokens: 14,
+          cacheWriteInputTokens: 0,
+          cacheReadInputTokens: 0,
+          outputTokens: 26,
+          totalTokens: 40
+        }
+      },
       stopReason: "completed",
       toolCalls: []
     }
@@ -3122,16 +3229,8 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     ),
     false
   );
-  assert.equal(chooserCompleted.usageAccounting?.inputTokens, 17);
-  assert.equal(chooserCompleted.usageAccounting?.cachedInputTokens, 1);
-  assert.equal(chooserCompleted.usageAccounting?.outputTokens, 28);
-  assert.equal(chooserCompleted.usageAccounting?.totalTokens, 45);
   assert.equal(
-    chooserCompleted.usageAccounting?.entries.some((entry) => entry.stepType === "turn_routing"),
-    true
-  );
-  assert.equal(
-    chooserCompleted.usageAccounting?.entries.some((entry) => entry.modelRole === "reasoning"),
+    chooserCompleted.textUsageAccounting?.entries.some((entry) => entry.modelRole === "reasoning"),
     true
   );
   await flushTaskQueue();
@@ -3551,6 +3650,22 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
         outputTokens: 18,
         totalTokens: 30
       },
+      textUsage: {
+        status: "accounted",
+        entry: {
+          schemaVersion: 2,
+          stepType: "main_turn",
+          modelRole: null,
+          providerKey: "openai",
+          modelKey: "gpt-5.4-pro",
+          totalInputTokens: 12,
+          uncachedInputTokens: 12,
+          cacheWriteInputTokens: 0,
+          cacheReadInputTokens: 0,
+          outputTokens: 18,
+          totalTokens: 30
+        }
+      },
       stopReason: "completed",
       toolCalls: []
     }
@@ -3574,13 +3689,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     /## Early Routing Hints/
   );
   assert.equal(
-    deepModeChooserCompleted.usageAccounting?.entries.some(
-      (entry) => entry.stepType === "turn_routing"
-    ),
-    true
-  );
-  assert.equal(
-    deepModeChooserCompleted.usageAccounting?.entries.some(
+    deepModeChooserCompleted.textUsageAccounting?.entries.some(
       (entry) => entry.modelRole === "premium_reply"
     ),
     true
@@ -5276,6 +5385,22 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
             outputTokens: 6,
             totalTokens: 15
           },
+          textUsage: {
+            status: "accounted",
+            entry: {
+              schemaVersion: 2,
+              stepType: "main_turn",
+              modelRole: null,
+              providerKey: "anthropic",
+              modelKey: "claude-sonnet-4-5",
+              totalInputTokens: 9,
+              uncachedInputTokens: 9,
+              cacheWriteInputTokens: 0,
+              cacheReadInputTokens: 0,
+              outputTokens: 6,
+              totalTokens: 15
+            }
+          },
           stopReason: "completed",
           toolCalls: []
         }
@@ -5308,7 +5433,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   if (fallbackCompletedEvent?.type === "completed") {
     assert.equal(fallbackCompletedEvent.result.assistantText, "fallback stream reply");
     assert.equal(
-      fallbackCompletedEvent.result.usageAccounting?.entries.at(-1)?.providerKey,
+      fallbackCompletedEvent.result.textUsageAccounting?.entries.at(-1)?.providerKey,
       "anthropic"
     );
   }
@@ -8007,6 +8132,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       outputTokens: 0,
       totalTokens: 18
     },
+    textUsage: { status: "usage_unavailable", reason: "test_fixture" },
     stopReason: "tool_calls",
     toolCalls: callIds.map<ProviderGatewayToolCall>((callId) => ({
       id: callId,
@@ -8033,6 +8159,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       outputTokens: 0,
       totalTokens: 18
     },
+    textUsage: { status: "usage_unavailable", reason: "test_fixture" },
     stopReason: "tool_calls",
     toolCalls: callIds.map<ProviderGatewayToolCall>((callId, index) => ({
       id: callId,
@@ -8059,6 +8186,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       outputTokens: 8,
       totalTokens: 30
     },
+    textUsage: { status: "usage_unavailable", reason: "test_fixture" },
     stopReason: "completed",
     toolCalls: []
   });
@@ -8830,6 +8958,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       text,
       respondedAt,
       usage: null,
+      textUsage: { status: "usage_unavailable", reason: "test_fixture" },
       stopReason: "completed",
       toolCalls: []
     });
@@ -8842,6 +8971,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       text: "I will check the web first.",
       respondedAt,
       usage: null,
+      textUsage: { status: "usage_unavailable", reason: "test_fixture" },
       stopReason: "tool_calls",
       toolCalls: [
         {
@@ -8860,6 +8990,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       text: "",
       respondedAt,
       usage: null,
+      textUsage: { status: "usage_unavailable", reason: "test_fixture" },
       stopReason: "tool_calls",
       toolCalls: [
         {

@@ -48,10 +48,7 @@ describe("ADR-161 S4 text usage consumer seam", () => {
       v2Entry({ providerKey: "anthropic", uncached: 30, write: 20, read: 50, output: 7 }),
       v2Entry({ providerKey: "deepseek", uncached: 40, write: 0, read: 60, output: 9 })
     ]);
-    const decoded = decodeTextGenerationUsageForApi({
-      textUsageAccounting: envelope,
-      legacyUsageAccounting: undefined
-    });
+    const decoded = decodeTextGenerationUsageForApi(envelope);
     assert.equal(decoded.kind, "v2");
     if (decoded.kind !== "v2") return;
     assert.equal(decoded.usage.totalInputTokens, 300);
@@ -64,23 +61,17 @@ describe("ADR-161 S4 text usage consumer seam", () => {
       v2Entry({ providerKey: "openai", uncached: 1, write: 1, read: 1, output: 1 })
     ]);
     malformed.totalInputTokens = 999;
-    assert.deepEqual(
-      decodeTextGenerationUsageForApi({
-        textUsageAccounting: malformed,
-        legacyUsageAccounting: undefined
-      }),
-      { kind: "invalid", reason: "usage_v2_aggregate_totalInputTokens_mismatch" }
-    );
-    assert.deepEqual(
-      decodeTextGenerationUsageForApi({
-        textUsageAccounting: { schemaVersion: 3, entries: [] },
-        legacyUsageAccounting: undefined
-      }),
-      { kind: "invalid", reason: "usage_schema_version_unknown" }
-    );
+    assert.deepEqual(decodeTextGenerationUsageForApi(malformed), {
+      kind: "invalid",
+      reason: "usage_v2_aggregate_totalInputTokens_mismatch"
+    });
+    assert.deepEqual(decodeTextGenerationUsageForApi({ schemaVersion: 3, entries: [] }), {
+      kind: "invalid",
+      reason: "usage_schema_version_unknown"
+    });
   });
 
-  test("keeps v1 as the bounded legacy seam and never upgrades it into v2", () => {
+  test("fails closed when canonical v2 accounting is absent", () => {
     const legacy = {
       inputTokens: 100,
       cachedInputTokens: 90,
@@ -88,12 +79,9 @@ describe("ADR-161 S4 text usage consumer seam", () => {
       totalTokens: 110,
       entries: []
     };
-    assert.deepEqual(
-      decodeTextGenerationUsageForApi({
-        textUsageAccounting: undefined,
-        legacyUsageAccounting: legacy
-      }),
-      { kind: "v1", usage: legacy }
-    );
+    assert.deepEqual(decodeTextGenerationUsageForApi(legacy), {
+      kind: "invalid",
+      reason: "usage_schema_version_unknown"
+    });
   });
 });

@@ -177,9 +177,6 @@ export class WebRuntimeTurnClientService {
       assistantMessage: response.body.assistantText,
       respondedAt: response.body.respondedAt,
       media: runtimeOutputArtifactsToMediaArtifacts(response.body.artifacts),
-      ...(response.body.usageAccounting === undefined
-        ? {}
-        : { usageAccounting: response.body.usageAccounting }),
       ...(response.body.textUsageAccounting === undefined
         ? {}
         : { textUsageAccounting: response.body.textUsageAccounting }),

@@ -1,6 +1,5 @@
 {{- if .Values.runtime.enabled }}
 {{- include "persai.adr152.assertAsyncJobRolloutContract" . }}
-{{- include "persai.adr161.assertTextUsageRolloutFloors" . }}
 {{- $runtimeTag := default .Values.global.images.tag .Values.runtime.image.tag }}
 apiVersion: apps/v1
 kind: Deployment
@@ -44,9 +43,6 @@ spec:
             - name: {{ $name }}
               value: {{ $value | quote }}
 {{- end }}
-            # ADR-161 Release A/B rollout seam. DELETE IN RELEASE C.
-            - name: RUNTIME_TEXT_USAGE_V2_PRODUCER_ENABLED
-              value: {{ ternary "true" "false" .Values.adr161TextUsageRollout.runtimeV2Producer | quote }}
 {{- range $name, $ref := .Values.runtime.secretEnv }}
             - name: {{ $name }}
               valueFrom:

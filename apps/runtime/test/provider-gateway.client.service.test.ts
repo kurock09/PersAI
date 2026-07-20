@@ -77,6 +77,7 @@ function createCompletedTextResult(model: string): ProviderGatewayTextGenerateRe
     text: "generated text",
     respondedAt: "2026-04-11T12:00:01.000Z",
     usage: null,
+    textUsage: { status: "usage_unavailable", reason: "test_fixture" },
     stopReason: "completed",
     toolCalls: []
   };
@@ -677,6 +678,7 @@ export async function runProviderGatewayClientServiceTest(): Promise<void> {
       text: "generated text",
       respondedAt: "2026-04-11T12:00:01.000Z",
       usage: null,
+      textUsage: { status: "usage_unavailable", reason: "test_fixture" },
       stopReason: "completed",
       toolCalls: []
     };

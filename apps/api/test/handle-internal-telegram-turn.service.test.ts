@@ -948,31 +948,40 @@ async function run(): Promise<void> {
           assistantMessage: "Completed despite quota failure",
           respondedAt: "2026-04-06T00:00:04.000Z",
           media: [],
-          usageAccounting: {
-            inputTokens: 132,
-            cachedInputTokens: 20,
+          textUsageAccounting: {
+            schemaVersion: 2,
+            totalInputTokens: 152,
+            uncachedInputTokens: 132,
+            cacheWriteInputTokens: 0,
+            cacheReadInputTokens: 20,
             outputTokens: 42,
-            totalTokens: 174,
+            totalTokens: 194,
             entries: [
               {
-                stepType: "turn_routing",
+                schemaVersion: 2,
+                stepType: "router",
                 modelRole: "system_tool",
                 providerKey: "openai",
                 modelKey: "gpt-5-mini",
-                inputTokens: 12,
-                cachedInputTokens: 0,
+                totalInputTokens: 12,
+                uncachedInputTokens: 12,
+                cacheWriteInputTokens: 0,
+                cacheReadInputTokens: 0,
                 outputTokens: 2,
                 totalTokens: 14
               },
               {
+                schemaVersion: 2,
                 stepType: "main_turn",
                 modelRole: "normal_reply",
                 providerKey: "openai",
                 modelKey: "gpt-5-mini",
-                inputTokens: 120,
-                cachedInputTokens: 20,
+                totalInputTokens: 140,
+                uncachedInputTokens: 120,
+                cacheWriteInputTokens: 0,
+                cacheReadInputTokens: 20,
                 outputTokens: 40,
-                totalTokens: 160
+                totalTokens: 180
               }
             ]
           }

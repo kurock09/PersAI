@@ -1,5 +1,4 @@
-import { BadRequestException, Inject, Injectable, Logger, Optional } from "@nestjs/common";
-import type { ProviderGatewayConfig } from "@persai/config";
+import { BadRequestException, Injectable, Logger } from "@nestjs/common";
 import {
   PERSAI_PROVIDER_REQUEST_CLASSIFICATIONS,
   PERSAI_RUNTIME_SHARED_COMPACTION_TOOL_CODES,
@@ -13,7 +12,6 @@ import { DeepSeekProviderClient } from "./deepseek/deepseek-provider.client";
 import { OpenAIProviderClient } from "./openai/openai-provider.client";
 import { normalizeModelKey, toNormalizedNonEmptyModelKey } from "./model-key-normalization";
 import { ProviderWarmupService } from "./provider-warmup.service";
-import { PROVIDER_GATEWAY_CONFIG } from "../../provider-gateway-config";
 
 @Injectable()
 export class ProviderTextGenerationService {
@@ -23,8 +21,7 @@ export class ProviderTextGenerationService {
     private readonly providerWarmupService: ProviderWarmupService,
     private readonly openaiProviderClient: OpenAIProviderClient,
     private readonly anthropicProviderClient: AnthropicProviderClient,
-    private readonly deepseekProviderClient: DeepSeekProviderClient,
-    @Optional() @Inject(PROVIDER_GATEWAY_CONFIG) private readonly config?: ProviderGatewayConfig
+    private readonly deepseekProviderClient: DeepSeekProviderClient
   ) {}
 
   async generateText(
@@ -43,7 +40,7 @@ export class ProviderTextGenerationService {
           return this.deepseekProviderClient.generateText(input);
       }
     })();
-    return this.projectExternalTextUsage(result);
+    return result;
   }
 
   async streamText(
@@ -71,34 +68,7 @@ export class ProviderTextGenerationService {
           return this.deepseekProviderClient.streamText(input, signal);
       }
     })();
-    return this.projectExternalTextUsageStream(stream);
-  }
-
-  /**
-   * ADR-161 Release A/B rollout seam. DELETE IN RELEASE C once the runtime
-   * consumer floor is active and all v1 provider producers have drained.
-   */
-  private projectExternalTextUsage(
-    result: ProviderGatewayTextGenerateResult
-  ): ProviderGatewayTextGenerateResult {
-    if (this.config?.PROVIDER_GATEWAY_TEXT_USAGE_V2_PRODUCER_ENABLED === true) {
-      return result;
-    }
-    const legacyCarrier = { ...result };
-    delete legacyCarrier.textUsage;
-    return legacyCarrier;
-  }
-
-  private async *projectExternalTextUsageStream(
-    stream: AsyncGenerator<ProviderGatewayTextStreamEvent>
-  ): AsyncGenerator<ProviderGatewayTextStreamEvent> {
-    for await (const event of stream) {
-      if (event.type === "completed" || event.type === "tool_calls") {
-        yield { ...event, result: this.projectExternalTextUsage(event.result) };
-      } else {
-        yield event;
-      }
-    }
+    return stream;
   }
 
   private assertValidRequest(input: ProviderGatewayTextGenerateRequest): void {
