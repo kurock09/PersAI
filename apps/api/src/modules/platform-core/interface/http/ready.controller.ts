@@ -12,6 +12,8 @@ type ReadyResponseBody = {
   checkedAt: string;
   capabilities: {
     asyncJobHandles: "v1";
+    /** ADR-161 Release A/B temporary consumer marker. DELETE IN RELEASE C. */
+    textUsageV2Consumer: true;
   };
   dependencies: Array<{
     name: string;
@@ -40,7 +42,8 @@ export class ReadyController {
       requestId: this.requestContextStore.get()?.requestId ?? null,
       checkedAt: snapshot.checkedAt,
       capabilities: {
-        asyncJobHandles: "v1"
+        asyncJobHandles: "v1",
+        textUsageV2Consumer: true
       },
       dependencies: snapshot.dependencies.map((dependency) => ({
         name: dependency.name,

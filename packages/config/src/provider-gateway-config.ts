@@ -64,6 +64,12 @@ const baseProviderGatewayConfigSchema = z.object({
   PROVIDER_GATEWAY_STREAM_TIMEOUT_MS: z.coerce.number().int().positive().default(300_000),
   PERSAI_API_BASE_URL: optionalString,
   PERSAI_INTERNAL_API_TOKEN: optionalString,
+  /**
+   * ADR-161 Release A/B rollout seam. DELETE IN RELEASE C.
+   * Clients still normalize v2 internally; this gates only provider-gateway's
+   * runtime-facing producer boundary.
+   */
+  PROVIDER_GATEWAY_TEXT_USAGE_V2_PRODUCER_ENABLED: envBoolean.optional(),
   PROVIDER_GATEWAY_BROWSERLESS_BASE_URL: optionalUrl.default(
     "https://production-sfo.browserless.io"
   ),

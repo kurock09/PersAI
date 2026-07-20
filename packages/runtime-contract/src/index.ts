@@ -5297,6 +5297,12 @@ export interface RuntimeReadinessStatus {
   ready: boolean;
   bundleCacheReady: boolean;
   providerCacheReady: boolean;
+  capabilities?: {
+    /** ADR-161 Release A/B temporary consumer marker. DELETE IN RELEASE C. */
+    textUsageV2Consumer: true;
+    /** ADR-161 Release A/B temporary producer marker. DELETE IN RELEASE C. */
+    textUsageV2Producer: boolean;
+  };
 }
 
 // ADR-109 Slice 5b — eager HeyGen photo avatar creation at persona POST (E12).

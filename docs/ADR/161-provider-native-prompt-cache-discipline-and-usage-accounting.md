@@ -56,6 +56,15 @@ and migration fixtures. S6 live provider matrix, sequential 50-iteration
 benchmarks, authenticated 40–50-tool turn, deployment, and live acceptance
 remain pending.
 
+The founder selected strict staged closure over the earlier one-push
+constraint. Temporary Release A/B rollout controls are implemented locally:
+runtime/API advertise v2 consumer capability; provider-gateway/runtime v2
+production defaults off; exact immutable consumer/producer image floors and
+approved-tag rollback guards gate B1/B2; and a deploy-truth/probe script checks
+every pod image and `/ready` capability marker. Every temporary control is
+marked for deletion in Release C. Release A push/deploy is the next external
+mutation.
+
 The parent agent orchestrates, audits, reconciles documentation, and commits
 only after an accepted coherent checkpoint. Founder-directed implementation
 delegation: use `gpt-5.6-terra-medium` for complex tasks and `gpt-5.4-medium`

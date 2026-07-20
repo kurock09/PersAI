@@ -2,8 +2,8 @@
 
 ## 2026-07-20 — ADR-161 S0-S4 implemented locally
 
-Status: **S0-S4 committed through `8f172151`; S5 implementation/audits/gates
-complete and awaiting its local checkpoint commit; S6 pending. No push,
+Status: **S0-S5 committed through `083773ad`; temporary Release A/B rollout
+floors implemented and awaiting local checkpoint commit; S6 pending. No push,
 deploy, or live acceptance.**
 
 Repo truth:
@@ -60,8 +60,18 @@ S5 local closure:
 - recursive lint, repository format, API/Web/provider/runtime typechecks,
   contracts generation, Prisma validation, and migration fixtures pass.
 
-Next: commit S5, then execute S6 provider matrix, sequential 50-iteration loops,
-authenticated 40–50-tool turn, one final push/deploy, and live acceptance.
+Founder rollout decision: strict ADR closure takes priority over the previous
+single-push constraint. Temporary consumer-first rollout controls now default
+provider-gateway/runtime v2 production off, advertise runtime/API v2 consumer
+capability, enforce exact immutable consumer/producer image floors and
+approved-tag rollback guards in Helm, and provide a Node-based pod image +
+`/ready` marker probe. All controls are marked `DELETE IN RELEASE C`.
+
+Next: commit the rollout floors; push/deploy Release A; prove all runtime/API
+consumer markers and exact images; activate B1 then B2 with floor-guarded
+GitOps changes; prove producer floors and old-producer drain; execute S6
+provider matrix/50-loop/authenticated acceptance; then delete every temporary
+v1 seam/floor in Release C, repeat gates, push/deploy C, and close ADR-161.
 
 ## 2026-07-20 — provider-gateway OpenAI env fallback removed locally
 

@@ -1,4 +1,5 @@
 {{- if .Values.providerGateway.enabled }}
+{{- include "persai.adr161.assertTextUsageRolloutFloors" . }}
 {{- $providerGatewayTag := default .Values.global.images.tag .Values.providerGateway.image.tag }}
 apiVersion: apps/v1
 kind: Deployment
@@ -39,6 +40,9 @@ spec:
             - name: {{ $name }}
               value: {{ $value | quote }}
 {{- end }}
+            # ADR-161 Release A/B rollout seam. DELETE IN RELEASE C.
+            - name: PROVIDER_GATEWAY_TEXT_USAGE_V2_PRODUCER_ENABLED
+              value: {{ ternary "true" "false" .Values.adr161TextUsageRollout.providerGatewayV2Producer | quote }}
 {{- range $name, $ref := .Values.providerGateway.secretEnv }}
             - name: {{ $name }}
               valueFrom:

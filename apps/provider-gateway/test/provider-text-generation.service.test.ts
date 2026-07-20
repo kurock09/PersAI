@@ -98,6 +98,7 @@ class FakeOpenAIProviderClient {
       text: "openai-result",
       respondedAt: "2026-04-11T12:00:01.000Z",
       usage: null,
+      textUsage: { status: "usage_unavailable", reason: "fixture" },
       stopReason: "completed",
       toolCalls: []
     };
@@ -266,12 +267,30 @@ export async function runProviderTextGenerationServiceTest(): Promise<void> {
 
   const openaiResult = await service.generateText(createRequest("openai"));
   assert.equal(openaiResult.text, "openai-result");
+  assert.equal(
+    openaiResult.textUsage,
+    undefined,
+    "ADR-161 Release A must retain the legacy provider-to-runtime carrier"
+  );
   assert.equal(openaiClient.calls.length, 1);
   assert.equal(anthropicClient.calls.length, 0);
   assert.deepEqual(openaiClient.calls[0]?.promptCache, {
     key: "persai:ordinary_chat:bundle-hash-1:b03",
     openaiPolicy: { mode: "automatic", retention: "in_memory" }
   });
+
+  const v2ProducerOpenAiClient = new FakeOpenAIProviderClient();
+  const v2ProducerService = new ProviderTextGenerationService(
+    warmupService as unknown as ProviderWarmupService,
+    v2ProducerOpenAiClient as unknown as OpenAIProviderClient,
+    anthropicClient as unknown as AnthropicProviderClient,
+    deepseekClient as unknown as DeepSeekProviderClient,
+    {
+      PROVIDER_GATEWAY_TEXT_USAGE_V2_PRODUCER_ENABLED: true
+    } as never
+  );
+  const v2ProducerResult = await v2ProducerService.generateText(createRequest("openai"));
+  assert.deepEqual(v2ProducerResult.textUsage, { status: "usage_unavailable", reason: "fixture" });
 
   warmupService.snapshot.providers[0] = {
     ...warmupService.snapshot.providers[0]!,

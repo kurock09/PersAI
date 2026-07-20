@@ -3,11 +3,14 @@ import {
   BadRequestException,
   ConflictException,
   HttpException,
+  Inject,
   Injectable,
   InternalServerErrorException,
   Logger,
+  Optional,
   ServiceUnavailableException
 } from "@nestjs/common";
+import type { RuntimeConfig } from "@persai/config";
 import type {
   AssistantRuntimeBundle,
   AssistantRuntimeBundleToolCredentialRef
@@ -86,6 +89,7 @@ import {
   buildAssistantSessionRoot
 } from "@persai/runtime-contract";
 import { RuntimeBundleRegistryService } from "../bundles/runtime-bundle-registry.service";
+import { RUNTIME_CONFIG } from "../../runtime-config";
 import { RuntimeObservabilityService } from "../observability/runtime-observability.service";
 import type { RuntimeTurnReceiptSummary } from "./idempotency.service";
 import {
@@ -620,7 +624,8 @@ export class TurnExecutionService {
     private readonly runtimeObservabilityService: RuntimeObservabilityService,
     private readonly runtimeExecutionAdmissionService: RuntimeExecutionAdmissionService,
     private readonly runtimeAwaitToolService: RuntimeAwaitToolService,
-    private readonly mediaObjectStorage: PersaiMediaObjectStorageService
+    private readonly mediaObjectStorage: PersaiMediaObjectStorageService,
+    @Optional() @Inject(RUNTIME_CONFIG) private readonly config?: RuntimeConfig
   ) {}
 
   async createTurn(input: RuntimeTurnRequest): Promise<RuntimeTurnResult> {
@@ -2219,7 +2224,8 @@ export class TurnExecutionService {
       ...(turnState.usageEntries.length === 0
         ? {}
         : { usageAccounting: this.buildUsageAccounting(turnState.usageEntries) }),
-      ...(turnState.textUsageEntries.length === 0
+      ...(turnState.textUsageEntries.length === 0 ||
+      this.config?.RUNTIME_TEXT_USAGE_V2_PRODUCER_ENABLED !== true
         ? {}
         : { textUsageAccounting: this.buildTextUsageAccounting(turnState.textUsageEntries) }),
       ...(turnState.toolInvocations.length === 0

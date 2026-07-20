@@ -5,6 +5,18 @@
 
 ## 2026-07-20
 
+- **ADR-161 strict staged rollout floors implemented locally:** after the
+  founder selected strict no-legacy closure over the previous single-push
+  constraint, added temporary Release A/B controls. Runtime/API advertise v2
+  consumer capability; provider-gateway/runtime v2 production defaults off;
+  Helm requires exact immutable consumer/producer image floors and explicit
+  approved-tag rollback sets before B1/B2; and an executable deploy-truth/probe
+  script verifies every pod image and `/ready` capability marker using the
+  guaranteed Node runtime rather than optional curl/wget. Invalid phase/floor
+  combinations fail rendering. All temporary controls are marked for deletion
+  in Release C. Local tests, typechecks, recursive lint, formatting, Helm
+  lint/template, rollout validation, and diff checks pass.
+
 - **ADR-161 S5 local audits and full gates complete:** independent
   billing/rollout and security/privacy audits returned CLEAN. The
   architecture/cache audit found one P1: OpenAI and Anthropic placed mutable

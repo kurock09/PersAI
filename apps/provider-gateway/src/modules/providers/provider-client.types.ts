@@ -51,6 +51,10 @@ export type ProviderReadinessSnapshot = {
   checkedAt: string;
   ready: boolean;
   providerCacheReady: boolean;
+  capabilities: {
+    /** ADR-161 Release A/B temporary producer marker. DELETE IN RELEASE C. */
+    textUsageV2Producer: boolean;
+  };
   providers: ProviderWarmStatus[];
 };
 

@@ -1,4 +1,5 @@
 {{- if .Values.api.enabled }}
+{{- include "persai.adr161.assertTextUsageRolloutFloors" . }}
 {{- $apiTag := default .Values.global.images.tag .Values.api.image.tag }}
 apiVersion: apps/v1
 kind: Deployment

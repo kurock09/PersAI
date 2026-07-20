@@ -1,6 +1,8 @@
-import { Injectable } from "@nestjs/common";
+import { Inject, Injectable, Optional } from "@nestjs/common";
+import type { RuntimeConfig } from "@persai/config";
 import type { RuntimeReadinessStatus } from "@persai/runtime-contract";
 import { RuntimeBundleRegistryService } from "../../bundles/runtime-bundle-registry.service";
+import { RUNTIME_CONFIG } from "../../../runtime-config";
 import { ProviderGatewayClientService } from "../../turns/provider-gateway.client.service";
 
 export interface RuntimeReadySnapshot extends RuntimeReadinessStatus {
@@ -14,7 +16,8 @@ export interface RuntimeReadySnapshot extends RuntimeReadinessStatus {
 export class RuntimeReadinessService {
   constructor(
     private readonly runtimeBundleRegistryService: RuntimeBundleRegistryService,
-    private readonly providerGatewayClientService: ProviderGatewayClientService
+    private readonly providerGatewayClientService: ProviderGatewayClientService,
+    @Optional() @Inject(RUNTIME_CONFIG) private readonly config?: RuntimeConfig
   ) {}
 
   async getSnapshot(): Promise<RuntimeReadySnapshot> {
@@ -27,6 +30,10 @@ export class RuntimeReadinessService {
       ready: bundleRegistry.initialized && providerCacheReady,
       bundleCacheReady: bundleRegistry.initialized,
       providerCacheReady,
+      capabilities: {
+        textUsageV2Consumer: true,
+        textUsageV2Producer: this.config?.RUNTIME_TEXT_USAGE_V2_PRODUCER_ENABLED === true
+      },
       darkService: true,
       executionEnabled: true,
       bundleCacheEntries: bundleRegistry.entries,
