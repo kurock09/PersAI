@@ -629,6 +629,9 @@ importers:
 
   packages/runtime-contract:
     devDependencies:
+      '@types/node':
+        specifier: ^24.12.0
+        version: 24.12.0
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
