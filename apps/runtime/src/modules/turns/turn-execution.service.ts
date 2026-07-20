@@ -5299,17 +5299,10 @@ export class TurnExecutionService {
   }
 
   /**
-   * Model-owned-reply policy for deferred background jobs (image_generate,
-   * image_edit, video_generate, and every document job): when the model
-   * produced any non-empty text alongside a deferred job we preserve it
-   * verbatim. Honesty about the pending delivery is enforced upstream by the
-   * developer-tail `buildDeferredMediaFollowUpInstruction` /
-   * `buildDeferredDocumentFollowUpInstruction` and by the global
-   * DELIVERY_HONESTY_CONTRACT — both forbid the model from claiming
-   * attachment/upload/delivery in prose. The canonical acknowledgement is
-   * kept strictly as a fallback for the empty-reply case so the user always
-   * sees an explicit "request accepted" line. Web stream, web sync, and
-   * Telegram all share this single code path.
+   * Deferred media/document jobs have a separate, authoritative completion
+   * turn. The source turn must therefore use canonical pending copy until it
+   * actually owns an artifact; preserving arbitrary model text here lets it
+   * prematurely claim (or echo) a result which the continuation later repeats.
    */
   private applyDeferredMediaAcknowledgementCorrection(
     assistantText: string,
@@ -5319,9 +5312,6 @@ export class TurnExecutionService {
   ): string {
     const normalizedText = this.normalizeOptionalText(assistantText) ?? "";
     if (deferredMediaJobs.length === 0 || artifacts.length > 0) {
-      return normalizedText;
-    }
-    if (normalizedText.length > 0) {
       return normalizedText;
     }
     return this.buildDeferredMediaAcknowledgement(locale, deferredMediaJobs);
@@ -5335,9 +5325,6 @@ export class TurnExecutionService {
   ): string {
     const normalizedText = this.normalizeOptionalText(assistantText) ?? "";
     if (deferredDocumentJobs.length === 0 || artifacts.length > 0) {
-      return normalizedText;
-    }
-    if (normalizedText.length > 0) {
       return normalizedText;
     }
     return this.buildDeferredDocumentAcknowledgement(locale, deferredDocumentJobs);
@@ -6411,7 +6398,7 @@ export class TurnExecutionService {
         ],
         ...(todoWriteTools.length > 0
           ? { tools: todoWriteTools, toolChoice: "auto" as const }
-          : { tools: [], toolChoice: "none" as const }),
+          : {}),
         requestMetadata: this.createSelfCheckProviderRequestMetadata(input.acceptedTurn)
       };
 

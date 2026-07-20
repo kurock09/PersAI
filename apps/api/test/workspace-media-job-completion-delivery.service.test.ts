@@ -302,24 +302,23 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
       } as never,
       noopRecordModelCostLedgerService,
       noopAssistantRepository,
-      noopTrackWorkspaceQuotaUsageService
+      noopTrackWorkspaceQuotaUsageService,
+      {
+        async prepareDelivery() {
+          return "skip_legacy_frame";
+        },
+        async recordCanonicalCompletion() {
+          return { decision: "skip_legacy_frame", state: "ready" };
+        }
+      } as never
     );
 
     const processed = await service.processPendingBatch();
 
     assert.equal(processed, 1);
     assert.equal(finalUpdates.at(-1)?.data?.status, "delivered");
-    assert.equal(sendReplyCalls.length, 1);
-    assert.equal(sendReplyCalls[0]?.assistantMessageId, "assistant-message-2");
-    assert.equal(sendReplyCalls[0]?.mediaAlreadyDelivered, true);
-    assert.equal(sendReplyCalls[0]?.text, "Fresh Telegram framing.");
-    assert.deepEqual(events, [
-      "structural-message",
-      "attachments",
-      "legacy-frame",
-      "success-text",
-      "outbound-text"
-    ]);
+    assert.equal(sendReplyCalls.length, 0);
+    assert.deepEqual(events, ["structural-message", "attachments"]);
   });
 
   test("does not refresh image completion with ghostwriter framing when an acknowledgement already exists", async () => {

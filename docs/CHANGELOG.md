@@ -5,6 +5,19 @@
 
 ## 2026-07-20
 
+- **Repair (local, pending deploy):** corrected three production regressions:
+  continuation-owned Telegram media delivery had reused and re-sent the
+  original acknowledgement bubble with the attachment before the valid
+  continuation narration; it now delivers the attachment without re-sending
+  or rewriting that source text. `document.render(contentPath)` now stages
+  canonical Markdown into the fresh sandbox before generated code reads it,
+  and `document.convert` similarly mounts its canonical binary source instead
+  of depending on warm-pod residue. The post-final self-check omits
+  `tools: []` / `toolChoice: "none"` when `todo_write` is unavailable,
+  avoiding the observed DeepSeek 400. Focused API/runtime tests, API/runtime
+  typechecks, lint, and targeted format checks pass; commit/deploy/live
+  acceptance remain pending.
+
 - **Repair (ADR-159 three-job live failure; deployed and web-accepted):** corrected the prior
   incomplete green claim. All three media files delivered, but the first
   synthetic catch-up failed because a post-headers/pre-output DeepSeek stream

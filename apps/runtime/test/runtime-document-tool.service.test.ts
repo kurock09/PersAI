@@ -475,7 +475,19 @@ describe("RuntimeDocumentToolService", () => {
       sandboxCalls.find((call) => call.toolCode === "execute_document_code")?.args.programSource ??
         ""
     );
-    assert.match(programSource, /CONTENT_PATH = Path\(".*monthly \(1\)\.md"\)/);
+    assert.match(
+      programSource,
+      /CONTENT_PATH = Path\(".*sources\/document-source-request-render-pdf\.md"\)/
+    );
+    assert.deepEqual(
+      sandboxCalls.find((call) => call.toolCode === "execute_document_code")?.args.textSidecars,
+      [
+        {
+          mountPath: "sources/document-source-request-render-pdf.md",
+          text: markdownContent
+        }
+      ]
+    );
     assert.match(
       programSource,
       new RegExp(
@@ -733,8 +745,17 @@ describe("RuntimeDocumentToolService", () => {
     assert.match(
       programSource,
       new RegExp(
-        `SOURCE_PATH = Path\\("${wp("source.docx").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"\\)`
+        `SOURCE_PATH = Path\\("${wp("sources/document-source-request-convert-pdf.docx").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"\\)`
       )
+    );
+    assert.deepEqual(
+      sandboxCalls.find((call) => call.toolCode === "execute_document_code")?.args.sourceMounts,
+      [
+        {
+          storagePath: wp("source.docx"),
+          mountPath: "sources/document-source-request-convert-pdf.docx"
+        }
+      ]
     );
     assert.match(
       programSource,
@@ -1066,8 +1087,19 @@ describe("RuntimeDocumentToolService", () => {
     assert.match(
       secondProgramSource,
       new RegExp(
-        `CONTENT_PATH = Path\\("${"/workspace/assistants/assistant-1/sessions/session-case-a/report.md".replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"\\)`
+        `CONTENT_PATH = Path\\("${"/workspace/assistants/assistant-1/sessions/session-case-a/sources/document-source-case-a-render-v2.md".replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"\\)`
       )
+    );
+    assert.deepEqual(
+      sandboxCalls.filter((call) => call.toolCode === "execute_document_code").at(-1)?.args
+        .textSidecars,
+      [
+        {
+          mountPath: "sources/document-source-case-a-render-v2.md",
+          text: editedMarkdown
+        }
+      ],
+      "contentPath source must be staged into the document sandbox before rendering"
     );
   });
 

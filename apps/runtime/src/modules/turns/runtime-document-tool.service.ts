@@ -46,6 +46,8 @@ type AuthoredRenderContentSource = {
 
 type AuthoredRenderArtifacts = {
   sourceMarkdownPath: string;
+  sandboxSourceMountPath: string;
+  markdown: string;
   programSource: string;
 };
 
@@ -543,7 +545,14 @@ export class RuntimeDocumentToolService {
         sessionId: params.sessionId,
         requestId: params.requestId,
         outputPath,
-        programSource: authoredRenderArtifacts!.programSource
+        programSource: authoredRenderArtifacts!.programSource,
+        sourceMounts: [],
+        textSidecars: [
+          {
+            mountPath: authoredRenderArtifacts!.sandboxSourceMountPath,
+            text: authoredRenderArtifacts!.markdown
+          }
+        ]
       });
     } catch (error) {
       return this.renderSkipped(
@@ -700,17 +709,27 @@ export class RuntimeDocumentToolService {
     }
     let job: RuntimeSandboxJobResult;
     try {
+      const sandboxSourceMountPath = this.buildSandboxDocumentSourceMountPath(
+        params.requestId,
+        sourceFormat
+      );
       job = await this.runDocumentCodeSandboxJob({
         bundle: params.bundle,
         sessionId: params.sessionId,
         requestId: params.requestId,
         outputPath,
         programSource: this.buildLibreOfficeConvertProgramSource({
-          sourcePath,
+          sourcePath: this.buildSandboxDocumentSourcePath({
+            bundle: params.bundle,
+            sessionId: params.sessionId,
+            sourceMountPath: sandboxSourceMountPath
+          }),
           sourceFormat,
           targetFormat: params.request.targetFormat,
           outputPath
-        })
+        }),
+        sourceMounts: [{ storagePath: sourcePath, mountPath: sandboxSourceMountPath }],
+        textSidecars: []
       });
     } catch (error) {
       return this.convertSkipped(
@@ -1183,16 +1202,24 @@ export class RuntimeDocumentToolService {
       contentPath: input.contentPath,
       outputPath: input.outputPath
     });
+    const sandboxSourceMountPath = this.buildSandboxDocumentSourceMountPath(input.requestId);
+    const sandboxContentPath = this.buildSandboxDocumentSourcePath({
+      bundle: input.bundle,
+      sessionId: input.sessionId,
+      sourceMountPath: sandboxSourceMountPath
+    });
     return {
       sourceMarkdownPath: contentSource.markdownPath,
+      sandboxSourceMountPath,
+      markdown: contentSource.markdown,
       programSource:
         input.format === "xlsx"
           ? this.buildAuthoredWorkbookScript({
-              contentPath: contentSource.markdownPath,
+              contentPath: sandboxContentPath,
               outputPath: input.outputPath
             })
           : this.buildAuthoredRenderScript({
-              contentPath: contentSource.markdownPath,
+              contentPath: sandboxContentPath,
               outputPath: input.outputPath,
               template: authoredTemplate,
               documentTitleFallback: this.stemOf(this.basename(input.outputPath)),
@@ -1812,6 +1839,8 @@ export class RuntimeDocumentToolService {
     requestId: string;
     outputPath: string;
     programSource: string;
+    sourceMounts: Array<{ storagePath: string; mountPath: string }>;
+    textSidecars: Array<{ mountPath: string; text: string }>;
   }): Promise<RuntimeSandboxJobResult> {
     return this.sandboxClientService!.waitForCompletion({
       assistantId: input.bundle.metadata.assistantId,
@@ -1825,8 +1854,8 @@ export class RuntimeDocumentToolService {
       args: {
         programSource: input.programSource,
         outputFileName: this.toWorkspaceRelativePath(input.outputPath),
-        sourceMounts: [],
-        textSidecars: [],
+        sourceMounts: input.sourceMounts,
+        textSidecars: input.textSidecars,
         inputPaths: []
       },
       scriptVersionId: null,
@@ -1950,6 +1979,21 @@ export class RuntimeDocumentToolService {
 
   private toWorkspaceRelativePath(path: string): string {
     return path.replace(/^\/workspace\//, "");
+  }
+
+  private buildSandboxDocumentSourceMountPath(requestId: string, extension = "md"): string {
+    return `sources/document-source-${requestId.replace(/[^A-Za-z0-9_-]/g, "_")}.${extension}`;
+  }
+
+  private buildSandboxDocumentSourcePath(input: {
+    bundle: AssistantRuntimeBundle;
+    sessionId: string;
+    sourceMountPath: string;
+  }): string {
+    return `${buildAssistantSessionRoot(
+      input.bundle.metadata.assistantId,
+      input.sessionId
+    )}/${input.sourceMountPath}`;
   }
 
   private basename(path: string): string {

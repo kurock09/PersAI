@@ -1,5 +1,41 @@
 # SESSION-HANDOFF
 
+## 2026-07-20 — Telegram attachment-narration dedup + document source staging + self-check 400 repair local
+
+Status: **Local implementation verified; not committed, pushed, deployed, or
+live-accepted.** Production logs preserve the nonfatal runtime self-check
+failure `requestId=3d9865a4…`: DeepSeek rejected the post-final request with
+HTTP 400. The self-check had sent `tools: []` with `toolChoice: "none"` when
+`todo_write` was not projected. It now omits both fields in that mode; the
+focused regression proves the generated request has neither field.
+
+The Telegram duplicate is a real backend delivery defect, not a duplicate
+file: the original source assistant bubble is persisted as
+`assistantAcknowledgementMessageId`, then reused as
+`completionAssistantMessageId` when the attachment arrives. The delivery
+worker sent that already-delivered text again through
+`deliverPersistedAssistantMessageBestEffort`, followed by the valid async
+continuation narration. For continuation-owned (`skip_legacy_frame`) media,
+the delivery worker now sends only the attachment and finalizes the canonical
+job; it neither rewrites nor re-sends the source acknowledgement. The
+continuation remains the sole text narrator. Legacy framing retains its
+separate path.
+
+`document.render({contentPath})` read Markdown from canonical storage but
+executed generated code in a sandbox with empty `sourceMounts` and
+`textSidecars`; the referenced Markdown consequently did not exist in a
+fresh pod. Runtime now stages the read Markdown as a bounded sandbox
+sidecar before PDF/DOCX/XLSX generation. The same source-staging rule now
+mounts `document.convert` binary input from canonical storage instead of
+depending on warm-pod filesystem residue.
+
+Focused API delivery tests (17), document-tool tests (15), full
+turn-execution test, API/runtime typechecks, API/runtime lint, and targeted
+formatting are green. Next: commit/push only with founder instruction, deploy
+the exact API/runtime images, then live-accept one Telegram generated/edit
+file (one attachment, no repeated source text), `document.render(contentPath)`
+from a fresh session, and a no-`todo_write` self-check.
+
 ## 2026-07-20 — ADR-159 three-job transport repair deployed and accepted
 
 Status: **Web end-to-end acceptance is green; Telegram remains pending.**

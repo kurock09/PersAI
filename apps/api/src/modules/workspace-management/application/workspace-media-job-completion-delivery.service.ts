@@ -334,9 +334,10 @@ export class AssistantMediaJobCompletionDeliveryService {
         canonicalJobId: job.id
       });
       if (job.surface === "telegram") {
-        // Canonical Telegram attachment delivery precedes all legacy success
-        // framing. The structural message is only the attachment anchor until
-        // delivery succeeds.
+        // Canonical Telegram attachment delivery precedes narration. A
+        // subscribed handle's continuation is the sole narrator, so its
+        // source acknowledgement may be an attachment anchor but must never
+        // be sent again with the delivered file.
         const messageId = await this.ensureCompletionMessage(job, {
           text: "",
           shouldUpdateExistingMessage: false
@@ -898,6 +899,14 @@ export class AssistantMediaJobCompletionDeliveryService {
     await this.releaseUnproducedRemainderBestEffort(params.job, params.artifacts.length);
     if (delivered.attachments.length === 0) {
       throw new Error("Generated media could not be delivered to the Telegram chat.");
+    }
+    if (!params.allowLegacyFrame) {
+      await this.finalizeJob(params.job, {
+        status: "delivered",
+        code: null,
+        message: null
+      });
+      return;
     }
     const completionAssistantText = await this.resolveCompletionAssistantText({
       job: params.job,

@@ -8803,6 +8803,43 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       );
     }
 
+    // Test A.1 — no todo_write projection must omit both tool fields. DeepSeek
+    // rejects tool_choice:"none" without a tools array with HTTP 400.
+    {
+      const previousPolicies = bundleRegistry.entry?.parsedBundle.governance.toolPolicies;
+      if (bundleRegistry.entry !== null && previousPolicies !== undefined) {
+        bundleRegistry.entry.parsedBundle.governance.toolPolicies = previousPolicies.filter(
+          (tool) => tool.toolCode !== "todo_write"
+        );
+      }
+      try {
+        const noTodoSelfCheckRequest = createRuntimeTurnRequest();
+        noTodoSelfCheckRequest.bundle.bundleHash = request.bundle.bundleHash;
+        turnAcceptanceService.result = createAcceptedTurn();
+        (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
+          noTodoSelfCheckRequest.bundle.bundleHash;
+        turnContextHydrationService.chatPlanBlockResults = [null, openPlan()];
+        providerGatewayClient.resultQueue = [
+          webSearchToolCallResult("tool-call-web-search-no-todo", "2026-06-22T20:00:00.500Z"),
+          completedResult("Original final without todo_write", "2026-06-22T20:00:01.500Z"),
+          completedResult("Self-check without todo_write", "2026-06-22T20:00:02.500Z")
+        ];
+        const callOffset = providerGatewayClient.calls.length;
+        const result = await service.createTurn(noTodoSelfCheckRequest);
+        assert.equal(result.assistantText, "Self-check without todo_write");
+        const selfCheckCall = providerGatewayClient.calls[callOffset + 2] as {
+          tools?: unknown;
+          toolChoice?: unknown;
+        };
+        assert.equal(selfCheckCall.tools, undefined);
+        assert.equal(selfCheckCall.toolChoice, undefined);
+      } finally {
+        if (bundleRegistry.entry !== null && previousPolicies !== undefined) {
+          bundleRegistry.entry.parsedBundle.governance.toolPolicies = previousPolicies;
+        }
+      }
+    }
+
     // Test B — self-check skipped when the fresh plan is clean/empty.
     {
       const cleanPlanRequest = createRuntimeTurnRequest();
