@@ -381,13 +381,15 @@ export class ResolveAdminBusinessPlatformService {
         FROM validated_v2_receipts
       )
       SELECT
-        COUNT(*)::int AS completed_turns,
+        (
+          SELECT COUNT(*)::int
+          FROM runtime_turn_receipts
+          WHERE status = 'completed'
+            AND completed_at IS NOT NULL
+            AND completed_at >= ${windowStart}
+        ) AS completed_turns,
         aggregates.*
-      FROM runtime_turn_receipts
-      CROSS JOIN aggregates
-      WHERE status = 'completed'
-        AND completed_at IS NOT NULL
-        AND completed_at >= ${windowStart}
+      FROM aggregates
     `;
     const row = rows[0];
     return {
