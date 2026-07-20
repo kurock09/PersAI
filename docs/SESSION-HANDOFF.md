@@ -1,9 +1,41 @@
 # SESSION-HANDOFF
 
+## 2026-07-20 — ADR-161 S0-S3 implemented locally
+
+Status: **S0-S3 committed locally through `ebf310c4`; S4-S6 pending. No push,
+deploy, or live acceptance.**
+
+Repo truth:
+
+- `07bf3843` established canonical text usage v2 contracts, declarative
+  `promptCachePolicy`, explicit cache-write weight, and the transaction-safe
+  catalog JSON backfill.
+- `65c11816` removed the unused static
+  `PROVIDER_GATEWAY_OPENAI_API_KEY`; OpenAI now resolves only the encrypted
+  Admin-managed `openai/api-key`.
+- `ebf310c4` implemented the immutable compact tool-exchange spine with
+  newest-three full overlays; DeepSeek chat placement and official hit/miss
+  accounting; Anthropic stable + latest-sealed breakpoints; OpenAI
+  policy-only retention/explicit boundary transport; provider-derived cache
+  prefix telemetry; and removal of the scalar retention fallback/carrier.
+
+The required controlled OpenAI key experiment selected common-prefix
+Assistant/family traffic-shard semantics: identical repeated requests reported
+2,172 of 2,190 cached input tokens, while variant keys reported zero.
+
+Provider/runtime focused tests, typechecks, formatting, and parent review pass.
+The single independent S1-S3 audit returned three P1 behavior findings and one
+P2 observability finding; all four were corrected before `ebf310c4`.
+
+Next: implement S4 canonical v2 receipts, Credits, ledger, pricing, and Admin
+metrics while preserving the bounded consumer-first rollout seam. Then perform
+S5 full audits/gates and S6 provider-matrix/50-loop/live acceptance. Push only
+after local implementation and gates are complete.
+
 ## 2026-07-20 — provider-gateway OpenAI env fallback removed locally
 
-Status: **Local only on clean baseline `07bf38435b0c88c5aa10a5378a67c89996db147a`.
-No commit, push, deploy, or live acceptance.**
+Status: **Committed locally as `65c11816`; no push, deploy, or live
+acceptance.**
 
 Founder-confirmed scope: verify whether static
 `PROVIDER_GATEWAY_OPENAI_API_KEY` is still required anywhere on the active
@@ -54,13 +86,12 @@ Residual historical-only references remain in archived handoff/changelog files
 that document the old fallback era; active-path files no longer reference
 `PROVIDER_GATEWAY_OPENAI_API_KEY`.
 
-Next recommended step: parent review and commit this bounded cleanup slice if
-the managed-secret-only OpenAI provider path is accepted as the new repo truth.
+Accepted and committed locally; subsequent ADR-161 work is recorded above.
 
 ## 2026-07-20 — ADR-161 provider-native prompt-cache discipline opened
 
-Status: **Founder long-loop refinement independently re-audited CLEAN with
-zero P0/P1/P2. No implementation, commit, push, deploy, or live acceptance.**
+Status: **Documentation opening superseded by the implementation checkpoint
+above. No push, deploy, or live acceptance.**
 Baseline
 `d4bd32679929bef89cc13120cf2719ad9a2b0df3`.
 

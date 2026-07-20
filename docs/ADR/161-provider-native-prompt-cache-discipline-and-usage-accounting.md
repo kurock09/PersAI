@@ -2,17 +2,36 @@
 
 ## Status
 
-**Open — 2026-07-20; founder-prioritized documentation checkpoint only.**
+**Open — 2026-07-20; S0-S3 implemented locally, S4-S6 pending.**
 
 This is a new parent-orchestrated program. The opening baseline is
-`d4bd32679929bef89cc13120cf2719ad9a2b0df3`. No implementation, migration,
-commit, push, deploy, or live acceptance is part of this opening slice.
+`d4bd32679929bef89cc13120cf2719ad9a2b0df3`. The documentation opening is
+`de265c57`; S0 contracts/catalog migration landed locally in `07bf3843`;
+the managed-secret-only OpenAI prerequisite cleanup landed locally in
+`65c11816`; and S1-S3 provider/runtime cache behavior landed locally in
+`ebf310c4`. Nothing from this program has been pushed or deployed.
 The initial opening audit returned CLEAN after repair of all findings. The
 founder then added a mandatory long-tool-loop requirement: prove append-only
 prefix reuse and positive net provider-cost savings over 40–50 exchanges, not
 only cache metrics. After iterative repair, the independent re-audit of this
-refinement returned **CLEAN with zero P0/P1/P2 findings**. No implementation
-has begun.
+refinement returned **CLEAN with zero P0/P1/P2 findings**.
+
+Implemented local truth through S3:
+
+- canonical text usage v2 contracts, catalog-declared cache policy/write
+  weight, and transaction-safe JSON catalog backfill;
+- immutable compact in-turn spine plus newest-three full overlays;
+- DeepSeek stable-history-before-volatile placement and official cache usage;
+- Anthropic stable quantized anchor plus latest sealed-result breakpoint;
+- OpenAI common-prefix key selected by measured controlled traffic: identical
+  repeats read 2,172 of 2,190 input tokens while variant keys read zero;
+- policy-only OpenAI retention/explicit-breakpoint transport, exact boundary
+  markers, provider-derived prefix telemetry, and removal of the scalar
+  retention fallback/carrier.
+
+Focused provider/runtime/accounting tests, typechecks, formatting, and the
+independent S1-S3 audit findings are resolved. S4 canonical receipts, Credits,
+ledger, pricing, and Admin metrics has not begun.
 
 The parent agent orchestrates, audits, reconciles documentation, and commits
 only after an accepted coherent checkpoint. Founder-directed implementation

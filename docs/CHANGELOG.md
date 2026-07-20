@@ -5,7 +5,23 @@
 
 ## 2026-07-20
 
-- **Provider-gateway OpenAI env fallback removed (local, not committed/deployed):**
+- **ADR-161 S0-S3 implemented locally (`07bf3843`, `ebf310c4`; not
+  pushed/deployed):** added canonical text usage v2 contracts, declarative
+  `promptCachePolicy`, explicit cache-write weights, and a transaction-safe
+  catalog JSON backfill; replaced mutable in-turn tool-history reprojection
+  with an immutable compact spine plus newest-three full overlays; corrected
+  DeepSeek stable-history placement and official hit/miss accounting; retained
+  Anthropic's quantized stable anchor while adding the latest sealed-result
+  breakpoint; and implemented OpenAI policy-only retention/explicit boundary
+  transport with provider-derived prefix telemetry. A controlled key
+  experiment selected common-prefix Assistant/family semantics: identical
+  repeats read 2,172/2,190 cached input tokens while variant keys read zero.
+  The scalar retention fallback/carrier and old generated contract were
+  removed. Focused provider/runtime/accounting tests, typechecks, formatting,
+  parent review, and all findings from one independent S1-S3 audit pass. S4-S6
+  remain pending.
+
+- **Provider-gateway OpenAI env fallback removed (`65c11816`, local only):**
   verified on clean baseline `07bf3843` that the active PersAI-native
   production path already resolves OpenAI through the managed internal secret
   service (`openai/api-key`) and that the remaining
@@ -19,7 +35,7 @@
   lint/typecheck, repo lint, repo format check, API/web typecheck, Helm
   lint/template, and `git diff --check` pass.
 
-- **Architecture (ADR-161 opened, docs only):** the provider-cache audit
+- **Architecture (ADR-161 opening checkpoint):** the provider-cache audit
   confirmed that the compiled stable system prompt is stable and that, for
   ordinary/deep chat, early volatile `developerInstructions` placement is
   DeepSeek-only. ADR-161 opens a parent-orchestrated clean cutover for
@@ -31,8 +47,9 @@
   tool projection-family identity, actual-vs-no-cache provider-input cost, and
   content-safe cache observability. It
   makes no single-commit regression claim, permits only a bounded versioned
-  rollout seam that must be deleted at closure, and changes no runtime
-  behavior in this docs checkpoint. After the initial CLEAN audit, the founder
+  rollout seam that must be deleted at closure; this bullet records only the
+  original docs checkpoint, while implementation truth is recorded above.
+  After the initial CLEAN audit, the founder
   added a mandatory 50-iteration provider benchmark and authenticated
   40–50-tool PersAI turn: closure requires growing cache reads and strictly
   positive net provider-cost savings, not a hit percentage alone. Independent
