@@ -8,7 +8,7 @@ import type { RuntimeProviderModelProfileCommonStatePromptCachePolicyOneOf } fro
 import type { RuntimeProviderModelProfileCommonStatePromptCachePolicyOneOfFour } from "./runtimeProviderModelProfileCommonStatePromptCachePolicyOneOfFour";
 
 /**
- * ADR-161 S0 — model-declared cache wire policy. Null is undeclared and must not activate a runtime fallback.
+ * ADR-161 S3 — model-declared cache wire policy. Null means explicit uncached mode; absent/invalid policy must fail closed before a cache-enabled OpenAI request is built.
  * @nullable
  */
 export type RuntimeProviderModelProfileCommonStatePromptCachePolicy =

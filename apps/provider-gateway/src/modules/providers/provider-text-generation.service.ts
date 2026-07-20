@@ -1,6 +1,5 @@
 import { BadRequestException, Injectable, Logger } from "@nestjs/common";
 import {
-  PERSAI_PROVIDER_PROMPT_CACHE_RETENTIONS,
   PERSAI_PROVIDER_REQUEST_CLASSIFICATIONS,
   PERSAI_RUNTIME_SHARED_COMPACTION_TOOL_CODES,
   type ProviderGatewayMessageContent,
@@ -381,13 +380,34 @@ export class ProviderTextGenerationService {
     if (typeof promptCache.key === "string" && promptCache.key.length > 64) {
       throw new BadRequestException("promptCache.key must be at most 64 characters when provided");
     }
-    if (
-      promptCache.retention !== undefined &&
-      !PERSAI_PROVIDER_PROMPT_CACHE_RETENTIONS.includes(promptCache.retention)
-    ) {
-      throw new BadRequestException(
-        "promptCache.retention must be one of the supported provider prompt cache retention values"
-      );
+    const policy = promptCache.openaiPolicy;
+    if (input.provider === "openai" && policy === undefined) {
+      throw new BadRequestException("OpenAI requests require catalog promptCache.openaiPolicy");
+    }
+    if (policy !== undefined) {
+      if (policy === null || typeof policy !== "object" || Array.isArray(policy)) {
+        throw new BadRequestException("promptCache.openaiPolicy is invalid");
+      }
+      const row = policy as Record<string, unknown>;
+      const automatic =
+        row.mode === "automatic" &&
+        (row.retention === "in_memory" || row.retention === "24h") &&
+        Object.keys(row).every((key) => key === "mode" || key === "retention");
+      const explicit =
+        row.mode === "explicit" &&
+        row.ttl === "30m" &&
+        row.stableAnchor === "explicit" &&
+        row.sealedSpineBreakpoint === "explicit" &&
+        Object.keys(row).every(
+          (key) =>
+            key === "mode" ||
+            key === "ttl" ||
+            key === "stableAnchor" ||
+            key === "sealedSpineBreakpoint"
+        );
+      if (!automatic && !explicit) {
+        throw new BadRequestException("promptCache.openaiPolicy is invalid");
+      }
     }
   }
 

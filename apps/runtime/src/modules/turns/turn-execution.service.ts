@@ -22,7 +22,7 @@ import {
   type PersaiRuntimeWebSearchProviderId,
   type PersaiRuntimeSharedCompactionToolCode,
   type ProviderGatewayPromptCacheConfig,
-  type ProviderGatewayPromptCacheRetention,
+  type ProviderGatewayOpenAIPromptCachePolicy,
   type ProviderGatewayRequestMetadata,
   type ProviderGatewayMessageContentBlock,
   type ProviderGatewayToolCall,
@@ -113,8 +113,10 @@ import { RuntimeBrowserToolService } from "./runtime-browser-tool.service";
 import { RuntimeDocumentToolService } from "./runtime-document-tool.service";
 import { stringifyToolResultPayloadForModel } from "./sanitize-tool-result-for-model";
 import {
-  formatToolHistoryProjectionMetricsLog,
-  projectToolExchangesForModelWithMetrics
+  appendCompletedToolExchangeToSpine,
+  buildInTurnToolExchangeProjection,
+  createSealedToolExchangeSpine,
+  type SealedToolExchangeSpine
 } from "./project-tool-exchanges-for-model";
 import { buildAsyncJobAcceptedEvent } from "./build-async-job-accepted-event";
 import { RuntimeFilesToolService } from "./runtime-files-tool.service";
@@ -141,11 +143,7 @@ import { RuntimeBackgroundTaskToolService } from "./runtime-background-task-tool
 import { RuntimeScheduledActionToolService } from "./runtime-scheduled-action-tool.service";
 import { RuntimeTtsToolService } from "./runtime-tts-tool.service";
 import { RuntimeVideoGenerateToolService } from "./runtime-video-generate-tool.service";
-import { OPENAI_PROMPT_CACHE_RETENTION_FALLBACK } from "./openai-prompt-cache-retention";
-import {
-  buildPromptCacheStableBlockToken,
-  resolveLeadingHydratedPromptCacheStableBlockTokens
-} from "./prompt-cache-stable-blocks";
+import { buildPromptCacheStableBlockToken } from "./prompt-cache-stable-blocks";
 import { resolveRuntimeContextHydrationConfig } from "./runtime-context-hydration-policy";
 import { SessionCompactionService } from "./session-compaction.service";
 import {
@@ -202,6 +200,10 @@ import {
 import { resolveModelOutputBudget, APPROX_BYTES_PER_TOKEN } from "./model-output-budget";
 
 type NativeManagedProvider = "openai" | "anthropic" | "deepseek";
+type SlotPromptCachePolicyState =
+  | { status: "configured"; policy: ProviderGatewayOpenAIPromptCachePolicy }
+  | { status: "uncached" }
+  | { status: "missing" };
 
 /**
  * ADR-122 Slice 2 — Estimate the number of input tokens already present in an
@@ -1058,7 +1060,7 @@ export class TurnExecutionService {
       bundleEntry.parsedBundle,
       executionPlan.modelRole
     );
-    const promptCacheRetention = this.resolveSlotPromptCacheRetention(
+    const promptCachePolicy = this.resolveSlotPromptCachePolicy(
       bundleEntry.parsedBundle,
       executionPlan.modelRole
     );
@@ -1082,7 +1084,7 @@ export class TurnExecutionService {
       developerInstructionSections,
       promptMode,
       turnThinkingBudget,
-      promptCacheRetention
+      promptCachePolicy
     );
     // ADR-122 Slice 2 (D3+D4): set maxOutputTokens via the unified resolver so
     // the main chat turn (and every tool-loop continuation that spreads this
@@ -1268,6 +1270,7 @@ export class TurnExecutionService {
       sessionId: acceptedTurn.session.sessionId
     });
     const toolBudgetPolicy = this.createToolBudgetPolicy(execution);
+    const sealedToolExchangeSpine = createSealedToolExchangeSpine();
     const maxToolLoopIterations =
       toolBudgetPolicy.loopLimit() + NATIVE_TOOL_LOOP_WRAP_UP_ITERATIONS;
     let previewFollowUpExtraIterations = 0;
@@ -1301,6 +1304,7 @@ export class TurnExecutionService {
             assistantText: iterationBaseText,
             baseDeveloperInstructionSections: execution.developerInstructionSections,
             toolHistory,
+            sealedToolExchangeSpine,
             availableToolNames: execution.projectedTools.tools.map((tool) => tool.name),
             availableWorkingFileHandles: execution.availableWorkingFileHandles,
             closedOpenLoopRefs: turnState.closedOpenLoopRefs,
@@ -1516,6 +1520,11 @@ export class TurnExecutionService {
                         result.outcome.exchange.reasoningContent =
                           event.result.reasoningContent ?? null;
                         toolHistory.push(result.outcome.exchange);
+                        appendCompletedToolExchangeToSpine(
+                          sealedToolExchangeSpine,
+                          result.outcome.exchange,
+                          event.result.text ?? null
+                        );
                         turnState.toolExchanges.push(result.outcome.exchange);
                         this.applyToolExecutionOutcome(turnState, result.outcome, iteration);
                         this.maybeApplySkillStateMutationFromTool(execution, result.outcome);
@@ -1595,6 +1604,11 @@ export class TurnExecutionService {
                     );
                     outcome.exchange.reasoningContent = event.result.reasoningContent ?? null;
                     toolHistory.push(outcome.exchange);
+                    appendCompletedToolExchangeToSpine(
+                      sealedToolExchangeSpine,
+                      outcome.exchange,
+                      event.result.text ?? null
+                    );
                     turnState.toolExchanges.push(outcome.exchange);
                     this.applyToolExecutionOutcome(turnState, outcome, iteration);
                     this.maybeApplySkillStateMutationFromTool(execution, outcome);
@@ -2358,7 +2372,7 @@ export class TurnExecutionService {
     developerInstructionSections: DeveloperInstructionSection[],
     promptMode: "chat" | "background_worker",
     thinkingBudget: number = 0,
-    promptCacheRetention: ProviderGatewayPromptCacheRetention = OPENAI_PROMPT_CACHE_RETENTION_FALLBACK
+    promptCachePolicy: SlotPromptCachePolicyState
   ): ProviderGatewayTextGenerateRequest {
     const promptCache = this.buildPromptCacheConfig({
       bundle,
@@ -2369,10 +2383,7 @@ export class TurnExecutionService {
           : deepModeEnabled
             ? "deep_chat"
             : "ordinary_chat",
-      promptCacheRetention,
-      messages,
-      deepModeEnabled,
-      projectedTools
+      promptCachePolicy
     });
     const developerInstructions = this.renderDeveloperInstructionSections(
       developerInstructionSections
@@ -2957,10 +2968,10 @@ export class TurnExecutionService {
     return { maxOutputTokens, contextWindow };
   }
 
-  private resolveSlotPromptCacheRetention(
+  private resolveSlotPromptCachePolicy(
     bundle: AssistantRuntimeBundle,
     modelRole: PersaiRuntimeModelRole
-  ): ProviderGatewayPromptCacheRetention {
+  ): SlotPromptCachePolicyState {
     const routing = this.asObject(bundle.runtime.runtimeProviderRouting);
     const modelSlots = this.asObject(routing?.modelSlots);
     const slotKey =
@@ -2977,10 +2988,7 @@ export class TurnExecutionService {
     if (slot === null && modelRole !== "normal_reply") {
       slot = this.asObject(modelSlots?.["normalReply"]);
     }
-    return (
-      this.asPromptCacheRetention(slot?.promptCacheRetention) ??
-      OPENAI_PROMPT_CACHE_RETENTION_FALLBACK
-    );
+    return this.readPromptCachePolicyState(slot, "promptCachePolicy");
   }
 
   private resolveProviderSelectionForRole(
@@ -3194,6 +3202,7 @@ export class TurnExecutionService {
     turnState: TurnExecutionState
   ): Promise<ProviderGatewayTextGenerateResult> {
     const toolHistory: ProviderGatewayToolExchange[] = [];
+    const sealedToolExchangeSpine = createSealedToolExchangeSpine();
     let accumulatedText = "";
     let forceFinalTextOnly = false;
     let contextOverflowRetryAttempted = false;
@@ -3229,6 +3238,7 @@ export class TurnExecutionService {
           assistantText: accumulatedText,
           baseDeveloperInstructionSections: execution.developerInstructionSections,
           toolHistory,
+          sealedToolExchangeSpine,
           availableToolNames: execution.projectedTools.tools.map((tool) => tool.name),
           availableWorkingFileHandles,
           closedOpenLoopRefs: turnState.closedOpenLoopRefs,
@@ -3358,6 +3368,11 @@ export class TurnExecutionService {
               );
               result.outcome.exchange.reasoningContent = providerResult.reasoningContent ?? null;
               toolHistory.push(result.outcome.exchange);
+              appendCompletedToolExchangeToSpine(
+                sealedToolExchangeSpine,
+                result.outcome.exchange,
+                providerResult.text ?? null
+              );
               turnState.toolExchanges.push(result.outcome.exchange);
               this.applyToolExecutionOutcome(turnState, result.outcome, iteration);
               this.maybeApplySkillStateMutationFromTool(execution, result.outcome);
@@ -3399,6 +3414,11 @@ export class TurnExecutionService {
           this.maybeRefundToolRequestRejectionReservation(toolBudgetPolicy, entry, outcome);
           outcome.exchange.reasoningContent = providerResult.reasoningContent ?? null;
           toolHistory.push(outcome.exchange);
+          appendCompletedToolExchangeToSpine(
+            sealedToolExchangeSpine,
+            outcome.exchange,
+            providerResult.text ?? null
+          );
           turnState.toolExchanges.push(outcome.exchange);
           this.applyToolExecutionOutcome(turnState, outcome, iteration);
           this.maybeApplySkillStateMutationFromTool(execution, outcome);
@@ -4761,6 +4781,7 @@ export class TurnExecutionService {
       assistantText: string;
       baseDeveloperInstructionSections: DeveloperInstructionSection[];
       toolHistory: ProviderGatewayToolExchange[];
+      sealedToolExchangeSpine: SealedToolExchangeSpine;
       availableToolNames: string[];
       availableWorkingFileHandles: RuntimeFileHandle[];
       closedOpenLoopRefs: string[];
@@ -4790,19 +4811,10 @@ export class TurnExecutionService {
       input.workingFilesContext
     );
     const pendingFilePreviewBlocks = input.pendingFilePreviewBlocks ?? [];
-    let projectedToolHistory: ProviderGatewayToolExchange[] | undefined;
-    if (input.toolHistory.length > 0) {
-      const { exchanges, metrics } = projectToolExchangesForModelWithMetrics(input.toolHistory, {
-        mode: "in_turn"
-      });
-      this.logger.log(
-        formatToolHistoryProjectionMetricsLog({
-          requestId: input.requestMetadata.runtimeRequestId,
-          metrics
-        })
-      );
-      projectedToolHistory = exchanges;
-    }
+    const inTurnProjection = buildInTurnToolExchangeProjection(
+      input.sealedToolExchangeSpine,
+      input.toolHistory
+    );
     return {
       ...baseRequest,
       ...(developerInstructions === null ? {} : { developerInstructions }),
@@ -4816,7 +4828,13 @@ export class TurnExecutionService {
                 content: assistantText
               }
             ],
-      ...(projectedToolHistory === undefined ? {} : { toolHistory: projectedToolHistory }),
+      ...(inTurnProjection.spine.length === 0 ? {} : { toolHistory: [...inTurnProjection.spine] }),
+      ...(inTurnProjection.overlays.length === 0
+        ? {}
+        : { toolObservationOverlays: [...inTurnProjection.overlays] }),
+      ...(inTurnProjection.boundary === null
+        ? {}
+        : { sealedToolExchangeBoundary: inTurnProjection.boundary }),
       ...(pendingFilePreviewBlocks.length === 0
         ? {}
         : { toolFollowUpUserContent: pendingFilePreviewBlocks }),
@@ -6430,6 +6448,7 @@ export class TurnExecutionService {
       }
 
       const toolHistory: ProviderGatewayToolExchange[] = [];
+      const sealedToolExchangeSpine = createSealedToolExchangeSpine();
       for (const toolCall of firstResult.toolCalls) {
         const outcome = await this.executeProjectedToolCall(
           input.execution,
@@ -6444,6 +6463,11 @@ export class TurnExecutionService {
         );
         outcome.exchange.reasoningContent = firstResult.reasoningContent ?? null;
         toolHistory.push(outcome.exchange);
+        appendCompletedToolExchangeToSpine(
+          sealedToolExchangeSpine,
+          outcome.exchange,
+          firstResult.text ?? null
+        );
         this.applyToolExecutionOutcome(input.turnState, outcome, 0);
       }
 
@@ -6455,6 +6479,7 @@ export class TurnExecutionService {
         assistantText: "",
         baseDeveloperInstructionSections: input.execution.developerInstructionSections,
         toolHistory,
+        sealedToolExchangeSpine,
         availableToolNames: input.execution.projectedTools.tools.map((tool) => tool.name),
         availableWorkingFileHandles: input.execution.availableWorkingFileHandles,
         closedOpenLoopRefs: input.turnState.closedOpenLoopRefs,
@@ -6843,7 +6868,7 @@ export class TurnExecutionService {
       developerInstructionSections,
       execution.promptMode,
       refreshThinkingBudget,
-      this.resolveSlotPromptCacheRetention(execution.bundle, execution.selectedModelRole)
+      this.resolveSlotPromptCachePolicy(execution.bundle, execution.selectedModelRole)
     );
     // ADR-122 Slice 2: propagate the resolved output budget onto the refreshed
     // request so the context-refresh path also sets maxOutputTokens rather than
@@ -7110,10 +7135,7 @@ export class TurnExecutionService {
     bundle: AssistantRuntimeBundle;
     provider: NativeManagedProvider;
     family: string;
-    promptCacheRetention: ProviderGatewayPromptCacheRetention;
-    messages?: ProviderGatewayTextMessage[];
-    deepModeEnabled?: boolean;
-    projectedTools?: RuntimeNativeToolProjection;
+    promptCachePolicy: SlotPromptCachePolicyState;
   }): ProviderGatewayPromptCacheConfig | undefined {
     if (input.provider === "anthropic") {
       return input.family === "ordinary_chat" || input.family === "deep_chat"
@@ -7125,6 +7147,14 @@ export class TurnExecutionService {
     if (input.provider !== "openai") {
       return undefined;
     }
+    if (input.promptCachePolicy.status === "missing") {
+      throw new ServiceUnavailableException(
+        "OpenAI model slot is missing a valid catalog promptCachePolicy field."
+      );
+    }
+    if (input.promptCachePolicy.status === "uncached") {
+      return undefined;
+    }
     const stablePrefixHash = this.resolvePromptCacheStablePrefixHash(input.bundle, input.family);
     const stablePrefixToken =
       stablePrefixHash === null
@@ -7133,31 +7163,14 @@ export class TurnExecutionService {
             family: "ordinary_prompt",
             hash: stablePrefixHash
           });
-    const hydratedStableBlockTokens =
-      input.messages === undefined
-        ? []
-        : this.resolveHydratedStableBlockTokens(input.messages, input.family);
-    const variantHash =
-      input.deepModeEnabled === undefined && input.projectedTools === undefined
-        ? null
-        : createHash("sha256")
-            .update(
-              JSON.stringify({
-                deepModeEnabled: input.deepModeEnabled ?? false,
-                tools: input.projectedTools?.tools ?? []
-              })
-            )
-            .digest("hex");
     const identityToken = stablePrefixToken ?? this.computePromptCacheIdentityHash(input.bundle);
     return {
       key: this.buildOpenAIPromptCacheKey({
         bundle: input.bundle,
         family: input.family,
-        identityToken,
-        hydratedStableBlockTokens,
-        variantHash
+        identityToken
       }),
-      retention: input.promptCacheRetention
+      openaiPolicy: input.promptCachePolicy.policy
     };
   }
 
@@ -7169,16 +7182,6 @@ export class TurnExecutionService {
       return null;
     }
     return bundle.promptConstructor.ordinary.stablePrefix?.hash ?? null;
-  }
-
-  private resolveHydratedStableBlockTokens(
-    messages: ProviderGatewayTextMessage[],
-    family: string
-  ): string[] {
-    if (family !== "ordinary_chat" && family !== "deep_chat") {
-      return [];
-    }
-    return resolveLeadingHydratedPromptCacheStableBlockTokens(messages);
   }
 
   private computePromptCacheIdentityHash(bundle: AssistantRuntimeBundle): string {
@@ -7199,16 +7202,12 @@ export class TurnExecutionService {
     bundle: AssistantRuntimeBundle;
     family: string;
     identityToken: string;
-    hydratedStableBlockTokens: string[];
-    variantHash: string | null;
   }): string {
     const digest = createHash("sha256")
       .update(
         JSON.stringify({
           family: input.family,
-          identityToken: input.identityToken,
-          hydratedStableBlockTokens: input.hydratedStableBlockTokens,
-          variantHash: input.variantHash
+          identityToken: input.identityToken
         })
       )
       .digest("hex")
@@ -7563,8 +7562,47 @@ export class TurnExecutionService {
     return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
   }
 
-  private asPromptCacheRetention(value: unknown): ProviderGatewayPromptCacheRetention | null {
-    return value === "in_memory" || value === "24h" ? value : null;
+  private readPromptCachePolicyState(
+    row: Record<string, unknown> | null,
+    key: string
+  ): SlotPromptCachePolicyState {
+    if (row === null || !Object.prototype.hasOwnProperty.call(row, key)) {
+      return { status: "missing" };
+    }
+    const value = row[key];
+    if (value === null) {
+      return { status: "uncached" };
+    }
+    if (value === undefined || typeof value !== "object" || Array.isArray(value)) {
+      return { status: "missing" };
+    }
+    const policy = value as Record<string, unknown>;
+    if (
+      policy.mode === "automatic" &&
+      (policy.retention === "in_memory" || policy.retention === "24h")
+    ) {
+      return {
+        status: "configured",
+        policy: { mode: "automatic", retention: policy.retention }
+      };
+    }
+    if (
+      policy.mode === "explicit" &&
+      policy.ttl === "30m" &&
+      policy.stableAnchor === "explicit" &&
+      policy.sealedSpineBreakpoint === "explicit"
+    ) {
+      return {
+        status: "configured",
+        policy: {
+          mode: "explicit",
+          ttl: "30m",
+          stableAnchor: "explicit",
+          sealedSpineBreakpoint: "explicit"
+        }
+      };
+    }
+    return { status: "missing" };
   }
 
   private isContextWindowExceededError(error: unknown): boolean {

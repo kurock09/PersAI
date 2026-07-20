@@ -359,6 +359,33 @@ The experiment uses identical controlled traffic and provider-reported
 read/write tokens. The parent records the selected shape in this ADR before
 the implementation slice is accepted. There is no unmeasured key rewrite.
 
+#### D4 measured key experiment — 2026-07-20
+
+The experiment ran through the deployed `provider-gateway` internal HTTP
+endpoint after confirming the OpenAI client was warm and its catalog was
+control-plane applied. It used the Admin-managed `openai/api-key`; no
+Kubernetes environment secret was read. The warmed catalog included
+`gpt-5.6-terra`.
+
+Eight sequential `gpt-5.6-terra` requests used the same 2,190-input-token
+controlled prompt and changed only a bounded developer suffix per ordinal.
+They were paced at five seconds between calls (12 requests/minute for the one
+common key, below the 15 requests/minute constraint):
+
+- variant-consistent keys (`adr161-variant-1` through `-4`) reported cache
+  reads of `0, 0, 0, 0` tokens;
+- a stable common-prefix key (`adr161-common`) reported cache reads of
+  `0, 2,172, 2,172, 2,172` tokens;
+- the deployed legacy adapter did not expose cache-write tokens
+  (`null`) on these responses, so this evidence selects key shape only and
+  does not satisfy the GPT-5.6+ write-cost acceptance gate.
+
+**Selected semantics: common-prefix key.** The production key is stable for an
+Assistant/family traffic shard and intentionally excludes dynamic tools and
+hydrated variants; OpenAI's exact initial-prefix matching remains the content
+correctness guard. GPT-5.6+ explicit write/read accounting remains mandatory
+after the policy cutover.
+
 Replace the ambiguous scalar `promptCacheRetention` carrier with one canonical
 model-catalog `promptCachePolicy`:
 

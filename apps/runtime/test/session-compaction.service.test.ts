@@ -628,6 +628,18 @@ class FakeAutoExtractToMemoryService {
 
 export async function runSessionCompactionServiceTest(): Promise<void> {
   const bundleRegistry = new FakeRuntimeBundleRegistryService();
+  const initialRouting = bundleRegistry.entry.parsedBundle.runtime.runtimeProviderRouting as {
+    modelSlots?: {
+      systemTool?: Record<string, unknown>;
+    };
+  };
+  initialRouting.modelSlots = {
+    ...initialRouting.modelSlots,
+    systemTool: {
+      ...(initialRouting.modelSlots?.systemTool ?? {}),
+      promptCachePolicy: { mode: "automatic", retention: "in_memory" }
+    }
+  };
   const providerGateway = new FakeProviderGatewayClientService();
   const hydration = new FakeTurnContextHydrationService();
   const sessionStore = new FakeSessionStoreService();
@@ -680,7 +692,10 @@ export async function runSessionCompactionServiceTest(): Promise<void> {
     toolLoopIteration: null,
     compactionToolCode: "compact_context"
   });
-  assert.equal(providerGateway.requests[0]?.promptCache?.retention, "in_memory");
+  assert.deepEqual(providerGateway.requests[0]?.promptCache?.openaiPolicy, {
+    mode: "automatic",
+    retention: "in_memory"
+  });
   assert.match(providerGateway.requests[0]?.promptCache?.key ?? "", /^ps1:sc:[a-f0-9]{32}:b\d{2}$/);
   assert.ok((providerGateway.requests[0]?.promptCache?.key?.length ?? 0) <= 64);
   if (bundleRegistry.entry !== null) {
@@ -689,7 +704,7 @@ export async function runSessionCompactionServiceTest(): Promise<void> {
         systemTool?: {
           providerKey?: string;
           modelKey?: string | null;
-          promptCacheRetention?: string | null;
+          promptCachePolicy?: unknown;
         };
       };
     };
@@ -697,13 +712,54 @@ export async function runSessionCompactionServiceTest(): Promise<void> {
       ...routing.modelSlots,
       systemTool: {
         ...(routing.modelSlots?.systemTool ?? {}),
-        promptCacheRetention: "24h"
+        promptCachePolicy: { mode: "automatic", retention: "24h" }
       }
     };
   }
   sessionStore.resolvedSession = createResolvedSession(7000);
   await service.compactSession(createCompactionRequest());
-  assert.equal(providerGateway.requests.at(-1)?.promptCache?.retention, "24h");
+  assert.deepEqual(providerGateway.requests.at(-1)?.promptCache?.openaiPolicy, {
+    mode: "automatic",
+    retention: "24h"
+  });
+  if (bundleRegistry.entry !== null) {
+    const routing = bundleRegistry.entry.parsedBundle.runtime.runtimeProviderRouting as {
+      modelSlots?: {
+        systemTool?: {
+          promptCachePolicy?: unknown;
+        };
+      };
+    };
+    routing.modelSlots = {
+      ...routing.modelSlots,
+      systemTool: {
+        ...(routing.modelSlots?.systemTool ?? {}),
+        promptCachePolicy: null
+      }
+    };
+  }
+  sessionStore.resolvedSession = createResolvedSession(7000);
+  await service.compactSession(createCompactionRequest());
+  assert.equal(
+    providerGateway.requests.at(-1)?.promptCache,
+    undefined,
+    "explicit null promptCachePolicy must disable OpenAI compaction cache wiring"
+  );
+  if (bundleRegistry.entry !== null) {
+    const routing = bundleRegistry.entry.parsedBundle.runtime.runtimeProviderRouting as {
+      modelSlots?: {
+        systemTool?: Record<string, unknown>;
+      };
+    };
+    if (routing.modelSlots?.systemTool !== undefined) {
+      delete routing.modelSlots.systemTool.promptCachePolicy;
+    }
+  }
+  sessionStore.resolvedSession = createResolvedSession(7000);
+  await assert.rejects(
+    () => service.compactSession(createCompactionRequest()),
+    /missing a valid catalog promptCachePolicy field/
+  );
   const requestCountBeforeInstructionCompaction = providerGateway.requests.length;
   const releasedLeaseCountBeforeInstructionCompaction = leaseService.released.length;
   assert.deepEqual(

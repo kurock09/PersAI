@@ -6,7 +6,6 @@
  */
 import type { RuntimeVideoModelKind } from "./runtimeVideoModelKind";
 import type { RuntimeProviderModelCapability } from "./runtimeProviderModelCapability";
-import type { RuntimeProviderModelProfileCommonStatePromptCacheRetention } from "./runtimeProviderModelProfileCommonStatePromptCacheRetention";
 import type { RuntimeProviderModelProfileCommonStatePromptCachePolicy } from "./runtimeProviderModelProfileCommonStatePromptCachePolicy";
 import type { RuntimeProviderModelProfileCommonStateVideoModelParameters } from "./runtimeProviderModelProfileCommonStateVideoModelParameters";
 
@@ -39,12 +38,7 @@ export interface RuntimeProviderModelProfileCommonState {
    */
   contextWindow?: number | null;
   /**
-   * ADR-124 Slice 1 — admin-set OpenAI prompt-cache retention; null means runtime fallback applies.
-   * @nullable
-   */
-  promptCacheRetention?: RuntimeProviderModelProfileCommonStatePromptCacheRetention;
-  /**
-   * ADR-161 S0 — model-declared cache wire policy. Null is undeclared and must not activate a runtime fallback.
+   * ADR-161 S3 — model-declared cache wire policy. Null means explicit uncached mode; absent/invalid policy must fail closed before a cache-enabled OpenAI request is built.
    * @nullable
    */
   promptCachePolicy?: RuntimeProviderModelProfileCommonStatePromptCachePolicy;

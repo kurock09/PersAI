@@ -7,7 +7,12 @@
  * sanitize (`stringifyToolResultPayloadForModel`) remains a separate path.
  */
 
-import type { ProviderGatewayToolExchange } from "@persai/runtime-contract";
+import type {
+  ProviderGatewaySealedToolExchangeBoundary,
+  ProviderGatewayToolExchange,
+  ProviderGatewayToolObservationOverlay
+} from "@persai/runtime-contract";
+import { hashProviderCacheSemanticPrefix } from "@persai/runtime-contract";
 import {
   compactOrMaskToolResultContent,
   projectFullToolResultPayload,
@@ -15,6 +20,7 @@ import {
 } from "./tool-observation-compactors";
 import {
   assignToolObservationTier,
+  TOOL_OBSERVATION_IN_TURN_FULL_COUNT,
   type ToolObservationMode,
   type ToolObservationTier
 } from "./tool-observation-policy";
@@ -37,6 +43,17 @@ export type ToolHistoryProjectionMetrics = {
 export type ProjectToolExchangesForModelResult = {
   exchanges: ProviderGatewayToolExchange[];
   metrics: ToolHistoryProjectionMetrics;
+};
+
+export type SealedToolExchangeSpine = {
+  exchanges: ProviderGatewayToolExchange[];
+  boundary: ProviderGatewaySealedToolExchangeBoundary | null;
+};
+
+export type InTurnToolExchangeProjection = {
+  spine: readonly ProviderGatewayToolExchange[];
+  overlays: readonly ProviderGatewayToolObservationOverlay[];
+  boundary: ProviderGatewaySealedToolExchangeBoundary | null;
 };
 
 function readObservationTier(content: string): ToolObservationTier | null {
@@ -138,7 +155,7 @@ function cloneToolCall(
   };
 }
 
-function projectOneExchange(
+export function projectOneToolExchange(
   exchange: ProviderGatewayToolExchange,
   tier: ReturnType<typeof assignToolObservationTier>
 ): ProviderGatewayToolExchange {
@@ -172,6 +189,11 @@ function projectOneExchange(
       ? { reasoningContent: exchange.reasoningContent }
       : exchange.reasoningContent === null
         ? { reasoningContent: null }
+        : {}),
+    ...(typeof exchange.assistantText === "string"
+      ? { assistantText: exchange.assistantText }
+      : exchange.assistantText === null
+        ? { assistantText: null }
         : {})
   };
 }
@@ -198,7 +220,7 @@ export function projectToolExchangesForModelWithMetrics(
       isError: exchange.toolResult.isError === true,
       mode
     });
-    return projectOneExchange(exchange, tier);
+    return projectOneToolExchange(exchange, tier);
   });
   return {
     exchanges: projected,
@@ -214,4 +236,90 @@ export function projectToolExchangesForModel(
   options?: ProjectToolExchangesForModelOptions
 ): ProviderGatewayToolExchange[] {
   return projectToolExchangesForModelWithMetrics(exchanges, options).exchanges;
+}
+
+function buildSealedBoundary(
+  exchanges: readonly ProviderGatewayToolExchange[]
+): ProviderGatewaySealedToolExchangeBoundary | null {
+  if (exchanges.length === 0) {
+    return null;
+  }
+  const cacheContent = hashProviderCacheSemanticPrefix({
+    provider: "persai_sealed_spine",
+    serializedPrefix: exchanges
+  });
+  const priorCacheContent =
+    exchanges.length > 1
+      ? hashProviderCacheSemanticPrefix({
+          provider: "persai_sealed_spine",
+          serializedPrefix: exchanges.slice(0, -1)
+        })
+      : null;
+  return {
+    exchangeCount: exchanges.length,
+    cacheContentHash: cacheContent.hash,
+    cacheContentChars: cacheContent.chars,
+    priorSealedCacheContentHash: priorCacheContent?.hash ?? null,
+    priorSealedCacheContentChars: priorCacheContent?.chars ?? null,
+    boundaryKind: "sealed_tool_exchange_spine"
+  };
+}
+
+/**
+ * D1's in-turn state. Append only completed exchanges: once a compact entry
+ * enters `exchanges`, no later overlay/window update can rewrite it.
+ */
+export function createSealedToolExchangeSpine(): SealedToolExchangeSpine {
+  return { exchanges: [], boundary: null };
+}
+
+export function appendCompletedToolExchangeToSpine(
+  spine: SealedToolExchangeSpine,
+  exchange: ProviderGatewayToolExchange,
+  assistantText: string | null | undefined = exchange.assistantText
+): void {
+  if (
+    spine.exchanges.some(
+      (existing) =>
+        existing.toolCall.id === exchange.toolCall.id ||
+        existing.toolResult.toolCallId === exchange.toolResult.toolCallId
+    )
+  ) {
+    throw new Error(`Tool exchange "${exchange.toolCall.id}" is already sealed.`);
+  }
+  spine.exchanges.push(
+    projectOneToolExchange(
+      {
+        ...exchange,
+        ...(assistantText === undefined ? {} : { assistantText })
+      },
+      "compact"
+    )
+  );
+  spine.boundary = buildSealedBoundary(spine.exchanges);
+}
+
+/**
+ * The only D1 in-turn builder. The compact protocol spine is append-only;
+ * newest-three full observations are independent suffix overlays.
+ */
+export function buildInTurnToolExchangeProjection(
+  spine: SealedToolExchangeSpine,
+  completedExchanges: readonly ProviderGatewayToolExchange[]
+): InTurnToolExchangeProjection {
+  if (spine.exchanges.length !== completedExchanges.length) {
+    throw new Error(
+      `Sealed spine length ${String(spine.exchanges.length)} does not match completed exchange length ${String(completedExchanges.length)}.`
+    );
+  }
+  return {
+    spine: spine.exchanges,
+    overlays: completedExchanges
+      .slice(-TOOL_OBSERVATION_IN_TURN_FULL_COUNT)
+      .map((exchange, index, newest) => ({
+        ordinal: completedExchanges.length - newest.length + index + 1,
+        exchange: projectOneToolExchange(exchange, "full")
+      })),
+    boundary: spine.boundary
+  };
 }

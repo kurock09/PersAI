@@ -59,7 +59,7 @@ function createGenerateTextRequest(): ProviderGatewayTextGenerateRequest {
     systemPrompt: "Be helpful.",
     promptCache: {
       key: "persai:ordinary_chat:bundle-hash-1:b03",
-      retention: "in_memory"
+      openaiPolicy: { mode: "automatic", retention: "in_memory" }
     },
     messages: [
       {

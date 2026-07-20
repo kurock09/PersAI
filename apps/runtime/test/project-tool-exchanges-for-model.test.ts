@@ -1,9 +1,13 @@
 import assert from "node:assert/strict";
 import {
+  hashProviderCacheSemanticPrefix,
   MAX_RUNTIME_BROWSER_INTERACTIVE_ELEMENTS,
   type ProviderGatewayToolExchange
 } from "@persai/runtime-contract";
 import {
+  appendCompletedToolExchangeToSpine,
+  buildInTurnToolExchangeProjection,
+  createSealedToolExchangeSpine,
   formatToolHistoryProjectionMetricsLog,
   projectToolExchangesForModel,
   projectToolExchangesForModelWithMetrics,
@@ -191,6 +195,92 @@ export async function runProjectToolExchangesForModelTest(): Promise<void> {
   assert.equal(TOOL_OBSERVATION_IN_TURN_COMPACT_COUNT, 3);
   assert.equal(TOOL_OBSERVATION_CROSS_TURN_FULL_COUNT, 1);
   assert.equal(TOOL_OBSERVATION_CROSS_TURN_COMPACT_COUNT, 4);
+
+  // ── ADR-161 D1 sealed compact spine / full suffix overlays ───────────────
+  {
+    for (const exchangeCount of [1, 3, 4, 6, 7, 50]) {
+      const completed = Array.from({ length: exchangeCount }, (_, index) =>
+        createExchange({
+          id: `sealed-${String(exchangeCount)}-${String(index)}`,
+          name: index === 0 ? "shell" : "files",
+          payload:
+            index === 0
+              ? createShellPayload({
+                  stdoutChars: 1_000,
+                  exitCode: exchangeCount === 7 ? 1 : 0,
+                  reason: exchangeCount === 7 ? "process_failed" : null
+                })
+              : createFilesPayload({ contentChars: 1_000 }),
+          isError: exchangeCount === 7 && index === 0
+        })
+      );
+      completed[0]!.assistantText = `working note ${String(exchangeCount)}`;
+      const spine = createSealedToolExchangeSpine();
+      const priorBoundaries: Array<{ bytes: string; hash: string }> = [];
+      for (const exchange of completed) {
+        appendCompletedToolExchangeToSpine(spine, exchange);
+        const boundary = spine.boundary;
+        assert.ok(boundary !== null);
+        const prior = spine.exchanges.slice(0, -1);
+        if (prior.length > 0) {
+          const previous = priorBoundaries.at(-1)!;
+          assert.equal(JSON.stringify(prior), previous.bytes);
+          assert.equal(
+            hashProviderCacheSemanticPrefix({
+              provider: "persai_sealed_spine",
+              serializedPrefix: prior
+            }).hash,
+            previous.hash
+          );
+          assert.equal(boundary.priorSealedCacheContentHash, previous.hash);
+          assert.equal(
+            boundary.priorSealedCacheContentChars,
+            hashProviderCacheSemanticPrefix({
+              provider: "persai_sealed_spine",
+              serializedPrefix: prior
+            }).chars
+          );
+        } else {
+          assert.equal(boundary.priorSealedCacheContentHash, null);
+          assert.equal(boundary.priorSealedCacheContentChars, null);
+        }
+        priorBoundaries.push({
+          bytes: JSON.stringify(spine.exchanges),
+          hash: boundary.cacheContentHash
+        });
+      }
+
+      const projection = buildInTurnToolExchangeProjection(spine, completed);
+      assert.equal(projection.spine.length, exchangeCount);
+      assert.equal(projection.boundary?.exchangeCount, exchangeCount);
+      assert.equal(projection.boundary?.cacheContentHash, priorBoundaries.at(-1)?.hash);
+      assert.deepEqual(
+        projection.overlays.map((overlay) => overlay.ordinal),
+        Array.from(
+          { length: Math.min(3, exchangeCount) },
+          (_, index) => exchangeCount - Math.min(3, exchangeCount) + index + 1
+        )
+      );
+      assert.ok(projection.spine.every((exchange) => tierOf(exchange) === "compact"));
+      assert.ok(projection.overlays.every((overlay) => tierOf(overlay.exchange) === "full"));
+      assert.equal(
+        tierOf(projection.spine[0]!),
+        "compact",
+        "errors remain informative compact spine entries, never bare masks"
+      );
+      assert.equal(projection.spine[0]!.assistantText, `working note ${String(exchangeCount)}`);
+    }
+  }
+
+  // An incomplete call has no result/exchange and therefore cannot enter D1's
+  // sealed spine or create a boundary.
+  {
+    const spine = createSealedToolExchangeSpine();
+    const projection = buildInTurnToolExchangeProjection(spine, []);
+    assert.equal(projection.boundary, null);
+    assert.deepEqual(projection.spine, []);
+    assert.deepEqual(projection.overlays, []);
+  }
 
   // ── Tier windows ──────────────────────────────────────────────────────────
   {

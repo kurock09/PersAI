@@ -42,6 +42,7 @@ import {
   ProviderDebugPayloadLogger
 } from "../provider-debug-payload-logger";
 import { toProviderTextFailedEvent, toProviderTextHttpException } from "../provider-text-error";
+import { logProviderCacheZoneTelemetry } from "../provider-cache-zone-observability";
 
 const OPENAI_AUDIO_TRANSCRIPTION_MODEL = "gpt-4o-mini-transcribe";
 const OPENAI_IMAGE_GENERATION_MODEL = "gpt-image-1";
@@ -92,6 +93,7 @@ type OpenAIInputContent =
       | {
           type: "input_text";
           text: string;
+          prompt_cache_breakpoint?: { mode: "explicit" };
         }
       | {
           type: "input_image";
@@ -232,6 +234,7 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
           effort: this.reasoningEffortForBudget(input.thinkingBudget)
         };
       }
+      this.logCacheZoneTelemetry(input, payload);
       this.debugPayloadLogger.dumpRequest({
         provider: "openai",
         requestId: input.requestMetadata?.runtimeRequestId ?? "unknown",
@@ -1030,6 +1033,7 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
       ) {
         payload.reasoning = { effort: this.reasoningEffortForBudget(input.thinkingBudget) };
       }
+      this.logCacheZoneTelemetry(input, payload);
       this.logger.log(
         `[openai-stream-start] requestId=${input.requestMetadata?.runtimeRequestId ?? "unknown"} classification=${input.requestMetadata?.classification ?? "unknown"} iteration=${
           input.requestMetadata?.toolLoopIteration === null ||
@@ -1434,7 +1438,15 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
       return [
         {
           role: "developer" as const,
-          content: [{ type: "input_text" as const, text: systemPrompt }]
+          content: [
+            {
+              type: "input_text" as const,
+              text: systemPrompt,
+              ...(this.usesExplicitOpenAIPromptCache(input)
+                ? { prompt_cache_breakpoint: { mode: "explicit" as const } }
+                : {})
+            }
+          ]
         }
       ];
     }
@@ -1464,6 +1476,7 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
     const userQuestionIndex = items.length - 1;
     for (const exchange of input.toolHistory ?? []) {
       this.pushOpenAIExchangeItems(items, exchange);
+      this.pushOpenAISealedSpineBoundary(items, exchange, input);
     }
     const toolFollowUpUserContent = input.toolFollowUpUserContent;
     if (toolFollowUpUserContent !== undefined) {
@@ -1496,6 +1509,17 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
         ]
       });
     }
+    for (const overlay of input.toolObservationOverlays ?? []) {
+      items.push({
+        role: "developer",
+        content: [
+          {
+            type: "input_text",
+            text: `<persai_recent_tool_observation ordinal="${String(overlay.ordinal).padStart(6, "0")}">\n${overlay.exchange.toolResult.content}\n</persai_recent_tool_observation>`
+          }
+        ]
+      });
+    }
     return items;
   }
 
@@ -1503,6 +1527,19 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
     target: OpenAIBuiltInputItem[],
     exchange: NonNullable<ProviderGatewayTextGenerateRequest["toolHistory"]>[number]
   ): void {
+    // Responses preserves an assistant message immediately before the
+    // function_call it introduced. Empty text is intentionally omitted: it
+    // carries no semantic content and must not manufacture a protocol item.
+    const assistantText =
+      typeof exchange.assistantText === "string" && exchange.assistantText.trim().length > 0
+        ? exchange.assistantText
+        : null;
+    if (assistantText !== null) {
+      target.push({
+        role: "assistant",
+        content: [{ type: "input_text", text: assistantText }]
+      });
+    }
     target.push({
       type: "function_call",
       call_id: exchange.toolCall.id,
@@ -1513,6 +1550,32 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
       type: "function_call_output",
       call_id: exchange.toolCall.id,
       output: exchange.toolResult.content
+    });
+  }
+
+  private pushOpenAISealedSpineBoundary(
+    target: OpenAIBuiltInputItem[],
+    exchange: NonNullable<ProviderGatewayTextGenerateRequest["toolHistory"]>[number],
+    input: ProviderGatewayTextGenerateRequest
+  ): void {
+    if (!this.usesExplicitOpenAIPromptCache(input)) {
+      return;
+    }
+    const ordinal = (input.toolHistory ?? []).findIndex(
+      (candidate) => candidate.toolCall.id === exchange.toolCall.id
+    );
+    if (ordinal < 0) {
+      throw new Error("OpenAI sealed spine boundary requires an exchange in toolHistory.");
+    }
+    target.push({
+      role: "developer",
+      content: [
+        {
+          type: "input_text",
+          text: `<persai_tool_exchange_boundary ordinal="${String(ordinal + 1).padStart(6, "0")}"/>`,
+          prompt_cache_breakpoint: { mode: "explicit" }
+        }
+      ]
     });
   }
 
@@ -1638,9 +1701,83 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
     if (promptCache?.key !== undefined) {
       payload.prompt_cache_key = promptCache.key;
     }
-    if (promptCache?.retention !== undefined) {
-      payload.prompt_cache_retention = promptCache.retention;
+    const policy = promptCache?.openaiPolicy;
+    if (promptCache === undefined) {
+      return;
     }
+    if (policy === undefined) {
+      throw new Error("OpenAI text request is missing required catalog promptCachePolicy.");
+    }
+    if (policy.mode === "automatic") {
+      if (policy.retention !== "in_memory" && policy.retention !== "24h") {
+        throw new Error("OpenAI text request has an invalid catalog promptCachePolicy.");
+      }
+      payload.prompt_cache_retention = policy.retention;
+      return;
+    }
+    if (
+      policy.mode !== "explicit" ||
+      policy.ttl !== "30m" ||
+      policy.stableAnchor !== "explicit" ||
+      policy.sealedSpineBreakpoint !== "explicit"
+    ) {
+      throw new Error("OpenAI text request has an invalid catalog promptCachePolicy.");
+    }
+    payload.prompt_cache_options = { mode: "explicit", ttl: "30m" };
+  }
+
+  private usesExplicitOpenAIPromptCache(input: ProviderGatewayTextGenerateRequest): boolean {
+    return input.promptCache?.openaiPolicy?.mode === "explicit";
+  }
+
+  private logCacheZoneTelemetry(
+    input: ProviderGatewayTextGenerateRequest,
+    payload: { input?: unknown; tools?: unknown }
+  ): void {
+    const items = Array.isArray(payload.input) ? payload.input : [];
+    let lastSealedIndex = -1;
+    for (let index = 0; index < items.length; index += 1) {
+      const item = items[index];
+      if (item === null || typeof item !== "object") {
+        continue;
+      }
+      const row = item as { type?: unknown; role?: unknown; content?: unknown };
+      if (row.type === "function_call_output") {
+        lastSealedIndex = index;
+        continue;
+      }
+      if (
+        row.role === "developer" &&
+        Array.isArray(row.content) &&
+        row.content.some(
+          (block) =>
+            block !== null &&
+            typeof block === "object" &&
+            typeof (block as { text?: unknown }).text === "string" &&
+            (block as { text: string }).text.startsWith("<persai_tool_exchange_boundary ")
+        )
+      ) {
+        lastSealedIndex = index;
+      }
+    }
+    const stableSystem = items[0] ?? null;
+    logProviderCacheZoneTelemetry({
+      logger: this.logger,
+      input,
+      representation: {
+        tools: payload.tools ?? [],
+        prefix: lastSealedIndex >= 0 ? items.slice(0, lastSealedIndex + 1) : items,
+        stableSystem,
+        hydratedHistory: items.slice(1, lastSealedIndex >= 0 ? lastSealedIndex + 1 : items.length),
+        volatileContext: input.messages.filter(
+          (message) => message.cacheRole === "volatile_context"
+        ),
+        developerTail: input.developerInstructions ?? null,
+        cacheBreakpointCount: this.usesExplicitOpenAIPromptCache(input)
+          ? 1 + (input.toolHistory?.length ?? 0)
+          : 0
+      }
+    });
   }
 
   private extractOpenAISystemPromptText(payload: {

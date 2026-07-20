@@ -3,6 +3,7 @@ import type { EffectiveCapabilityState } from "./effective-capability.types";
 import {
   resolveRuntimeProviderProfileState,
   type RuntimeProviderModelCatalogByProvider,
+  type RuntimeProviderPromptCachePolicy,
   type RuntimeProviderProfileState
 } from "./runtime-provider-profile";
 import type { RuntimeProviderRoutingState } from "./runtime-provider-routing.types";
@@ -35,23 +36,23 @@ function lookupModelCapabilities(
 ): {
   maxOutputTokens: number | null;
   contextWindow: number | null;
-  promptCacheRetention: "in_memory" | "24h" | null;
+  promptCachePolicy: RuntimeProviderPromptCachePolicy | null;
 } {
   if (modelKey === null) {
-    return { maxOutputTokens: null, contextWindow: null, promptCacheRetention: null };
+    return { maxOutputTokens: null, contextWindow: null, promptCachePolicy: null };
   }
   const providerCatalog = catalog[providerKey as keyof RuntimeProviderModelCatalogByProvider];
   if (!providerCatalog) {
-    return { maxOutputTokens: null, contextWindow: null, promptCacheRetention: null };
+    return { maxOutputTokens: null, contextWindow: null, promptCachePolicy: null };
   }
   const profile = providerCatalog.models.find((m) => m.active && m.model === modelKey);
   if (!profile) {
-    return { maxOutputTokens: null, contextWindow: null, promptCacheRetention: null };
+    return { maxOutputTokens: null, contextWindow: null, promptCachePolicy: null };
   }
   return {
     maxOutputTokens: profile.maxOutputTokens,
     contextWindow: profile.contextWindow,
-    promptCacheRetention: profile.promptCacheRetention
+    promptCachePolicy: profile.promptCachePolicy
   };
 }
 

@@ -239,7 +239,7 @@ function createRequest(
       ? {
           promptCache: {
             key: "persai:ordinary_chat:bundle-hash-1:b03",
-            retention: "in_memory" as const
+            openaiPolicy: { mode: "automatic", retention: "in_memory" as const }
           }
         }
       : {}),
@@ -270,7 +270,7 @@ export async function runProviderTextGenerationServiceTest(): Promise<void> {
   assert.equal(anthropicClient.calls.length, 0);
   assert.deepEqual(openaiClient.calls[0]?.promptCache, {
     key: "persai:ordinary_chat:bundle-hash-1:b03",
-    retention: "in_memory"
+    openaiPolicy: { mode: "automatic", retention: "in_memory" }
   });
 
   warmupService.snapshot.providers[0] = {
@@ -468,7 +468,7 @@ export async function runProviderTextGenerationServiceTest(): Promise<void> {
         ...createRequest("openai"),
         promptCache: {
           key: "x".repeat(65),
-          retention: "in_memory"
+          openaiPolicy: { mode: "automatic", retention: "in_memory" }
         },
         messages: [
           {
@@ -485,7 +485,7 @@ export async function runProviderTextGenerationServiceTest(): Promise<void> {
       service.generateText({
         ...createRequest("openai"),
         promptCache: {
-          retention: "forever" as "in_memory"
+          openaiPolicy: { mode: "automatic", retention: "forever" as "in_memory" }
         },
         messages: [
           {
@@ -494,7 +494,37 @@ export async function runProviderTextGenerationServiceTest(): Promise<void> {
           }
         ]
       }),
-    /promptCache.retention must be one of the supported provider prompt cache retention values/
+    /promptCache.openaiPolicy is invalid/
+  );
+
+  warmupService.snapshot.providers[0] = {
+    provider: "openai",
+    configured: true,
+    state: "ready",
+    catalogModels: ["gpt-5.4"],
+    catalogSource: "control_plane_apply",
+    warmedAt: "2026-04-11T12:00:00.000Z",
+    error: null
+  };
+  const uncachedOpenAIRequest = createRequest("openai");
+  delete uncachedOpenAIRequest.promptCache;
+  const uncachedOpenAIResult = await service.generateText(uncachedOpenAIRequest);
+  assert.equal(uncachedOpenAIResult.text, "openai-result");
+  assert.equal(openaiClient.calls.at(-1)?.promptCache, undefined);
+
+  await assert.rejects(
+    () =>
+      service.generateText({
+        ...createRequest("openai"),
+        promptCache: {
+          openaiPolicy: {
+            mode: "automatic",
+            retention: "in_memory",
+            unknown: true
+          } as unknown as { mode: "automatic"; retention: "in_memory" }
+        }
+      }),
+    /promptCache.openaiPolicy is invalid/
   );
 
   await assert.rejects(

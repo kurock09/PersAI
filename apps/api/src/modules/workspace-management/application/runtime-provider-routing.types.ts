@@ -1,3 +1,5 @@
+import type { RuntimeProviderPromptCachePolicy } from "./runtime-provider-profile";
+
 export type RuntimeProviderRoutingState = {
   schema: "persai.runtimeProviderRouting.v1";
   derivedFrom: {
@@ -14,36 +16,36 @@ export type RuntimeProviderRoutingState = {
       maxOutputTokens?: number | null;
       /** ADR-122 D2 — resolved from model catalog at routing time; null when unset. */
       contextWindow?: number | null;
-      /** ADR-124 Slice 1 — resolved from model catalog at routing time; null when unset. */
-      promptCacheRetention?: "in_memory" | "24h" | null;
+      /** ADR-161 S3 — resolved from model catalog at routing time; null means explicit uncached mode. */
+      promptCachePolicy?: RuntimeProviderPromptCachePolicy | null;
     };
     premiumReply: {
       providerKey: string;
       modelKey: string | null;
       maxOutputTokens?: number | null;
       contextWindow?: number | null;
-      promptCacheRetention?: "in_memory" | "24h" | null;
+      promptCachePolicy?: RuntimeProviderPromptCachePolicy | null;
     };
     reasoning: {
       providerKey: string;
       modelKey: string | null;
       maxOutputTokens?: number | null;
       contextWindow?: number | null;
-      promptCacheRetention?: "in_memory" | "24h" | null;
+      promptCachePolicy?: RuntimeProviderPromptCachePolicy | null;
     };
     systemTool: {
       providerKey: string;
       modelKey: string | null;
       maxOutputTokens?: number | null;
       contextWindow?: number | null;
-      promptCacheRetention?: "in_memory" | "24h" | null;
+      promptCachePolicy?: RuntimeProviderPromptCachePolicy | null;
     };
     retrieval: {
       providerKey: string;
       modelKey: string | null;
       maxOutputTokens?: number | null;
       contextWindow?: number | null;
-      promptCacheRetention?: "in_memory" | "24h" | null;
+      promptCachePolicy?: RuntimeProviderPromptCachePolicy | null;
     };
   };
   primaryPath: {

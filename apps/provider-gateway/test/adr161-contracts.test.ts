@@ -4,6 +4,7 @@ import {
   assertReusableSealedBoundary,
   calculateTextGenerationCacheCostComparison,
   decodeTextGenerationUsageMixedVersion,
+  hashProviderCacheSemanticPrefix,
   normalizeProviderTextGenerationUsageV2,
   type TextGenerationCacheZoneTelemetry
 } from "@persai/runtime-contract";
@@ -50,6 +51,68 @@ function sealedTelemetry(params: {
 }
 
 export async function runAdr161ContractsTest(): Promise<void> {
+  const semanticPrefix = {
+    messages: [
+      {
+        role: "developer",
+        content: [
+          {
+            type: "input_text",
+            text: '<persai_tool_exchange_boundary ordinal="000001"/>',
+            prompt_cache_breakpoint: { mode: "explicit" }
+          }
+        ]
+      }
+    ]
+  };
+  const movedBreakpoint = {
+    messages: [
+      {
+        role: "developer",
+        content: [
+          {
+            type: "input_text",
+            text: '<persai_tool_exchange_boundary ordinal="000001"/>'
+          }
+        ]
+      }
+    ],
+    prompt_cache_options: { mode: "explicit", ttl: "30m" }
+  };
+  const semanticHash = hashProviderCacheSemanticPrefix({
+    provider: "openai",
+    serializedPrefix: semanticPrefix
+  });
+  assert.equal(
+    semanticHash.hash,
+    hashProviderCacheSemanticPrefix({
+      provider: "openai",
+      serializedPrefix: movedBreakpoint
+    }).hash,
+    "cache controls must not change provider semantic-prefix identity"
+  );
+  assert.notEqual(
+    semanticHash.hash,
+    hashProviderCacheSemanticPrefix({
+      provider: "openai",
+      serializedPrefix: {
+        ...semanticPrefix,
+        messages: [
+          {
+            ...semanticPrefix.messages[0],
+            content: [
+              {
+                type: "input_text",
+                text: '<persai_tool_exchange_boundary ordinal="000002"/>'
+              }
+            ]
+          }
+        ]
+      }
+    }).hash,
+    "model-visible boundary marker content remains semantic"
+  );
+
   const openai = normalizeProviderTextGenerationUsageV2({
     providerKey: "openai",
     ...metadata,
@@ -101,6 +164,32 @@ export async function runAdr161ContractsTest(): Promise<void> {
       promptCachePolicy: { mode: "automatic", retention: "24h" }
     }).status,
     "accounted"
+  );
+  assert.deepEqual(
+    normalizeProviderTextGenerationUsageV2({
+      providerKey: "openai",
+      ...metadata,
+      responseUsage: {
+        input_tokens: 100,
+        output_tokens: 20,
+        total_tokens: 120
+      },
+      promptCachePolicy: null
+    }),
+    {
+      status: "accounted",
+      entry: {
+        schemaVersion: 2,
+        ...metadata,
+        providerKey: "openai",
+        totalInputTokens: 100,
+        uncachedInputTokens: 100,
+        cacheWriteInputTokens: 0,
+        cacheReadInputTokens: 0,
+        outputTokens: 20,
+        totalTokens: 120
+      }
+    }
   );
   assert.deepEqual(openai, {
     status: "accounted",

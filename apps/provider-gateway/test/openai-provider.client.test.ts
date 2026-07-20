@@ -37,7 +37,7 @@ function createRequest(): ProviderGatewayTextGenerateRequest {
     systemPrompt: "Be concise.",
     promptCache: {
       key: "persai:ordinary_chat:bundle-hash-1:b03",
-      retention: "in_memory"
+      openaiPolicy: { mode: "automatic", retention: "in_memory" }
     },
     messages: [
       {
@@ -903,6 +903,48 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
       output: '{"toolCode":"knowledge_fetch","action":"completed"}'
     }
   ]);
+
+  await client.generateText({
+    ...replayRequest,
+    toolHistory: [
+      {
+        ...replayRequest.toolHistory![0]!,
+        assistantText: "I will look that up."
+      },
+      {
+        toolCall: {
+          id: "call-empty",
+          name: "knowledge_fetch",
+          arguments: { source: "memory", referenceId: "memory-2" }
+        },
+        toolResult: {
+          toolCallId: "call-empty",
+          name: "knowledge_fetch",
+          content: '{"toolCode":"knowledge_fetch","action":"completed"}',
+          isError: false
+        },
+        assistantText: ""
+      }
+    ]
+  });
+  const inputWithAssistantText = capturedGeneratePayload!.input as Array<Record<string, unknown>>;
+  const firstCallIndex = inputWithAssistantText.findIndex(
+    (item) => item.type === "function_call" && item.call_id === "call-current"
+  );
+  assert.deepEqual(inputWithAssistantText[firstCallIndex - 1], {
+    role: "assistant",
+    content: [{ type: "input_text", text: "I will look that up." }]
+  });
+  assert.equal(
+    inputWithAssistantText.filter(
+      (item) =>
+        item.role === "assistant" &&
+        Array.isArray(item.content) &&
+        (item.content[0] as { text?: unknown } | undefined)?.text === ""
+    ).length,
+    0,
+    "empty assistant text must not manufacture a provider item"
+  );
 
   const stream = await client.streamText(request);
   const events = await collectStream(stream);

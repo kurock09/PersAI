@@ -2419,6 +2419,18 @@ export async function runAdr151TurnDispatchIntegrationTest(): Promise<void> {
 
 export async function runTurnExecutionServiceTest(): Promise<void> {
   const bundleRegistry = new FakeRuntimeBundleRegistryService();
+  const initialRouting = bundleRegistry.entry?.parsedBundle.runtime.runtimeProviderRouting as {
+    modelSlots?: {
+      normalReply?: Record<string, unknown>;
+    };
+  };
+  initialRouting.modelSlots = {
+    ...initialRouting.modelSlots,
+    normalReply: {
+      ...(initialRouting.modelSlots?.normalReply ?? {}),
+      promptCachePolicy: { mode: "automatic", retention: "in_memory" }
+    }
+  };
   const providerGatewayClient = new FakeProviderGatewayClientService();
   const turnContextHydrationService = new FakeTurnContextHydrationService();
   const turnAcceptanceService = new FakeTurnAcceptanceService();
@@ -2568,20 +2580,23 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     toolLoopIteration: 0,
     compactionToolCode: null
   });
-  assert.equal(providerGatewayClient.calls[0]?.promptCache?.retention, "in_memory");
+  assert.deepEqual(providerGatewayClient.calls[0]?.promptCache?.openaiPolicy, {
+    mode: "automatic",
+    retention: "in_memory"
+  });
   assert.match(
     providerGatewayClient.calls[0]?.promptCache?.key ?? "",
     /^ps1:oc:[a-f0-9]{32}:b\d{2}$/
   );
   assert.ok((providerGatewayClient.calls[0]?.promptCache?.key?.length ?? 0) <= 64);
-  const promptCacheRetentionCallCountBefore = providerGatewayClient.calls.length;
+  const promptCachePolicyCallCountBefore = providerGatewayClient.calls.length;
   if (bundleRegistry.entry !== null) {
     const routing = bundleRegistry.entry.parsedBundle.runtime.runtimeProviderRouting as {
       modelSlots?: {
         normalReply?: {
           providerKey?: string;
           modelKey?: string | null;
-          promptCacheRetention?: string | null;
+          promptCachePolicy?: unknown;
         };
       };
     };
@@ -2589,18 +2604,67 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       ...routing.modelSlots,
       normalReply: {
         ...(routing.modelSlots?.normalReply ?? {}),
-        promptCacheRetention: "24h"
+        promptCachePolicy: { mode: "automatic", retention: "24h" }
       }
     };
   }
-  const promptCacheRetentionRequest = createRuntimeTurnRequest();
-  promptCacheRetentionRequest.bundle.bundleHash =
-    bundleRegistry.entry?.bundle.bundleHash ?? promptCacheRetentionRequest.bundle.bundleHash;
+  const promptCachePolicyRequest = createRuntimeTurnRequest();
+  promptCachePolicyRequest.bundle.bundleHash =
+    bundleRegistry.entry?.bundle.bundleHash ?? promptCachePolicyRequest.bundle.bundleHash;
   (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
-    promptCacheRetentionRequest.bundle.bundleHash;
-  await service.createTurn(promptCacheRetentionRequest);
-  assert.equal(providerGatewayClient.calls.length, promptCacheRetentionCallCountBefore + 1);
-  assert.equal(providerGatewayClient.calls.at(-1)?.promptCache?.retention, "24h");
+    promptCachePolicyRequest.bundle.bundleHash;
+  await service.createTurn(promptCachePolicyRequest);
+  assert.equal(providerGatewayClient.calls.length, promptCachePolicyCallCountBefore + 1);
+  assert.deepEqual(providerGatewayClient.calls.at(-1)?.promptCache?.openaiPolicy, {
+    mode: "automatic",
+    retention: "24h"
+  });
+  if (bundleRegistry.entry !== null) {
+    const routing = bundleRegistry.entry.parsedBundle.runtime.runtimeProviderRouting as {
+      modelSlots?: {
+        normalReply?: {
+          promptCachePolicy?: unknown;
+        };
+      };
+    };
+    routing.modelSlots = {
+      ...routing.modelSlots,
+      normalReply: {
+        ...(routing.modelSlots?.normalReply ?? {}),
+        promptCachePolicy: null
+      }
+    };
+  }
+  const uncachedPromptCachePolicyRequest = createRuntimeTurnRequest();
+  uncachedPromptCachePolicyRequest.bundle.bundleHash =
+    bundleRegistry.entry?.bundle.bundleHash ?? uncachedPromptCachePolicyRequest.bundle.bundleHash;
+  (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
+    uncachedPromptCachePolicyRequest.bundle.bundleHash;
+  await service.createTurn(uncachedPromptCachePolicyRequest);
+  assert.equal(
+    providerGatewayClient.calls.at(-1)?.promptCache,
+    undefined,
+    "explicit null promptCachePolicy must disable OpenAI prompt cache wiring"
+  );
+  if (bundleRegistry.entry !== null) {
+    const routing = bundleRegistry.entry.parsedBundle.runtime.runtimeProviderRouting as {
+      modelSlots?: {
+        normalReply?: Record<string, unknown>;
+      };
+    };
+    if (routing.modelSlots?.normalReply !== undefined) {
+      delete routing.modelSlots.normalReply.promptCachePolicy;
+    }
+  }
+  const missingPromptCachePolicyRequest = createRuntimeTurnRequest();
+  missingPromptCachePolicyRequest.bundle.bundleHash =
+    bundleRegistry.entry?.bundle.bundleHash ?? missingPromptCachePolicyRequest.bundle.bundleHash;
+  (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
+    missingPromptCachePolicyRequest.bundle.bundleHash;
+  await assert.rejects(
+    () => service.createTurn(missingPromptCachePolicyRequest),
+    /missing a valid catalog promptCachePolicy field/
+  );
   assert.deepEqual(
     providerGatewayClient.calls[0]?.tools?.map((tool) => tool.name),
     [
@@ -4974,7 +5038,10 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     toolLoopIteration: 0,
     compactionToolCode: null
   });
-  assert.equal(providerGatewayClient.streamCalls[streamCallOffset]?.promptCache?.retention, "24h");
+  assert.deepEqual(providerGatewayClient.streamCalls[streamCallOffset]?.promptCache?.openaiPolicy, {
+    mode: "automatic",
+    retention: "24h"
+  });
   assert.match(
     providerGatewayClient.streamCalls[streamCallOffset]?.promptCache?.key ?? "",
     /^ps1:oc:[a-f0-9]{32}:b\d{2}$/
@@ -7778,10 +7845,10 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     false
   );
 
-  // ── ADR-143 Slice S2 — in-turn toolHistory projection ──
-  // Provider-facing toolHistory must be tier-projected (newest full, next 4
-  // compact, older masked). Canonical turnState / completed toolExchanges stay
-  // full and must not carry forced `_observationTier` markers.
+  // ── ADR-161 D1 — sealed in-turn compact spine + newest-three overlays ──
+  // Provider-facing toolHistory is the immutable compact protocol spine. Full
+  // newest-three observations are a separate suffix field; canonical turnState
+  // / completed toolExchanges stay full and unprojected.
   {
     const observationProjectionRequest = createRuntimeTurnRequest();
     observationProjectionRequest.bundle.bundleHash = request.bundle.bundleHash;
@@ -7850,10 +7917,25 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     });
     assert.deepEqual(
       projectedTiers,
-      ["compact", "compact", "compact", "full", "full", "full"],
-      "ADR-156: in-turn history must keep newest three full and next three compact."
+      ["compact", "compact", "compact", "compact", "compact", "compact"],
+      "ADR-161 D1: every sealed protocol entry is compact and never re-aged."
     );
-    const newestProjected = JSON.parse(projectedToolHistory[5]?.toolResult.content ?? "{}") as {
+    const observationOverlays =
+      providerGatewayClient.calls[providerCallsBeforeObservationProjection + 1]
+        ?.toolObservationOverlays ?? [];
+    assert.deepEqual(
+      observationOverlays.map((overlay) => overlay.ordinal),
+      [4, 5, 6]
+    );
+    const sealedBoundary =
+      providerGatewayClient.calls[providerCallsBeforeObservationProjection + 1]
+        ?.sealedToolExchangeBoundary;
+    assert.equal(sealedBoundary?.exchangeCount, 6);
+    assert.equal(sealedBoundary?.boundaryKind, "sealed_tool_exchange_spine");
+    assert.match(sealedBoundary?.cacheContentHash ?? "", /^[a-f0-9]{64}$/);
+    const newestProjected = JSON.parse(
+      observationOverlays[2]?.exchange.toolResult.content ?? "{}"
+    ) as {
       action?: string;
       requestedKind?: string;
       _observationTier?: string;

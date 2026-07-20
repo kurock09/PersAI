@@ -9,7 +9,7 @@ import type { AssistantRuntimeBundle } from "@persai/runtime-bundle";
 import type {
   PersaiRuntimeSharedCompactionToolCode,
   ProviderGatewayPromptCacheConfig,
-  ProviderGatewayPromptCacheRetention,
+  ProviderGatewayOpenAIPromptCachePolicy,
   ProviderGatewayRequestMetadata,
   ProviderGatewayTextGenerateRequest,
   RuntimeCompactionRequest,
@@ -39,9 +39,12 @@ import {
 } from "./runtime-context-hydration-policy";
 import { RuntimeBundleAutoRefreshService } from "./runtime-bundle-auto-refresh.service";
 import { AutoExtractToMemoryService } from "./auto-extract-to-memory.service";
-import { OPENAI_PROMPT_CACHE_RETENTION_FALLBACK } from "./openai-prompt-cache-retention";
 
 type NativeManagedProvider = "openai" | "anthropic" | "deepseek";
+type SlotPromptCachePolicyState =
+  | { status: "configured"; policy: ProviderGatewayOpenAIPromptCachePolicy }
+  | { status: "uncached" }
+  | { status: "missing" };
 
 type ProviderSelection = {
   provider: NativeManagedProvider;
@@ -862,9 +865,18 @@ export class SessionCompactionService {
     if (provider !== "openai") {
       return undefined;
     }
+    const promptCachePolicy = this.resolveSystemToolPromptCachePolicy(bundle);
+    if (promptCachePolicy.status === "missing") {
+      throw new ServiceUnavailableException(
+        "OpenAI system-tool model slot is missing a valid catalog promptCachePolicy field."
+      );
+    }
+    if (promptCachePolicy.status === "uncached") {
+      return undefined;
+    }
     return {
       key: this.buildOpenAIPromptCacheKey(bundle),
-      retention: this.resolveSystemToolPromptCacheRetention(bundle)
+      openaiPolicy: promptCachePolicy.policy
     };
   }
 
@@ -945,16 +957,13 @@ export class SessionCompactionService {
     );
   }
 
-  private resolveSystemToolPromptCacheRetention(
+  private resolveSystemToolPromptCachePolicy(
     bundle: AssistantRuntimeBundle
-  ): ProviderGatewayPromptCacheRetention {
+  ): SlotPromptCachePolicyState {
     const routing = this.asObject(bundle.runtime.runtimeProviderRouting);
     const modelSlots = this.asObject(routing?.modelSlots);
     const systemTool = this.asObject(modelSlots?.systemTool);
-    return (
-      this.asPromptCacheRetention(systemTool?.promptCacheRetention) ??
-      OPENAI_PROMPT_CACHE_RETENTION_FALLBACK
-    );
+    return this.readPromptCachePolicyState(systemTool, "promptCachePolicy");
   }
 
   private buildCompactionResult(input: {
@@ -1085,8 +1094,47 @@ export class SessionCompactionService {
     return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
   }
 
-  private asPromptCacheRetention(value: unknown): ProviderGatewayPromptCacheRetention | null {
-    return value === "in_memory" || value === "24h" ? value : null;
+  private readPromptCachePolicyState(
+    row: Record<string, unknown> | null,
+    key: string
+  ): SlotPromptCachePolicyState {
+    if (row === null || !Object.prototype.hasOwnProperty.call(row, key)) {
+      return { status: "missing" };
+    }
+    const value = row[key];
+    if (value === null) {
+      return { status: "uncached" };
+    }
+    if (value === undefined || typeof value !== "object" || Array.isArray(value)) {
+      return { status: "missing" };
+    }
+    const policy = value as Record<string, unknown>;
+    if (
+      policy.mode === "automatic" &&
+      (policy.retention === "in_memory" || policy.retention === "24h")
+    ) {
+      return {
+        status: "configured",
+        policy: { mode: "automatic", retention: policy.retention }
+      };
+    }
+    if (
+      policy.mode === "explicit" &&
+      policy.ttl === "30m" &&
+      policy.stableAnchor === "explicit" &&
+      policy.sealedSpineBreakpoint === "explicit"
+    ) {
+      return {
+        status: "configured",
+        policy: {
+          mode: "explicit",
+          ttl: "30m",
+          stableAnchor: "explicit",
+          sealedSpineBreakpoint: "explicit"
+        }
+      };
+    }
+    return { status: "missing" };
   }
 
   private asNativeManagedProvider(value: unknown): NativeManagedProvider | null {

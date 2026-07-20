@@ -16,10 +16,10 @@ import {
   type RuntimeProviderModelCapability,
   type RuntimeProviderModelCatalogByProvider,
   type RuntimeProviderModelProfile,
-  RUNTIME_PROVIDER_PROMPT_CACHE_RETENTIONS,
   type RuntimeProviderPriceMetadata,
   type RuntimeProviderPromptCachePolicy,
-  type RuntimeProviderPromptCacheRetention,
+  type RuntimeProviderPromptCachePolicyRetention,
+  RUNTIME_PROVIDER_PROMPT_CACHE_POLICY_RETENTIONS,
   type RuntimeProviderTextCharsMeteredPriceConfig,
   type RuntimeProviderTokenMeteredPriceConfig,
   type RuntimeProviderTimeMeteredPriceConfig,
@@ -900,20 +900,22 @@ function normalizeOptionalPositiveInteger(
   return value;
 }
 
-function normalizeOptionalPromptCacheRetention(
+function normalizeOptionalPromptCachePolicyRetention(
   value: unknown,
   path: string
-): RuntimeProviderPromptCacheRetention | null {
+): RuntimeProviderPromptCachePolicyRetention | null {
   if (value === undefined || value === null) {
     return null;
   }
   if (
-    RUNTIME_PROVIDER_PROMPT_CACHE_RETENTIONS.includes(value as RuntimeProviderPromptCacheRetention)
+    RUNTIME_PROVIDER_PROMPT_CACHE_POLICY_RETENTIONS.includes(
+      value as RuntimeProviderPromptCachePolicyRetention
+    )
   ) {
-    return value as RuntimeProviderPromptCacheRetention;
+    return value as RuntimeProviderPromptCachePolicyRetention;
   }
   throw new Error(
-    `${path} must be one of: ${RUNTIME_PROVIDER_PROMPT_CACHE_RETENTIONS.join(", ")}.`
+    `${path} must be one of: ${RUNTIME_PROVIDER_PROMPT_CACHE_POLICY_RETENTIONS.join(", ")}.`
   );
 }
 
@@ -929,7 +931,10 @@ function normalizeOptionalPromptCachePolicy(
     throw new Error(`${path} must be an object when provided.`);
   }
   if (row.mode === "automatic") {
-    const retention = normalizeOptionalPromptCacheRetention(row.retention, `${path}.retention`);
+    const retention = normalizeOptionalPromptCachePolicyRetention(
+      row.retention,
+      `${path}.retention`
+    );
     if (retention === null) {
       throw new Error(`${path}.retention is required for automatic mode.`);
     }
@@ -1357,13 +1362,6 @@ function normalizeModelProfiles(
         }) ??
         MODEL_CAPABILITY_DEFAULTS[model]?.contextWindow ??
         null,
-      promptCacheRetention:
-        normalizeOptionalPromptCacheRetention(
-          row.promptCacheRetention,
-          `${entryPath}.promptCacheRetention`
-        ) ??
-        MODEL_CAPABILITY_DEFAULTS[model]?.promptCacheRetention ??
-        null,
       promptCachePolicy: normalizeOptionalPromptCachePolicy(
         row.promptCachePolicy,
         `${entryPath}.promptCachePolicy`
@@ -1529,8 +1527,7 @@ function createDefaultModelProfiles(
       outputTokenWeight: DEFAULT_RUNTIME_PROVIDER_MODEL_TOKEN_WEIGHT,
       maxOutputTokens: capabilityDefaults?.maxOutputTokens ?? null,
       contextWindow: capabilityDefaults?.contextWindow ?? null,
-      promptCacheRetention: capabilityDefaults?.promptCacheRetention ?? null,
-      promptCachePolicy: null,
+      promptCachePolicy: capabilityDefaults?.promptCachePolicy ?? null,
       displayLabel: null,
       notes: null
     };
@@ -1604,8 +1601,7 @@ function normalizeLegacyCapabilityCatalog(
       outputTokenWeight: DEFAULT_RUNTIME_PROVIDER_MODEL_TOKEN_WEIGHT,
       maxOutputTokens: capabilityDefaults?.maxOutputTokens ?? null,
       contextWindow: capabilityDefaults?.contextWindow ?? null,
-      promptCacheRetention: capabilityDefaults?.promptCacheRetention ?? null,
-      promptCachePolicy: null,
+      promptCachePolicy: capabilityDefaults?.promptCachePolicy ?? null,
       displayLabel: null,
       notes: null
     };

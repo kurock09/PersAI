@@ -188,7 +188,15 @@ function makeAdminProfile(
   modelKey: string,
   maxOutputTokens: number | null,
   contextWindow: number | null,
-  promptCacheRetention: "in_memory" | "24h" | null = null
+  promptCachePolicy:
+    | { mode: "automatic"; retention: "in_memory" | "24h" }
+    | {
+        mode: "explicit";
+        ttl: "30m";
+        stableAnchor: "explicit";
+        sealedSpineBreakpoint: "explicit";
+      }
+    | null = null
 ): RuntimeProviderProfileState {
   return {
     schema: "persai.runtimeProviderProfile.v1" as const,
@@ -216,7 +224,7 @@ function makeAdminProfile(
             outputTokenWeight: 1,
             maxOutputTokens,
             contextWindow,
-            promptCacheRetention,
+            promptCachePolicy,
             displayLabel: null,
             notes: null,
             providerPriceMetadata: {
@@ -285,7 +293,7 @@ function makeMixedProviderProfile(): RuntimeProviderProfileState {
             outputTokenWeight: 1,
             maxOutputTokens: 16_000,
             contextWindow: 128_000,
-            promptCacheRetention: "24h",
+            promptCachePolicy: { mode: "automatic", retention: "24h" },
             displayLabel: null,
             notes: null,
             providerPriceMetadata: {
@@ -311,7 +319,7 @@ function makeMixedProviderProfile(): RuntimeProviderProfileState {
             outputTokenWeight: 1,
             maxOutputTokens: 4_000,
             contextWindow: 64_000,
-            promptCacheRetention: null,
+            promptCachePolicy: null,
             displayLabel: null,
             notes: null,
             providerPriceMetadata: {
@@ -337,7 +345,7 @@ function makeMixedProviderProfile(): RuntimeProviderProfileState {
             outputTokenWeight: 1,
             maxOutputTokens: 6_000,
             contextWindow: 96_000,
-            promptCacheRetention: null,
+            promptCachePolicy: null,
             displayLabel: null,
             notes: null,
             providerPriceMetadata: {
@@ -367,7 +375,7 @@ function makeMixedProviderProfile(): RuntimeProviderProfileState {
             outputTokenWeight: 1,
             maxOutputTokens: 12_000,
             contextWindow: 200_000,
-            promptCacheRetention: "in_memory",
+            promptCachePolicy: { mode: "automatic", retention: "in_memory" },
             displayLabel: null,
             notes: null,
             providerPriceMetadata: {
@@ -393,7 +401,7 @@ function makeMixedProviderProfile(): RuntimeProviderProfileState {
             outputTokenWeight: 1,
             maxOutputTokens: 32_000,
             contextWindow: 256_000,
-            promptCacheRetention: "24h",
+            promptCachePolicy: { mode: "automatic", retention: "24h" },
             displayLabel: null,
             notes: null,
             providerPriceMetadata: {
@@ -419,7 +427,7 @@ function makeMixedProviderProfile(): RuntimeProviderProfileState {
             outputTokenWeight: 1,
             maxOutputTokens: 8_000,
             contextWindow: 180_000,
-            promptCacheRetention: "in_memory",
+            promptCachePolicy: { mode: "automatic", retention: "in_memory" },
             displayLabel: null,
             notes: null,
             providerPriceMetadata: {
@@ -445,7 +453,7 @@ function makeMixedProviderProfile(): RuntimeProviderProfileState {
             outputTokenWeight: 1,
             maxOutputTokens: 10_000,
             contextWindow: 140_000,
-            promptCacheRetention: "in_memory",
+            promptCachePolicy: { mode: "automatic", retention: "in_memory" },
             displayLabel: null,
             notes: null,
             providerPriceMetadata: {
@@ -471,7 +479,7 @@ function makeMixedProviderProfile(): RuntimeProviderProfileState {
             outputTokenWeight: 1,
             maxOutputTokens: 9_000,
             contextWindow: 150_000,
-            promptCacheRetention: "24h",
+            promptCachePolicy: { mode: "automatic", retention: "24h" },
             displayLabel: null,
             notes: null,
             providerPriceMetadata: {
@@ -501,7 +509,7 @@ function makeMixedProviderProfile(): RuntimeProviderProfileState {
             outputTokenWeight: 1,
             maxOutputTokens: 384_000,
             contextWindow: 1_000_000,
-            promptCacheRetention: "in_memory",
+            promptCachePolicy: { mode: "automatic", retention: "in_memory" },
             displayLabel: null,
             notes: null,
             providerPriceMetadata: {
@@ -531,7 +539,7 @@ function makeMixedProviderProfile(): RuntimeProviderProfileState {
             outputTokenWeight: 1,
             maxOutputTokens: 7_000,
             contextWindow: 110_000,
-            promptCacheRetention: null,
+            promptCachePolicy: null,
             displayLabel: null,
             notes: null,
             providerPriceMetadata: {
@@ -589,12 +597,10 @@ function baseEffectiveCapabilities() {
 
 function runAdr122SlotEnrichmentTests(service: ResolveRuntimeProviderRoutingService) {
   // Slot resolves to model with known capabilities → slot carries them
-  const profileWithCapabilities = makeAdminProfile(
-    "claude-opus-4-6",
-    128_000,
-    200_000,
-    "in_memory"
-  );
+  const profileWithCapabilities = makeAdminProfile("claude-opus-4-6", 128_000, 200_000, {
+    mode: "automatic",
+    retention: "in_memory"
+  });
   const resolvedWithCapabilities = service.execute({
     effectiveCapabilities: baseEffectiveCapabilities(),
     policyEnvelope: null,
@@ -611,9 +617,14 @@ function runAdr122SlotEnrichmentTests(service: ResolveRuntimeProviderRoutingServ
     "normalReply slot carries contextWindow from catalog"
   );
   assert.equal(
-    resolvedWithCapabilities.modelSlots.normalReply.promptCacheRetention,
-    "in_memory",
-    "normalReply slot carries promptCacheRetention from catalog"
+    resolvedWithCapabilities.modelSlots.normalReply.promptCachePolicy?.mode,
+    "automatic",
+    "normalReply slot carries promptCachePolicy mode from catalog"
+  );
+  assert.deepEqual(
+    resolvedWithCapabilities.modelSlots.normalReply.promptCachePolicy,
+    { mode: "automatic", retention: "in_memory" },
+    "normalReply slot carries promptCachePolicy from catalog"
   );
   assert.equal(
     resolvedWithCapabilities.modelSlots.premiumReply.maxOutputTokens,
@@ -621,9 +632,14 @@ function runAdr122SlotEnrichmentTests(service: ResolveRuntimeProviderRoutingServ
     "premiumReply slot carries maxOutputTokens from catalog"
   );
   assert.equal(
-    resolvedWithCapabilities.modelSlots.premiumReply.promptCacheRetention,
-    "in_memory",
-    "premiumReply slot carries promptCacheRetention from catalog"
+    resolvedWithCapabilities.modelSlots.premiumReply.promptCachePolicy?.mode,
+    "automatic",
+    "premiumReply slot carries promptCachePolicy mode from catalog"
+  );
+  assert.deepEqual(
+    resolvedWithCapabilities.modelSlots.premiumReply.promptCachePolicy,
+    { mode: "automatic", retention: "in_memory" },
+    "premiumReply slot carries promptCachePolicy from catalog"
   );
 
   // Slot resolves to model with null capabilities → slot carries null
@@ -644,9 +660,9 @@ function runAdr122SlotEnrichmentTests(service: ResolveRuntimeProviderRoutingServ
     "null contextWindow round-trips through slot"
   );
   assert.equal(
-    resolvedWithNulls.modelSlots.normalReply.promptCacheRetention,
+    resolvedWithNulls.modelSlots.normalReply.promptCachePolicy,
     null,
-    "null promptCacheRetention round-trips through slot"
+    "null promptCachePolicy round-trips through slot"
   );
 
   // Slot with unknown modelKey → null
@@ -667,9 +683,9 @@ function runAdr122SlotEnrichmentTests(service: ResolveRuntimeProviderRoutingServ
     "unknown model → null contextWindow on slot"
   );
   assert.equal(
-    resolvedUnknownModel.modelSlots.normalReply.promptCacheRetention,
+    resolvedUnknownModel.modelSlots.normalReply.promptCachePolicy,
     null,
-    "unknown model → null promptCacheRetention on slot"
+    "unknown model → null promptCachePolicy on slot"
   );
 }
 
@@ -694,7 +710,10 @@ function runAdr124MixedProviderTests(service: ResolveRuntimeProviderRoutingServi
   assert.equal(resolved.primaryPath.modelKey, "gpt-5.4");
   assert.equal(resolved.modelSlots.normalReply.providerKey, "openai");
   assert.equal(resolved.modelSlots.normalReply.maxOutputTokens, 16_000);
-  assert.equal(resolved.modelSlots.normalReply.promptCacheRetention, "24h");
+  assert.deepEqual(resolved.modelSlots.normalReply.promptCachePolicy, {
+    mode: "automatic",
+    retention: "24h"
+  });
   assert.equal(
     resolved.modelSlots.premiumReply.providerKey,
     "openai",
@@ -704,14 +723,20 @@ function runAdr124MixedProviderTests(service: ResolveRuntimeProviderRoutingServi
   assert.equal(resolved.modelSlots.reasoning.modelKey, "deepseek-v4-pro");
   assert.equal(resolved.modelSlots.reasoning.contextWindow, 1_000_000);
   assert.equal(resolved.modelSlots.reasoning.maxOutputTokens, 384_000);
-  assert.equal(resolved.modelSlots.reasoning.promptCacheRetention, "in_memory");
+  assert.deepEqual(resolved.modelSlots.reasoning.promptCachePolicy, {
+    mode: "automatic",
+    retention: "in_memory"
+  });
   assert.equal(resolved.modelSlots.systemTool.providerKey, "openai");
   assert.equal(resolved.modelSlots.systemTool.modelKey, "gpt-5.4-cheap");
   assert.equal(resolved.modelSlots.systemTool.maxOutputTokens, 4_000);
   assert.equal(resolved.modelSlots.retrieval.providerKey, "anthropic");
   assert.equal(resolved.modelSlots.retrieval.modelKey, "claude-retrieval");
   assert.equal(resolved.modelSlots.retrieval.contextWindow, 180_000);
-  assert.equal(resolved.modelSlots.retrieval.promptCacheRetention, "in_memory");
+  assert.deepEqual(resolved.modelSlots.retrieval.promptCachePolicy, {
+    mode: "automatic",
+    retention: "in_memory"
+  });
   const providerFailureTarget = resolved.fallbackMatrix.find(
     (item) => item.trigger === "provider_failure_or_timeout"
   )?.target;

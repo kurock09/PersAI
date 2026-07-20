@@ -143,10 +143,13 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
   const callOrder: string[] = [];
   (
     client as unknown as {
-      logger: { log: (message: string) => void; warn: (value: Record<string, unknown>) => void };
+      logger: { log: (message: unknown) => void; warn: (value: Record<string, unknown>) => void };
     }
   ).logger = {
     log: (message) => {
+      if (typeof message !== "string") {
+        return;
+      }
       logMessages.push(message);
       callOrder.push(`log:${message}`);
     },
@@ -852,7 +855,7 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
     ...createRequest(),
     promptCache: {
       key: "ps1:replay-cache",
-      retention: "in_memory",
+      openaiPolicy: { mode: "automatic", retention: "in_memory" },
       anthropicHistoryBreakpointMinTokens: 1
     },
     messages: [
@@ -949,7 +952,7 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
     developerInstructions: "Volatile per-turn routing context.",
     promptCache: {
       key: "ps1:test-cache",
-      retention: "in_memory"
+      openaiPolicy: { mode: "automatic", retention: "in_memory" }
     }
   };
   await client.generateText(cacheAwareRequest);
@@ -1255,8 +1258,15 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
   assert.deepEqual(capturedGeneratePayload!.messages, [
     {
       role: "assistant",
-      content:
-        "Stable earlier answer that should become the moving Anthropic history breakpoint once the uncached tail grows."
+      content: [
+        {
+          type: "text",
+          text: "Stable earlier answer that should become the moving Anthropic history breakpoint once the uncached tail grows.",
+          cache_control: {
+            type: "ephemeral"
+          }
+        }
+      ]
     },
     {
       role: "user",
@@ -1278,6 +1288,62 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
       ]
     }
   ]);
+
+  await client.generateText({
+    ...toolLoopMovingCacheRequest,
+    toolHistory: [
+      {
+        toolCall: { id: "toolu-sealed", name: "knowledge_search", arguments: { query: "cache" } },
+        toolResult: {
+          toolCallId: "toolu-sealed",
+          name: "knowledge_search",
+          content: '{"toolCode":"knowledge_search","action":"completed"}',
+          isError: false
+        }
+      }
+    ],
+    toolFollowUpUserContent: "continue"
+  });
+  const cacheMarkedBlocks = (
+    capturedGeneratePayload!.messages as Array<{
+      role?: unknown;
+      content?: unknown;
+    }>
+  ).flatMap((message) =>
+    Array.isArray(message.content)
+      ? message.content.filter(
+          (block) =>
+            block !== null &&
+            typeof block === "object" &&
+            "cache_control" in (block as Record<string, unknown>)
+        )
+      : []
+  ) as Array<{ type?: unknown; text?: unknown; tool_use_id?: unknown }>;
+  assert.equal(cacheMarkedBlocks.length, 2, "history anchor plus latest sealed result only");
+  assert.ok(
+    cacheMarkedBlocks.some(
+      (block) =>
+        block.type === "text" &&
+        typeof block.text === "string" &&
+        block.text.includes("Stable earlier answer")
+    ),
+    "follow-ups retain the quantized stable-history anchor"
+  );
+  assert.ok(
+    cacheMarkedBlocks.some(
+      (block) => block.type === "tool_result" && block.tool_use_id === "toolu-sealed"
+    ),
+    "follow-ups mark the latest completed compact result"
+  );
+  const systemBreakpoints = Array.isArray(capturedGeneratePayload!.system)
+    ? capturedGeneratePayload!.system.filter(
+        (block) =>
+          block !== null &&
+          typeof block === "object" &&
+          "cache_control" in (block as Record<string, unknown>)
+      ).length
+    : 0;
+  assert.ok(systemBreakpoints + cacheMarkedBlocks.length <= 4, "stay within Anthropic slots");
 
   // ADR-120 Slice 1 — the pushed contextual short-memory volatile block was
   // retired; the surviving volatile kind exercised here is `active_scenario`.
@@ -1542,10 +1608,13 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
   let warnedEmptyCompletion: Record<string, unknown> | null = null;
   (
     client as unknown as {
-      logger: { log: (message: string) => void; warn: (value: Record<string, unknown>) => void };
+      logger: { log: (message: unknown) => void; warn: (value: Record<string, unknown>) => void };
     }
   ).logger = {
     log: (message) => {
+      if (typeof message !== "string") {
+        return;
+      }
       logMessages.push(message);
       callOrder.push(`log:${message}`);
     },

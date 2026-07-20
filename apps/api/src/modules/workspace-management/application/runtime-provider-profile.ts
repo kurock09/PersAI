@@ -27,7 +27,20 @@ export const MANAGED_CATALOG_PROVIDERS = [
   "heygen"
 ] as const;
 export const VIDEO_GENERATE_PROVIDERS = ["openai", "runway", "kling", "heygen"] as const;
-export const RUNTIME_PROVIDER_PROMPT_CACHE_RETENTIONS = ["in_memory", "24h"] as const;
+export const RUNTIME_PROVIDER_PROMPT_CACHE_POLICY_RETENTIONS = ["in_memory", "24h"] as const;
+export type RuntimeProviderPromptCachePolicyRetention =
+  (typeof RUNTIME_PROVIDER_PROMPT_CACHE_POLICY_RETENTIONS)[number];
+export type RuntimeProviderPromptCachePolicy =
+  | {
+      mode: "automatic";
+      retention: RuntimeProviderPromptCachePolicyRetention;
+    }
+  | {
+      mode: "explicit";
+      ttl: "30m";
+      stableAnchor: "explicit";
+      sealedSpineBreakpoint: "explicit";
+    };
 
 /**
  * ADR-122 D5 — per-model capability defaults.
@@ -56,99 +69,99 @@ export const MODEL_CAPABILITY_DEFAULTS: Partial<
     {
       contextWindow: number | null;
       maxOutputTokens: number | null;
-      promptCacheRetention: RuntimeProviderPromptCacheRetention | null;
+      promptCachePolicy: RuntimeProviderPromptCachePolicy | null;
     }
   >
 > = {
   "claude-sonnet-4-6": {
     contextWindow: 200_000,
     maxOutputTokens: 64_000,
-    promptCacheRetention: "in_memory"
+    promptCachePolicy: { mode: "automatic", retention: "in_memory" }
   },
   "claude-sonnet-4-5": {
     contextWindow: 200_000,
     maxOutputTokens: 64_000,
-    promptCacheRetention: "in_memory"
+    promptCachePolicy: { mode: "automatic", retention: "in_memory" }
   },
   "claude-haiku-4-5": {
     contextWindow: 200_000,
     maxOutputTokens: 64_000,
-    promptCacheRetention: "in_memory"
+    promptCachePolicy: { mode: "automatic", retention: "in_memory" }
   },
   "claude-opus-4-5": {
     contextWindow: 200_000,
     maxOutputTokens: 64_000,
-    promptCacheRetention: "in_memory"
+    promptCachePolicy: { mode: "automatic", retention: "in_memory" }
   },
   "claude-opus-4-6": {
     contextWindow: 200_000,
     maxOutputTokens: 128_000,
-    promptCacheRetention: "in_memory"
+    promptCachePolicy: { mode: "automatic", retention: "in_memory" }
   },
   "claude-opus-4-7": {
     contextWindow: 200_000,
     maxOutputTokens: 128_000,
-    promptCacheRetention: "in_memory"
+    promptCachePolicy: { mode: "automatic", retention: "in_memory" }
   },
   "claude-opus-4-8": {
     contextWindow: 200_000,
     maxOutputTokens: 128_000,
-    promptCacheRetention: "in_memory"
+    promptCachePolicy: { mode: "automatic", retention: "in_memory" }
   },
   "gpt-5.1": {
     contextWindow: 400_000,
     maxOutputTokens: 128_000,
-    promptCacheRetention: "in_memory"
+    promptCachePolicy: { mode: "automatic", retention: "in_memory" }
   },
   "gpt-5.1-codex": {
     contextWindow: 400_000,
     maxOutputTokens: 128_000,
-    promptCacheRetention: "in_memory"
+    promptCachePolicy: { mode: "automatic", retention: "in_memory" }
   },
   "gpt-5": {
     contextWindow: 400_000,
     maxOutputTokens: 128_000,
-    promptCacheRetention: "in_memory"
+    promptCachePolicy: { mode: "automatic", retention: "in_memory" }
   },
   "gpt-5-mini": {
     contextWindow: 400_000,
     maxOutputTokens: 128_000,
-    promptCacheRetention: "in_memory"
+    promptCachePolicy: { mode: "automatic", retention: "in_memory" }
   },
   "gpt-5-nano": {
     contextWindow: 400_000,
     maxOutputTokens: 128_000,
-    promptCacheRetention: "in_memory"
+    promptCachePolicy: { mode: "automatic", retention: "in_memory" }
   },
   "gpt-5.5": {
     contextWindow: null,
     maxOutputTokens: null,
-    promptCacheRetention: "24h"
+    promptCachePolicy: { mode: "automatic", retention: "24h" }
   },
   "gpt-5.5-pro": {
     contextWindow: null,
     maxOutputTokens: null,
-    promptCacheRetention: "24h"
+    promptCachePolicy: { mode: "automatic", retention: "24h" }
   },
   "gpt-4o": {
     contextWindow: 128_000,
     maxOutputTokens: 16_384,
-    promptCacheRetention: "in_memory"
+    promptCachePolicy: { mode: "automatic", retention: "in_memory" }
   },
   "gpt-4o-mini": {
     contextWindow: 128_000,
     maxOutputTokens: 16_384,
-    promptCacheRetention: "in_memory"
+    promptCachePolicy: { mode: "automatic", retention: "in_memory" }
   },
   "deepseek-v4-flash": {
     contextWindow: 1_000_000,
     maxOutputTokens: 384_000,
-    promptCacheRetention: "in_memory"
+    promptCachePolicy: { mode: "automatic", retention: "in_memory" }
   },
   "deepseek-v4-pro": {
     contextWindow: 1_000_000,
     maxOutputTokens: 384_000,
-    promptCacheRetention: "in_memory"
+    promptCachePolicy: { mode: "automatic", retention: "in_memory" }
   }
 };
 
@@ -156,19 +169,6 @@ export type ChatRoutingRuntimeProvider = (typeof CHAT_ROUTING_PROVIDERS)[number]
 export type ManagedRuntimeCatalogProvider = (typeof MANAGED_CATALOG_PROVIDERS)[number];
 export type VideoGenerateRuntimeProvider = (typeof VIDEO_GENERATE_PROVIDERS)[number];
 export type ManagedRuntimeProvider = ChatRoutingRuntimeProvider;
-export type RuntimeProviderPromptCacheRetention =
-  (typeof RUNTIME_PROVIDER_PROMPT_CACHE_RETENTIONS)[number];
-export type RuntimeProviderPromptCachePolicy =
-  | {
-      mode: "automatic";
-      retention: RuntimeProviderPromptCacheRetention;
-    }
-  | {
-      mode: "explicit";
-      ttl: "30m";
-      stableAnchor: "explicit";
-      sealedSpineBreakpoint: "explicit";
-    };
 export type RuntimeCredentialSecretRefSource = "env" | "file" | "exec" | "persai";
 
 export type RuntimeCredentialSecretRef = {
@@ -298,8 +298,6 @@ type RuntimeProviderModelProfileBase = {
   maxOutputTokens: number | null;
   /** ADR-122 — admin-set total context window; null ⇒ resolver context-window guard skipped. */
   contextWindow: number | null;
-  /** ADR-124 — admin-set OpenAI prompt-cache retention; null ⇒ runtime fallback applies. */
-  promptCacheRetention: RuntimeProviderPromptCacheRetention | null;
   /** ADR-161 S0 — model-declared cache wire policy; null is undeclared, never a runtime fallback. */
   promptCachePolicy: RuntimeProviderPromptCachePolicy | null;
   displayLabel: string | null;
@@ -579,21 +577,14 @@ function parseOptionalPositiveIntegerFromStorage(value: unknown): number | null 
   return normalizePositiveInteger(value);
 }
 
-function normalizePromptCacheRetention(value: unknown): RuntimeProviderPromptCacheRetention | null {
-  return RUNTIME_PROVIDER_PROMPT_CACHE_RETENTIONS.includes(
-    value as RuntimeProviderPromptCacheRetention
-  )
-    ? (value as RuntimeProviderPromptCacheRetention)
-    : null;
-}
-
-function parseOptionalPromptCacheRetentionFromStorage(
+function normalizePromptCachePolicyRetention(
   value: unknown
-): RuntimeProviderPromptCacheRetention | null {
-  if (value === undefined || value === null) {
-    return null;
-  }
-  return normalizePromptCacheRetention(value);
+): RuntimeProviderPromptCachePolicyRetention | null {
+  return RUNTIME_PROVIDER_PROMPT_CACHE_POLICY_RETENTIONS.includes(
+    value as RuntimeProviderPromptCachePolicyRetention
+  )
+    ? (value as RuntimeProviderPromptCachePolicyRetention)
+    : null;
 }
 
 function parsePromptCachePolicyFromStorage(
@@ -604,7 +595,7 @@ function parsePromptCachePolicyFromStorage(
     return null;
   }
   if (row.mode === "automatic") {
-    const retention = normalizePromptCacheRetention(row.retention);
+    const retention = normalizePromptCachePolicyRetention(row.retention);
     return retention === null ? null : { mode: "automatic", retention };
   }
   if (
@@ -1155,8 +1146,7 @@ function createDefaultModelProfiles(
       outputTokenWeight: DEFAULT_RUNTIME_PROVIDER_MODEL_TOKEN_WEIGHT,
       maxOutputTokens: capabilityDefaults?.maxOutputTokens ?? null,
       contextWindow: capabilityDefaults?.contextWindow ?? null,
-      promptCacheRetention: capabilityDefaults?.promptCacheRetention ?? null,
-      promptCachePolicy: null,
+      promptCachePolicy: capabilityDefaults?.promptCachePolicy ?? null,
       displayLabel: null,
       notes: null
     };
@@ -1261,10 +1251,6 @@ function parseRuntimeProviderModelProfiles(
       contextWindow:
         parseOptionalPositiveIntegerFromStorage(row.contextWindow) ??
         MODEL_CAPABILITY_DEFAULTS[model]?.contextWindow ??
-        null,
-      promptCacheRetention:
-        parseOptionalPromptCacheRetentionFromStorage(row.promptCacheRetention) ??
-        MODEL_CAPABILITY_DEFAULTS[model]?.promptCacheRetention ??
         null,
       promptCachePolicy: parsePromptCachePolicyFromStorage(row.promptCachePolicy),
       displayLabel: nullableTrimmedString(row.displayLabel),
@@ -1379,8 +1365,7 @@ function parseLegacyCapabilityCatalog(
       outputTokenWeight: DEFAULT_RUNTIME_PROVIDER_MODEL_TOKEN_WEIGHT,
       maxOutputTokens: capabilityDefaults?.maxOutputTokens ?? null,
       contextWindow: capabilityDefaults?.contextWindow ?? null,
-      promptCacheRetention: capabilityDefaults?.promptCacheRetention ?? null,
-      promptCachePolicy: null,
+      promptCachePolicy: capabilityDefaults?.promptCachePolicy ?? null,
       displayLabel: null,
       notes: null
     };

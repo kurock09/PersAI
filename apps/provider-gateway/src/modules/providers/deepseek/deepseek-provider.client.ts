@@ -19,6 +19,7 @@ import type {
 import { PROVIDER_GATEWAY_CONFIG } from "../../../provider-gateway-config";
 import type { ProviderWarmableClient } from "../provider-client.types";
 import { toProviderTextFailedEvent, toProviderTextHttpException } from "../provider-text-error";
+import { logProviderCacheZoneTelemetry } from "../provider-cache-zone-observability";
 
 export const DEEPSEEK_BASE_URL = "https://api.deepseek.com";
 
@@ -81,6 +82,7 @@ export class DeepSeekProviderClient implements ProviderWarmableClient {
     );
     try {
       const payload = this.buildChatCompletionPayload(input, false);
+      this.logCacheZoneTelemetry(input, payload);
       const response = await client.chat.completions.create(payload, { signal });
       const choice = response.choices[0];
       const message = choice?.message;
@@ -133,6 +135,7 @@ export class DeepSeekProviderClient implements ProviderWarmableClient {
     } = this.createTimedSignal(this.config.PROVIDER_GATEWAY_STREAM_TIMEOUT_MS, signal);
     try {
       const payload = this.buildChatCompletionPayload(input, true);
+      this.logCacheZoneTelemetry(input, payload);
       const stream = await client.chat.completions.create(payload, { signal: timedSignal });
       const keepaliveEvent: ProviderGatewayTextKeepaliveEvent = { type: "keepalive" };
       yield keepaliveEvent;
@@ -143,6 +146,8 @@ export class DeepSeekProviderClient implements ProviderWarmableClient {
             prompt_tokens?: number | null;
             completion_tokens?: number | null;
             total_tokens?: number | null;
+            prompt_cache_hit_tokens?: number | null;
+            prompt_cache_miss_tokens?: number | null;
             prompt_tokens_details?: { cached_tokens?: number | null } | null;
           }
         | null
@@ -300,24 +305,23 @@ export class DeepSeekProviderClient implements ProviderWarmableClient {
         content: input.systemPrompt
       });
     }
-    if (
+    const stableHistoryChat =
+      input.requestMetadata?.classification === "main_turn" ||
+      input.requestMetadata?.classification === "tool_loop_followup";
+    const hasEarlyDeveloperInstructions =
+      !stableHistoryChat &&
       typeof input.developerInstructions === "string" &&
-      input.developerInstructions.trim().length > 0
-    ) {
+      input.developerInstructions.trim().length > 0;
+    if (hasEarlyDeveloperInstructions) {
       messages.push({
         role: "system",
         content: input.developerInstructions
       });
     }
+    const volatileContextMessages: ProviderGatewayTextGenerateRequest["messages"] = [];
     for (const message of input.messages) {
       if (message.cacheRole === "volatile_context") {
-        messages.push({
-          role: "system",
-          content: this.wrapVolatileContext(
-            this.textOnlyContent(message.content),
-            message.volatileKind
-          )
-        });
+        volatileContextMessages.push(message);
         continue;
       }
       for (const exchange of message.priorToolExchanges ?? []) {
@@ -331,13 +335,86 @@ export class DeepSeekProviderClient implements ProviderWarmableClient {
     for (const exchange of input.toolHistory ?? []) {
       this.pushDeepSeekExchangeMessages(messages, exchange);
     }
+    for (const overlay of input.toolObservationOverlays ?? []) {
+      messages.push({
+        role: "system",
+        content: `<persai_recent_tool_observation ordinal="${String(overlay.ordinal).padStart(6, "0")}">\n${overlay.exchange.toolResult.content}\n</persai_recent_tool_observation>`
+      });
+    }
     if (input.toolFollowUpUserContent !== undefined) {
       messages.push({
         role: "user",
         content: this.textOnlyContent(input.toolFollowUpUserContent)
       });
     }
+    // Ordinary/deep chat keeps every per-turn volatile block after durable
+    // history and sealed tool exchanges. Non-chat worker layouts keep their
+    // established system-prefix treatment and are outside this cutover.
+    const projectedVolatileMessages = volatileContextMessages.map((message) => ({
+      role: "system",
+      content: this.wrapVolatileContext(this.textOnlyContent(message.content), message.volatileKind)
+    }));
+    if (stableHistoryChat) {
+      messages.push(...projectedVolatileMessages);
+    } else if (projectedVolatileMessages.length > 0) {
+      messages.splice(
+        (typeof input.systemPrompt === "string" && input.systemPrompt.trim().length > 0 ? 1 : 0) +
+          (hasEarlyDeveloperInstructions ? 1 : 0),
+        0,
+        ...projectedVolatileMessages
+      );
+    }
+    if (
+      stableHistoryChat &&
+      typeof input.developerInstructions === "string" &&
+      input.developerInstructions.trim().length > 0
+    ) {
+      messages.push({
+        role: "system",
+        content: input.developerInstructions
+      });
+    }
     return messages;
+  }
+
+  private logCacheZoneTelemetry(
+    input: ProviderGatewayTextGenerateRequest,
+    payload: DeepSeekChatCompletionCreateParams
+  ): void {
+    const rawPayload = payload as unknown as Record<string, unknown>;
+    const messages = Array.isArray(rawPayload.messages) ? (rawPayload.messages as unknown[]) : [];
+    let lastSealedIndex = -1;
+    for (let index = 0; index < messages.length; index += 1) {
+      const message = messages[index];
+      if (
+        message !== null &&
+        typeof message === "object" &&
+        (message as { role?: unknown }).role === "tool"
+      ) {
+        lastSealedIndex = index;
+      }
+    }
+    logProviderCacheZoneTelemetry({
+      logger: this.logger,
+      input,
+      representation: {
+        tools: rawPayload.tools ?? [],
+        prefix: lastSealedIndex >= 0 ? messages.slice(0, lastSealedIndex + 1) : messages,
+        stableSystem:
+          typeof input.systemPrompt === "string"
+            ? [{ role: "system", content: input.systemPrompt }]
+            : [],
+        hydratedHistory: messages.slice(
+          typeof input.systemPrompt === "string" && input.systemPrompt.trim().length > 0 ? 1 : 0,
+          lastSealedIndex >= 0 ? lastSealedIndex + 1 : messages.length
+        ),
+        volatileContext: input.messages.filter(
+          (message) => message.cacheRole === "volatile_context"
+        ),
+        developerTail: input.developerInstructions ?? null,
+        cacheBreakpointCount: 0
+      }
+    });
   }
 
   private pushDeepSeekExchangeMessages(
@@ -348,9 +425,13 @@ export class DeepSeekProviderClient implements ProviderWarmableClient {
       typeof exchange.reasoningContent === "string" && exchange.reasoningContent.trim().length > 0
         ? exchange.reasoningContent
         : null;
+    const assistantText =
+      typeof exchange.assistantText === "string" && exchange.assistantText.trim().length > 0
+        ? exchange.assistantText
+        : null;
     target.push({
       role: "assistant",
-      content: null,
+      content: assistantText,
       // ADR-124 — DeepSeek thinking mode requires the assistant tool-call
       // message to carry back the `reasoning_content` it produced; omitting
       // it yields a 400 ("reasoning_content ... must be passed back").
@@ -489,6 +570,8 @@ export class DeepSeekProviderClient implements ProviderWarmableClient {
           prompt_tokens?: number | null;
           completion_tokens?: number | null;
           total_tokens?: number | null;
+          prompt_cache_hit_tokens?: number | null;
+          prompt_cache_miss_tokens?: number | null;
           prompt_tokens_details?: { cached_tokens?: number | null } | null;
         }
       | null
@@ -502,7 +585,10 @@ export class DeepSeekProviderClient implements ProviderWarmableClient {
       modelKey: model,
       inputTokens: usage.prompt_tokens ?? null,
       cacheCreationInputTokens: null,
-      cachedInputTokens: usage.prompt_tokens_details?.cached_tokens ?? null,
+      // DeepSeek publishes the cache partition at the top level. Do not read
+      // the OpenAI-compatible nested field: it is undocumented for DeepSeek
+      // and cannot support ADR-161's non-overlapping v2 normalization.
+      cachedInputTokens: usage.prompt_cache_hit_tokens ?? null,
       outputTokens: usage.completion_tokens ?? null,
       totalTokens: usage.total_tokens ?? null
     };

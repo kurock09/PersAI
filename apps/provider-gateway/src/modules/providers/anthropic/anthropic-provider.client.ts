@@ -19,6 +19,7 @@ import {
   ProviderDebugPayloadLogger
 } from "../provider-debug-payload-logger";
 import { toProviderTextFailedEvent, toProviderTextHttpException } from "../provider-text-error";
+import { logProviderCacheZoneTelemetry } from "../provider-cache-zone-observability";
 
 type AnthropicCreateMessageParams = Parameters<Anthropic["messages"]["create"]>[0];
 type AnthropicNonStreamingCreateMessageParams = Exclude<
@@ -193,6 +194,7 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
         payload.max_tokens =
           (input.maxOutputTokens ?? PROVIDER_FALLBACK_MAX_OUTPUT_TOKENS) + input.thinkingBudget;
       }
+      this.logCacheZoneTelemetry(input, payload);
       this.logAnthropicRequestStart("anthropic-non-stream-start", input, payload);
       this.debugPayloadLogger.dumpRequest({
         provider: "anthropic",
@@ -327,6 +329,7 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
         payload.max_tokens =
           (input.maxOutputTokens ?? PROVIDER_FALLBACK_MAX_OUTPUT_TOKENS) + input.thinkingBudget;
       }
+      this.logCacheZoneTelemetry(input, payload);
       this.logAnthropicRequestStart("anthropic-stream-start", input, payload);
       this.debugPayloadLogger.dumpRequest({
         provider: "anthropic",
@@ -606,6 +609,53 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
     );
   }
 
+  private logCacheZoneTelemetry(
+    input: ProviderGatewayTextGenerateRequest,
+    payload: { system?: unknown; messages?: unknown; tools?: unknown }
+  ): void {
+    const messages = Array.isArray(payload.messages) ? payload.messages : [];
+    let lastSealedIndex = -1;
+    for (let index = 0; index < messages.length; index += 1) {
+      const message = messages[index];
+      if (message === null || typeof message !== "object") {
+        continue;
+      }
+      const content = (message as { content?: unknown }).content;
+      if (
+        Array.isArray(content) &&
+        content.some(
+          (block) =>
+            block !== null &&
+            typeof block === "object" &&
+            (block as { type?: unknown }).type === "tool_result"
+        )
+      ) {
+        lastSealedIndex = index;
+      }
+    }
+    logProviderCacheZoneTelemetry({
+      logger: this.logger,
+      input,
+      representation: {
+        tools: payload.tools ?? [],
+        prefix: {
+          system: payload.system ?? null,
+          messages: lastSealedIndex >= 0 ? messages.slice(0, lastSealedIndex + 1) : messages
+        },
+        stableSystem: payload.system ?? null,
+        hydratedHistory: messages.slice(
+          0,
+          lastSealedIndex >= 0 ? lastSealedIndex + 1 : messages.length
+        ),
+        volatileContext: input.messages.filter(
+          (message) => message.cacheRole === "volatile_context"
+        ),
+        developerTail: input.developerInstructions ?? null,
+        cacheBreakpointCount: this.countAnthropicCacheBreakpoints(payload, input)
+      }
+    });
+  }
+
   // ADR-119 live-test enablement: always-on terminal metadata so operators
   // can read per-turn `input_tokens / cache_creation / cache_read / output`
   // straight from `provider-gateway` stdout, no debug toggle required. Keep
@@ -760,11 +810,32 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
         content: this.toAnthropicMessageContent(message.content)
       });
     }
+    const stableHistoryMessageCount = messages.length;
     // Index of the current user question within `messages` (before tool-history is appended).
     // Volatile context is spliced in just ahead of it so the question keeps the highest recency.
     const userQuestionIndex = messages.length - 1;
+    const isToolLoopFollowUp = input.requestMetadata?.classification === "tool_loop_followup";
+    // The quantized stable-history anchor and the latest sealed result are
+    // separate cache zones. Anchor only durable history, never the in-turn
+    // spine, overlay, incomplete follow-up, or volatile suffix.
+    if (isToolLoopFollowUp && this.shouldApplyAnthropicMovingHistoryBreakpoint(input)) {
+      const stableHistory = messages.slice(0, stableHistoryMessageCount);
+      this.applyAnthropicMovingHistoryBreakpoint(stableHistory, input.promptCache);
+      messages.splice(0, stableHistoryMessageCount, ...stableHistory);
+    }
     for (const exchange of input.toolHistory ?? []) {
       this.pushAnthropicExchangeMessages(messages, exchange);
+    }
+    for (const overlay of input.toolObservationOverlays ?? []) {
+      messages.push({
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: `<persai_recent_tool_observation ordinal="${String(overlay.ordinal).padStart(6, "0")}">\n${overlay.exchange.toolResult.content}\n</persai_recent_tool_observation>`
+          }
+        ]
+      });
     }
     const toolFollowUpUserContent = input.toolFollowUpUserContent;
     if (toolFollowUpUserContent !== undefined) {
@@ -774,7 +845,9 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
       });
     }
     if (this.shouldApplyAnthropicMovingHistoryBreakpoint(input)) {
-      this.applyAnthropicMovingHistoryBreakpoint(messages, input.promptCache);
+      this.applyAnthropicMovingHistoryBreakpoint(messages, input.promptCache, {
+        latestSealedSpine: isToolLoopFollowUp && (input.toolHistory?.length ?? 0) > 0
+      });
     }
     if (volatileContextMessages.length > 0) {
       const insertAt = userQuestionIndex >= 0 ? userQuestionIndex : messages.length;
@@ -797,9 +870,14 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
     target: AnthropicBuiltMessage[],
     exchange: NonNullable<ProviderGatewayTextGenerateRequest["toolHistory"]>[number]
   ): void {
+    const assistantText =
+      typeof exchange.assistantText === "string" && exchange.assistantText.trim().length > 0
+        ? exchange.assistantText
+        : null;
     target.push({
       role: "assistant",
       content: [
+        ...(assistantText === null ? [] : [{ type: "text" as const, text: assistantText }]),
         {
           type: "tool_use",
           id: exchange.toolCall.id,
@@ -971,10 +1049,28 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
    */
   private applyAnthropicMovingHistoryBreakpoint(
     messages: AnthropicBuiltMessage[],
-    promptCache: ProviderGatewayTextGenerateRequest["promptCache"] | undefined
+    promptCache: ProviderGatewayTextGenerateRequest["promptCache"] | undefined,
+    options?: { latestSealedSpine?: boolean }
   ): void {
     const minTokens = promptCache?.anthropicHistoryBreakpointMinTokens;
     if (!Number.isFinite(minTokens) || typeof minTokens !== "number" || minTokens <= 0) {
+      return;
+    }
+    if (options?.latestSealedSpine === true) {
+      for (let index = messages.length - 1; index >= 0; index -= 1) {
+        const message = messages[index];
+        if (
+          message?.role === "user" &&
+          Array.isArray(message.content) &&
+          message.content.some((block) => block.type === "tool_result")
+        ) {
+          const updated = this.attachCacheControlToLastBlock(message, promptCache);
+          if (updated !== null) {
+            messages[index] = updated;
+          }
+          return;
+        }
+      }
       return;
     }
     const minTailBytes = Math.ceil(minTokens * APPROX_ANTHROPIC_BYTES_PER_TOKEN);
@@ -1072,6 +1168,9 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
       return false;
     }
     const classification = input.requestMetadata?.classification;
+    if (classification === "tool_loop_followup") {
+      return true;
+    }
     return classification === undefined || classification === "main_turn";
   }
 

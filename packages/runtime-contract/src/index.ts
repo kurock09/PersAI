@@ -6,6 +6,8 @@
  * loaded by Node's native type-stripping, which does not resolve extensionless
  * relative imports at runtime.
  */
+import { createHash } from "node:crypto";
+
 export const ENABLED_SKILLS_BUDGET_CHARS = 4_500;
 export const STABLE_PREFIX_BUDGET_CHARS = 10_000;
 export const ENABLED_SKILLS_SCENARIO_ROW_CAP = 32;
@@ -755,6 +757,46 @@ export interface TextGenerationCacheCostComparison {
   netCacheSavingsPercent: number | null;
 }
 
+const CACHE_CONTROL_METADATA_KEYS = new Set([
+  "cache_control",
+  "prompt_cache_breakpoint",
+  "prompt_cache_key",
+  "prompt_cache_options",
+  "prompt_cache_retention"
+]);
+
+/**
+ * Hash provider-serialized reusable semantics while removing wire-only cache
+ * controls. The caller supplies the exact provider request prefix, so this
+ * helper never sees or logs prompt content.
+ */
+export function hashProviderCacheSemanticPrefix(params: {
+  provider: string;
+  serializedPrefix: unknown;
+}): { hash: string; chars: number } {
+  const stripCacheMetadata = (value: unknown): unknown => {
+    if (Array.isArray(value)) {
+      return value.map(stripCacheMetadata);
+    }
+    if (value === null || typeof value !== "object") {
+      return value;
+    }
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .filter(([key]) => !CACHE_CONTROL_METADATA_KEYS.has(key))
+        .map(([key, nested]) => [key, stripCacheMetadata(nested)])
+    );
+  };
+  const semantic = JSON.stringify({
+    provider: params.provider,
+    prefix: stripCacheMetadata(params.serializedPrefix)
+  });
+  return {
+    hash: createHash("sha256").update(semantic, "utf8").digest("hex"),
+    chars: semantic.length
+  };
+}
+
 export interface TextGenerationCacheZoneTelemetry {
   requestClassification: ProviderGatewayRequestClassification;
   toolLoopIteration: number;
@@ -982,19 +1024,25 @@ export function normalizeProviderTextGenerationUsageV2(params: {
 
   if (params.providerKey === "openai") {
     const policy = params.promptCachePolicy;
-    if (policy === null || policy === undefined) {
+    if (policy === undefined) {
       return { status: "usage_unavailable", reason: "openai_prompt_cache_policy_missing" };
     }
     totalInputTokens = readUsageInteger(usage, "input_tokens");
-    cacheReadInputTokens =
-      readNestedUsageInteger(usage, "input_tokens_details", "cached_tokens") ?? 0;
-    const openAiCacheWriteInputTokens =
-      policy.mode === "automatic" ? 0 : readUsageInteger(usage, "cache_write_tokens");
-    cacheWriteInputTokens = openAiCacheWriteInputTokens;
-    uncachedInputTokens =
-      totalInputTokens === null || openAiCacheWriteInputTokens === null
-        ? null
-        : totalInputTokens - openAiCacheWriteInputTokens - cacheReadInputTokens;
+    if (policy === null) {
+      cacheReadInputTokens = 0;
+      cacheWriteInputTokens = 0;
+      uncachedInputTokens = totalInputTokens;
+    } else {
+      cacheReadInputTokens =
+        readNestedUsageInteger(usage, "input_tokens_details", "cached_tokens") ?? 0;
+      const openAiCacheWriteInputTokens =
+        policy.mode === "automatic" ? 0 : readUsageInteger(usage, "cache_write_tokens");
+      cacheWriteInputTokens = openAiCacheWriteInputTokens;
+      uncachedInputTokens =
+        totalInputTokens === null || openAiCacheWriteInputTokens === null
+          ? null
+          : totalInputTokens - openAiCacheWriteInputTokens - cacheReadInputTokens;
+    }
   } else if (params.providerKey === "deepseek") {
     totalInputTokens = readUsageInteger(usage, "prompt_tokens");
     cacheReadInputTokens = readUsageInteger(usage, "prompt_cache_hit_tokens");
@@ -4190,6 +4238,12 @@ export interface ProviderGatewayToolExchange {
   toolCall: ProviderGatewayToolCall;
   toolResult: ProviderGatewayToolResult;
   /**
+   * D1 keeps the assistant text emitted immediately before this call associated
+   * with the exchange instead of rebuilding an aggregate assistant message.
+   * It is ephemeral in-turn provider request state and is never persisted.
+   */
+  assistantText?: string | null;
+  /**
    * ADR-124 — provider-native chain-of-thought (DeepSeek `reasoning_content`)
    * produced by the assistant turn that emitted this tool call. DeepSeek V4
    * thinking mode REQUIRES this to be echoed back on the assistant tool-call
@@ -4198,6 +4252,20 @@ export interface ProviderGatewayToolExchange {
    * (OpenAI/Anthropic) ignore this field.
    */
   reasoningContent?: string | null;
+}
+
+export interface ProviderGatewaySealedToolExchangeBoundary {
+  exchangeCount: number;
+  cacheContentHash: string;
+  cacheContentChars: number;
+  priorSealedCacheContentHash: string | null;
+  priorSealedCacheContentChars: number | null;
+  boundaryKind: "sealed_tool_exchange_spine";
+}
+
+export interface ProviderGatewayToolObservationOverlay {
+  ordinal: number;
+  exchange: ProviderGatewayToolExchange;
 }
 
 export const PERSAI_PROVIDER_REQUEST_CLASSIFICATIONS = [
@@ -4247,10 +4315,14 @@ export interface ProviderGatewayStructuredOutputSchema {
   strict?: boolean;
 }
 
-export const PERSAI_PROVIDER_PROMPT_CACHE_RETENTIONS = ["in_memory", "24h"] as const;
-
-export type ProviderGatewayPromptCacheRetention =
-  (typeof PERSAI_PROVIDER_PROMPT_CACHE_RETENTIONS)[number];
+export type ProviderGatewayOpenAIPromptCachePolicy =
+  | { mode: "automatic"; retention: "in_memory" | "24h" }
+  | {
+      mode: "explicit";
+      ttl: "30m";
+      stableAnchor: "explicit";
+      sealedSpineBreakpoint: "explicit";
+    };
 
 export const PERSAI_PROVIDER_TEXT_ERROR_KINDS = [
   "billing_quota",
@@ -4292,7 +4364,11 @@ export function isRetryableProviderGatewayTextErrorKind(
 
 export interface ProviderGatewayPromptCacheConfig {
   key?: string;
-  retention?: ProviderGatewayPromptCacheRetention;
+  /**
+   * Catalog-materialized OpenAI wire policy. It is required for OpenAI text
+   * traffic and absent for providers that do not use OpenAI's cache controls.
+   */
+  openaiPolicy?: ProviderGatewayOpenAIPromptCachePolicy;
   /**
    * Anthropic-only moving history breakpoint hint. When set to a positive integer, provider-gateway
    * may place one additional explicit cache breakpoint on a stable historical message block only
@@ -4325,7 +4401,17 @@ export interface ProviderGatewayTextGenerateRequest {
   maxOutputTokens?: number;
   tools?: ProviderGatewayToolDefinition[];
   toolChoice?: ProviderGatewayToolChoice;
+  /**
+   * D1 compact protocol pairs, sealed exactly once when their tool result
+   * completes. Provider adapters consume this as their cacheable tool history.
+   */
   toolHistory?: ProviderGatewayToolExchange[];
+  /**
+   * D1 newest-three full observations. This remains distinct from the compact
+   * tool protocol spine so rotation never rewrites the sealed prefix.
+   */
+  toolObservationOverlays?: ProviderGatewayToolObservationOverlay[];
+  sealedToolExchangeBoundary?: ProviderGatewaySealedToolExchangeBoundary | null;
   requestMetadata?: ProviderGatewayRequestMetadata;
   outputSchema?: ProviderGatewayStructuredOutputSchema;
   promptCache?: ProviderGatewayPromptCacheConfig;

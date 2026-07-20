@@ -25,6 +25,19 @@ function tokenMeteredDefaults() {
   };
 }
 
+function automaticPromptCachePolicy(retention: "in_memory" | "24h") {
+  return { mode: "automatic" as const, retention };
+}
+
+function explicitPromptCachePolicy() {
+  return {
+    mode: "explicit" as const,
+    ttl: "30m" as const,
+    stableAnchor: "explicit" as const,
+    sealedSpineBreakpoint: "explicit" as const
+  };
+}
+
 function fixedOperationDefaults() {
   return {
     active: true,
@@ -1317,17 +1330,17 @@ function runAdr161CacheWriteWeightTests() {
 }
 
 function runAdr122NormalizationTests() {
-  // null is allowed for both fields (round-trips as null)
+  // null is allowed for both capability fields and for explicit uncached policy.
   const withNulls = parseUpdatePlatformRuntimeProviderSettingsInput(
-    minimalCatalogInput({ maxOutputTokens: null, contextWindow: null, promptCacheRetention: null })
+    minimalCatalogInput({ maxOutputTokens: null, contextWindow: null, promptCachePolicy: null })
   );
   const withNullsModel = withNulls.availableModelCatalogByProvider.openai.models[0];
   assert.equal(withNullsModel?.maxOutputTokens, null, "maxOutputTokens=null round-trips as null");
   assert.equal(withNullsModel?.contextWindow, null, "contextWindow=null round-trips as null");
   assert.equal(
-    withNullsModel?.promptCacheRetention,
+    withNullsModel?.promptCachePolicy,
     null,
-    "promptCacheRetention=null round-trips as null"
+    "promptCachePolicy=null round-trips as explicit uncached mode"
   );
 
   // undefined (absent) is treated as null
@@ -1336,23 +1349,38 @@ function runAdr122NormalizationTests() {
   assert.equal(withAbsentModel?.maxOutputTokens, null, "absent maxOutputTokens defaults to null");
   assert.equal(withAbsentModel?.contextWindow, null, "absent contextWindow defaults to null");
   assert.equal(
-    withAbsentModel?.promptCacheRetention,
+    withAbsentModel?.promptCachePolicy,
     null,
-    "absent promptCacheRetention defaults to null"
+    "absent promptCachePolicy defaults to null"
   );
 
-  // Valid positive integers are accepted
+  // Valid positive integers and automatic cache policies are accepted.
   const withValid = parseUpdatePlatformRuntimeProviderSettingsInput(
     minimalCatalogInput({
       maxOutputTokens: 64000,
       contextWindow: 200000,
-      promptCacheRetention: "24h"
+      promptCachePolicy: automaticPromptCachePolicy("24h")
     })
   );
   const withValidModel = withValid.availableModelCatalogByProvider.openai.models[0];
   assert.equal(withValidModel?.maxOutputTokens, 64000, "positive integer maxOutputTokens accepted");
   assert.equal(withValidModel?.contextWindow, 200000, "positive integer contextWindow accepted");
-  assert.equal(withValidModel?.promptCacheRetention, "24h", "valid promptCacheRetention accepted");
+  assert.deepEqual(
+    withValidModel?.promptCachePolicy,
+    automaticPromptCachePolicy("24h"),
+    "valid automatic promptCachePolicy accepted"
+  );
+
+  const withExplicit = parseUpdatePlatformRuntimeProviderSettingsInput(
+    minimalCatalogInput({
+      promptCachePolicy: explicitPromptCachePolicy()
+    })
+  );
+  assert.deepEqual(
+    withExplicit.availableModelCatalogByProvider.openai.models[0]?.promptCachePolicy,
+    explicitPromptCachePolicy(),
+    "valid explicit promptCachePolicy accepted"
+  );
 
   // 0 is rejected
   assert.throws(
@@ -1412,10 +1440,10 @@ function runAdr122NormalizationTests() {
   assert.throws(
     () =>
       parseUpdatePlatformRuntimeProviderSettingsInput(
-        minimalCatalogInput({ promptCacheRetention: "forever" })
+        minimalCatalogInput({ promptCachePolicy: { mode: "automatic", retention: "forever" } })
       ),
-    /promptCacheRetention must be one of: in_memory, 24h/,
-    "invalid promptCacheRetention rejected"
+    /promptCachePolicy\.retention must be one of: in_memory, 24h/,
+    "invalid promptCachePolicy automatic retention rejected"
   );
 }
 
@@ -1433,7 +1461,7 @@ function runAdr122SeedingTests() {
   );
   assert.equal(seededModel?.maxOutputTokens, 64_000, "claude-sonnet-4-6 seeded maxOutputTokens");
   assert.equal(seededModel?.contextWindow, 200_000, "claude-sonnet-4-6 seeded contextWindow");
-  assert.equal(seededModel?.promptCacheRetention, "in_memory");
+  assert.deepEqual(seededModel?.promptCachePolicy, automaticPromptCachePolicy("in_memory"));
 
   // claude-opus-4-6 has higher maxOutputTokens
   const fromLegacyOpus = parseUpdatePlatformRuntimeProviderSettingsInput({
@@ -1447,7 +1475,7 @@ function runAdr122SeedingTests() {
   );
   assert.equal(opusModel?.maxOutputTokens, 128_000, "claude-opus-4-6 seeded maxOutputTokens=128k");
   assert.equal(opusModel?.contextWindow, 200_000, "claude-opus-4-6 seeded contextWindow=200k");
-  assert.equal(opusModel?.promptCacheRetention, "in_memory");
+  assert.deepEqual(opusModel?.promptCachePolicy, automaticPromptCachePolicy("in_memory"));
 
   const fromLegacyGpt55 = parseUpdatePlatformRuntimeProviderSettingsInput({
     primary: { provider: "openai", model: "gpt-5.5" },
@@ -1458,7 +1486,11 @@ function runAdr122SeedingTests() {
   const gpt55Seeded = fromLegacyGpt55.availableModelCatalogByProvider.openai.models.find(
     (m) => m.model === "gpt-5.5"
   );
-  assert.equal(gpt55Seeded?.promptCacheRetention, "24h", "gpt-5.5 seeded promptCacheRetention=24h");
+  assert.deepEqual(
+    gpt55Seeded?.promptCachePolicy,
+    automaticPromptCachePolicy("24h"),
+    "gpt-5.5 seeded promptCachePolicy=automatic 24h"
+  );
 
   // Unknown model seeds null (no defaults applied)
   const fromLegacyUnknown = parseUpdatePlatformRuntimeProviderSettingsInput({
@@ -1472,15 +1504,11 @@ function runAdr122SeedingTests() {
   );
   assert.equal(unknownModel?.maxOutputTokens, null, "unknown model seeds null maxOutputTokens");
   assert.equal(unknownModel?.contextWindow, null, "unknown model seeds null contextWindow");
-  assert.equal(
-    unknownModel?.promptCacheRetention,
-    null,
-    "unknown model seeds null promptCacheRetention"
-  );
+  assert.equal(unknownModel?.promptCachePolicy, null, "unknown model seeds null promptCachePolicy");
 
   // Null on an UNKNOWN model row round-trips as null (gpt-5.4 is not in defaults).
   const withExplicitNullCatalog = parseUpdatePlatformRuntimeProviderSettingsInput(
-    minimalCatalogInput({ maxOutputTokens: null, contextWindow: null, promptCacheRetention: null })
+    minimalCatalogInput({ maxOutputTokens: null, contextWindow: null, promptCachePolicy: null })
   );
   const explicitNullModel =
     withExplicitNullCatalog.availableModelCatalogByProvider.openai.models[0];
@@ -1491,15 +1519,17 @@ function runAdr122SeedingTests() {
     "unknown-model null contextWindow round-trips as null"
   );
   assert.equal(
-    explicitNullModel?.promptCacheRetention,
+    explicitNullModel?.promptCachePolicy,
     null,
-    "unknown-model null promptCacheRetention round-trips as null"
+    "unknown-model null promptCachePolicy round-trips as null"
   );
 
   runAdr122WriteFoldInTests();
 }
 
-// ADR-122 corrective — WRITE-path family-default fold-in (normalizeModelProfiles).
+// ADR-161 S3 — catalog-authored promptCachePolicy round-trips directly with no
+// model-name fallback. Seeded defaults are only applied when synthesizing new
+// catalog rows from legacy availableModelsByProvider input.
 function knownModelCatalogInput(
   provider: "openai" | "anthropic",
   model: string,
@@ -1533,12 +1563,12 @@ function knownModelCatalogInput(
 }
 
 function runAdr122WriteFoldInTests() {
-  // KNOWN model with null stored → folded to the family default (OpenAI gpt-5).
+  // KNOWN model with explicit null stays uncached/null.
   const gpt5Null = parseUpdatePlatformRuntimeProviderSettingsInput(
     knownModelCatalogInput("openai", "gpt-5", {
       maxOutputTokens: null,
       contextWindow: null,
-      promptCacheRetention: null
+      promptCachePolicy: null
     })
   );
   const gpt5NullModel = gpt5Null.availableModelCatalogByProvider.openai.models.find(
@@ -1555,17 +1585,17 @@ function runAdr122WriteFoldInTests() {
     "WRITE fold-in: known OpenAI model (gpt-5) null contextWindow → family default 400k"
   );
   assert.equal(
-    gpt5NullModel?.promptCacheRetention,
-    "in_memory",
-    "WRITE fold-in: known OpenAI model (gpt-5) null promptCacheRetention → family default in_memory"
+    gpt5NullModel?.promptCachePolicy,
+    null,
+    "explicit null promptCachePolicy keeps known OpenAI model uncached"
   );
 
-  // KNOWN model with explicit value → admin value overrides the family default.
+  // KNOWN model with explicit automatic policy round-trips as authored.
   const gpt5Explicit = parseUpdatePlatformRuntimeProviderSettingsInput(
     knownModelCatalogInput("openai", "gpt-5", {
       maxOutputTokens: 32_000,
       contextWindow: 250_000,
-      promptCacheRetention: "24h"
+      promptCachePolicy: automaticPromptCachePolicy("24h")
     })
   );
   const gpt5ExplicitModel = gpt5Explicit.availableModelCatalogByProvider.openai.models.find(
@@ -1581,18 +1611,18 @@ function runAdr122WriteFoldInTests() {
     250_000,
     "WRITE fold-in: explicit admin contextWindow overrides the family default"
   );
-  assert.equal(
-    gpt5ExplicitModel?.promptCacheRetention,
-    "24h",
-    "WRITE fold-in: explicit admin promptCacheRetention overrides the family default"
+  assert.deepEqual(
+    gpt5ExplicitModel?.promptCachePolicy,
+    automaticPromptCachePolicy("24h"),
+    "explicit admin automatic promptCachePolicy round-trips"
   );
 
-  // KNOWN Anthropic model with null → folded to Anthropic default.
+  // KNOWN Anthropic model with explicit null stays uncached/null.
   const sonnetNull = parseUpdatePlatformRuntimeProviderSettingsInput(
     knownModelCatalogInput("anthropic", "claude-sonnet-4-5", {
       maxOutputTokens: null,
       contextWindow: null,
-      promptCacheRetention: null
+      promptCachePolicy: null
     })
   );
   const sonnetNullModel = sonnetNull.availableModelCatalogByProvider.anthropic.models.find(
@@ -1609,25 +1639,25 @@ function runAdr122WriteFoldInTests() {
     "WRITE fold-in: known Anthropic model null contextWindow → family default 200k"
   );
   assert.equal(
-    sonnetNullModel?.promptCacheRetention,
-    "in_memory",
-    "WRITE fold-in: known Anthropic model null promptCacheRetention → family default in_memory"
+    sonnetNullModel?.promptCachePolicy,
+    null,
+    "explicit null promptCachePolicy keeps known Anthropic model uncached"
   );
 
-  const gpt55Null = parseUpdatePlatformRuntimeProviderSettingsInput(
-    knownModelCatalogInput("openai", "gpt-5.5", {
+  const gpt56Explicit = parseUpdatePlatformRuntimeProviderSettingsInput(
+    knownModelCatalogInput("openai", "gpt-5.6-terra", {
       maxOutputTokens: null,
       contextWindow: null,
-      promptCacheRetention: null
+      promptCachePolicy: explicitPromptCachePolicy()
     })
   );
-  const gpt55NullModel = gpt55Null.availableModelCatalogByProvider.openai.models.find(
-    (m) => m.model === "gpt-5.5"
+  const gpt56ExplicitModel = gpt56Explicit.availableModelCatalogByProvider.openai.models.find(
+    (m) => m.model === "gpt-5.6-terra"
   );
-  assert.equal(
-    gpt55NullModel?.promptCacheRetention,
-    "24h",
-    "WRITE fold-in: known OpenAI model gpt-5.5 null promptCacheRetention → family default 24h"
+  assert.deepEqual(
+    gpt56ExplicitModel?.promptCachePolicy,
+    explicitPromptCachePolicy(),
+    "GPT-5.6-like explicit breakpoint policy stays declarative data"
   );
 
   // UNKNOWN model with null → stays null (resolver fallback governs at runtime).
@@ -1635,7 +1665,7 @@ function runAdr122WriteFoldInTests() {
     knownModelCatalogInput("openai", "gpt-unknown-write", {
       maxOutputTokens: null,
       contextWindow: null,
-      promptCacheRetention: null
+      promptCachePolicy: null
     })
   );
   const unknownNullModel = unknownNull.availableModelCatalogByProvider.openai.models.find(
@@ -1652,9 +1682,9 @@ function runAdr122WriteFoldInTests() {
     "WRITE fold-in: unknown model null contextWindow stays null"
   );
   assert.equal(
-    unknownNullModel?.promptCacheRetention,
+    unknownNullModel?.promptCachePolicy,
     null,
-    "WRITE fold-in: unknown model null promptCacheRetention stays null"
+    "unknown model null promptCachePolicy stays null"
   );
 }
 

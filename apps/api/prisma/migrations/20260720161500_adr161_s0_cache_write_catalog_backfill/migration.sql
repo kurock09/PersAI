@@ -127,7 +127,6 @@ rebuilt AS (
                     'outputTokenWeight', 1,
                     'maxOutputTokens', null,
                     'contextWindow', null,
-                    'promptCacheRetention', null,
                     'promptCachePolicy', null,
                     'displayLabel', null,
                     'notes', null,
