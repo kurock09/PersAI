@@ -27,6 +27,31 @@ alwaysApply: true
   `gpt-5.6-terra-medium` or `claude-sonnet-5-thinking-high`. The next checkpoint
   is a docs audit, then implementation beginning with contracts, durable handle,
   and bounded `await wait`; no intermediate deploy.
+- **ADR-161** provider-native prompt-cache discipline and canonical usage
+  accounting is an active founder-prioritized parent-orchestrated program
+  (docs-only opening 2026-07-20; long-loop refinement independently audited
+  CLEAN with zero P0/P1/P2). The stable compiled system prefix is verified
+  stable; for ordinary/deep chat, early volatile developer placement is
+  DeepSeek-only. Scope is clean
+  DeepSeek history placement, an immutable compact exchange spine with
+  newest-three full suffix overlays, Anthropic stable + latest-sealed
+  breakpoints, measured OpenAI key plus GPT-5.6+ explicit stable/spine boundary
+  blocks, canonical
+  total/uncached/write/read cost + Credits accounting,
+  projection-family identity, actual-vs-no-cache provider-input cost, and safe
+  observability. Closure requires a sequential 50-iteration benchmark per
+  active provider/model-family policy and one authenticated 40–50-tool PersAI
+  turn proving growing cache reads and positive net provider-cost savings; hit
+  percentage alone fails. No unrelated prompt-semantic change, speculative
+  commit attribution, universal 90% gate, feature flag, permanent
+  legacy serializer, or permanent dual-read alias. ADR-161 narrowly supersedes
+  ADR-156 in-turn aging: compact spine at insertion + newest-three full overlays
+  and no later in-turn masking; cross-turn windows and compact/full definitions
+  stay unchanged.
+  Parent audits/commits only; implementation subagents may use only
+  `gpt-5.6-terra-medium` or `claude-sonnet-5-thinking-high`. Usage v2 uses a
+  bounded consumer-first versioned rollout and removes v1 after old producers
+  drain; closure requires final audits/full gates/provider-matrix acceptance.
 - Treat `docs/SESSION-HANDOFF.md` as the source of truth for the latest completed checkpoint and the user's next stated priority.
 - Treat `docs/CHANGELOG.md` as the source of truth for what has actually landed.
 - If ADR, handoff, changelog, and code disagree, stop and reconcile docs before code changes.

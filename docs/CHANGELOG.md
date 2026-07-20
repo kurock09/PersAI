@@ -5,7 +5,29 @@
 
 ## 2026-07-20
 
-- **Repair (local, pending deploy):** corrected three production regressions:
+- **Architecture (ADR-161 opened, docs only):** the provider-cache audit
+  confirmed that the compiled stable system prompt is stable and that, for
+  ordinary/deep chat, early volatile `developerInstructions` placement is
+  DeepSeek-only. ADR-161 opens a parent-orchestrated clean cutover for
+  DeepSeek stable-history placement, an immutable compact exchange spine with
+  newest-three full suffix overlays, Anthropic stable + latest-sealed
+  breakpoints, measured conditional OpenAI routing-key semantics and validated
+  GPT-5.6+ explicit stable/spine boundary blocks, canonical
+  non-overlapping input token classes for cost and user Credits, deterministic
+  tool projection-family identity, actual-vs-no-cache provider-input cost, and
+  content-safe cache observability. It
+  makes no single-commit regression claim, permits only a bounded versioned
+  rollout seam that must be deleted at closure, and changes no runtime
+  behavior in this docs checkpoint. After the initial CLEAN audit, the founder
+  added a mandatory 50-iteration provider benchmark and authenticated
+  40–50-tool PersAI turn: closure requires growing cache reads and strictly
+  positive net provider-cost savings, not a hit percentage alone. Independent
+  re-audit of this refinement is CLEAN with zero P0/P1/P2. It narrowly
+  supersedes ADR-156 in-turn aging (immutable compact spine at insertion +
+  newest-three full suffix overlays, no later in-turn masking); cross-turn
+  windows and compact/full definitions remain unchanged.
+
+- **Repair (committed/pushed, pending deploy):** corrected three production regressions:
   continuation-owned Telegram media delivery had reused and re-sent the
   original acknowledgement bubble with the attachment before the valid
   continuation narration; it now delivers the attachment without re-sending
@@ -15,8 +37,8 @@
   of depending on warm-pod residue. The post-final self-check omits
   `tools: []` / `toolChoice: "none"` when `todo_write` is unavailable,
   avoiding the observed DeepSeek 400. Focused API/runtime tests, API/runtime
-  typechecks, lint, and targeted format checks pass; commit/deploy/live
-  acceptance remain pending.
+  typechecks, lint, and targeted format checks pass; exact-image deploy and
+  live acceptance remain pending.
 
 - **Repair (ADR-159 three-job live failure; deployed and web-accepted):** corrected the prior
   incomplete green claim. All three media files delivered, but the first

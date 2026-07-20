@@ -1,9 +1,70 @@
 # SESSION-HANDOFF
 
+## 2026-07-20 — ADR-161 provider-native prompt-cache discipline opened
+
+Status: **Founder long-loop refinement independently re-audited CLEAN with
+zero P0/P1/P2. No implementation, commit, push, deploy, or live acceptance.**
+Baseline
+`d4bd32679929bef89cc13120cf2719ad9a2b0df3`.
+
+The read-only code/live audit proved that the compiled stable system prompt is
+content-stable; for ordinary/deep chat, the early volatile
+`developerInstructions` placement defect is DeepSeek-only. OpenAI already
+appends the developer tail after history, and Anthropic does so when
+moving-history caching is enabled. Anthropic background workers have no
+history-cache objective and are excluded from the placement cutover. Confirmed
+remaining defects are: DeepSeek puts developer/volatile system messages before history;
+Anthropic disables its moving history breakpoint on `tool_loop_followup`;
+OpenAI can retain an initial projection-derived routing key after mid-loop tool
+mutation; tool projection has multiple measured wire families; and current
+usage/accounting fields use incompatible provider denominators, omit OpenAI
+cache writes, and are insufficient for non-overlapping billing and user
+Credits formulas.
+
+ADR-161 defines a clean parent-orchestrated cutover: one cache-zone model,
+DeepSeek stable-history placement, a growing immutable compact exchange spine
+with newest-three full suffix overlays, Anthropic stable + latest-sealed
+breakpoints,
+measured OpenAI key selection plus model-declared pre-5.6 policy and validated
+GPT-5.6+ explicit stable/spine boundary blocks, canonical
+`total/uncached/write/read` input accounting, exact tool projection-family
+identity, actual-vs-no-cache provider-input cost, and content-safe
+observability. No legacy serializers, dual-read
+aliases, feature flags, speculative commit attribution, or universal 90%
+closure threshold remain at closure. Historical v1 receipts remain immutable
+archive and are excluded from v2 ratios. A bounded consumer-first versioned
+v1/v2 deployment seam is required during Kubernetes rollout, then deleted
+after old producers drain.
+
+This refinement narrowly supersedes ADR-156 in-turn aging only: each exchange
+gets an immutable compact protocol spine entry at first insertion;
+newest-three full observations are labelled suffix overlays and older in-turn
+spine entries are not remasked. Per-iteration assistant text remains with its
+exchange. Cross-turn ADR-156 and compact/full definitions are unchanged.
+Cache-content hashes exclude moving provider cache-control metadata.
+OpenAI GPT-5.6+ retains one exact developer `input_text` boundary block and
+breakpoint per compact spine exchange; all prior markers stay as read
+candidates, while only the newest is a new write candidate on warmed
+fixed-family iterations. A projection-family reset strips old-epoch breakpoint
+metadata and writes at most the new-family stable anchor + latest boundary;
+post-reset savings includes both writes. Behavior must remain correct with
+40–50 accumulated markers.
+
+Closure now requires a sequential 50-iteration production-shaped benchmark for
+every active provider/model-family policy plus one authenticated 40–50-tool
+PersAI turn. Each must prove the completed prefix remains byte-identical,
+cache-read tokens grow, and cumulative provider-input cost is strictly below
+the same-token no-cache counterfactual; hit percentage alone is insufficient.
+
+Next: S0 contracts, fixtures, accounting invariants, safe observability, sealed
+spine/overlay contracts, and versioned rollout protocol. ADR-152 and ADR-159
+remain separate active programs; ADR-156 is superseded only by the explicit
+in-turn aging rule above and otherwise remains closed.
+
 ## 2026-07-20 — Telegram attachment-narration dedup + document source staging + self-check 400 repair local
 
-Status: **Local implementation verified; not committed, pushed, deployed, or
-live-accepted.** Production logs preserve the nonfatal runtime self-check
+Status: **Committed/pushed in `d4bd3267`; not deployed or live-accepted.**
+Production logs preserve the nonfatal runtime self-check
 failure `requestId=3d9865a4…`: DeepSeek rejected the post-final request with
 HTTP 400. The self-check had sent `tools: []` with `toolChoice: "none"` when
 `todo_write` was not projected. It now omits both fields in that mode; the
@@ -31,10 +92,10 @@ depending on warm-pod filesystem residue.
 
 Focused API delivery tests (17), document-tool tests (15), full
 turn-execution test, API/runtime typechecks, API/runtime lint, and targeted
-formatting are green. Next: commit/push only with founder instruction, deploy
-the exact API/runtime images, then live-accept one Telegram generated/edit
-file (one attachment, no repeated source text), `document.render(contentPath)`
-from a fresh session, and a no-`todo_write` self-check.
+formatting are green. Next: deploy the exact API/runtime images, then
+live-accept one Telegram generated/edit file (one attachment, no repeated
+source text), `document.render(contentPath)` from a fresh session, and a
+no-`todo_write` self-check.
 
 ## 2026-07-20 — ADR-159 three-job transport repair deployed and accepted
 

@@ -6809,11 +6809,13 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
     request.bundle.bundleHash;
   const imageGenerateCompleted = await service.createTurn(request);
-  // Model-owned-reply policy (2026-06-22): the canonical "Request accepted…"
-  // line is a fallback applied ONLY when the model returned empty text after
-  // the deferred media job. Here the second provider hop returned the
-  // non-empty text "reply after image", so that text is preserved verbatim.
-  assert.equal(imageGenerateCompleted.assistantText, "reply after image");
+  // A deferred job's source turn has no artifact yet. Its canonical pending
+  // acknowledgement prevents premature/duplicate completion narration; the
+  // authoritative text arrives only from the completion continuation.
+  assert.equal(
+    imageGenerateCompleted.assistantText,
+    "Request accepted. I am generating the image and will send it separately when it is ready."
+  );
   assert.equal(imageGenerateCompleted.artifacts.length, 0);
   assert.equal(providerGatewayClient.calls.length, providerCallsBeforeImageGenerate + 2);
   assert.equal(
@@ -6979,12 +6981,12 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
     request.bundle.bundleHash;
   const videoGenerateCompleted = await service.createTurn(request);
-  // Model-owned-reply policy (2026-06-22): non-empty model text after a
-  // deferred video job is preserved verbatim. The fallback `Request accepted…`
-  // line is reserved for the empty-text case. The second provider call falls
-  // through to the shared default `result` set earlier in this suite by the
-  // model-override test (`override reply`).
-  assert.equal(videoGenerateCompleted.assistantText, "override reply");
+  // The source turn for a deferred job stays pending until its continuation
+  // owns the completed artifact and narration.
+  assert.equal(
+    videoGenerateCompleted.assistantText,
+    "Request accepted. I am preparing the video and will send it separately when it is ready."
+  );
   assert.equal(videoGenerateCompleted.artifacts.length, 0);
   assert.equal(providerGatewayClient.calls.length, providerCallsBeforeVideoGenerate + 2);
   assert.equal(
@@ -7247,9 +7249,10 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
     request.bundle.bundleHash;
   const imageEditCompleted = await service.createTurn(request);
-  // Model-owned-reply policy (2026-06-22): non-empty model text after a
-  // deferred image_edit job is preserved verbatim.
-  assert.equal(imageEditCompleted.assistantText, "reply after image edit");
+  assert.equal(
+    imageEditCompleted.assistantText,
+    "Request accepted. I am editing the image and will send it separately when it is ready."
+  );
   assert.equal(imageEditCompleted.artifacts.length, 0);
   assert.equal(providerGatewayClient.calls.length, providerCallsBeforeImageEdit + 2);
   assert.equal(
@@ -7441,10 +7444,9 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
     request.bundle.bundleHash;
   const inferredReferenceImageEditCompleted = await service.createTurn(request);
-  // Model-owned-reply policy (2026-06-22): non-empty model text preserved.
   assert.equal(
     inferredReferenceImageEditCompleted.assistantText,
-    "reply after inferred reference image edit"
+    "Request accepted. I am editing the image and will send it separately when it is ready."
   );
   assert.equal(
     providerGatewayClient.calls.length,
@@ -7511,11 +7513,9 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
     request.bundle.bundleHash;
   const ambiguousImageEditCompleted = await service.createTurn(request);
-  // Model-owned-reply policy (2026-06-22): the model's clarifying question
-  // about which image to edit is preserved as the final reply.
   assert.equal(
     ambiguousImageEditCompleted.assistantText,
-    "Which image should I edit, image #1 or image #2?"
+    "Request accepted. I am editing the image and will send it separately when it is ready."
   );
   assert.equal(providerGatewayClient.calls.length, providerCallsBeforeAmbiguousImageEdit + 2);
   assert.equal(providerGatewayClient.imageEditCalls.length, providerImageEditsBeforeAmbiguous);
