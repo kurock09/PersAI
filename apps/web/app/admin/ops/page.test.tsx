@@ -104,7 +104,29 @@ function createOpsCockpitState(): AdminOpsCockpitState {
           eventCount: 1,
           totalCostMicros: 1100000
         }
-      ]
+      ],
+      textCacheAccountingV2: [
+        {
+          currency: "USD",
+          v2CallCount: 2,
+          v2TurnCount: 1,
+          totalInputTokens: 100,
+          uncachedInputTokens: 40,
+          cacheWriteInputTokens: 10,
+          cacheReadInputTokens: 50,
+          outputTokens: 20,
+          totalTokens: 120,
+          hitCallCount: 1,
+          actualCachedInputCostMicros: 1000,
+          noCacheInputCostMicros: 2000,
+          netCacheSavingsMicros: 1000,
+          cacheReadSharePercent: 50,
+          cacheWriteSharePercent: 10,
+          hitCallSharePercent: 50,
+          netCacheSavingsPercent: 50
+        }
+      ],
+      textCacheAccountingV2ByProvider: []
     },
     periodEconomics: {
       periodStartedAt: "2026-05-01T00:00:00.000Z",

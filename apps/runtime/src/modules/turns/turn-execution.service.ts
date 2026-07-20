@@ -78,6 +78,8 @@ import {
   type RuntimeUsageAccounting,
   type RuntimeUsageAccountingEntry,
   type RuntimeUsageSnapshot,
+  type TextGenerationUsageAccountingV2,
+  type TextGenerationUsageAccountingEnvelope,
   type PersaiRuntimeKnowledgeSource,
   type PersaiRuntimeModelRole,
   type RuntimeTrace,
@@ -302,6 +304,7 @@ type TurnExecutionState = {
   artifacts: RuntimeOutputArtifact[];
   fileHandles: RuntimeFileHandle[];
   usageEntries: RuntimeUsageAccountingEntry[];
+  textUsageEntries: TextGenerationUsageAccountingV2[];
   toolInvocations: RuntimeTurnToolInvocation[];
   toolExchanges: ProviderGatewayToolExchange[];
   deferredMediaJobs: RuntimeDeferredMediaJobSummary[];
@@ -1439,7 +1442,8 @@ export class TurnExecutionService {
                 this.recordUsageEntry(turnState, {
                   stepType: iteration === 0 ? "main_turn" : "tool_loop_followup",
                   modelRole: execution.selectedModelRole,
-                  usage: event.result.usage
+                  usage: event.result.usage,
+                  textUsage: event.result.textUsage
                 });
                 assembledText = this.resolveCompletedStreamAssistantText(
                   iterationBaseText,
@@ -1793,7 +1797,8 @@ export class TurnExecutionService {
                 this.recordUsageEntry(turnState, {
                   stepType: iteration === 0 ? "main_turn" : "tool_loop_followup",
                   modelRole: execution.selectedModelRole,
-                  usage: correctedProviderResult.usage
+                  usage: correctedProviderResult.usage,
+                  textUsage: correctedProviderResult.textUsage
                 });
                 // Answer-only text = corrections applied to the FINAL iteration's
                 // own provider text (`event.result.text`), never the cumulative
@@ -2214,6 +2219,9 @@ export class TurnExecutionService {
       ...(turnState.usageEntries.length === 0
         ? {}
         : { usageAccounting: this.buildUsageAccounting(turnState.usageEntries) }),
+      ...(turnState.textUsageEntries.length === 0
+        ? {}
+        : { textUsageAccounting: this.buildTextUsageAccounting(turnState.textUsageEntries) }),
       ...(turnState.toolInvocations.length === 0
         ? {}
         : { toolInvocations: [...turnState.toolInvocations] }),
@@ -3288,7 +3296,8 @@ export class TurnExecutionService {
       this.recordUsageEntry(turnState, {
         stepType: iteration === 0 ? "main_turn" : "tool_loop_followup",
         modelRole: execution.selectedModelRole,
-        usage: providerResult.usage
+        usage: providerResult.usage,
+        textUsage: providerResult.textUsage
       });
       accumulatedText = this.mergeAssistantTurnText(accumulatedText, providerResult.text);
       if (providerResult.stopReason === "completed") {
@@ -5781,6 +5790,7 @@ export class TurnExecutionService {
       artifacts: [],
       fileHandles: [],
       usageEntries: [],
+      textUsageEntries: [],
       toolInvocations: [],
       toolExchanges: [],
       deferredMediaJobs: [],
@@ -6545,7 +6555,8 @@ export class TurnExecutionService {
     this.recordUsageEntry(input.turnState, {
       stepType: "tool_loop_followup",
       modelRole: input.execution.selectedModelRole,
-      usage: result.usage
+      usage: result.usage,
+      textUsage: result.textUsage
     });
     return result;
   }
@@ -7239,6 +7250,7 @@ export class TurnExecutionService {
       stepType: string;
       modelRole: PersaiRuntimeModelRole | null;
       usage: RuntimeUsageSnapshot | null;
+      textUsage?: ProviderGatewayTextGenerateResult["textUsage"];
       toolCode?: string;
     }
   ): void {
@@ -7257,6 +7269,13 @@ export class TurnExecutionService {
       totalTokens: input.usage.totalTokens,
       ...(input.toolCode === undefined ? {} : { toolCode: input.toolCode })
     });
+    if (input.textUsage?.status === "accounted") {
+      turnState.textUsageEntries.push({
+        ...input.textUsage.entry,
+        modelRole: input.modelRole,
+        ...(input.toolCode === undefined ? {} : { toolCode: input.toolCode })
+      });
+    }
   }
 
   private async generateTextWithRuntimeFallback(input: {
@@ -7330,6 +7349,23 @@ export class TurnExecutionService {
       inputTokens: sum((entry) => entry.inputTokens),
       cacheCreationInputTokens: sum((entry) => entry.cacheCreationInputTokens),
       cachedInputTokens: sum((entry) => entry.cachedInputTokens),
+      outputTokens: sum((entry) => entry.outputTokens),
+      totalTokens: sum((entry) => entry.totalTokens),
+      entries: [...entries]
+    };
+  }
+
+  private buildTextUsageAccounting(
+    entries: TextGenerationUsageAccountingV2[]
+  ): TextGenerationUsageAccountingEnvelope {
+    const sum = (selector: (entry: TextGenerationUsageAccountingV2) => number): number =>
+      entries.reduce((total, entry) => total + selector(entry), 0);
+    return {
+      schemaVersion: 2,
+      totalInputTokens: sum((entry) => entry.totalInputTokens),
+      uncachedInputTokens: sum((entry) => entry.uncachedInputTokens),
+      cacheWriteInputTokens: sum((entry) => entry.cacheWriteInputTokens),
+      cacheReadInputTokens: sum((entry) => entry.cacheReadInputTokens),
       outputTokens: sum((entry) => entry.outputTokens),
       totalTokens: sum((entry) => entry.totalTokens),
       entries: [...entries]

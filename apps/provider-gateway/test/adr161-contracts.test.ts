@@ -270,7 +270,7 @@ export async function runAdr161ContractsTest(): Promise<void> {
     () =>
       decodeTextGenerationUsageMixedVersion({
         schemaVersion: 2,
-        usage: [
+        entries: [
           {
             schemaVersion: 2,
             stepType: "main_turn",
@@ -284,7 +284,13 @@ export async function runAdr161ContractsTest(): Promise<void> {
             outputTokens: 20,
             totalTokens: 120
           }
-        ]
+        ],
+        totalInputTokens: 100,
+        uncachedInputTokens: 30,
+        cacheWriteInputTokens: 10,
+        cacheReadInputTokens: 60,
+        outputTokens: 20,
+        totalTokens: 120
       }),
     /text_generation_usage_v2_model_key_invalid/
   );
@@ -292,7 +298,7 @@ export async function runAdr161ContractsTest(): Promise<void> {
     () =>
       decodeTextGenerationUsageMixedVersion({
         schemaVersion: 2,
-        usage: [
+        entries: [
           {
             schemaVersion: 2,
             stepType: "main_turn",
@@ -306,7 +312,13 @@ export async function runAdr161ContractsTest(): Promise<void> {
             outputTokens: 20,
             totalTokens: 120
           }
-        ]
+        ],
+        totalInputTokens: 100,
+        uncachedInputTokens: 30,
+        cacheWriteInputTokens: 10,
+        cacheReadInputTokens: 60,
+        outputTokens: 20,
+        totalTokens: 120
       }),
     /text_generation_usage_v2_provider_key_invalid/
   );

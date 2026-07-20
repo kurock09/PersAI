@@ -9,7 +9,9 @@ import {
   type RuntimeBillingFacts,
   type RuntimeUsageSnapshot,
   type RuntimeUsageAccounting,
-  type RuntimeUsageAccountingEntry
+  type RuntimeUsageAccountingEntry,
+  type TextGenerationUsageAccountingEnvelope,
+  type TextGenerationUsageAccountingV2
 } from "@persai/runtime-contract";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import { ResolvePlatformRuntimeProviderSettingsService } from "./resolve-platform-runtime-provider-settings.service";
@@ -33,6 +35,7 @@ import {
   type RuntimeProviderTokenMeteredModelProfile,
   type RuntimeProviderTieredOperationModelProfile
 } from "./runtime-provider-profile";
+import { decodeTextGenerationUsageForApi } from "./text-generation-usage-accounting";
 
 export type ModelCostLedgerSurface = "web" | "telegram" | "background";
 export type ModelCostLedgerPurpose =
@@ -60,6 +63,7 @@ type RecordModelCostLedgerInput = {
   purpose: ModelCostLedgerPurpose;
   source: string;
   usageAccounting?: RuntimeUsageAccounting;
+  textUsageAccounting?: TextGenerationUsageAccountingEnvelope;
   occurredAt: string;
   sourceEventId?: string | null;
   requestCorrelationId?: string | null;
@@ -163,22 +167,13 @@ function extractTokenUsageFacts(entry: {
   };
 }
 
-function resolveCacheCreationInputPricePer1M(input: {
-  provider: ManagedRuntimeProvider;
-  profile: RuntimeProviderTokenMeteredModelProfile;
-}): number {
-  const rawConfigured = input.profile.providerPriceMetadata.tokenPricing.cacheCreationInputPer1M;
-  const configured =
-    typeof rawConfigured === "number" && Number.isFinite(rawConfigured) && rawConfigured >= 0
-      ? rawConfigured
-      : 0;
-  if (configured > 0) {
-    return configured;
-  }
-  if (input.provider === "anthropic") {
-    return input.profile.providerPriceMetadata.tokenPricing.inputPer1M * 1.25;
-  }
-  return configured;
+function resolveCacheCreationInputPricePer1M(
+  profile: RuntimeProviderTokenMeteredModelProfile
+): number {
+  const rawConfigured = profile.providerPriceMetadata.tokenPricing.cacheCreationInputPer1M;
+  return typeof rawConfigured === "number" && Number.isFinite(rawConfigured) && rawConfigured >= 0
+    ? rawConfigured
+    : 0;
 }
 
 function buildPriceCatalogSnapshot(input: {
@@ -195,7 +190,7 @@ function buildPriceCatalogSnapshot(input: {
     currency: input.profile.providerPriceMetadata.currency,
     tokenPricing: {
       inputPer1M: input.profile.providerPriceMetadata.tokenPricing.inputPer1M,
-      cacheCreationInputPer1M: resolveCacheCreationInputPricePer1M(input),
+      cacheCreationInputPer1M: resolveCacheCreationInputPricePer1M(input.profile),
       cachedInputPer1M: input.profile.providerPriceMetadata.tokenPricing.cachedInputPer1M,
       outputPer1M: input.profile.providerPriceMetadata.tokenPricing.outputPer1M
     }
@@ -238,14 +233,10 @@ function buildDeterministicLedgerEventId(input: {
 
 function calculateTokenMeteredCostMicros(input: {
   usage: TokenUsageFacts;
-  provider: ManagedRuntimeProvider;
   profile: RuntimeProviderTokenMeteredModelProfile;
 }): bigint {
   const pricing = input.profile.providerPriceMetadata.tokenPricing;
-  const cacheCreationInputPer1M = resolveCacheCreationInputPricePer1M({
-    provider: input.provider,
-    profile: input.profile
-  });
+  const cacheCreationInputPer1M = resolveCacheCreationInputPricePer1M(input.profile);
   const totalMicros = Math.round(
     input.usage.billableInputTokens * pricing.inputPer1M +
       input.usage.cacheCreationInputTokens * cacheCreationInputPer1M +
@@ -574,7 +565,6 @@ function calculateBillingFactsCostMicros(
       }
       return calculateTokenMeteredCostMicros({
         usage: extractTokenUsageFacts(facts.metering),
-        provider: normalizeManagedProvider(facts.providerKey) ?? "openai",
         profile
       });
     case "time_metered":
@@ -857,7 +847,6 @@ export class RecordModelCostLedgerService {
     const priceCatalogVersion = buildPriceCatalogVersion(priceCatalogSnapshot);
     const actualCostMicros = calculateTokenMeteredCostMicros({
       usage,
-      provider: catalogProvider,
       profile
     });
     const ledgerProvider = input.usage.providerKey?.trim() || catalogProvider;
@@ -915,6 +904,16 @@ export class RecordModelCostLedgerService {
   }
 
   async recordChatMainReplyEvents(input: RecordModelCostLedgerInput): Promise<number> {
+    const decoded = decodeTextGenerationUsageForApi({
+      textUsageAccounting: input.textUsageAccounting,
+      legacyUsageAccounting: input.usageAccounting
+    });
+    if (decoded.kind === "v2") {
+      return this.recordV2ChatMainReplyEvents(input, decoded.usage.entries);
+    }
+    if (decoded.kind === "invalid" && input.textUsageAccounting !== undefined) {
+      return 0;
+    }
     const entries = input.usageAccounting?.entries ?? [];
     const eligibleEntries = entries
       .map((entry, index) => ({
@@ -963,7 +962,7 @@ export class RecordModelCostLedgerService {
       const usage = extractTokenUsageFacts(entry);
       const priceCatalogSnapshot = buildPriceCatalogSnapshot({ provider, profile });
       const priceCatalogVersion = buildPriceCatalogVersion(priceCatalogSnapshot);
-      const actualCostMicros = calculateTokenMeteredCostMicros({ usage, provider, profile });
+      const actualCostMicros = calculateTokenMeteredCostMicros({ usage, profile });
       const sourceEventId = input.sourceEventId ?? null;
       const requestCorrelationId = input.requestCorrelationId ?? null;
 
@@ -1024,6 +1023,100 @@ export class RecordModelCostLedgerService {
       skipDuplicates: true
     });
     return result.count;
+  }
+
+  private async recordV2ChatMainReplyEvents(
+    input: RecordModelCostLedgerInput,
+    entries: TextGenerationUsageAccountingV2[]
+  ): Promise<number> {
+    const occurredAt = new Date(input.occurredAt);
+    if (Number.isNaN(occurredAt.getTime())) return 0;
+    const settings = await this.resolvePlatformRuntimeProviderSettingsService.execute();
+    const rows: Prisma.ModelCostLedgerEventCreateManyInput[] = [];
+    for (const [index, entry] of entries.entries()) {
+      const purpose = resolveLedgerPurpose(
+        entry as unknown as RuntimeUsageAccountingEntry,
+        input.purpose
+      );
+      if (purpose === null) continue;
+      const profile = findRuntimeProviderCatalogProfileForTimestamp(
+        settings.availableModelCatalogByProvider[entry.providerKey],
+        entry.modelKey,
+        occurredAt
+      );
+      if (
+        profile === null ||
+        profile.billingMode !== "token_metered" ||
+        !profile.capabilities.includes("chat")
+      ) {
+        continue;
+      }
+      const priceCatalogSnapshot = buildPriceCatalogSnapshot({
+        provider: entry.providerKey,
+        profile
+      });
+      const priceCatalogVersion = buildPriceCatalogVersion(priceCatalogSnapshot);
+      const pricing = priceCatalogSnapshot.tokenPricing;
+      const actualCachedInputCostMicros = Math.round(
+        entry.uncachedInputTokens * pricing.inputPer1M +
+          entry.cacheWriteInputTokens * pricing.cacheCreationInputPer1M +
+          entry.cacheReadInputTokens * pricing.cachedInputPer1M
+      );
+      const noCacheInputCostMicros = Math.round(entry.totalInputTokens * pricing.inputPer1M);
+      const outputCostMicros = Math.round(entry.outputTokens * pricing.outputPer1M);
+      const actualCostMicros = BigInt(Math.max(0, actualCachedInputCostMicros + outputCostMicros));
+      const sourceEventId = input.sourceEventId ?? null;
+      const requestCorrelationId = input.requestCorrelationId ?? null;
+      rows.push({
+        id: buildDeterministicLedgerEventId({
+          workspaceId: input.workspaceId,
+          assistantId: input.assistantId,
+          userId: input.userId,
+          surface: input.surface,
+          purpose,
+          source: input.source,
+          sourceEventId,
+          requestCorrelationId,
+          entryOrdinal: index,
+          provider: entry.providerKey,
+          model: entry.modelKey,
+          stepType: entry.stepType,
+          modelRole: entry.modelRole,
+          toolCode: entry.toolCode ?? null
+        }),
+        workspaceId: input.workspaceId,
+        assistantId: input.assistantId,
+        userId: input.userId,
+        provider: entry.providerKey,
+        model: entry.modelKey,
+        capability: "chat",
+        purpose,
+        surface: input.surface,
+        source: input.source,
+        billingMode: profile.billingMode,
+        rawUsage: {
+          ...entry,
+          actualCachedInputCostMicros,
+          noCacheInputCostMicros,
+          netCacheSavingsMicros: noCacheInputCostMicros - actualCachedInputCostMicros,
+          netCacheSavingsPercent:
+            noCacheInputCostMicros === 0
+              ? null
+              : (noCacheInputCostMicros - actualCachedInputCostMicros) / noCacheInputCostMicros,
+          outputCostMicros
+        } as Prisma.InputJsonValue,
+        actualCostMicros,
+        currency: profile.providerPriceMetadata.currency,
+        priceCatalogVersion,
+        priceCatalogSnapshot: priceCatalogSnapshot as Prisma.InputJsonValue,
+        sourceEventId,
+        requestCorrelationId,
+        occurredAt
+      });
+    }
+    if (rows.length === 0) return 0;
+    return (await this.prisma.modelCostLedgerEvent.createMany({ data: rows, skipDuplicates: true }))
+      .count;
   }
 
   async recordToolPathBillingFactsEvent(input: {

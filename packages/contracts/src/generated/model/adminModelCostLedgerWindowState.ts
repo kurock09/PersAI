@@ -9,6 +9,8 @@ import type { AdminModelCostLedgerWindowStateCoverageScope } from "./adminModelC
 import type { AdminModelCostLedgerCurrencyTotal } from "./adminModelCostLedgerCurrencyTotal";
 import type { AdminModelCostLedgerBreakdownItem } from "./adminModelCostLedgerBreakdownItem";
 import type { AdminModelCostLedgerTopBreakdownItem } from "./adminModelCostLedgerTopBreakdownItem";
+import type { AdminTextCacheCurrencyAggregate } from "./adminTextCacheCurrencyAggregate";
+import type { AdminTextCacheProviderCohort } from "./adminTextCacheProviderCohort";
 
 export interface AdminModelCostLedgerWindowState {
   windowLabel: string;
@@ -26,4 +28,6 @@ export interface AdminModelCostLedgerWindowState {
   byPurpose: AdminModelCostLedgerBreakdownItem[];
   bySurface: AdminModelCostLedgerBreakdownItem[];
   topBreakdown: AdminModelCostLedgerTopBreakdownItem[];
+  textCacheAccountingV2: AdminTextCacheCurrencyAggregate[];
+  textCacheAccountingV2ByProvider: AdminTextCacheProviderCohort[];
 }

@@ -26,6 +26,7 @@ import type {
   RuntimeBillingFacts,
   RuntimeUsageSnapshot
 } from "@persai/runtime-contract";
+import { normalizeProviderTextGenerationUsageV2 } from "@persai/runtime-contract";
 import {
   ANTI_COLLAGE_RULE,
   STANDALONE_IMAGE_RULE,
@@ -264,6 +265,17 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
                   outputTokens: response.usage.output_tokens ?? null,
                   totalTokens: response.usage.total_tokens ?? null
                 },
+          textUsage: normalizeProviderTextGenerationUsageV2({
+            providerKey: "openai",
+            modelKey: input.model,
+            stepType:
+              input.requestMetadata?.classification === "tool_loop_followup"
+                ? "tool_loop_followup"
+                : "main_turn",
+            modelRole: null,
+            responseUsage: (response.usage ?? null) as unknown as Record<string, unknown> | null,
+            promptCachePolicy: input.promptCache?.openaiPolicy ?? null
+          }),
           stopReason: "tool_calls",
           toolCalls
         };
@@ -309,6 +321,17 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
                 outputTokens: response.usage.output_tokens ?? null,
                 totalTokens: response.usage.total_tokens ?? null
               },
+        textUsage: normalizeProviderTextGenerationUsageV2({
+          providerKey: "openai",
+          modelKey: input.model,
+          stepType:
+            input.requestMetadata?.classification === "tool_loop_followup"
+              ? "tool_loop_followup"
+              : "main_turn",
+          modelRole: null,
+          responseUsage: (response.usage ?? null) as unknown as Record<string, unknown> | null,
+          promptCachePolicy: input.promptCache?.openaiPolicy ?? null
+        }),
         stopReason: "completed",
         truncated: this.isMaxOutputTokensTruncation(response),
         toolCalls: []
@@ -1116,6 +1139,14 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
                   input.model,
                   response?.usage as OpenAI.Responses.ResponseUsage | undefined
                 ),
+                textUsage: normalizeProviderTextGenerationUsageV2({
+                  providerKey: "openai",
+                  modelKey: input.model,
+                  stepType: this.textUsageStepType(input),
+                  modelRole: null,
+                  responseUsage: (response?.usage ?? null) as Record<string, unknown> | null,
+                  promptCachePolicy: input.promptCache?.openaiPolicy ?? null
+                }),
                 stopReason: "tool_calls",
                 toolCalls
               }
@@ -1161,6 +1192,14 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
                 input.model,
                 response?.usage as OpenAI.Responses.ResponseUsage | undefined
               ),
+              textUsage: normalizeProviderTextGenerationUsageV2({
+                providerKey: "openai",
+                modelKey: input.model,
+                stepType: this.textUsageStepType(input),
+                modelRole: null,
+                responseUsage: (response?.usage ?? null) as Record<string, unknown> | null,
+                promptCachePolicy: input.promptCache?.openaiPolicy ?? null
+              }),
               stopReason: "completed",
               truncated: this.isMaxOutputTokensTruncation(response),
               toolCalls: []
@@ -1203,6 +1242,15 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
                     | OpenAI.Responses.ResponseUsage
                     | undefined
                 ),
+                textUsage: normalizeProviderTextGenerationUsageV2({
+                  providerKey: "openai",
+                  modelKey: input.model,
+                  stepType: this.textUsageStepType(input),
+                  modelRole: null,
+                  responseUsage: ((incompleteResponse as Record<string, unknown> | null)?.usage ??
+                    null) as Record<string, unknown> | null,
+                  promptCachePolicy: input.promptCache?.openaiPolicy ?? null
+                }),
                 stopReason: "completed",
                 truncated: true,
                 toolCalls: []
@@ -1281,6 +1329,14 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
           outputTokens: usage.output_tokens ?? null,
           totalTokens: usage.total_tokens ?? null
         };
+  }
+
+  private textUsageStepType(
+    input: ProviderGatewayTextGenerateRequest
+  ): "main_turn" | "tool_loop_followup" {
+    return input.requestMetadata?.classification === "tool_loop_followup"
+      ? "tool_loop_followup"
+      : "main_turn";
   }
 
   private toImageUsageSnapshot(

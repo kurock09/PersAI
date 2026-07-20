@@ -16,6 +16,7 @@ import type {
   ProviderGatewayTextStreamEvent,
   ProviderGatewayTextToolCallsEvent
 } from "@persai/runtime-contract";
+import { normalizeProviderTextGenerationUsageV2 } from "@persai/runtime-contract";
 import { PROVIDER_GATEWAY_CONFIG } from "../../../provider-gateway-config";
 import type { ProviderWarmableClient } from "../provider-client.types";
 import { toProviderTextFailedEvent, toProviderTextHttpException } from "../provider-text-error";
@@ -94,6 +95,16 @@ export class DeepSeekProviderClient implements ProviderWarmableClient {
           text: this.normalizeOptionalText(message?.content),
           respondedAt: new Date().toISOString(),
           usage: this.toUsageSnapshot(input.model, response.usage),
+          textUsage: normalizeProviderTextGenerationUsageV2({
+            providerKey: "deepseek",
+            modelKey: input.model,
+            stepType:
+              input.requestMetadata?.classification === "tool_loop_followup"
+                ? "tool_loop_followup"
+                : "main_turn",
+            modelRole: null,
+            responseUsage: response.usage as Record<string, unknown> | undefined
+          }),
           stopReason: "tool_calls",
           reasoningContent: this.extractReasoningContent(message),
           toolCalls
@@ -105,6 +116,16 @@ export class DeepSeekProviderClient implements ProviderWarmableClient {
         text: this.normalizeOptionalText(message?.content),
         respondedAt: new Date().toISOString(),
         usage: this.toUsageSnapshot(input.model, response.usage),
+        textUsage: normalizeProviderTextGenerationUsageV2({
+          providerKey: "deepseek",
+          modelKey: input.model,
+          stepType:
+            input.requestMetadata?.classification === "tool_loop_followup"
+              ? "tool_loop_followup"
+              : "main_turn",
+          modelRole: null,
+          responseUsage: response.usage as Record<string, unknown> | undefined
+        }),
         stopReason: "completed",
         truncated: choice?.finish_reason === "length",
         toolCalls: []
@@ -193,6 +214,13 @@ export class DeepSeekProviderClient implements ProviderWarmableClient {
             text: this.normalizeOptionalText(accumulatedText),
             respondedAt: new Date().toISOString(),
             usage,
+            textUsage: normalizeProviderTextGenerationUsageV2({
+              providerKey: "deepseek",
+              modelKey: input.model,
+              stepType: this.textUsageStepType(input),
+              modelRole: null,
+              responseUsage: streamUsage as Record<string, unknown> | null | undefined
+            }),
             stopReason: "tool_calls",
             reasoningContent: this.normalizeOptionalText(accumulatedReasoning),
             toolCalls: finalizedToolCalls
@@ -210,6 +238,13 @@ export class DeepSeekProviderClient implements ProviderWarmableClient {
           text: this.normalizeOptionalText(accumulatedText),
           respondedAt: new Date().toISOString(),
           usage,
+          textUsage: normalizeProviderTextGenerationUsageV2({
+            providerKey: "deepseek",
+            modelKey: input.model,
+            stepType: this.textUsageStepType(input),
+            modelRole: null,
+            responseUsage: streamUsage as Record<string, unknown> | null | undefined
+          }),
           stopReason: "completed",
           truncated: finishReason === "length",
           toolCalls: []
@@ -600,6 +635,14 @@ export class DeepSeekProviderClient implements ProviderWarmableClient {
     }
     const trimmed = value.trim();
     return trimmed.length > 0 ? trimmed : null;
+  }
+
+  private textUsageStepType(
+    input: ProviderGatewayTextGenerateRequest
+  ): "main_turn" | "tool_loop_followup" {
+    return input.requestMetadata?.classification === "tool_loop_followup"
+      ? "tool_loop_followup"
+      : "main_turn";
   }
 
   /**

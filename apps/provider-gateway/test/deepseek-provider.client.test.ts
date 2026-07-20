@@ -341,6 +341,22 @@ export async function runDeepSeekProviderClientTest(): Promise<void> {
     outputTokens: 4,
     totalTokens: 16
   });
+  assert.deepEqual(completed.result.textUsage, {
+    status: "accounted",
+    entry: {
+      schemaVersion: 2,
+      stepType: "main_turn",
+      modelRole: null,
+      providerKey: "deepseek",
+      modelKey: "deepseek-v4-flash",
+      totalInputTokens: 12,
+      uncachedInputTokens: 10,
+      cacheWriteInputTokens: 0,
+      cacheReadInputTokens: 2,
+      outputTokens: 4,
+      totalTokens: 16
+    }
+  });
 
   await runDeepSeekReasoningContentRoundTripTest(client);
 }

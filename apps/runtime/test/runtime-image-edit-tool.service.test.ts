@@ -60,7 +60,8 @@ function createBundle(): AssistantRuntimeBundle {
         modelSlots: {
           systemTool: {
             providerKey: "openai",
-            modelKey: "gpt-5.4-mini"
+            modelKey: "gpt-5.4-mini",
+            promptCachePolicy: { mode: "automatic", retention: "in_memory" }
           }
         }
       }

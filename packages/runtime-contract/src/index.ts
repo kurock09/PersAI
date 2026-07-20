@@ -742,7 +742,36 @@ export type TextGenerationUsageAccountingV2Result =
 
 export type TextGenerationUsageMixedVersionEnvelope =
   | { schemaVersion?: 1; usage: RuntimeUsageAccounting }
-  | { schemaVersion: 2; usage: TextGenerationUsageAccountingV2[] };
+  | TextGenerationUsageAccountingEnvelope;
+
+/**
+ * Bounded ADR-161 mixed-pod seam. Consumers must explicitly branch on this
+ * discriminator; unknown versions are rejected by
+ * `decodeTextGenerationUsageMixedVersion` and must not be charged.
+ *
+ * Transitional v1 support is removed in ADR-161 Release C after all
+ * provider-gateway/runtime/API producers have drained.
+ */
+export type TextGenerationUsageAccountingEnvelope =
+  | {
+      schemaVersion: 1;
+      inputTokens: number | null;
+      cacheCreationInputTokens: number | null;
+      cachedInputTokens: number | null;
+      outputTokens: number | null;
+      totalTokens: number | null;
+      entries: RuntimeUsageAccountingEntry[];
+    }
+  | {
+      schemaVersion: 2;
+      totalInputTokens: number;
+      uncachedInputTokens: number;
+      cacheWriteInputTokens: number;
+      cacheReadInputTokens: number;
+      outputTokens: number;
+      totalTokens: number;
+      entries: TextGenerationUsageAccountingV2[];
+    };
 
 export interface TextGenerationCacheCostPricing {
   inputPer1M: number;
@@ -948,19 +977,37 @@ export function decodeTextGenerationUsageMixedVersion(
     throw new Error("text_generation_usage_invalid_envelope");
   }
   const row = envelope as Record<string, unknown>;
-  if (row.schemaVersion === undefined || row.schemaVersion === 1) {
+  // ADR-161 Release A/B seam. DELETE IN RELEASE C after all v1 producers drain.
+  if (row.schemaVersion === undefined) {
     return { schemaVersion: 1, usage: row.usage as RuntimeUsageAccounting };
   }
-  if (row.schemaVersion === 2 && Array.isArray(row.usage)) {
+  if (row.schemaVersion === 1) {
+    return { schemaVersion: 1, usage: row.usage as RuntimeUsageAccounting };
+  }
+  if (row.schemaVersion === 2 && Array.isArray(row.entries)) {
     const entries: TextGenerationUsageAccountingV2[] = [];
-    for (const value of row.usage) {
+    for (const value of row.entries) {
       const result = validateTextGenerationUsageAccountingV2(value);
       if (result.status !== "accounted") {
         throw new Error(`text_generation_usage_v2_${result.reason}`);
       }
       entries.push(result.entry);
     }
-    return { schemaVersion: 2, usage: entries };
+    const aggregateKeys = [
+      "totalInputTokens",
+      "uncachedInputTokens",
+      "cacheWriteInputTokens",
+      "cacheReadInputTokens",
+      "outputTokens",
+      "totalTokens"
+    ] as const;
+    const totals = Object.fromEntries(
+      aggregateKeys.map((key) => [key, entries.reduce((sum, entry) => sum + entry[key], 0)])
+    ) as Record<(typeof aggregateKeys)[number], number>;
+    if (aggregateKeys.some((key) => row[key] !== totals[key])) {
+      throw new Error("text_generation_usage_v2_aggregate_mismatch");
+    }
+    return { schemaVersion: 2, ...totals, entries };
   }
   throw new Error("text_generation_usage_unknown_schema_version");
 }
@@ -4043,6 +4090,11 @@ export interface RuntimeTurnResult {
   respondedAt: IsoTimestamp;
   usage: RuntimeUsageSnapshot | null;
   usageAccounting?: RuntimeUsageAccounting;
+  /**
+   * ADR-161 v2 text-only path. Kept separate from `usageAccounting` until the
+   * consumer-first rollout reaches Release C, when v1 is removed.
+   */
+  textUsageAccounting?: TextGenerationUsageAccountingEnvelope;
   turnRouting?: RuntimeTurnRoutingSnapshot;
   trace?: RuntimeTrace;
   autoCompaction?: RuntimeTurnAutoCompactionState;
@@ -4452,6 +4504,11 @@ export interface ProviderGatewayTextGenerateResult {
   text: string | null;
   respondedAt: IsoTimestamp;
   usage: RuntimeUsageSnapshot | null;
+  /**
+   * Canonical text-only provider accounting. `usage` remains unchanged for
+   * existing non-text consumers and generic runtime telemetry.
+   */
+  textUsage?: TextGenerationUsageAccountingV2Result;
   stopReason: "completed" | "tool_calls";
   /**
    * ADR-122 Slice 3: true when the provider stopped due to reaching the

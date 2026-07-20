@@ -10,19 +10,29 @@ export interface ReadSmokeTurnReceiptsInput {
 }
 
 export interface SmokeTurnReceiptUsageEntry {
+  schemaVersion: 1 | 2;
   stepType: string;
   modelRole: string | null;
   providerKey: string | null;
   modelKey: string | null;
   toolCode: string | null;
   inputTokens: number | null;
+  totalInputTokens: number | null;
+  uncachedInputTokens: number | null;
+  cacheWriteInputTokens: number | null;
+  cacheReadInputTokens: number | null;
   cachedInputTokens: number | null;
   outputTokens: number | null;
   totalTokens: number | null;
 }
 
 export interface SmokeTurnReceiptUsage {
+  schemaVersion: 1 | 2;
   inputTokens: number | null;
+  totalInputTokens: number | null;
+  uncachedInputTokens: number | null;
+  cacheWriteInputTokens: number | null;
+  cacheReadInputTokens: number | null;
   cachedInputTokens: number | null;
   outputTokens: number | null;
   totalTokens: number | null;
@@ -197,11 +207,16 @@ function pickFirst(value: string | string[] | undefined): string | undefined {
 }
 
 function extractUsage(payload: Record<string, unknown>): SmokeTurnReceiptUsage | null {
-  const raw = payload.usageAccounting;
+  const hasExplicitTextUsage = payload.textUsageAccounting !== undefined;
+  const raw = payload.textUsageAccounting ?? payload.usageAccounting;
   if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
     return null;
   }
   const usage = raw as Record<string, unknown>;
+  if (hasExplicitTextUsage && usage.schemaVersion !== 2) {
+    return null;
+  }
+  const schemaVersion = usage.schemaVersion === 2 ? 2 : 1;
   const entriesRaw = Array.isArray(usage.entries) ? (usage.entries as unknown[]) : [];
   const entries = entriesRaw
     .map((entryRaw): SmokeTurnReceiptUsageEntry | null => {
@@ -210,12 +225,17 @@ function extractUsage(payload: Record<string, unknown>): SmokeTurnReceiptUsage |
       }
       const entry = entryRaw as Record<string, unknown>;
       return {
+        schemaVersion,
         stepType: typeof entry.stepType === "string" ? entry.stepType : "unknown",
         modelRole: typeof entry.modelRole === "string" ? entry.modelRole : null,
         providerKey: typeof entry.providerKey === "string" ? entry.providerKey : null,
         modelKey: typeof entry.modelKey === "string" ? entry.modelKey : null,
         toolCode: typeof entry.toolCode === "string" ? entry.toolCode : null,
         inputTokens: numberOrNull(entry.inputTokens),
+        totalInputTokens: numberOrNull(entry.totalInputTokens),
+        uncachedInputTokens: numberOrNull(entry.uncachedInputTokens),
+        cacheWriteInputTokens: numberOrNull(entry.cacheWriteInputTokens),
+        cacheReadInputTokens: numberOrNull(entry.cacheReadInputTokens),
         cachedInputTokens: numberOrNull(entry.cachedInputTokens),
         outputTokens: numberOrNull(entry.outputTokens),
         totalTokens: numberOrNull(entry.totalTokens)
@@ -223,7 +243,12 @@ function extractUsage(payload: Record<string, unknown>): SmokeTurnReceiptUsage |
     })
     .filter((entry): entry is SmokeTurnReceiptUsageEntry => entry !== null);
   return {
+    schemaVersion,
     inputTokens: numberOrNull(usage.inputTokens),
+    totalInputTokens: numberOrNull(usage.totalInputTokens),
+    uncachedInputTokens: numberOrNull(usage.uncachedInputTokens),
+    cacheWriteInputTokens: numberOrNull(usage.cacheWriteInputTokens),
+    cacheReadInputTokens: numberOrNull(usage.cacheReadInputTokens),
     cachedInputTokens: numberOrNull(usage.cachedInputTokens),
     outputTokens: numberOrNull(usage.outputTokens),
     totalTokens: numberOrNull(usage.totalTokens),

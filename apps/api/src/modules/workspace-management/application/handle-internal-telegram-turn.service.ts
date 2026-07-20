@@ -505,6 +505,9 @@ export class HandleInternalTelegramTurnService {
             ...(runtimeResponse.usageAccounting === undefined
               ? {}
               : { usageAccounting: runtimeResponse.usageAccounting }),
+            ...(runtimeResponse.textUsageAccounting === undefined
+              ? {}
+              : { textUsageAccounting: runtimeResponse.textUsageAccounting }),
             source: "telegram_turn_sync"
           })
           .then(() => {
@@ -528,6 +531,9 @@ export class HandleInternalTelegramTurnService {
           ...(runtimeResponse.usageAccounting === undefined
             ? {}
             : { usageAccounting: runtimeResponse.usageAccounting }),
+          ...(runtimeResponse.textUsageAccounting === undefined
+            ? {}
+            : { textUsageAccounting: runtimeResponse.textUsageAccounting }),
           ...(runtimeResponse.toolInvocations === undefined
             ? {}
             : { toolInvocations: runtimeResponse.toolInvocations })
@@ -657,6 +663,7 @@ export class HandleInternalTelegramTurnService {
     respondedAt: string;
     traceId: string;
     usageAccounting?: AssistantRuntimeWebChatTurnResult["usageAccounting"];
+    textUsageAccounting?: AssistantRuntimeWebChatTurnResult["textUsageAccounting"];
     toolInvocations?: AssistantRuntimeWebChatTurnResult["toolInvocations"];
   }): Promise<void> {
     try {
@@ -670,7 +677,10 @@ export class HandleInternalTelegramTurnService {
         occurredAt: input.respondedAt,
         sourceEventId: input.assistantMessageId,
         requestCorrelationId: input.traceId,
-        ...(input.usageAccounting === undefined ? {} : { usageAccounting: input.usageAccounting })
+        ...(input.usageAccounting === undefined ? {} : { usageAccounting: input.usageAccounting }),
+        ...(input.textUsageAccounting === undefined
+          ? {}
+          : { textUsageAccounting: input.textUsageAccounting })
       });
     } catch (error) {
       this.logger.warn(

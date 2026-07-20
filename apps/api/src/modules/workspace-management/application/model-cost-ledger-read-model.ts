@@ -31,6 +31,35 @@ export type AdminModelCostLedgerTopBreakdownItem = {
   totalCostMicros: number;
 };
 
+export type AdminTextCacheAccountingAggregate = {
+  v2CallCount: number;
+  v2TurnCount: number;
+  totalInputTokens: number;
+  uncachedInputTokens: number;
+  cacheWriteInputTokens: number;
+  cacheReadInputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  hitCallCount: number;
+  actualCachedInputCostMicros: number;
+  noCacheInputCostMicros: number;
+  netCacheSavingsMicros: number;
+  cacheReadSharePercent: number | null;
+  cacheWriteSharePercent: number | null;
+  hitCallSharePercent: number | null;
+  netCacheSavingsPercent: number | null;
+};
+
+export type AdminTextCacheProviderCohort = AdminTextCacheAccountingAggregate & {
+  provider: string;
+  model: string;
+  currency: string;
+};
+
+export type AdminTextCacheCurrencyAggregate = AdminTextCacheAccountingAggregate & {
+  currency: string;
+};
+
 export type AdminModelCostLedgerWindowState = {
   windowLabel: string;
   startedAt: string;
@@ -46,6 +75,8 @@ export type AdminModelCostLedgerWindowState = {
   byPurpose: AdminModelCostLedgerBreakdownItem[];
   bySurface: AdminModelCostLedgerBreakdownItem[];
   topBreakdown: AdminModelCostLedgerTopBreakdownItem[];
+  textCacheAccountingV2: AdminTextCacheCurrencyAggregate[];
+  textCacheAccountingV2ByProvider: AdminTextCacheProviderCohort[];
 };
 
 export const ADMIN_MODEL_COST_LEDGER_COVERAGE_NOTE =
@@ -117,6 +148,119 @@ function labelSurface(value: string): string {
   }
 }
 
+type V2RawUsage = {
+  providerKey: string;
+  modelKey: string;
+  totalInputTokens: number;
+  uncachedInputTokens: number;
+  cacheWriteInputTokens: number;
+  cacheReadInputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  actualCachedInputCostMicros: number;
+  noCacheInputCostMicros: number;
+  sourceEventId: string | null;
+  currency: string;
+};
+
+function nonNegativeInteger(value: unknown): number | null {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : null;
+}
+
+function readV2RawUsage(
+  value: unknown,
+  sourceEventId: string | null,
+  currency: string
+): V2RawUsage | null {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
+  const row = value as Record<string, unknown>;
+  const providerKey = typeof row.providerKey === "string" ? row.providerKey : null;
+  const modelKey = typeof row.modelKey === "string" ? row.modelKey : null;
+  const totalInputTokens = nonNegativeInteger(row.totalInputTokens);
+  const uncachedInputTokens = nonNegativeInteger(row.uncachedInputTokens);
+  const cacheWriteInputTokens = nonNegativeInteger(row.cacheWriteInputTokens);
+  const cacheReadInputTokens = nonNegativeInteger(row.cacheReadInputTokens);
+  const outputTokens = nonNegativeInteger(row.outputTokens);
+  const totalTokens = nonNegativeInteger(row.totalTokens);
+  const actualCachedInputCostMicros = nonNegativeInteger(row.actualCachedInputCostMicros);
+  const noCacheInputCostMicros = nonNegativeInteger(row.noCacheInputCostMicros);
+  if (
+    providerKey === null ||
+    modelKey === null ||
+    totalInputTokens === null ||
+    uncachedInputTokens === null ||
+    cacheWriteInputTokens === null ||
+    cacheReadInputTokens === null ||
+    outputTokens === null ||
+    totalTokens === null ||
+    actualCachedInputCostMicros === null ||
+    noCacheInputCostMicros === null ||
+    totalInputTokens !== uncachedInputTokens + cacheWriteInputTokens + cacheReadInputTokens ||
+    totalTokens !== totalInputTokens + outputTokens
+  ) {
+    return null;
+  }
+  return {
+    providerKey,
+    modelKey,
+    totalInputTokens,
+    uncachedInputTokens,
+    cacheWriteInputTokens,
+    cacheReadInputTokens,
+    outputTokens,
+    totalTokens,
+    actualCachedInputCostMicros,
+    noCacheInputCostMicros,
+    sourceEventId,
+    currency
+  };
+}
+
+function emptyTextCacheAggregate(): AdminTextCacheAccountingAggregate {
+  return {
+    v2CallCount: 0,
+    v2TurnCount: 0,
+    totalInputTokens: 0,
+    uncachedInputTokens: 0,
+    cacheWriteInputTokens: 0,
+    cacheReadInputTokens: 0,
+    outputTokens: 0,
+    totalTokens: 0,
+    hitCallCount: 0,
+    actualCachedInputCostMicros: 0,
+    noCacheInputCostMicros: 0,
+    netCacheSavingsMicros: 0,
+    cacheReadSharePercent: null,
+    cacheWriteSharePercent: null,
+    hitCallSharePercent: null,
+    netCacheSavingsPercent: null
+  };
+}
+
+function finalizeTextCacheAggregate(
+  aggregate: AdminTextCacheAccountingAggregate,
+  turns: Set<string>
+): AdminTextCacheAccountingAggregate {
+  aggregate.v2TurnCount = turns.size;
+  aggregate.netCacheSavingsMicros =
+    aggregate.noCacheInputCostMicros - aggregate.actualCachedInputCostMicros;
+  aggregate.cacheReadSharePercent =
+    aggregate.totalInputTokens === 0
+      ? null
+      : (aggregate.cacheReadInputTokens / aggregate.totalInputTokens) * 100;
+  aggregate.cacheWriteSharePercent =
+    aggregate.totalInputTokens === 0
+      ? null
+      : (aggregate.cacheWriteInputTokens / aggregate.totalInputTokens) * 100;
+  aggregate.hitCallSharePercent =
+    aggregate.v2CallCount === 0 ? null : (aggregate.hitCallCount / aggregate.v2CallCount) * 100;
+  aggregate.netCacheSavingsPercent =
+    aggregate.noCacheInputCostMicros === 0
+      ? null
+      : (aggregate.netCacheSavingsMicros / aggregate.noCacheInputCostMicros) * 100;
+  return aggregate;
+}
+
 export async function readAdminModelCostLedgerWindow(
   prisma: WorkspaceManagementPrismaService,
   input: {
@@ -142,7 +286,8 @@ export async function readAdminModelCostLedgerWindow(
     surfaceTotalsRaw,
     topBreakdownRaw,
     workspaceRows,
-    userRows
+    userRows,
+    v2Rows
   ] = await Promise.all([
     prisma.modelCostLedgerEvent.groupBy({
       where,
@@ -180,6 +325,14 @@ export async function readAdminModelCostLedgerWindow(
       },
       distinct: ["userId"],
       select: { userId: true }
+    }),
+    prisma.modelCostLedgerEvent.findMany({
+      where: {
+        ...where,
+        capability: "chat",
+        rawUsage: { path: ["schemaVersion"], equals: 2 }
+      },
+      select: { rawUsage: true, sourceEventId: true, currency: true }
     })
   ]);
 
@@ -229,6 +382,62 @@ export async function readAdminModelCostLedgerWindow(
     })
     .slice(0, input.topBreakdownLimit ?? 6);
 
+  const currencyAggregates = new Map<
+    string,
+    { aggregate: AdminTextCacheAccountingAggregate; turns: Set<string> }
+  >();
+  const cohorts = new Map<
+    string,
+    {
+      aggregate: AdminTextCacheAccountingAggregate;
+      turns: Set<string>;
+      provider: string;
+      model: string;
+      currency: string;
+    }
+  >();
+  for (const row of v2Rows) {
+    const usage = readV2RawUsage(row.rawUsage, row.sourceEventId, row.currency);
+    if (usage === null) continue;
+    const apply = (aggregate: AdminTextCacheAccountingAggregate, turns: Set<string>) => {
+      aggregate.v2CallCount += 1;
+      aggregate.totalInputTokens += usage.totalInputTokens;
+      aggregate.uncachedInputTokens += usage.uncachedInputTokens;
+      aggregate.cacheWriteInputTokens += usage.cacheWriteInputTokens;
+      aggregate.cacheReadInputTokens += usage.cacheReadInputTokens;
+      aggregate.outputTokens += usage.outputTokens;
+      aggregate.totalTokens += usage.totalTokens;
+      aggregate.hitCallCount += usage.cacheReadInputTokens > 0 ? 1 : 0;
+      aggregate.actualCachedInputCostMicros += usage.actualCachedInputCostMicros;
+      aggregate.noCacheInputCostMicros += usage.noCacheInputCostMicros;
+      if (usage.sourceEventId !== null) turns.add(usage.sourceEventId);
+    };
+    const currencyAggregate = currencyAggregates.get(usage.currency) ?? {
+      aggregate: emptyTextCacheAggregate(),
+      turns: new Set<string>()
+    };
+    apply(currencyAggregate.aggregate, currencyAggregate.turns);
+    currencyAggregates.set(usage.currency, currencyAggregate);
+    const key = `${usage.providerKey}\u0000${usage.modelKey}\u0000${usage.currency}`;
+    const cohort = cohorts.get(key) ?? {
+      aggregate: emptyTextCacheAggregate(),
+      turns: new Set<string>(),
+      provider: usage.providerKey,
+      model: usage.modelKey,
+      currency: usage.currency
+    };
+    apply(cohort.aggregate, cohort.turns);
+    cohorts.set(key, cohort);
+  }
+  const textCacheAccountingV2ByProvider = [...cohorts.values()]
+    .map(({ aggregate, turns, provider, model, currency }) => ({
+      provider,
+      model,
+      currency,
+      ...finalizeTextCacheAggregate(aggregate, turns)
+    }))
+    .sort((left, right) => right.noCacheInputCostMicros - left.noCacheInputCostMicros);
+
   return {
     windowLabel: input.windowLabel,
     startedAt: input.startedAt.toISOString(),
@@ -243,6 +452,13 @@ export async function readAdminModelCostLedgerWindow(
     currencyTotals,
     byPurpose,
     bySurface,
-    topBreakdown
+    topBreakdown,
+    textCacheAccountingV2: [...currencyAggregates.entries()]
+      .map(([currency, { aggregate, turns }]) => ({
+        currency,
+        ...finalizeTextCacheAggregate(aggregate, turns)
+      }))
+      .sort((left, right) => right.noCacheInputCostMicros - left.noCacheInputCostMicros),
+    textCacheAccountingV2ByProvider
   };
 }

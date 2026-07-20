@@ -16852,6 +16852,86 @@ components:
           type: integer
         totalCostMicros:
           type: integer
+    AdminTextCacheAccountingAggregate:
+      type: object
+      required:
+        - v2CallCount
+        - v2TurnCount
+        - totalInputTokens
+        - uncachedInputTokens
+        - cacheWriteInputTokens
+        - cacheReadInputTokens
+        - outputTokens
+        - totalTokens
+        - hitCallCount
+        - actualCachedInputCostMicros
+        - noCacheInputCostMicros
+        - netCacheSavingsMicros
+        - cacheReadSharePercent
+        - cacheWriteSharePercent
+        - hitCallSharePercent
+        - netCacheSavingsPercent
+      properties:
+        v2CallCount:
+          type: integer
+        v2TurnCount:
+          type: integer
+        totalInputTokens:
+          type: integer
+        uncachedInputTokens:
+          type: integer
+        cacheWriteInputTokens:
+          type: integer
+        cacheReadInputTokens:
+          type: integer
+        outputTokens:
+          type: integer
+        totalTokens:
+          type: integer
+        hitCallCount:
+          type: integer
+        actualCachedInputCostMicros:
+          type: integer
+        noCacheInputCostMicros:
+          type: integer
+        netCacheSavingsMicros:
+          type: integer
+        cacheReadSharePercent:
+          type: number
+          nullable: true
+        cacheWriteSharePercent:
+          type: number
+          nullable: true
+        hitCallSharePercent:
+          type: number
+          nullable: true
+        netCacheSavingsPercent:
+          type: number
+          nullable: true
+    AdminTextCacheProviderCohort:
+      allOf:
+        - $ref: "#/components/schemas/AdminTextCacheAccountingAggregate"
+        - type: object
+          required:
+            - provider
+            - model
+            - currency
+          properties:
+            provider:
+              type: string
+            model:
+              type: string
+            currency:
+              type: string
+    AdminTextCacheCurrencyAggregate:
+      allOf:
+        - $ref: "#/components/schemas/AdminTextCacheAccountingAggregate"
+        - type: object
+          required:
+            - currency
+          properties:
+            currency:
+              type: string
     AdminModelCostLedgerWindowState:
       type: object
       required:
@@ -16869,6 +16949,8 @@ components:
         - byPurpose
         - bySurface
         - topBreakdown
+        - textCacheAccountingV2
+        - textCacheAccountingV2ByProvider
       properties:
         windowLabel:
           type: string
@@ -16911,6 +16993,14 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AdminModelCostLedgerTopBreakdownItem"
+        textCacheAccountingV2:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminTextCacheCurrencyAggregate"
+        textCacheAccountingV2ByProvider:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminTextCacheProviderCohort"
     AdminBusinessCockpitState:
       type: object
       required:
@@ -17061,15 +17151,19 @@ components:
       required:
         - window
         - completedTurns
-        - turnsWithUsageAccounting
-        - cachedInputHitTurns
-        - avgInputTokens
-        - avgCachedInputTokens
+        - turnsWithV2TextUsageAccounting
+        - v2TextUsageCallCount
+        - v2CacheReadHitTurns
+        - avgTotalInputTokens
+        - avgUncachedInputTokens
+        - avgCacheWriteInputTokens
+        - avgCacheReadInputTokens
         - avgOutputTokens
         - avgTotalTokens
         - avgUsageStepsPerTurn
-        - cachedInputSharePercent
-        - cachedInputHitTurnPercent
+        - cacheReadSharePercent
+        - cacheWriteSharePercent
+        - cacheReadHitTurnSharePercent
       properties:
         window:
           type: string
@@ -17077,13 +17171,19 @@ components:
             - last_7_days
         completedTurns:
           type: integer
-        turnsWithUsageAccounting:
+        turnsWithV2TextUsageAccounting:
           type: integer
-        cachedInputHitTurns:
+        v2TextUsageCallCount:
           type: integer
-        avgInputTokens:
+        v2CacheReadHitTurns:
           type: integer
-        avgCachedInputTokens:
+        avgTotalInputTokens:
+          type: integer
+        avgUncachedInputTokens:
+          type: integer
+        avgCacheWriteInputTokens:
+          type: integer
+        avgCacheReadInputTokens:
           type: integer
         avgOutputTokens:
           type: integer
@@ -17091,10 +17191,15 @@ components:
           type: integer
         avgUsageStepsPerTurn:
           type: integer
-        cachedInputSharePercent:
-          type: integer
-        cachedInputHitTurnPercent:
-          type: integer
+        cacheReadSharePercent:
+          type: number
+          nullable: true
+        cacheWriteSharePercent:
+          type: number
+          nullable: true
+        cacheReadHitTurnSharePercent:
+          type: number
+          nullable: true
     AdminBusinessPlatformState:
       type: object
       required:

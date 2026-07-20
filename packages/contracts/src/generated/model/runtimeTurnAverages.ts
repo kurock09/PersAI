@@ -9,13 +9,20 @@ import type { RuntimeTurnAveragesWindow } from "./runtimeTurnAveragesWindow";
 export interface RuntimeTurnAverages {
   window: RuntimeTurnAveragesWindow;
   completedTurns: number;
-  turnsWithUsageAccounting: number;
-  cachedInputHitTurns: number;
-  avgInputTokens: number;
-  avgCachedInputTokens: number;
+  turnsWithV2TextUsageAccounting: number;
+  v2TextUsageCallCount: number;
+  v2CacheReadHitTurns: number;
+  avgTotalInputTokens: number;
+  avgUncachedInputTokens: number;
+  avgCacheWriteInputTokens: number;
+  avgCacheReadInputTokens: number;
   avgOutputTokens: number;
   avgTotalTokens: number;
   avgUsageStepsPerTurn: number;
-  cachedInputSharePercent: number;
-  cachedInputHitTurnPercent: number;
+  /** @nullable */
+  cacheReadSharePercent: number | null;
+  /** @nullable */
+  cacheWriteSharePercent: number | null;
+  /** @nullable */
+  cacheReadHitTurnSharePercent: number | null;
 }

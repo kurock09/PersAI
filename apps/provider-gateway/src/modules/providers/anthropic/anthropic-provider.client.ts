@@ -11,6 +11,7 @@ import type {
   ProviderGatewayTextStreamEvent,
   RuntimeUsageSnapshot
 } from "@persai/runtime-contract";
+import { normalizeProviderTextGenerationUsageV2 } from "@persai/runtime-contract";
 import Anthropic from "@anthropic-ai/sdk";
 import { PROVIDER_GATEWAY_CONFIG } from "../../../provider-gateway-config";
 import type { ProviderWarmableClient } from "../provider-client.types";
@@ -227,6 +228,16 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
           text: this.extractAnthropicText(response.content),
           respondedAt: new Date().toISOString(),
           usage: finalUsage,
+          textUsage: normalizeProviderTextGenerationUsageV2({
+            providerKey: "anthropic",
+            modelKey: input.model,
+            stepType:
+              input.requestMetadata?.classification === "tool_loop_followup"
+                ? "tool_loop_followup"
+                : "main_turn",
+            modelRole: null,
+            responseUsage: response.usage as unknown as Record<string, unknown>
+          }),
           stopReason: "tool_calls",
           toolCalls
         };
@@ -254,6 +265,16 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
         text: text.length === 0 ? null : text,
         respondedAt: new Date().toISOString(),
         usage: finalUsage,
+        textUsage: normalizeProviderTextGenerationUsageV2({
+          providerKey: "anthropic",
+          modelKey: input.model,
+          stepType:
+            input.requestMetadata?.classification === "tool_loop_followup"
+              ? "tool_loop_followup"
+              : "main_turn",
+          modelRole: null,
+          responseUsage: response.usage as unknown as Record<string, unknown>
+        }),
         stopReason: "completed",
         truncated: response.stop_reason === "max_tokens",
         toolCalls: []
@@ -397,6 +418,7 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
                 text: this.normalizeOptionalText(accumulatedText),
                 respondedAt: new Date().toISOString(),
                 usage: latestUsage,
+                textUsage: this.normalizeStreamTextUsage(input, latestUsage),
                 stopReason: "tool_calls",
                 toolCalls
               }
@@ -492,6 +514,7 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
                 text: this.normalizeOptionalText(accumulatedText),
                 respondedAt: new Date().toISOString(),
                 usage: latestUsage,
+                textUsage: this.normalizeStreamTextUsage(input, latestUsage),
                 stopReason: "tool_calls",
                 toolCalls
               }
@@ -536,6 +559,7 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
               text: text.length === 0 ? null : text,
               respondedAt: new Date().toISOString(),
               usage: latestUsage,
+              textUsage: this.normalizeStreamTextUsage(input, latestUsage),
               stopReason: "completed",
               truncated: latestStopReason === "max_tokens",
               toolCalls: []
@@ -790,6 +814,31 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
           ? null
           : (totalInputTokens ?? 0) + (outputTokens ?? 0)
     };
+  }
+
+  private normalizeStreamTextUsage(
+    input: ProviderGatewayTextGenerateRequest,
+    usage: RuntimeUsageSnapshot | null
+  ) {
+    return normalizeProviderTextGenerationUsageV2({
+      providerKey: "anthropic",
+      modelKey: input.model,
+      stepType:
+        input.requestMetadata?.classification === "tool_loop_followup"
+          ? "tool_loop_followup"
+          : "main_turn",
+      modelRole: null,
+      responseUsage:
+        usage === null
+          ? null
+          : {
+              input_tokens: usage.inputTokens,
+              cache_creation_input_tokens: usage.cacheCreationInputTokens,
+              cache_read_input_tokens: usage.cachedInputTokens,
+              output_tokens: usage.outputTokens,
+              total_tokens: usage.totalTokens
+            }
+    });
   }
 
   private buildAnthropicMessages(

@@ -1,7 +1,12 @@
 import { Inject, Injectable, NotFoundException } from "@nestjs/common";
 import type { Prisma } from "@prisma/client";
 import { loadApiConfig } from "@persai/config";
-import type { RuntimeUsageAccounting, RuntimeUsageAccountingEntry } from "@persai/runtime-contract";
+import type {
+  RuntimeUsageAccounting,
+  RuntimeUsageAccountingEntry,
+  TextGenerationUsageAccountingEnvelope,
+  TextGenerationUsageAccountingV2
+} from "@persai/runtime-contract";
 import type { AssistantGovernance } from "../domain/assistant-governance.entity";
 import {
   ASSISTANT_GOVERNANCE_REPOSITORY,
@@ -38,6 +43,7 @@ import {
 import { resolveRecurringQuotaPeriod, type RecurringQuotaPeriod } from "./recurring-quota-period";
 import { ManageMediaPackagePurchaseService } from "./manage-media-package-purchase.service";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
+import { decodeTextGenerationUsageForApi } from "./text-generation-usage-accounting";
 
 /**
  * ADR-108 Slice 8 — `videoGenerateMonthlyUnitsLimit` was removed from
@@ -434,6 +440,7 @@ export class TrackWorkspaceQuotaUsageService {
     userContent: string;
     assistantContent: string;
     usageAccounting?: RuntimeUsageAccounting;
+    textUsageAccounting?: TextGenerationUsageAccountingEnvelope;
     source:
       | "web_chat_turn_sync"
       | "web_chat_turn_stream_completed"
@@ -448,7 +455,10 @@ export class TrackWorkspaceQuotaUsageService {
     const tokenUsage = await this.resolveTokenBudgetUsage({
       userContent: params.userContent,
       assistantContent: params.assistantContent,
-      ...(params.usageAccounting === undefined ? {} : { usageAccounting: params.usageAccounting })
+      ...(params.usageAccounting === undefined ? {} : { usageAccounting: params.usageAccounting }),
+      ...(params.textUsageAccounting === undefined
+        ? {}
+        : { textUsageAccounting: params.textUsageAccounting })
     });
 
     if (tokenUsage.delta > BigInt(0)) {
@@ -475,6 +485,7 @@ export class TrackWorkspaceQuotaUsageService {
     userContent: string;
     assistantContent: string;
     usageAccounting?: RuntimeUsageAccounting;
+    textUsageAccounting?: TextGenerationUsageAccountingEnvelope;
     source:
       | "web_chat_turn_sync"
       | "web_chat_turn_stream_completed"
@@ -487,7 +498,21 @@ export class TrackWorkspaceQuotaUsageService {
     userContent: string;
     assistantContent: string;
     usageAccounting?: RuntimeUsageAccounting;
+    textUsageAccounting?: TextGenerationUsageAccountingEnvelope;
   }): Promise<TokenBudgetUsageCalculation> {
+    const decoded = decodeTextGenerationUsageForApi({
+      textUsageAccounting: params.textUsageAccounting,
+      legacyUsageAccounting: params.usageAccounting
+    });
+    if (decoded.kind === "v2") {
+      return this.resolveWeightedV2RuntimeTokenUsage(decoded.usage.entries);
+    }
+    if (decoded.kind === "invalid" && params.textUsageAccounting !== undefined) {
+      return {
+        delta: BigInt(0),
+        metadata: { accounting: "text_generation_usage_v2_rejected", reason: decoded.reason }
+      };
+    }
     if (params.usageAccounting?.entries && params.usageAccounting.entries.length > 0) {
       return this.resolveWeightedRuntimeTokenUsage(params.usageAccounting);
     }
@@ -499,6 +524,64 @@ export class TrackWorkspaceQuotaUsageService {
       metadata: {
         estimator: TrackWorkspaceQuotaUsageService.TOKEN_USAGE_ESTIMATOR,
         accounting: "estimator_fallback"
+      }
+    };
+  }
+
+  private async resolveWeightedV2RuntimeTokenUsage(
+    entries: TextGenerationUsageAccountingV2[]
+  ): Promise<TokenBudgetUsageCalculation> {
+    const settings = await this.resolvePlatformRuntimeProviderSettingsService.execute();
+    let weightedCredits = 0;
+    const metadata: Array<Record<string, unknown>> = [];
+    for (const entry of entries) {
+      const profile = findRuntimeProviderCatalogProfile(
+        settings.availableModelCatalogByProvider[entry.providerKey],
+        entry.modelKey
+      );
+      if (profile === null || profile.billingMode !== "token_metered") {
+        return {
+          delta: BigInt(0),
+          metadata: {
+            accounting: "text_generation_usage_v2_rejected",
+            reason: "catalog_profile_missing_or_not_token_metered"
+          }
+        };
+      }
+      const credits =
+        entry.uncachedInputTokens * profile.inputTokenWeight +
+        entry.cacheWriteInputTokens * profile.cacheWriteInputTokenWeight +
+        entry.cacheReadInputTokens * profile.cachedInputTokenWeight +
+        entry.outputTokens * profile.outputTokenWeight;
+      weightedCredits += credits;
+      metadata.push({
+        schemaVersion: 2,
+        stepType: entry.stepType,
+        modelRole: entry.modelRole,
+        providerKey: entry.providerKey,
+        modelKey: entry.modelKey,
+        totalInputTokens: entry.totalInputTokens,
+        uncachedInputTokens: entry.uncachedInputTokens,
+        cacheWriteInputTokens: entry.cacheWriteInputTokens,
+        cacheReadInputTokens: entry.cacheReadInputTokens,
+        outputTokens: entry.outputTokens,
+        totalTokens: entry.totalTokens,
+        inputTokenWeight: profile.inputTokenWeight,
+        cacheWriteInputTokenWeight: profile.cacheWriteInputTokenWeight,
+        cacheReadInputTokenWeight: profile.cachedInputTokenWeight,
+        outputTokenWeight: profile.outputTokenWeight,
+        weightedCredits: credits
+      });
+    }
+    return {
+      delta: BigInt(Math.ceil(weightedCredits)),
+      metadata: {
+        accounting: "text_generation_usage_v2_weighted",
+        schemaVersion: 2,
+        weightedCredits,
+        roundedCredits: Math.ceil(weightedCredits),
+        entryCount: entries.length,
+        entries: metadata
       }
     };
   }

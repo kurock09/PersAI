@@ -258,100 +258,133 @@ export class ResolveAdminBusinessPlatformService {
     const rows = await this.prisma.$queryRaw<
       Array<{
         completed_turns: number;
-        turns_with_usage_accounting: number;
-        cached_input_hit_turns: number;
-        avg_input_tokens: number;
-        avg_cached_input_tokens: number;
+        turns_with_v2_text_usage_accounting: number;
+        v2_text_usage_call_count: number;
+        v2_cache_read_hit_turns: number;
+        avg_total_input_tokens: number;
+        avg_uncached_input_tokens: number;
+        avg_cache_write_input_tokens: number;
+        avg_cache_read_input_tokens: number;
         avg_output_tokens: number;
         avg_total_tokens: number;
         avg_usage_steps_per_turn: number;
-        cached_input_share_percent: number;
-        cached_input_hit_turn_percent: number;
+        cache_read_share_percent: number | null;
+        cache_write_share_percent: number | null;
+        cache_read_hit_turn_share_percent: number | null;
       }>
     >`
+      WITH candidate_v2_receipts AS (
+        SELECT result_payload -> 'textUsageAccounting' AS usage
+        FROM runtime_turn_receipts
+        WHERE status = 'completed'
+          AND completed_at IS NOT NULL
+          AND completed_at >= ${windowStart}
+          AND jsonb_typeof(result_payload -> 'textUsageAccounting') = 'object'
+          AND result_payload -> 'textUsageAccounting' ->> 'schemaVersion' = '2'
+      ),
+      validated_v2_receipts AS (
+        SELECT candidate.usage
+        FROM candidate_v2_receipts AS candidate
+        CROSS JOIN LATERAL (
+          SELECT
+            COUNT(*)::int AS entry_count,
+            COALESCE(SUM(CASE WHEN entry.value ->> 'totalInputTokens' ~ '^(0|[1-9][0-9]*)$' THEN (entry.value ->> 'totalInputTokens')::numeric ELSE 0 END), 0) AS total_input_tokens,
+            COALESCE(SUM(CASE WHEN entry.value ->> 'uncachedInputTokens' ~ '^(0|[1-9][0-9]*)$' THEN (entry.value ->> 'uncachedInputTokens')::numeric ELSE 0 END), 0) AS uncached_input_tokens,
+            COALESCE(SUM(CASE WHEN entry.value ->> 'cacheWriteInputTokens' ~ '^(0|[1-9][0-9]*)$' THEN (entry.value ->> 'cacheWriteInputTokens')::numeric ELSE 0 END), 0) AS cache_write_input_tokens,
+            COALESCE(SUM(CASE WHEN entry.value ->> 'cacheReadInputTokens' ~ '^(0|[1-9][0-9]*)$' THEN (entry.value ->> 'cacheReadInputTokens')::numeric ELSE 0 END), 0) AS cache_read_input_tokens,
+            COALESCE(SUM(CASE WHEN entry.value ->> 'outputTokens' ~ '^(0|[1-9][0-9]*)$' THEN (entry.value ->> 'outputTokens')::numeric ELSE 0 END), 0) AS output_tokens,
+            COALESCE(SUM(CASE WHEN entry.value ->> 'totalTokens' ~ '^(0|[1-9][0-9]*)$' THEN (entry.value ->> 'totalTokens')::numeric ELSE 0 END), 0) AS total_tokens,
+            BOOL_AND(
+              jsonb_typeof(entry.value) = 'object'
+              AND entry.value ->> 'schemaVersion' = '2'
+              AND COALESCE(entry.value ->> 'providerKey', '') IN ('openai', 'anthropic', 'deepseek')
+              AND length(trim(COALESCE(entry.value ->> 'modelKey', ''))) > 0
+              AND jsonb_typeof(entry.value -> 'totalInputTokens') = 'number'
+              AND jsonb_typeof(entry.value -> 'uncachedInputTokens') = 'number'
+              AND jsonb_typeof(entry.value -> 'cacheWriteInputTokens') = 'number'
+              AND jsonb_typeof(entry.value -> 'cacheReadInputTokens') = 'number'
+              AND jsonb_typeof(entry.value -> 'outputTokens') = 'number'
+              AND jsonb_typeof(entry.value -> 'totalTokens') = 'number'
+              AND entry.value ->> 'totalInputTokens' ~ '^(0|[1-9][0-9]*)$'
+              AND entry.value ->> 'uncachedInputTokens' ~ '^(0|[1-9][0-9]*)$'
+              AND entry.value ->> 'cacheWriteInputTokens' ~ '^(0|[1-9][0-9]*)$'
+              AND entry.value ->> 'cacheReadInputTokens' ~ '^(0|[1-9][0-9]*)$'
+              AND entry.value ->> 'outputTokens' ~ '^(0|[1-9][0-9]*)$'
+              AND entry.value ->> 'totalTokens' ~ '^(0|[1-9][0-9]*)$'
+              AND CASE
+                WHEN entry.value ->> 'totalInputTokens' ~ '^(0|[1-9][0-9]*)$'
+                  AND entry.value ->> 'uncachedInputTokens' ~ '^(0|[1-9][0-9]*)$'
+                  AND entry.value ->> 'cacheWriteInputTokens' ~ '^(0|[1-9][0-9]*)$'
+                  AND entry.value ->> 'cacheReadInputTokens' ~ '^(0|[1-9][0-9]*)$'
+                  AND entry.value ->> 'outputTokens' ~ '^(0|[1-9][0-9]*)$'
+                  AND entry.value ->> 'totalTokens' ~ '^(0|[1-9][0-9]*)$'
+                THEN (entry.value ->> 'totalInputTokens')::numeric =
+                  (entry.value ->> 'uncachedInputTokens')::numeric +
+                  (entry.value ->> 'cacheWriteInputTokens')::numeric +
+                  (entry.value ->> 'cacheReadInputTokens')::numeric
+                  AND (entry.value ->> 'totalTokens')::numeric =
+                    (entry.value ->> 'totalInputTokens')::numeric +
+                    (entry.value ->> 'outputTokens')::numeric
+                ELSE false
+              END
+            ) AS all_entries_valid
+          FROM jsonb_array_elements(candidate.usage -> 'entries') AS entry(value)
+        ) AS entries
+        WHERE jsonb_typeof(candidate.usage -> 'entries') = 'array'
+          AND jsonb_typeof(candidate.usage -> 'totalInputTokens') = 'number'
+          AND jsonb_typeof(candidate.usage -> 'uncachedInputTokens') = 'number'
+          AND jsonb_typeof(candidate.usage -> 'cacheWriteInputTokens') = 'number'
+          AND jsonb_typeof(candidate.usage -> 'cacheReadInputTokens') = 'number'
+          AND jsonb_typeof(candidate.usage -> 'outputTokens') = 'number'
+          AND jsonb_typeof(candidate.usage -> 'totalTokens') = 'number'
+          AND candidate.usage ->> 'totalInputTokens' ~ '^(0|[1-9][0-9]*)$'
+          AND candidate.usage ->> 'uncachedInputTokens' ~ '^(0|[1-9][0-9]*)$'
+          AND candidate.usage ->> 'cacheWriteInputTokens' ~ '^(0|[1-9][0-9]*)$'
+          AND candidate.usage ->> 'cacheReadInputTokens' ~ '^(0|[1-9][0-9]*)$'
+          AND candidate.usage ->> 'outputTokens' ~ '^(0|[1-9][0-9]*)$'
+          AND candidate.usage ->> 'totalTokens' ~ '^(0|[1-9][0-9]*)$'
+          AND entries.entry_count > 0
+          AND entries.all_entries_valid
+          AND (candidate.usage ->> 'totalInputTokens')::numeric = entries.total_input_tokens
+          AND (candidate.usage ->> 'uncachedInputTokens')::numeric = entries.uncached_input_tokens
+          AND (candidate.usage ->> 'cacheWriteInputTokens')::numeric = entries.cache_write_input_tokens
+          AND (candidate.usage ->> 'cacheReadInputTokens')::numeric = entries.cache_read_input_tokens
+          AND (candidate.usage ->> 'outputTokens')::numeric = entries.output_tokens
+          AND (candidate.usage ->> 'totalTokens')::numeric = entries.total_tokens
+      ),
+      aggregates AS (
+        SELECT
+          COUNT(*)::int AS turns_with_v2_text_usage_accounting,
+          COALESCE(SUM(jsonb_array_length(usage -> 'entries')), 0)::int AS v2_text_usage_call_count,
+          COUNT(*) FILTER (
+            WHERE COALESCE((usage ->> 'cacheReadInputTokens')::numeric, 0) > 0
+          )::int AS v2_cache_read_hit_turns,
+          COALESCE(ROUND(AVG((usage ->> 'totalInputTokens')::numeric)), 0)::int AS avg_total_input_tokens,
+          COALESCE(ROUND(AVG((usage ->> 'uncachedInputTokens')::numeric)), 0)::int AS avg_uncached_input_tokens,
+          COALESCE(ROUND(AVG((usage ->> 'cacheWriteInputTokens')::numeric)), 0)::int AS avg_cache_write_input_tokens,
+          COALESCE(ROUND(AVG((usage ->> 'cacheReadInputTokens')::numeric)), 0)::int AS avg_cache_read_input_tokens,
+          COALESCE(ROUND(AVG((usage ->> 'outputTokens')::numeric)), 0)::int AS avg_output_tokens,
+          COALESCE(ROUND(AVG((usage ->> 'totalTokens')::numeric)), 0)::int AS avg_total_tokens,
+          COALESCE(ROUND(AVG(jsonb_array_length(usage -> 'entries'))), 0)::int AS avg_usage_steps_per_turn,
+          CASE WHEN SUM((usage ->> 'totalInputTokens')::numeric) > 0 THEN
+            (SUM((usage ->> 'cacheReadInputTokens')::numeric) * 100) /
+            SUM((usage ->> 'totalInputTokens')::numeric)
+          ELSE NULL END AS cache_read_share_percent,
+          CASE WHEN SUM((usage ->> 'totalInputTokens')::numeric) > 0 THEN
+            (SUM((usage ->> 'cacheWriteInputTokens')::numeric) * 100) /
+            SUM((usage ->> 'totalInputTokens')::numeric)
+          ELSE NULL END AS cache_write_share_percent,
+          CASE WHEN COUNT(*) > 0 THEN
+            (COUNT(*) FILTER (WHERE COALESCE((usage ->> 'cacheReadInputTokens')::numeric, 0) > 0) * 100.0) /
+            COUNT(*)
+          ELSE NULL END AS cache_read_hit_turn_share_percent
+        FROM validated_v2_receipts
+      )
       SELECT
         COUNT(*)::int AS completed_turns,
-        COUNT(*) FILTER (
-          WHERE jsonb_typeof(result_payload -> 'usageAccounting') = 'object'
-        )::int AS turns_with_usage_accounting,
-        COUNT(*) FILTER (
-          WHERE jsonb_typeof(result_payload -> 'usageAccounting') = 'object'
-            AND COALESCE((result_payload -> 'usageAccounting' ->> 'cachedInputTokens')::int, 0) > 0
-        )::int AS cached_input_hit_turns,
-        COALESCE(
-          ROUND(
-            AVG((result_payload -> 'usageAccounting' ->> 'inputTokens')::numeric) FILTER (
-              WHERE jsonb_typeof(result_payload -> 'usageAccounting') = 'object'
-            )
-          ),
-          0
-        )::int AS avg_input_tokens,
-        COALESCE(
-          ROUND(
-            AVG((result_payload -> 'usageAccounting' ->> 'cachedInputTokens')::numeric) FILTER (
-              WHERE jsonb_typeof(result_payload -> 'usageAccounting') = 'object'
-            )
-          ),
-          0
-        )::int AS avg_cached_input_tokens,
-        COALESCE(
-          ROUND(
-            AVG((result_payload -> 'usageAccounting' ->> 'outputTokens')::numeric) FILTER (
-              WHERE jsonb_typeof(result_payload -> 'usageAccounting') = 'object'
-            )
-          ),
-          0
-        )::int AS avg_output_tokens,
-        COALESCE(
-          ROUND(
-            AVG((result_payload -> 'usageAccounting' ->> 'totalTokens')::numeric) FILTER (
-              WHERE jsonb_typeof(result_payload -> 'usageAccounting') = 'object'
-            )
-          ),
-          0
-        )::int AS avg_total_tokens,
-        COALESCE(
-          ROUND(
-            AVG(
-              CASE
-                WHEN jsonb_typeof(result_payload -> 'usageAccounting' -> 'entries') = 'array'
-                  THEN jsonb_array_length(result_payload -> 'usageAccounting' -> 'entries')::numeric
-                ELSE NULL
-              END
-            )
-          ),
-          0
-        )::int AS avg_usage_steps_per_turn,
-        COALESCE(
-          ROUND(
-            (
-              SUM(
-                COALESCE((result_payload -> 'usageAccounting' ->> 'cachedInputTokens')::numeric, 0)
-              ) * 100
-            ) / NULLIF(
-              SUM(COALESCE((result_payload -> 'usageAccounting' ->> 'inputTokens')::numeric, 0)),
-              0
-            )
-          ),
-          0
-        )::int AS cached_input_share_percent,
-        COALESCE(
-          ROUND(
-            (
-              COUNT(*) FILTER (
-                WHERE jsonb_typeof(result_payload -> 'usageAccounting') = 'object'
-                  AND COALESCE((result_payload -> 'usageAccounting' ->> 'cachedInputTokens')::int, 0) > 0
-              ) * 100.0
-            ) / NULLIF(
-              COUNT(*) FILTER (
-                WHERE jsonb_typeof(result_payload -> 'usageAccounting') = 'object'
-              ),
-              0
-            )
-          ),
-          0
-        )::int AS cached_input_hit_turn_percent
+        aggregates.*
       FROM runtime_turn_receipts
+      CROSS JOIN aggregates
       WHERE status = 'completed'
         AND completed_at IS NOT NULL
         AND completed_at >= ${windowStart}
@@ -360,15 +393,19 @@ export class ResolveAdminBusinessPlatformService {
     return {
       window: "last_7_days",
       completedTurns: row?.completed_turns ?? 0,
-      turnsWithUsageAccounting: row?.turns_with_usage_accounting ?? 0,
-      cachedInputHitTurns: row?.cached_input_hit_turns ?? 0,
-      avgInputTokens: row?.avg_input_tokens ?? 0,
-      avgCachedInputTokens: row?.avg_cached_input_tokens ?? 0,
+      turnsWithV2TextUsageAccounting: row?.turns_with_v2_text_usage_accounting ?? 0,
+      v2TextUsageCallCount: row?.v2_text_usage_call_count ?? 0,
+      v2CacheReadHitTurns: row?.v2_cache_read_hit_turns ?? 0,
+      avgTotalInputTokens: row?.avg_total_input_tokens ?? 0,
+      avgUncachedInputTokens: row?.avg_uncached_input_tokens ?? 0,
+      avgCacheWriteInputTokens: row?.avg_cache_write_input_tokens ?? 0,
+      avgCacheReadInputTokens: row?.avg_cache_read_input_tokens ?? 0,
       avgOutputTokens: row?.avg_output_tokens ?? 0,
       avgTotalTokens: row?.avg_total_tokens ?? 0,
       avgUsageStepsPerTurn: row?.avg_usage_steps_per_turn ?? 0,
-      cachedInputSharePercent: row?.cached_input_share_percent ?? 0,
-      cachedInputHitTurnPercent: row?.cached_input_hit_turn_percent ?? 0
+      cacheReadSharePercent: row?.cache_read_share_percent ?? null,
+      cacheWriteSharePercent: row?.cache_write_share_percent ?? null,
+      cacheReadHitTurnSharePercent: row?.cache_read_hit_turn_share_percent ?? null
     };
   }
 }

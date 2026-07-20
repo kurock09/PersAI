@@ -545,6 +545,9 @@ export class SendWebChatTurnService {
             ...(runtimeResponse.usageAccounting === undefined
               ? {}
               : { usageAccounting: runtimeResponse.usageAccounting }),
+            ...(runtimeResponse.textUsageAccounting === undefined
+              ? {}
+              : { textUsageAccounting: runtimeResponse.textUsageAccounting }),
             ...(runtimeResponse.toolInvocations === undefined
               ? {}
               : { toolInvocations: runtimeResponse.toolInvocations })
@@ -564,6 +567,9 @@ export class SendWebChatTurnService {
         ...(runtimeResponse.usageAccounting === undefined
           ? {}
           : { usageAccounting: runtimeResponse.usageAccounting }),
+        ...(runtimeResponse.textUsageAccounting === undefined
+          ? {}
+          : { textUsageAccounting: runtimeResponse.textUsageAccounting }),
         traceId: trace.getTraceId(),
         quotaSource: "web_chat_turn_sync",
         locale: inferAssistantMediaJobFailureLocale({
@@ -1013,6 +1019,7 @@ export class SendWebChatTurnService {
     respondedAt: string;
     traceId: string;
     usageAccounting?: AssistantRuntimeWebChatTurnResult["usageAccounting"];
+    textUsageAccounting?: AssistantRuntimeWebChatTurnResult["textUsageAccounting"];
     toolInvocations?: AssistantRuntimeWebChatTurnResult["toolInvocations"];
   }): Promise<void> {
     try {
@@ -1026,7 +1033,10 @@ export class SendWebChatTurnService {
         occurredAt: input.respondedAt,
         sourceEventId: input.assistantMessageId,
         requestCorrelationId: input.traceId,
-        ...(input.usageAccounting === undefined ? {} : { usageAccounting: input.usageAccounting })
+        ...(input.usageAccounting === undefined ? {} : { usageAccounting: input.usageAccounting }),
+        ...(input.textUsageAccounting === undefined
+          ? {}
+          : { textUsageAccounting: input.textUsageAccounting })
       });
     } catch (error) {
       this.logger.warn(

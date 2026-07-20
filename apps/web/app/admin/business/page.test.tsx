@@ -126,20 +126,46 @@ function createBusinessPlatformState(): AdminBusinessPlatformState {
           eventCount: 2,
           totalCostMicros: 3600000
         }
-      ]
+      ],
+      textCacheAccountingV2: [
+        {
+          currency: "USD",
+          v2CallCount: 2,
+          v2TurnCount: 1,
+          totalInputTokens: 100,
+          uncachedInputTokens: 40,
+          cacheWriteInputTokens: 10,
+          cacheReadInputTokens: 50,
+          outputTokens: 20,
+          totalTokens: 120,
+          hitCallCount: 1,
+          actualCachedInputCostMicros: 1000,
+          noCacheInputCostMicros: 2000,
+          netCacheSavingsMicros: 1000,
+          cacheReadSharePercent: 50,
+          cacheWriteSharePercent: 10,
+          hitCallSharePercent: 50,
+          netCacheSavingsPercent: 50
+        }
+      ],
+      textCacheAccountingV2ByProvider: []
     },
     runtimeTurnAverages: {
       window: "last_7_days",
       completedTurns: 10,
-      turnsWithUsageAccounting: 8,
-      cachedInputHitTurns: 4,
-      avgInputTokens: 1200,
-      avgCachedInputTokens: 400,
+      turnsWithV2TextUsageAccounting: 8,
+      v2TextUsageCallCount: 12,
+      v2CacheReadHitTurns: 4,
+      avgTotalInputTokens: 1200,
+      avgUncachedInputTokens: 600,
+      avgCacheWriteInputTokens: 100,
+      avgCacheReadInputTokens: 500,
       avgOutputTokens: 300,
       avgTotalTokens: 1500,
       avgUsageStepsPerTurn: 2,
-      cachedInputSharePercent: 33,
-      cachedInputHitTurnPercent: 50
+      cacheReadSharePercent: 41.7,
+      cacheWriteSharePercent: 8.3,
+      cacheReadHitTurnSharePercent: 50
     },
     updatedAt: "2026-05-20T20:00:00.000Z"
   };

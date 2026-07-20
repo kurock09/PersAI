@@ -17,15 +17,19 @@ export type QuotaPressureDistribution = {
 export type RuntimeTurnAverages = {
   window: "last_7_days";
   completedTurns: number;
-  turnsWithUsageAccounting: number;
-  cachedInputHitTurns: number;
-  avgInputTokens: number;
-  avgCachedInputTokens: number;
+  turnsWithV2TextUsageAccounting: number;
+  v2TextUsageCallCount: number;
+  v2CacheReadHitTurns: number;
+  avgTotalInputTokens: number;
+  avgUncachedInputTokens: number;
+  avgCacheWriteInputTokens: number;
+  avgCacheReadInputTokens: number;
   avgOutputTokens: number;
   avgTotalTokens: number;
   avgUsageStepsPerTurn: number;
-  cachedInputSharePercent: number;
-  cachedInputHitTurnPercent: number;
+  cacheReadSharePercent: number | null;
+  cacheWriteSharePercent: number | null;
+  cacheReadHitTurnSharePercent: number | null;
 };
 
 export type AdminBusinessPlatformState = {

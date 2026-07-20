@@ -239,6 +239,27 @@ async function run(): Promise<void> {
           if ("userId" in args.select) {
             return [{ userId: "user-1" }, { userId: "user-2" }];
           }
+          if ("rawUsage" in args.select) {
+            return [
+              {
+                sourceEventId: "turn-1",
+                currency: "USD",
+                rawUsage: {
+                  schemaVersion: 2,
+                  providerKey: "openai",
+                  modelKey: "gpt-5.6",
+                  totalInputTokens: 100,
+                  uncachedInputTokens: 20,
+                  cacheWriteInputTokens: 10,
+                  cacheReadInputTokens: 70,
+                  outputTokens: 15,
+                  totalTokens: 115,
+                  actualCachedInputCostMicros: 80,
+                  noCacheInputCostMicros: 200
+                }
+              }
+            ];
+          }
           throw new Error("Unexpected findMany select");
         }
       },
@@ -246,15 +267,19 @@ async function run(): Promise<void> {
         return [
           {
             completed_turns: 10,
-            turns_with_usage_accounting: 8,
-            cached_input_hit_turns: 5,
-            avg_input_tokens: 1200,
-            avg_cached_input_tokens: 650,
+            turns_with_v2_text_usage_accounting: 8,
+            v2_text_usage_call_count: 12,
+            v2_cache_read_hit_turns: 5,
+            avg_total_input_tokens: 1200,
+            avg_uncached_input_tokens: 550,
+            avg_cache_write_input_tokens: 50,
+            avg_cache_read_input_tokens: 600,
             avg_output_tokens: 220,
             avg_total_tokens: 1420,
             avg_usage_steps_per_turn: 2,
-            cached_input_share_percent: 54,
-            cached_input_hit_turn_percent: 63
+            cache_read_share_percent: 50,
+            cache_write_share_percent: 4.2,
+            cache_read_hit_turn_share_percent: 63
           }
         ];
       }
@@ -365,18 +390,43 @@ async function run(): Promise<void> {
       ["background", 1, 250000]
     ]
   );
+  assert.deepEqual(result.ledgerBackedModelCost.textCacheAccountingV2, [
+    {
+      currency: "USD",
+      v2CallCount: 1,
+      v2TurnCount: 1,
+      totalInputTokens: 100,
+      uncachedInputTokens: 20,
+      cacheWriteInputTokens: 10,
+      cacheReadInputTokens: 70,
+      outputTokens: 15,
+      totalTokens: 115,
+      hitCallCount: 1,
+      actualCachedInputCostMicros: 80,
+      noCacheInputCostMicros: 200,
+      netCacheSavingsMicros: 120,
+      cacheReadSharePercent: 70,
+      cacheWriteSharePercent: 10,
+      hitCallSharePercent: 100,
+      netCacheSavingsPercent: 60
+    }
+  ]);
   assert.deepEqual(result.runtimeTurnAverages, {
     window: "last_7_days",
     completedTurns: 10,
-    turnsWithUsageAccounting: 8,
-    cachedInputHitTurns: 5,
-    avgInputTokens: 1200,
-    avgCachedInputTokens: 650,
+    turnsWithV2TextUsageAccounting: 8,
+    v2TextUsageCallCount: 12,
+    v2CacheReadHitTurns: 5,
+    avgTotalInputTokens: 1200,
+    avgUncachedInputTokens: 550,
+    avgCacheWriteInputTokens: 50,
+    avgCacheReadInputTokens: 600,
     avgOutputTokens: 220,
     avgTotalTokens: 1420,
     avgUsageStepsPerTurn: 2,
-    cachedInputSharePercent: 54,
-    cachedInputHitTurnPercent: 63
+    cacheReadSharePercent: 50,
+    cacheWriteSharePercent: 4.2,
+    cacheReadHitTurnSharePercent: 63
   });
   assert.deepEqual(
     result.planDistribution.map((entry) => [entry.planCode, entry.userCount, entry.percent]),

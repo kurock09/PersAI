@@ -5,6 +5,22 @@
 
 ## 2026-07-20
 
+- **ADR-161 S4 canonical text accounting implemented locally:** provider
+  streaming and non-streaming results now emit explicit v2 usage; runtime
+  propagates it through web, Telegram, sync, fallback, and receipt paths; API
+  quota/Credits metadata, ledger, smoke receipts, Admin SQL/contracts, and
+  Business/Ops surfaces use non-overlapping uncached/write/read partitions.
+  Actual cached-input cost, no-cache counterfactual, and net savings use
+  catalog-owned cache-write weights and are partitioned by currency.
+  Historical v1 remains only in the bounded rollout seam and is excluded from
+  v2 ratios; unknown versions fail closed; non-text accounting is unchanged.
+  One independent S4 audit found four P1 defects—missing streaming v2 usage,
+  unvalidated Admin aggregation, an Anthropic zero-price override, and
+  mixed-currency totals—and all were corrected. Full provider/runtime/web
+  suites, focused API accounting/Admin tests, Prisma validation, recursive
+  lint, affected typechecks, contracts generation, and formatting pass. Full
+  API rerun remains part of S5 after one corrected stale currency fixture.
+
 - **ADR-161 S0-S3 implemented locally (`07bf3843`, `ebf310c4`; not
   pushed/deployed):** added canonical text usage v2 contracts, declarative
   `promptCachePolicy`, explicit cache-write weights, and a transaction-safe

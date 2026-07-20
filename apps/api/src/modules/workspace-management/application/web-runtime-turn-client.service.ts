@@ -180,6 +180,9 @@ export class WebRuntimeTurnClientService {
       ...(response.body.usageAccounting === undefined
         ? {}
         : { usageAccounting: response.body.usageAccounting }),
+      ...(response.body.textUsageAccounting === undefined
+        ? {}
+        : { textUsageAccounting: response.body.textUsageAccounting }),
       ...(response.body.toolInvocations === undefined
         ? {}
         : { toolInvocations: response.body.toolInvocations }),

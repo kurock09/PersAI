@@ -91,7 +91,8 @@ describe("RuntimeDocumentJobCompletionService", () => {
             modelSlots: {
               normalReply: {
                 providerKey: "openai",
-                modelKey: "gpt-5.4-medium"
+                modelKey: "gpt-5.4-medium",
+                promptCachePolicy: { mode: "automatic", retention: "in_memory" }
               }
             }
           }
@@ -256,7 +257,8 @@ describe("RuntimeDocumentJobCompletionService", () => {
             modelSlots: {
               normalReply: {
                 providerKey: "openai",
-                modelKey: "gpt-5.4-medium"
+                modelKey: "gpt-5.4-medium",
+                promptCachePolicy: { mode: "automatic", retention: "in_memory" }
               }
             }
           }

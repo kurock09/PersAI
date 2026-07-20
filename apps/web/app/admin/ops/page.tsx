@@ -1768,6 +1768,59 @@ export default function AdminOpsPage() {
                           </div>
                         )}
                       </div>
+                      <div className="space-y-1.5 rounded-lg border border-accent/20 bg-accent/5 p-2">
+                        <p className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">
+                          Text cache accounting · schema v2 only
+                        </p>
+                        <p className="text-[9px] leading-relaxed text-text-muted">
+                          Historical v1 receipts remain visible only in legacy totals. They never
+                          contribute to cache reads, writes, hit calls, or savings ratios.
+                        </p>
+                        {modelCostLedger.textCacheAccountingV2.map((aggregate) => (
+                          <div key={aggregate.currency}>
+                            <p className="mb-1 text-[9px] font-medium text-text-muted">
+                              {aggregate.currency}
+                            </p>
+                            <div className="grid grid-cols-2 gap-1.5 text-[10px] sm:grid-cols-4">
+                              <DetailRow
+                                label="Calls / turns"
+                                value={`${aggregate.v2CallCount} / ${aggregate.v2TurnCount}`}
+                              />
+                              <DetailRow
+                                label="Hit calls"
+                                value={`${aggregate.hitCallSharePercent?.toFixed(1) ?? "—"}%`}
+                              />
+                              <DetailRow
+                                label="Input savings"
+                                value={formatCurrencyMicros(
+                                  aggregate.netCacheSavingsMicros,
+                                  aggregate.currency
+                                )}
+                              />
+                              <DetailRow
+                                label="Savings rate"
+                                value={`${aggregate.netCacheSavingsPercent?.toFixed(1) ?? "—"}%`}
+                              />
+                            </div>
+                          </div>
+                        ))}
+                        {modelCostLedger.textCacheAccountingV2ByProvider.map((cohort) => (
+                          <p
+                            key={`${cohort.provider}:${cohort.model}:${cohort.currency}`}
+                            className="text-[9px] text-text-muted"
+                          >
+                            {cohort.provider} / {cohort.model} / {cohort.currency}: uncached{" "}
+                            {cohort.uncachedInputTokens}, writes {cohort.cacheWriteInputTokens},
+                            reads {cohort.cacheReadInputTokens}; actual{" "}
+                            {formatCurrencyMicros(
+                              cohort.actualCachedInputCostMicros,
+                              cohort.currency
+                            )}{" "}
+                            vs no-cache{" "}
+                            {formatCurrencyMicros(cohort.noCacheInputCostMicros, cohort.currency)}.
+                          </p>
+                        ))}
+                      </div>
                       {(modelCostLedger.byPurpose.length > 0 ||
                         modelCostLedger.topBreakdown.length > 0) && (
                         <div className="grid flex-1 grid-cols-1 gap-2 lg:grid-cols-2 lg:items-stretch">

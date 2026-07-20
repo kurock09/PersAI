@@ -460,18 +460,32 @@ export default function AdminBusinessPage() {
           </Fold>
 
           <Fold t="Runtime Usage Context · Global · 7 days" open>
+            <p className="mb-1.5 text-[10px] text-text-muted">
+              Explicit schema v2 text receipts only. Historical v1 receipts remain in legacy totals
+              and are excluded from these cache ratios and savings.
+            </p>
             <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
               {(
                 [
                   {
-                    l: "Avg Input",
-                    v: p.runtimeTurnAverages.avgInputTokens,
+                    l: "Avg Total Input",
+                    v: p.runtimeTurnAverages.avgTotalInputTokens,
                     s: "tokens / completed turn"
                   },
                   {
-                    l: "Avg Cached",
-                    v: p.runtimeTurnAverages.avgCachedInputTokens,
-                    s: `${p.runtimeTurnAverages.cachedInputSharePercent}% of input`
+                    l: "Avg Uncached",
+                    v: p.runtimeTurnAverages.avgUncachedInputTokens,
+                    s: "miss / uncached tokens"
+                  },
+                  {
+                    l: "Avg Cache Reads",
+                    v: p.runtimeTurnAverages.avgCacheReadInputTokens,
+                    s: `${p.runtimeTurnAverages.cacheReadSharePercent?.toFixed(1) ?? "—"}% of total input`
+                  },
+                  {
+                    l: "Avg Cache Writes",
+                    v: p.runtimeTurnAverages.avgCacheWriteInputTokens,
+                    s: `${p.runtimeTurnAverages.cacheWriteSharePercent?.toFixed(1) ?? "—"}% of total input`
                   },
                   {
                     l: "Avg Output",
@@ -484,9 +498,9 @@ export default function AdminBusinessPage() {
                     s: "tokens / completed turn"
                   },
                   {
-                    l: "Cache-Hit Turns",
-                    v: `${p.runtimeTurnAverages.cachedInputHitTurnPercent}%`,
-                    s: `${p.runtimeTurnAverages.cachedInputHitTurns} of ${p.runtimeTurnAverages.turnsWithUsageAccounting}`
+                    l: "Read-Hit Turns",
+                    v: `${p.runtimeTurnAverages.cacheReadHitTurnSharePercent?.toFixed(1) ?? "—"}%`,
+                    s: `${p.runtimeTurnAverages.v2CacheReadHitTurns} of ${p.runtimeTurnAverages.turnsWithV2TextUsageAccounting}`
                   },
                   {
                     l: "Avg Usage Steps",
@@ -499,9 +513,9 @@ export default function AdminBusinessPage() {
                     s: "last 7 days"
                   },
                   {
-                    l: "Turns With Usage",
-                    v: p.runtimeTurnAverages.turnsWithUsageAccounting,
-                    s: "runtime usage snapshots"
+                    l: "V2 Text Calls",
+                    v: p.runtimeTurnAverages.v2TextUsageCallCount,
+                    s: `${p.runtimeTurnAverages.turnsWithV2TextUsageAccounting} receipt turns`
                   }
                 ] as const
               ).map((metric) => (
@@ -516,6 +530,88 @@ export default function AdminBusinessPage() {
                   <p className="text-[10px] leading-tight text-text-muted">{metric.s}</p>
                 </div>
               ))}
+            </div>
+          </Fold>
+
+          <Fold t="Text Cache Cost · v2 only" open>
+            <p className="mb-1.5 text-[10px] text-text-muted">
+              Input-only counterfactual: uncached × input price + writes × write price + reads ×
+              read price, compared with total input × input price. Output cost is separate;
+              currencies are never blended.
+            </p>
+            {p.ledgerBackedModelCost.textCacheAccountingV2.map((aggregate) => (
+              <div key={aggregate.currency} className="mb-1.5">
+                <p className="mb-1 text-[9px] font-semibold uppercase tracking-widest text-text-subtle">
+                  {aggregate.currency}
+                </p>
+                <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
+                  {[
+                    {
+                      l: "Actual Cached Input",
+                      v: formatCurrencyMicros(
+                        aggregate.actualCachedInputCostMicros,
+                        aggregate.currency
+                      )
+                    },
+                    {
+                      l: "No-cache Counterfactual",
+                      v: formatCurrencyMicros(aggregate.noCacheInputCostMicros, aggregate.currency)
+                    },
+                    {
+                      l: "Net Input Savings",
+                      v: formatCurrencyMicros(aggregate.netCacheSavingsMicros, aggregate.currency),
+                      s: `${aggregate.netCacheSavingsPercent?.toFixed(1) ?? "—"}%`
+                    },
+                    {
+                      l: "V2 Hit Calls",
+                      v: `${aggregate.hitCallSharePercent?.toFixed(1) ?? "—"}%`,
+                      s: `${aggregate.hitCallCount} / ${aggregate.v2CallCount} calls`
+                    }
+                  ].map((metric) => (
+                    <div
+                      key={metric.l}
+                      className="rounded border border-border/40 bg-surface px-2.5 py-2"
+                    >
+                      <p className="text-[9px] font-semibold uppercase tracking-widest text-text-subtle">
+                        {metric.l}
+                      </p>
+                      <p className="mt-0.5 text-lg font-bold tabular-nums text-text">{metric.v}</p>
+                      {"s" in metric && metric.s ? (
+                        <p className="text-[10px] leading-tight text-text-muted">{metric.s}</p>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+            <div className="mt-1.5 divide-y divide-border/30 rounded border border-border/40 bg-surface">
+              {p.ledgerBackedModelCost.textCacheAccountingV2ByProvider.length === 0 ? (
+                <p className="px-2.5 py-2 text-[11px] text-text-muted">
+                  No valid v2 text ledger calls yet.
+                </p>
+              ) : (
+                p.ledgerBackedModelCost.textCacheAccountingV2ByProvider.map((cohort) => (
+                  <div
+                    key={`${cohort.provider}:${cohort.model}:${cohort.currency}`}
+                    className="px-2.5 py-1.5 text-[11px]"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-medium text-text">
+                        {cohort.provider} · {cohort.model} · {cohort.currency}
+                      </span>
+                      <span className="tabular-nums text-text-muted">
+                        {cohort.v2CallCount} calls / {cohort.v2TurnCount} turns
+                      </span>
+                    </div>
+                    <p className="mt-0.5 text-[10px] text-text-muted">
+                      reads {cohort.cacheReadInputTokens} · writes {cohort.cacheWriteInputTokens} ·
+                      uncached {cohort.uncachedInputTokens} · hit calls{" "}
+                      {cohort.hitCallSharePercent?.toFixed(1) ?? "—"}% · savings{" "}
+                      {cohort.netCacheSavingsPercent?.toFixed(1) ?? "—"}%
+                    </p>
+                  </div>
+                ))
+              )}
             </div>
           </Fold>
 

@@ -93,11 +93,13 @@ function createRuntimeBundleDocument(): string {
         modelSlots: {
           premiumReply: {
             providerKey: "openai",
-            modelKey: "premium-slot-model"
+            modelKey: "premium-slot-model",
+            promptCachePolicy: { mode: "automatic", retention: "in_memory" }
           },
           systemTool: {
             providerKey: "openai",
-            modelKey: "system-tool-slot-model"
+            modelKey: "system-tool-slot-model",
+            promptCachePolicy: { mode: "automatic", retention: "in_memory" }
           }
         },
         primaryPath: {

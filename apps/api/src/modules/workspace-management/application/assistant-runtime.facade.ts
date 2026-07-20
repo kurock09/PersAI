@@ -8,7 +8,8 @@ import type {
   RuntimeOutputArtifact,
   RuntimeTurnAutoCompactionState,
   RuntimeTurnToolInvocation,
-  RuntimeUsageAccounting
+  RuntimeUsageAccounting,
+  TextGenerationUsageAccountingEnvelope
 } from "@persai/runtime-contract";
 
 export type AssistantRuntimeErrorCode =
@@ -133,6 +134,7 @@ export interface AssistantRuntimeWebChatTurnResult {
   respondedAt: string;
   media: RuntimeMediaArtifact[];
   usageAccounting?: RuntimeUsageAccounting;
+  textUsageAccounting?: TextGenerationUsageAccountingEnvelope;
   toolInvocations?: RuntimeTurnToolInvocation[];
   toolExchanges?: ProviderGatewayToolExchange[];
   deferredMediaJobs?: RuntimeDeferredMediaJobSummary[];
@@ -182,6 +184,7 @@ export interface AssistantRuntimeWebChatTurnStreamChunk {
   accumulated?: string;
   respondedAt?: string;
   usageAccounting?: RuntimeUsageAccounting;
+  textUsageAccounting?: TextGenerationUsageAccountingEnvelope;
   toolInvocations?: RuntimeTurnToolInvocation[];
   toolExchanges?: ProviderGatewayToolExchange[];
   deferredMediaJobs?: RuntimeDeferredMediaJobSummary[];

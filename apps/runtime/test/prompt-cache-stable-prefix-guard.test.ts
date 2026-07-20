@@ -118,8 +118,25 @@ async function runTurn(
     presenceBlock: string;
   }
 ): Promise<CapturedTurn> {
-  const { service, providerGatewayClient, turnContextHydrationService, turnAcceptanceService } =
-    harness;
+  const {
+    service,
+    bundleRegistry,
+    providerGatewayClient,
+    turnContextHydrationService,
+    turnAcceptanceService
+  } = harness;
+  if (bundleRegistry.entry !== null) {
+    const routing = bundleRegistry.entry.parsedBundle.runtime.runtimeProviderRouting as {
+      modelSlots?: { normalReply?: Record<string, unknown> };
+    };
+    routing.modelSlots = {
+      ...routing.modelSlots,
+      normalReply: {
+        ...(routing.modelSlots?.normalReply ?? {}),
+        promptCachePolicy: { mode: "automatic", retention: "in_memory" }
+      }
+    };
+  }
 
   turnContextHydrationService.presenceBlock = volatile.presenceBlock;
   turnContextHydrationService.chatPlanBlockResults = [volatile.chatPlan];

@@ -310,6 +310,13 @@ function createBundleEntry(input?: { sharedCompactionSummaryBudgetTokens?: numbe
           providerKey: "openai",
           modelKey: "gpt-5.4",
           active: true
+        },
+        modelSlots: {
+          systemTool: {
+            providerKey: "openai",
+            modelKey: "gpt-5.4",
+            promptCachePolicy: { mode: "automatic", retention: "in_memory" }
+          }
         }
       },
       contextHydration: {
@@ -760,6 +767,18 @@ export async function runSessionCompactionServiceTest(): Promise<void> {
     () => service.compactSession(createCompactionRequest()),
     /missing a valid catalog promptCachePolicy field/
   );
+  if (bundleRegistry.entry !== null) {
+    const routing = bundleRegistry.entry.parsedBundle.runtime.runtimeProviderRouting as {
+      modelSlots?: { systemTool?: Record<string, unknown> };
+    };
+    routing.modelSlots = {
+      ...routing.modelSlots,
+      systemTool: {
+        ...(routing.modelSlots?.systemTool ?? {}),
+        promptCachePolicy: { mode: "automatic", retention: "in_memory" }
+      }
+    };
+  }
   const requestCountBeforeInstructionCompaction = providerGateway.requests.length;
   const releasedLeaseCountBeforeInstructionCompaction = leaseService.released.length;
   assert.deepEqual(

@@ -428,6 +428,8 @@ export class StreamWebChatTurnService {
     let mainAssistantReplyPersisted = false;
     let persistedAssistantMessageId: string | null = null;
     let usageAccounting: AssistantRuntimeWebChatTurnStreamChunk["usageAccounting"] = undefined;
+    let textUsageAccounting: AssistantRuntimeWebChatTurnStreamChunk["textUsageAccounting"] =
+      undefined;
     let turnRouting: AssistantRuntimeWebChatTurnStreamChunk["turnRouting"] = null;
     let deferredMediaJobs: AssistantRuntimeWebChatTurnStreamChunk["deferredMediaJobs"] = undefined;
     let toolInvocations: AssistantRuntimeWebChatTurnStreamChunk["toolInvocations"] = undefined;
@@ -585,6 +587,7 @@ export class StreamWebChatTurnService {
         accumulated = result.accumulated;
         respondedAt = result.respondedAt;
         usageAccounting = result.usageAccounting;
+        textUsageAccounting = result.textUsageAccounting;
         turnRouting = result.turnRouting;
         deferredMediaJobs = result.deferredMediaJobs;
         toolInvocations = result.toolInvocations;
@@ -849,6 +852,7 @@ export class StreamWebChatTurnService {
             respondedAt: completedAt,
             traceId: trace.getTraceId(),
             ...(usageAccounting === undefined ? {} : { usageAccounting }),
+            ...(textUsageAccounting === undefined ? {} : { textUsageAccounting }),
             ...(toolInvocations === undefined ? {} : { toolInvocations })
           }),
         assistantId: prepared.assistantId,
@@ -864,6 +868,7 @@ export class StreamWebChatTurnService {
         mediaArtifacts: collectedMedia,
         respondedAt: respondedAt ?? assistantMessage.createdAt.toISOString(),
         ...(usageAccounting === undefined ? {} : { usageAccounting }),
+        ...(textUsageAccounting === undefined ? {} : { textUsageAccounting }),
         traceId: trace.getTraceId(),
         quotaSource: "web_chat_turn_stream_completed",
         locale: inferAssistantMediaJobFailureLocale({
@@ -1262,6 +1267,7 @@ export class StreamWebChatTurnService {
     workingNotes: string[];
     respondedAt: string | null;
     usageAccounting: AssistantRuntimeWebChatTurnStreamChunk["usageAccounting"];
+    textUsageAccounting: AssistantRuntimeWebChatTurnStreamChunk["textUsageAccounting"];
     turnRouting: AssistantRuntimeWebChatTurnStreamChunk["turnRouting"];
     deferredMediaJobs: AssistantRuntimeWebChatTurnStreamChunk["deferredMediaJobs"];
     toolInvocations: AssistantRuntimeWebChatTurnStreamChunk["toolInvocations"];
@@ -1280,6 +1286,8 @@ export class StreamWebChatTurnService {
     let truncated: true | undefined = undefined;
     let respondedAt: string | null = null;
     let usageAccounting: AssistantRuntimeWebChatTurnStreamChunk["usageAccounting"] = undefined;
+    let textUsageAccounting: AssistantRuntimeWebChatTurnStreamChunk["textUsageAccounting"] =
+      undefined;
     let turnRouting: AssistantRuntimeWebChatTurnStreamChunk["turnRouting"] = null;
     let deferredMediaJobs: AssistantRuntimeWebChatTurnStreamChunk["deferredMediaJobs"] = undefined;
     let toolInvocations: AssistantRuntimeWebChatTurnStreamChunk["toolInvocations"] = undefined;
@@ -1331,6 +1339,7 @@ export class StreamWebChatTurnService {
             workingNotes: [],
             respondedAt,
             usageAccounting,
+            textUsageAccounting,
             turnRouting,
             deferredMediaJobs,
             toolInvocations,
@@ -1563,6 +1572,7 @@ export class StreamWebChatTurnService {
           watchdog.recordActivity();
           respondedAt = chunk.respondedAt;
           usageAccounting = chunk.usageAccounting;
+          textUsageAccounting = chunk.textUsageAccounting;
           turnRouting = chunk.turnRouting ?? null;
           deferredMediaJobs = chunk.deferredMediaJobs;
           toolInvocations = chunk.toolInvocations;
@@ -1603,6 +1613,7 @@ export class StreamWebChatTurnService {
           workingNotes: [],
           respondedAt,
           usageAccounting,
+          textUsageAccounting,
           turnRouting,
           deferredMediaJobs,
           toolInvocations,
@@ -1635,6 +1646,7 @@ export class StreamWebChatTurnService {
           workingNotes: [],
           respondedAt,
           usageAccounting,
+          textUsageAccounting,
           turnRouting,
           deferredMediaJobs,
           toolInvocations,
@@ -1660,6 +1672,7 @@ export class StreamWebChatTurnService {
         workingNotes: [],
         respondedAt,
         usageAccounting,
+        textUsageAccounting,
         turnRouting,
         deferredMediaJobs,
         toolInvocations,
@@ -1683,6 +1696,7 @@ export class StreamWebChatTurnService {
         workingNotes,
         respondedAt,
         usageAccounting,
+        textUsageAccounting,
         turnRouting,
         deferredMediaJobs,
         toolInvocations,
@@ -1703,6 +1717,7 @@ export class StreamWebChatTurnService {
       workingNotes,
       respondedAt,
       usageAccounting,
+      textUsageAccounting,
       turnRouting,
       deferredMediaJobs,
       toolInvocations,
@@ -2007,6 +2022,7 @@ export class StreamWebChatTurnService {
     respondedAt: string;
     traceId: string;
     usageAccounting?: AssistantRuntimeWebChatTurnStreamChunk["usageAccounting"];
+    textUsageAccounting?: AssistantRuntimeWebChatTurnStreamChunk["textUsageAccounting"];
     toolInvocations?: AssistantRuntimeWebChatTurnStreamChunk["toolInvocations"];
   }): Promise<void> {
     try {
@@ -2020,7 +2036,10 @@ export class StreamWebChatTurnService {
         occurredAt: input.respondedAt,
         sourceEventId: input.assistantMessageId,
         requestCorrelationId: input.traceId,
-        ...(input.usageAccounting === undefined ? {} : { usageAccounting: input.usageAccounting })
+        ...(input.usageAccounting === undefined ? {} : { usageAccounting: input.usageAccounting }),
+        ...(input.textUsageAccounting === undefined
+          ? {}
+          : { textUsageAccounting: input.textUsageAccounting })
       });
     } catch (error) {
       this.logger.warn(

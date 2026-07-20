@@ -2,7 +2,7 @@
 
 ## Status
 
-**Open — 2026-07-20; S0-S3 implemented locally, S4-S6 pending.**
+**Open — 2026-07-20; S0-S4 implemented locally, S5-S6 pending.**
 
 This is a new parent-orchestrated program. The opening baseline is
 `d4bd32679929bef89cc13120cf2719ad9a2b0df3`. The documentation opening is
@@ -30,8 +30,18 @@ Implemented local truth through S3:
   retention fallback/carrier.
 
 Focused provider/runtime/accounting tests, typechecks, formatting, and the
-independent S1-S3 audit findings are resolved. S4 canonical receipts, Credits,
-ledger, pricing, and Admin metrics has not begun.
+independent S1-S3 audit findings are resolved.
+
+S4 is implemented locally after `ee375d04`: provider streaming and
+non-streaming paths emit canonical v2 text usage; runtime carries explicit v2
+through web/Telegram/sync results; API receipts, quota, ledger, smoke readers,
+Admin aggregates, generated contracts, and Business/Ops surfaces use
+non-overlapping partitions and actual-vs-no-cache cost. Historical v1 remains
+only in the explicit bounded rollout seam and is excluded from v2 ratios.
+Unknown versions fail closed. Currency aggregates are partitioned, explicit
+zero cache-write pricing is preserved, and non-text accounting remains
+unchanged. The independent S4 audit returned four P1 findings; all were
+corrected. S5 full audits/gates and S6 live acceptance remain pending.
 
 The parent agent orchestrates, audits, reconciles documentation, and commits
 only after an accepted coherent checkpoint. Founder-directed implementation
