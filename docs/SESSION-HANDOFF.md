@@ -4,7 +4,15 @@
 
 Baseline: `5d8f7be0892e84e5c65e3803df7f937298e9a22f`.
 
-Founder-directed repair is implemented locally:
+Post-deploy OpenAI `gpt-5.6-terra` evidence identified one ADR-161 protocol
+regression: assistant pre-tool text in the sealed spine was replayed as
+assistant `input_text`, producing exact HTTP 400 responses on tool-loop
+follow-ups. The local production repair uses the official assistant
+`EasyInputMessage` string shape instead of synthesizing a provider
+`ResponseOutputMessage` without its required provider-owned metadata.
+Function calls/results and developer input/boundary blocks are unchanged.
+
+Founder-directed cache-prefix and Admin repair is deployed from `bfd800c5`:
 
 - `cross_session_carry_over` is atomically snapshotted once per Assistant chat,
   including the empty case, and reused byte-for-byte on every later turn;
@@ -15,12 +23,12 @@ Founder-directed repair is implemented locally:
 - Admin Business cache percentages are cast/normalized to finite JavaScript
   numbers so PostgreSQL `numeric` strings cannot crash `.toFixed()`.
 
-Full local gate passes: recursive lint, repository format, all workspace
-typechecks, complete API/runtime suites, Prisma generate/validate, CI
-affected-rule tests, ADR-152 rollout-order tests, Helm lint/template, and
-`git diff --check`. Commit, push, rollout monitoring, and DeepSeek-only live
-acceptance remain. Do not switch the B2B tariff to OpenAI until the founder
-explicitly requests it.
+Its full local and GitHub gates passed, the migration was approved/applied,
+exact API/Runtime/Sandbox images reached 2/2, and Argo reached
+`Synced / Healthy`. The subsequent OpenAI replay hotfix passes the complete
+provider-gateway suite, typecheck, lint, and repository format check locally.
+Hotfix commit/push, exact-image rollout, and OpenAI tool-loop live acceptance
+remain.
 
 ## 2026-07-20 — ADR-161 founder-directed final canonical cutover
 

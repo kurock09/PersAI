@@ -763,9 +763,7 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
   assert.equal(firstOpenAiItems[openAiResultIndex]?.type, "function_call_output");
   assert.equal(firstOpenAiItems[openAiResultIndex]?.call_id, "call-sealed");
   assert.equal(firstOpenAiItems[openAiAssistantTextIndex]?.role, "assistant");
-  assert.deepEqual(firstOpenAiItems[openAiAssistantTextIndex]?.content, [
-    { type: "input_text", text: "I will inspect the result." }
-  ]);
+  assert.equal(firstOpenAiItems[openAiAssistantTextIndex]?.content, "I will inspect the result.");
   const openAiOverlayIndex = firstOpenAiItems.findIndex((item) =>
     JSON.stringify(item.content ?? "").includes("<persai_recent_tool_observation")
   );
@@ -1089,7 +1087,7 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
   );
   assert.deepEqual(inputWithAssistantText[firstCallIndex - 1], {
     role: "assistant",
-    content: [{ type: "input_text", text: "I will look that up." }]
+    content: "I will look that up."
   });
   assert.equal(
     inputWithAssistantText.filter(

@@ -1586,7 +1586,11 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
     if (assistantText !== null) {
       target.push({
         role: "assistant",
-        content: [{ type: "input_text", text: assistantText }]
+        // Official Responses EasyInputMessage shape. We do not have the
+        // provider-owned id/status/annotations required to synthesize a
+        // ResponseOutputMessage, and assistant content arrays reject
+        // input_text on tool-loop replay.
+        content: assistantText
       });
     }
     target.push({

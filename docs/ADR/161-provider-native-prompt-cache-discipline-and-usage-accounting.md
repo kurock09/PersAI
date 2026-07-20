@@ -2,7 +2,7 @@
 
 ## Status
 
-**Open — canonical v2 cutover deployed; cache-prefix repair implemented locally; repair deployment and S6 live acceptance pending.**
+**Open — canonical v2 and cache-prefix repairs deployed; OpenAI replay hotfix implemented locally; hotfix deployment and S6 live acceptance pending.**
 
 ### 2026-07-21 cache-prefix repair checkpoint
 
@@ -29,13 +29,25 @@ server-side; it never reprojects or mutates `providerRequest.tools`. Catalog
 stubs accept the contract arguments returned by `describe`, while Runtime
 continues to validate and authorize every actual call.
 
+The first OpenAI post-cutover tool-loop smoke also exposed one independent
+sealed-spine protocol regression from `ebf310c4`: assistant pre-tool text was
+replayed as an assistant `input_text` content block. OpenAI accepted the first
+tool call but rejected the follow-up with HTTP 400 because typed assistant
+content accepts `output_text` or `refusal`, not `input_text`. PersAI does not
+retain the provider-owned id/status/annotations needed to synthesize a
+`ResponseOutputMessage`; therefore the canonical replay uses OpenAI's official
+assistant `EasyInputMessage` string content shape. Function calls,
+`function_call_output`, developer inputs, and explicit cache-boundary blocks
+are unchanged.
+
 This is a new parent-orchestrated program. The opening baseline is
 `d4bd32679929bef89cc13120cf2719ad9a2b0df3`. The documentation opening is
 `de265c57`; S0 contracts/catalog migration landed locally in `07bf3843`;
 the managed-secret-only OpenAI prerequisite cleanup landed locally in
 `65c11816`; and S1-S3 provider/runtime cache behavior landed locally in
 `ebf310c4`. The final canonical accounting cutover was later deployed from
-`ce5d7f06`; the 2026-07-21 repair below is not yet deployed.
+`ce5d7f06`, and the 2026-07-21 cache-prefix repair from `bfd800c5`. The
+OpenAI replay hotfix below is not yet deployed.
 The initial opening audit returned CLEAN after repair of all findings. The
 founder then added a mandatory long-tool-loop requirement: prove append-only
 prefix reuse and positive net provider-cost savings over 40–50 exchanges, not

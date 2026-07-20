@@ -5,7 +5,14 @@
 
 ## 2026-07-21
 
-- **ADR-161 cache-prefix repair (local):** Assistant-chat
+- **OpenAI Responses tool-loop protocol repair (local):** assistant pre-tool
+  text in the sealed spine now uses the official assistant
+  `EasyInputMessage` string shape. ADR-161 had incorrectly replayed it as an
+  `input_text` content block, which OpenAI rejects for assistant output
+  content with HTTP 400. Function calls/results, developer input/boundary
+  blocks, and other providers are unchanged.
+
+- **ADR-161 cache-prefix repair (deployed from `bfd800c5`):** Assistant-chat
   `cross_session_carry_over` is now an atomic first-writer-wins durable
   snapshot, including an explicit empty value, and is reused byte-for-byte for
   the thread lifetime. Catalog `{action:"describe"}` returns the full contract
@@ -15,7 +22,7 @@
   catalog-to-full reprojection and cross-session long-idle/cooldown/mark-fired
   active paths are removed.
 
-- **Admin Business cache-metrics crash repair (local):** SQL percentage
+- **Admin Business cache-metrics crash repair (deployed from `bfd800c5`):** SQL percentage
   aggregates are cast to `double precision` and API mapping accepts only finite
   numeric values, preventing PostgreSQL `numeric` strings or malformed values
   from reaching React `.toFixed()`.
