@@ -608,6 +608,9 @@ async function run(): Promise<void> {
           if ("userId" in args.select) {
             return [{ userId: "user-1" }];
           }
+          if ("rawUsage" in args.select) {
+            return [];
+          }
           throw new Error("Unexpected findMany select");
         }
       },
