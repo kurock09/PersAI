@@ -5720,8 +5720,15 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     toolLoopIteration: 1,
     compactionToolCode: null
   });
-  assert.equal(providerGatewayClient.streamCalls.at(-1)?.messages.at(-1)?.role, "assistant");
-  assert.equal(providerGatewayClient.streamCalls.at(-1)?.messages.at(-1)?.content, "reply after");
+  assert.deepEqual(
+    providerGatewayClient.streamCalls.at(-1)?.messages,
+    providerGatewayClient.streamCalls.at(-2)?.messages,
+    "ADR-161: streamed tool-loop follow-up must not insert aggregate assistant text before the sealed spine"
+  );
+  assert.equal(
+    providerGatewayClient.streamCalls.at(-1)?.toolHistory?.[0]?.assistantText,
+    "reply after "
+  );
   assert.equal(
     sessionCompactionService.summarizeCalls.length,
     summarizeCallsBeforeStreamToolLoop + 1
@@ -6189,9 +6196,14 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     assert.equal(hiddenPrefixDeltaEvent.accumulatedText, "reply before tool ");
     assert.equal(hiddenPrefixDeltaEvent.source, "provider_tool_calls_result_text");
   }
+  assert.deepEqual(
+    providerGatewayClient.streamCalls.at(-1)?.messages,
+    providerGatewayClient.streamCalls.at(-2)?.messages,
+    "ADR-161: hidden-prefix follow-up must preserve base messages byte-for-byte"
+  );
   assert.equal(
-    providerGatewayClient.streamCalls.at(-1)?.messages.at(-1)?.content,
-    "reply before tool"
+    providerGatewayClient.streamCalls.at(-1)?.toolHistory?.[0]?.assistantText,
+    "reply before tool "
   );
   assert.equal(
     sessionCompactionService.summarizeCalls.length,
@@ -7982,7 +7994,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       {
         provider: "openai",
         model: "gpt-5.4",
-        text: null,
+        text: "Inspecting observations.",
         respondedAt: "2026-07-11T12:00:40.000Z",
         usage: {
           providerKey: "openai",
@@ -8024,11 +8036,19 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     const observationProjectionCompleted = await service.createTurn(observationProjectionRequest);
     assert.equal(
       observationProjectionCompleted.assistantText,
-      "reply after observation projection"
+      "Inspecting observations.\n\nreply after observation projection"
     );
     assert.equal(providerGatewayClient.calls.length, providerCallsBeforeObservationProjection + 2);
-    const projectedToolHistory =
-      providerGatewayClient.calls[providerCallsBeforeObservationProjection + 1]?.toolHistory ?? [];
+    const observationInitialRequest =
+      providerGatewayClient.calls[providerCallsBeforeObservationProjection];
+    const observationFollowUpRequest =
+      providerGatewayClient.calls[providerCallsBeforeObservationProjection + 1];
+    assert.deepEqual(
+      observationFollowUpRequest?.messages,
+      observationInitialRequest?.messages,
+      "ADR-161: a tool-loop follow-up must preserve base messages byte-for-byte; assistant pre-tool text belongs only to the sealed exchange spine."
+    );
+    const projectedToolHistory = observationFollowUpRequest?.toolHistory ?? [];
     assert.equal(
       projectedToolHistory.length,
       6,
@@ -8045,16 +8065,12 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       ["compact", "compact", "compact", "compact", "compact", "compact"],
       "ADR-161 D1: every sealed protocol entry is compact and never re-aged."
     );
-    const observationOverlays =
-      providerGatewayClient.calls[providerCallsBeforeObservationProjection + 1]
-        ?.toolObservationOverlays ?? [];
+    const observationOverlays = observationFollowUpRequest?.toolObservationOverlays ?? [];
     assert.deepEqual(
       observationOverlays.map((overlay) => overlay.ordinal),
       [4, 5, 6]
     );
-    const sealedBoundary =
-      providerGatewayClient.calls[providerCallsBeforeObservationProjection + 1]
-        ?.sealedToolExchangeBoundary;
+    const sealedBoundary = observationFollowUpRequest?.sealedToolExchangeBoundary;
     assert.equal(sealedBoundary?.exchangeCount, 6);
     assert.equal(sealedBoundary?.boundaryKind, "sealed_tool_exchange_spine");
     assert.match(sealedBoundary?.cacheContentHash ?? "", /^[a-f0-9]{64}$/);
@@ -8068,6 +8084,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     assert.equal(newestProjected._observationTier, "full");
     assert.equal(newestProjected.action, "remembered");
     assert.equal(newestProjected.requestedKind, "preference");
+    assert.equal(projectedToolHistory[0]?.assistantText, "Inspecting observations.");
 
     const storedExchanges = observationProjectionCompleted.toolExchanges ?? [];
     assert.equal(

@@ -92,5 +92,11 @@ export function estimateProviderGatewayContentTokens(
 }
 
 export function estimateProviderGatewayMessageTokens(message: ProviderGatewayTextMessage): number {
-  return MESSAGE_OVERHEAD_TOKENS + estimateProviderGatewayContentTokens(message.content);
+  const replayTokens = (message.priorToolExchanges ?? []).reduce(
+    (total, exchange) => total + estimateTextTokens(JSON.stringify(exchange)),
+    0
+  );
+  return (
+    MESSAGE_OVERHEAD_TOKENS + estimateProviderGatewayContentTokens(message.content) + replayTokens
+  );
 }

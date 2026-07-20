@@ -5,7 +5,17 @@
 
 ## 2026-07-21
 
-- **OpenAI Responses tool-loop protocol repair (local):** assistant pre-tool
+- **ADR-161 shared append-only tool-history repair (local):** controlled
+  DeepSeek A/B reached 99.4% cache read on consecutive warmed no-tool requests
+  but only 32.0% across identical `skill.list` tool-loop turns. Runtime no
+  longer inserts growing aggregate assistant text before the sealed spine; the
+  text remains only with its immutable exchange. Cross-turn replay no longer
+  uses a moving latest-three/2,000-token window: every assistant tool turn
+  retained by canonical history receives one deterministic compact replay.
+  Compact replay tokens now count toward the ordinary canonical hydration
+  budget; canonical stored exchanges remain full.
+
+- **OpenAI Responses tool-loop protocol repair (deployed from `5011e905`):** assistant pre-tool
   text in the sealed spine now uses the official assistant
   `EasyInputMessage` string shape. ADR-161 had incorrectly replayed it as an
   `input_text` content block, which OpenAI rejects for assistant output

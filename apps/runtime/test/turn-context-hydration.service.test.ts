@@ -15,6 +15,7 @@ import {
   TurnContextHydrationService,
   renderChatPlanBlock
 } from "../src/modules/turns/turn-context-hydration.service";
+import { estimateProviderGatewayMessageTokens } from "../src/modules/turns/runtime-context-hydration-policy";
 import type { RuntimeTodoItem } from "@persai/runtime-contract";
 
 const HYDRATED_MEMORY_CONTEXT =
@@ -1983,8 +1984,9 @@ async function runCrossSessionCarryOverSnapshotAcceptance(): Promise<void> {
           message.content.includes(snippet)
       );
 
-    // Test 5: replay attaches only to the last 3 prior assistant turns, never
-    // to the current inbound user message, and is deterministic for identical state.
+    // Test 5: every retained canonical assistant tool turn receives one
+    // deterministic compact projection. Appending a later turn must only grow
+    // the replay map; it must not rewrite or evict earlier protocol pairs.
     {
       const { svc, prisma } = buildMinimalHarness();
       prisma.messages = [
@@ -2040,25 +2042,67 @@ async function runCrossSessionCarryOverSnapshotAcceptance(): Promise<void> {
       assert.ok(assistantThree, "replay test 5: third assistant message must be present");
       assert.ok(assistantFour, "replay test 5: fourth assistant message must be present");
       assert.ok(currentUser, "replay test 5: current inbound user message must be present");
-      assert.equal(
-        assistantOne?.priorToolExchanges,
-        undefined,
-        "replay test 5: only the last 3 prior assistant turns should carry replay"
-      );
+      assert.equal(assistantOne?.priorToolExchanges?.[0]?.toolCall.id, "call-1");
       assert.equal(assistantTwo?.priorToolExchanges?.[0]?.toolCall.id, "call-2");
       assert.equal(assistantThree?.priorToolExchanges?.[0]?.toolCall.id, "call-3");
       assert.equal(assistantFour?.priorToolExchanges?.[0]?.toolCall.id, "call-4");
+      assert.ok(
+        [assistantOne, assistantTwo, assistantThree, assistantFour].every(
+          (message) =>
+            JSON.parse(message?.priorToolExchanges?.[0]?.toolResult.content ?? "{}")
+              ._observationTier === "compact"
+        ),
+        "replay test 5: every retained turn must have its deterministic compact projection"
+      );
       assert.equal(
         "priorToolExchanges" in (currentUser ?? {}),
         false,
         "replay test 5: current inbound user message must never receive replay attachments"
       );
+
+      const earlierReplayByContent = new Map(
+        [assistantOne, assistantTwo, assistantThree, assistantFour].map((message) => [
+          String(message?.content),
+          message?.priorToolExchanges
+        ])
+      );
+      prisma.messages.push(
+        {
+          id: "a-5",
+          author: "assistant",
+          content: "assistant five",
+          attachments: [],
+          toolExchanges: [makeExchange({ id: "call-5", content: "result-5" })]
+        },
+        { id: "u-6", author: "user", content: "continue again", attachments: [] }
+      );
+      const appendedPass = await svc.buildMessages(
+        buildMinimalRequest("u-6"),
+        createRuntimeBundle()
+      );
+      const appendedAssistants = [
+        "assistant one",
+        "assistant two",
+        "assistant three",
+        "assistant four"
+      ].map((content) => findHydratedMessage(appendedPass, "assistant", content));
+      for (const assistant of appendedAssistants) {
+        assert.deepEqual(
+          assistant?.priorToolExchanges,
+          earlierReplayByContent.get(String(assistant?.content)),
+          "replay test 5: later turns must not rewrite an already-emitted replay projection"
+        );
+      }
+      const assistantFive = findHydratedMessage(appendedPass, "assistant", "assistant five");
+      assert.equal(
+        assistantFive?.priorToolExchanges?.[0]?.toolCall.id,
+        "call-5",
+        "replay test 5: appended canonical history must add its replay projection"
+      );
     }
 
-    // Test 6: over-budget replay drops the oldest turn first; model-facing
-    // results use ADR-143 projection (structured compact / tier marker), not
-    // naive char-tail truncate. Argument bounding stays under the same
-    // projection policy.
+    // Test 6: replay uses bounded compact projections per retained turn, never
+    // a moving aggregate budget. Errors remain informative.
     {
       const { svc, prisma } = buildMinimalHarness();
       const oversizedResult = "A".repeat(5_000);
@@ -2136,7 +2180,14 @@ async function runCrossSessionCarryOverSnapshotAcceptance(): Promise<void> {
           author: "assistant",
           content: "assistant binary",
           attachments: [],
-          toolExchanges: [makeExchange({ id: "binary-1", content: `%PDF-${"B".repeat(4_000)}` })]
+          toolExchanges: [
+            makeExchange({ id: "binary-1", content: `%PDF-${"B".repeat(4_000)}` }),
+            makeExchange({
+              id: "error-1",
+              content: JSON.stringify({ reason: "permission denied", detail: "EACCES" }),
+              isError: true
+            })
+          ]
         },
         { id: "u-4", author: "user", content: "continue", attachments: [] }
       ];
@@ -2147,10 +2198,22 @@ async function runCrossSessionCarryOverSnapshotAcceptance(): Promise<void> {
       assert.ok(assistantHeavy, "replay test 6: heavy assistant message must be present");
       assert.ok(assistantBrowser, "replay test 6: browser assistant message must be present");
       assert.ok(assistantBinary, "replay test 6: binary assistant message must be present");
-      assert.equal(
-        assistantHeavy?.priorToolExchanges,
-        undefined,
-        "replay test 6: oldest replay turn must be dropped first when the total budget is exceeded"
+      assert.ok(
+        estimateProviderGatewayMessageTokens(assistantHeavy!) >
+          estimateProviderGatewayMessageTokens({
+            role: assistantHeavy!.role,
+            content: assistantHeavy!.content
+          }),
+        "replay test 6: canonical hydration budget must include compact replay tokens"
+      );
+      assert.equal(assistantHeavy?.priorToolExchanges?.length, 4);
+      assert.ok(
+        (assistantHeavy?.priorToolExchanges ?? []).every(
+          (exchange) =>
+            JSON.parse(exchange.toolResult.content)._observationTier === "compact" &&
+            exchange.toolResult.content.length < oversizedResult.length
+        ),
+        "replay test 6: every oversized retained exchange must use a bounded compact projection"
       );
 
       const browserExchanges = assistantBrowser?.priorToolExchanges ?? [];
@@ -2186,12 +2249,14 @@ async function runCrossSessionCarryOverSnapshotAcceptance(): Promise<void> {
       );
       assert.equal(
         newerBrowser._observationTier,
-        "full",
-        "replay test 6: newest browser exchange in a replayed turn stays full"
+        "compact",
+        "replay test 6: each replayed browser exchange stays compact"
       );
-      const newerPage = newerBrowser.page as Record<string, unknown>;
-      assert.ok(Array.isArray(newerPage.elements), "replay test 6: full browser keeps elements");
-      assert.equal(newerPage.content, browserPageContent);
+      assert.equal(
+        "page" in newerBrowser,
+        false,
+        "replay test 6: compact replay must not retain page content or elements"
+      );
 
       const serializedArguments = JSON.stringify(browserExchanges[0]!.toolCall.arguments);
       assert.ok(
@@ -2207,11 +2272,16 @@ async function runCrossSessionCarryOverSnapshotAcceptance(): Promise<void> {
         assistantBinary?.priorToolExchanges?.[0]?.toolResult.content ?? "{}"
       ) as Record<string, unknown>;
       assert.equal(
-        binaryProjected.content,
-        "[binary content omitted]",
-        "replay test 6: binary tool_result content must be replaced via projection"
+        binaryProjected._observationTier,
+        "compact",
+        "replay test 6: binary tool_result content must use compact projection"
       );
-      assert.equal(binaryProjected._observationTier, "full");
+      const errorProjected = JSON.parse(
+        assistantBinary?.priorToolExchanges?.[1]?.toolResult.content ?? "{}"
+      ) as Record<string, unknown>;
+      assert.equal(errorProjected._observationTier, "compact");
+      assert.equal(errorProjected.isError, true);
+      assert.equal(errorProjected.reason, "permission denied");
     }
   }
 }

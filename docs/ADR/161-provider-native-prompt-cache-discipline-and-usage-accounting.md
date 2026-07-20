@@ -2,7 +2,7 @@
 
 ## Status
 
-**Open — canonical v2 and cache-prefix repairs deployed; OpenAI replay hotfix implemented locally; hotfix deployment and S6 live acceptance pending.**
+**Open — canonical v2, cache-prefix, and OpenAI protocol repairs deployed; shared append-only tool-history repair implemented locally; repair deployment and S6 live acceptance pending.**
 
 ### 2026-07-21 cache-prefix repair checkpoint
 
@@ -40,14 +40,35 @@ assistant `EasyInputMessage` string content shape. Function calls,
 `function_call_output`, developer inputs, and explicit cache-boundary blocks
 are unchanged.
 
+The deployed OpenAI protocol repair is `5011e905`. A subsequent controlled
+DeepSeek A/B isolated the remaining cache defect:
+
+- five no-tool turns reached 17,536 cache-read tokens out of 17,620/17,650
+  input tokens on consecutive warmed requests (99.4%);
+- five turns with the same `skill.list` loop read 61,440 of 192,275 input
+  tokens overall (32.0%), with follow-ups reading 32,512 of 98,339 (33.1%);
+- `stableSystemHash` and `toolProjectionFamilyHash` remained byte-identical
+  throughout both arms.
+
+The shared Runtime history contract, not DeepSeek-specific serialization, was
+the differentiator. Two active mutations violated D1: accumulated assistant
+text was inserted into base `messages` before the sealed spine while the same
+per-exchange text was already present in `toolHistory`; and cross-turn replay
+re-ranked/evicted old protocol pairs through a moving latest-three/2,000-token
+window. The repair keeps base messages byte-identical during a loop and emits
+one deterministic compact replay for every assistant tool turn retained by
+canonical history. Canonical exchanges remain full. The normal canonical
+history/durable-compaction budget, now including compact replay tokens, is the
+only bound.
+
 This is a new parent-orchestrated program. The opening baseline is
 `d4bd32679929bef89cc13120cf2719ad9a2b0df3`. The documentation opening is
 `de265c57`; S0 contracts/catalog migration landed locally in `07bf3843`;
 the managed-secret-only OpenAI prerequisite cleanup landed locally in
 `65c11816`; and S1-S3 provider/runtime cache behavior landed locally in
 `ebf310c4`. The final canonical accounting cutover was later deployed from
-`ce5d7f06`, and the 2026-07-21 cache-prefix repair from `bfd800c5`. The
-OpenAI replay hotfix below is not yet deployed.
+`ce5d7f06`, the 2026-07-21 cache-prefix repair from `bfd800c5`, and the OpenAI
+replay hotfix from `5011e905`.
 The initial opening audit returned CLEAN after repair of all findings. The
 founder then added a mandatory long-tool-loop requirement: prove append-only
 prefix reuse and positive net provider-cost savings over 40–50 exchanges, not
@@ -119,12 +140,13 @@ only after all implementation, audits, and full gates pass. The final state
 contains no legacy path.
 
 ADR-119, ADR-124, ADR-130, ADR-135, ADR-143, and ADR-151 remain closed.
-ADR-156 remains closed except for one explicitly superseded in-turn aging
-detail: every completed exchange gets one immutable compact spine entry at
-first insertion; newest-three full observations are bounded suffix overlays;
-older in-turn spine entries are not remasked. Cross-turn ADR-156 windows remain
-unchanged. This narrow supersession is required to make the long-loop prefix
-append-only and is not a general observation-window redesign.
+ADR-156 remains closed except for two explicitly superseded cache-safety
+details. In-turn, every completed exchange gets one immutable compact spine
+entry at first insertion; newest-three full observations are bounded suffix
+overlays; older spine entries are not remasked. Cross-turn, every assistant
+tool turn retained by canonical history gets one deterministic compact replay;
+future turns do not re-rank, rewrite, or evict that replay independently of
+canonical history compaction. Compact/full definitions remain unchanged.
 
 ## Context
 
@@ -322,14 +344,16 @@ Runtime carries an explicit stable-history boundary in the provider request.
 Adapters must not infer it from `messages.length - 1`: on a tool follow-up the
 last base message may be assistant working text, not the active user question.
 The request also carries an explicit sealed-spine boundary. Each exchange keeps
-its own assistant pre-tool text rather than rebuilding one aggregate assistant
-text block before all tool history. At first insertion, its provider protocol
+its own assistant pre-tool text; request builders must not also insert the
+growing aggregate assistant text into base messages before tool history. At
+first insertion, its provider protocol
 pair uses the existing deterministic compact representation and is never
 rewritten. Newest three full observations are emitted afterward as explicitly
 labelled recent-observation overlays, not duplicate tool protocol pairs; they
 can rotate without changing the spine. Errors retain informative compact
-content and are never bare-masked. Cross-turn projection remains newest one
-full / next four compact / older masked.
+content and are never bare-masked. Cross-turn replay is compact for every
+assistant tool turn still retained by canonical history; compact replay tokens
+participate in the ordinary hydration budget.
 
 For a fixed tool projection family, iteration `n + 1` must preserve the
 complete cache-content prefix through the prior sealed-spine boundary. No
@@ -701,8 +725,9 @@ and net savings by iteration without prompt content.
 - A bounded versioned v1/v2 internal seam is allowed only for the ordered
   Kubernetes rollout. It has an explicit removal slice and is absent at
   closure.
-- No reopening closed prompt/tool-observation programs beyond D1's explicit
-  in-turn-only ADR-156 aging supersession.
+- No reopening closed prompt/tool-observation programs beyond D1's measured
+  append-only in-turn spine and deterministic compact cross-turn replay
+  supersessions.
 - No claim that a particular historical commit caused the regression without
   a byte/hash-correlated request record.
 - No universal “90%” acceptance threshold. First turns and long tool loops
@@ -745,7 +770,8 @@ Likely modules:
   exact OpenAI developer-channel boundary marker;
 - changing plan-selected ADR-135 catalog/full exposure beyond removal of the
   measured post-`describe` wire mutation;
-- changing ADR-143/156 compact/full definitions or cross-turn windows;
+- changing ADR-143/156 compact/full definitions beyond the deterministic
+  compact cross-turn replay required by the measured prefix defect;
 - changing provider/model routing or fallback policy;
 - adding a cache service or PersAI-owned KV cache;
 - cross-provider cache reuse;

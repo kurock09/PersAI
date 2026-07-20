@@ -1,5 +1,31 @@
 # SESSION-HANDOFF
 
+## 2026-07-21 — ADR-161 shared append-only tool-history repair
+
+Baseline: `938a34a4986a1dbb93ebab71e3ca75186370201c`.
+
+Controlled DeepSeek A/B isolated the remaining cache defect. Five no-tool
+turns reached 99.4% cache read on consecutive warmed requests; five turns with
+the same `skill.list` loop read only 32.0% overall and 33.1% on follow-ups.
+Stable system and tool-family hashes remained identical in both arms.
+
+The provider-neutral Runtime repair is implemented locally:
+
+- tool-loop follow-ups preserve base messages byte-for-byte; assistant
+  pre-tool text exists only on its sealed exchange and is not duplicated as a
+  growing aggregate message before the spine;
+- every assistant tool turn retained by canonical history receives one
+  deterministic compact cross-turn replay; the moving latest-three/2,000-token
+  replay window is deleted;
+- compact replay tokens participate in the normal canonical hydration budget;
+  canonical stored exchanges remain full and ordinary durable compaction
+  remains the sole history bound.
+
+Focused hydration and turn-execution regressions, the complete isolated
+Runtime suite, recursive workspace lint, repository formatting, and mandatory
+API/Web typechecks pass. Commit/push, exact-image rollout, and repeated
+DeepSeek A/B acceptance remain.
+
 ## 2026-07-21 — ADR-161 cache-prefix repair + Admin Business repair
 
 Baseline: `5d8f7be0892e84e5c65e3803df7f937298e9a22f`.

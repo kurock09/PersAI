@@ -13,13 +13,20 @@ ADR-072 is closed as the historical native migration ADR. Current continuation w
   `tools` JSON is unchanged after `{action:"describe"}`, the full schema exists
   in the describe result, real calls remain guarded until that result loads the
   contract, and the compact stub accepts returned-contract arguments.
+- Tool-history coverage proves follow-up base messages remain byte-identical,
+  assistant pre-tool text appears only on its sealed exchange, appending a
+  later canonical tool turn does not rewrite or evict any earlier replay, every
+  retained replay is deterministically compact, errors remain informative, and
+  compact replay tokens count toward the ordinary hydration budget.
 - API coverage pins empty/non-empty snapshot resolve semantics, request bounds,
   missing chats, PostgreSQL numeric-string normalization, and malformed
   Business cache percentages.
 - Shipping gate: recursive lint/tests, repository format check, API/Web
   typechecks, Prisma generation/validation and migration checks, Helm
-  lint/template, then exact-image DeepSeek-only live turns and cache-log
-  inspection. Do not switch to OpenAI without founder direction.
+  lint/template, then exact-image live turns and cache-log inspection. Repeat
+  the same five-turn no-tool versus five-turn `skill.list` DeepSeek A/B and
+  require tool-loop cache reads to grow past the stable system/tool prefix
+  without protocol or answer regressions.
 
 ## 2026-07-19 ADR-159 Session Work Queue (Slices 1–3 CLEAN/GO local; S5 shipping pending)
 

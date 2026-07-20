@@ -1299,7 +1299,6 @@ export class TurnExecutionService {
             );
           delete turnState.pendingFilePreviewBlocks;
           let providerRequest = this.buildToolLoopProviderRequest(execution.providerRequest, {
-            assistantText: iterationBaseText,
             baseDeveloperInstructionSections: execution.developerInstructionSections,
             toolHistory,
             sealedToolExchangeSpine,
@@ -3202,7 +3201,6 @@ export class TurnExecutionService {
         );
         delete turnState.pendingFilePreviewBlocks;
         const request = this.buildToolLoopProviderRequest(execution.providerRequest, {
-          assistantText: accumulatedText,
           baseDeveloperInstructionSections: execution.developerInstructionSections,
           toolHistory,
           sealedToolExchangeSpine,
@@ -4735,7 +4733,6 @@ export class TurnExecutionService {
   private buildToolLoopProviderRequest(
     baseRequest: ProviderGatewayTextGenerateRequest,
     input: {
-      assistantText: string;
       baseDeveloperInstructionSections: DeveloperInstructionSection[];
       toolHistory: ProviderGatewayToolExchange[];
       sealedToolExchangeSpine: SealedToolExchangeSpine;
@@ -4754,7 +4751,6 @@ export class TurnExecutionService {
       };
     }
   ): ProviderGatewayTextGenerateRequest {
-    const assistantText = this.normalizeOptionalText(input.assistantText);
     const developerInstructions = this.buildToolLoopDeveloperInstructions(
       input.baseDeveloperInstructionSections,
       input.availableWorkingFileHandles,
@@ -4775,16 +4771,7 @@ export class TurnExecutionService {
     return {
       ...baseRequest,
       ...(developerInstructions === null ? {} : { developerInstructions }),
-      messages:
-        assistantText === null
-          ? baseRequest.messages
-          : [
-              ...baseRequest.messages,
-              {
-                role: "assistant",
-                content: assistantText
-              }
-            ],
+      messages: baseRequest.messages,
       ...(inTurnProjection.spine.length === 0 ? {} : { toolHistory: [...inTurnProjection.spine] }),
       ...(inTurnProjection.overlays.length === 0
         ? {}
@@ -6365,7 +6352,6 @@ export class TurnExecutionService {
       }
 
       const finalRequest = this.buildToolLoopProviderRequest(selfCheckBaseRequest, {
-        assistantText: "",
         baseDeveloperInstructionSections: input.execution.developerInstructionSections,
         toolHistory,
         sealedToolExchangeSpine,
