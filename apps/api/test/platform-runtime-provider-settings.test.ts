@@ -1207,6 +1207,7 @@ async function run(): Promise<void> {
   // ADR-122 D1 — maxOutputTokens / contextWindow normalization
   runAdr122NormalizationTests();
   runAdr122SeedingTests();
+  runAdr161CacheWriteWeightTests();
 }
 
 function minimalCatalogInput(modelOverrides: Record<string, unknown> = {}) {
@@ -1232,6 +1233,87 @@ function minimalCatalogInput(modelOverrides: Record<string, unknown> = {}) {
       }
     }
   };
+}
+
+function runAdr161CacheWriteWeightTests() {
+  const pricing = {
+    currency: "USD",
+    tokenPricing: {
+      inputPer1M: 10,
+      cacheCreationInputPer1M: 12.5,
+      cachedInputPer1M: 1,
+      outputPer1M: 20
+    }
+  };
+  const positivePrice = parseUpdatePlatformRuntimeProviderSettingsInput(
+    minimalCatalogInput({
+      inputTokenWeight: 4,
+      providerPriceMetadata: pricing
+    })
+  ).availableModelCatalogByProvider.openai.models[0];
+  assert.equal(
+    positivePrice?.cacheWriteInputTokenWeight,
+    5,
+    "ADR-161 derives cache-write quota weight from normalized positive prices"
+  );
+
+  const zeroPrice = parseUpdatePlatformRuntimeProviderSettingsInput(
+    minimalCatalogInput({
+      inputTokenWeight: 4,
+      providerPriceMetadata: {
+        ...pricing,
+        tokenPricing: {
+          ...pricing.tokenPricing,
+          cacheCreationInputPer1M: 0
+        }
+      }
+    })
+  ).availableModelCatalogByProvider.openai.models[0];
+  assert.equal(
+    zeroPrice?.cacheWriteInputTokenWeight,
+    4,
+    "ADR-161 uses input weight when cache-write pricing is zero"
+  );
+
+  const supplied = parseUpdatePlatformRuntimeProviderSettingsInput(
+    minimalCatalogInput({
+      inputTokenWeight: 4,
+      cacheWriteInputTokenWeight: 7,
+      providerPriceMetadata: pricing
+    })
+  ).availableModelCatalogByProvider.openai.models[0];
+  assert.equal(
+    supplied?.cacheWriteInputTokenWeight,
+    7,
+    "ADR-161 preserves explicit cache-write quota weights"
+  );
+
+  const legacyRead = buildPlatformRuntimeProviderSettingsState({
+    settings: {
+      primaryProvider: "openai",
+      primaryModel: "gpt-5.4",
+      fallbackProvider: null,
+      fallbackModel: null,
+      routingFastModelKey: null,
+      routerPolicy: {},
+      availableModelsByProvider: { openai: ["gpt-5.4"], anthropic: [], deepseek: [] },
+      availableModelCatalogByProvider: minimalCatalogInput({
+        inputTokenWeight: 4,
+        providerPriceMetadata: pricing
+      }).availableModelCatalogByProvider,
+      vcoinExchangeRate: null,
+      heygenPersonaWorkspaceLimit: null,
+      heygenPersonaCreationVcoin: null,
+      heygenVoiceCloneWorkspaceLimit: null,
+      heygenVoiceCloneCreationVcoin: null
+    },
+    providerKeys: createEmptyPlatformRuntimeProviderKeyMetadata()
+  }).availableModelCatalogByProvider.openai.models[0];
+  assert.equal(
+    legacyRead?.cacheWriteInputTokenWeight,
+    4,
+    "ADR-161 read path never rederives an absent persisted cache-write weight from mutable prices"
+  );
 }
 
 function runAdr122NormalizationTests() {

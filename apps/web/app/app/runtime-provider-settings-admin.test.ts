@@ -99,6 +99,7 @@ describe("runtime-provider-settings-admin", () => {
               capabilities: ["chat"],
               ...tokenMeteredDefaults(),
               inputTokenWeight: 1,
+              cacheWriteInputTokenWeight: 1,
               cachedInputTokenWeight: 0.25,
               outputTokenWeight: 4,
               displayLabel: "GPT 5.4",
@@ -109,6 +110,7 @@ describe("runtime-provider-settings-admin", () => {
               capabilities: ["chat"],
               ...tokenMeteredDefaults(),
               inputTokenWeight: 0.5,
+              cacheWriteInputTokenWeight: 0.5,
               cachedInputTokenWeight: 0.1,
               outputTokenWeight: 2,
               displayLabel: null,
@@ -143,6 +145,7 @@ describe("runtime-provider-settings-admin", () => {
               capabilities: ["chat"],
               ...tokenMeteredDefaults(),
               inputTokenWeight: 1,
+              cacheWriteInputTokenWeight: 1,
               cachedInputTokenWeight: 1,
               outputTokenWeight: 1,
               displayLabel: null,
@@ -157,6 +160,7 @@ describe("runtime-provider-settings-admin", () => {
               capabilities: ["chat"],
               ...tokenMeteredDefaults(),
               inputTokenWeight: 0.112,
+              cacheWriteInputTokenWeight: 0.112,
               cachedInputTokenWeight: 0.00224,
               outputTokenWeight: 0.224,
               displayLabel: "DeepSeek V4 Flash",
@@ -223,16 +227,16 @@ describe("runtime-provider-settings-admin", () => {
     });
     expect(state.draft.fallbackEnabled).toBe(true);
     expect(state.draft.modelProfilesTextByProvider.openai).toContain(
-      "gpt-5.4 | chat | 1 | 0.25 | 4 | GPT 5.4"
+      "gpt-5.4 | chat | 1 | 0.25 | 4 | 1 | GPT 5.4"
     );
     expect(state.draft.modelProfilesTextByProvider.openai).toContain(
-      "gpt-image-1.5 | image | 1 | 1 | 1 |"
+      "gpt-image-1.5 | image | 1 | 1 | 1 |  |"
     );
     expect(state.draft.modelProfilesTextByProvider.runway).toContain(
-      "runway-gen-4 | video | 1 | 1 | 1 | Runway Gen 4"
+      "runway-gen-4 | video | 1 | 1 | 1 |  | Runway Gen 4"
     );
     expect(state.draft.modelProfilesTextByProvider.kling).toContain(
-      "kling-v2 | video | 1 | 1 | 1 | Kling V2"
+      "kling-v2 | video | 1 | 1 | 1 |  | Kling V2"
     );
     expect(state.providerKeyState.openai.lastFour).toBe("1234");
     expect(state.draft.providerKeys.openai).toBe("");

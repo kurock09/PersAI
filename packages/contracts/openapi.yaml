@@ -18092,6 +18092,49 @@ components:
             - 24h
           nullable: true
           description: "ADR-124 Slice 1 — admin-set OpenAI prompt-cache retention; null means runtime fallback applies."
+        promptCachePolicy:
+          nullable: true
+          description: "ADR-161 S0 — model-declared cache wire policy. Null is undeclared and must not activate a runtime fallback."
+          oneOf:
+            - type: object
+              required:
+                - mode
+                - retention
+              properties:
+                mode:
+                  type: string
+                  enum:
+                    - automatic
+                retention:
+                  type: string
+                  enum:
+                    - in_memory
+                    - 24h
+              additionalProperties: false
+            - type: object
+              required:
+                - mode
+                - ttl
+                - stableAnchor
+                - sealedSpineBreakpoint
+              properties:
+                mode:
+                  type: string
+                  enum:
+                    - explicit
+                ttl:
+                  type: string
+                  enum:
+                    - 30m
+                stableAnchor:
+                  type: string
+                  enum:
+                    - explicit
+                sealedSpineBreakpoint:
+                  type: string
+                  enum:
+                    - explicit
+              additionalProperties: false
         displayLabel:
           type: string
           nullable: true
@@ -18110,12 +18153,16 @@ components:
             - billingMode
             - effectiveFrom
             - effectiveTo
+            - cacheWriteInputTokenWeight
             - providerPriceMetadata
           properties:
             billingMode:
               type: string
               enum:
                 - token_metered
+            cacheWriteInputTokenWeight:
+              type: number
+              minimum: 0
             providerPriceMetadata:
               $ref: "#/components/schemas/RuntimeProviderTokenMeteredPriceMetadataState"
     RuntimeProviderTimeMeteredModelProfileState:

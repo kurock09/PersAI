@@ -48,10 +48,12 @@ alwaysApply: true
   ADR-156 in-turn aging: compact spine at insertion + newest-three full overlays
   and no later in-turn masking; cross-turn windows and compact/full definitions
   stay unchanged.
-  Parent audits/commits only; implementation subagents may use only
-  `gpt-5.6-terra-medium` or `claude-sonnet-5-thinking-high`. Usage v2 uses a
-  bounded consumer-first versioned rollout and removes v1 after old producers
-  drain; closure requires final audits/full gates/provider-matrix acceptance.
+  Parent orchestrates/audits/commits; complex implementation uses
+  `gpt-5.6-terra-medium`, simple implementation uses `gpt-5.4-medium`; Sol and
+  Opus subagents are forbidden. Do not proliferate artificial slices. Usage v2
+  uses a bounded consumer-first versioned rollout and removes v1 after old
+  producers drain; push exactly once after final audits/full gates, then complete
+  provider-matrix production acceptance.
 - Treat `docs/SESSION-HANDOFF.md` as the source of truth for the latest completed checkpoint and the user's next stated priority.
 - Treat `docs/CHANGELOG.md` as the source of truth for what has actually landed.
 - If ADR, handoff, changelog, and code disagree, stop and reconcile docs before code changes.

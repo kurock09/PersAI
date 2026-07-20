@@ -18,6 +18,7 @@ import {
   type RuntimeProviderModelProfile,
   RUNTIME_PROVIDER_PROMPT_CACHE_RETENTIONS,
   type RuntimeProviderPriceMetadata,
+  type RuntimeProviderPromptCachePolicy,
   type RuntimeProviderPromptCacheRetention,
   type RuntimeProviderTextCharsMeteredPriceConfig,
   type RuntimeProviderTokenMeteredPriceConfig,
@@ -761,7 +762,8 @@ export function normalizeAvailableModelsByProvider(
 export function normalizeAvailableModelCatalogByProvider(
   value: unknown,
   chatFallback: RuntimeProviderAvailableModelsByProvider,
-  path = "availableModelCatalogByProvider"
+  path = "availableModelCatalogByProvider",
+  mode: "write" | "read" = "write"
 ): RuntimeProviderModelCatalogByProvider {
   const row = asObject(value);
   if (row === null) {
@@ -789,7 +791,8 @@ export function normalizeAvailableModelCatalogByProvider(
       const profiles = normalizeModelProfiles(
         provider,
         providerRow.models,
-        `${path}.${provider}.models`
+        `${path}.${provider}.models`,
+        mode
       );
       if (
         isChatRoutingProvider(provider) &&
@@ -912,6 +915,44 @@ function normalizeOptionalPromptCacheRetention(
   throw new Error(
     `${path} must be one of: ${RUNTIME_PROVIDER_PROMPT_CACHE_RETENTIONS.join(", ")}.`
   );
+}
+
+function normalizeOptionalPromptCachePolicy(
+  value: unknown,
+  path: string
+): RuntimeProviderPromptCachePolicy | null {
+  if (value === undefined || value === null) {
+    return null;
+  }
+  const row = asObject(value);
+  if (row === null) {
+    throw new Error(`${path} must be an object when provided.`);
+  }
+  if (row.mode === "automatic") {
+    const retention = normalizeOptionalPromptCacheRetention(row.retention, `${path}.retention`);
+    if (retention === null) {
+      throw new Error(`${path}.retention is required for automatic mode.`);
+    }
+    return { mode: "automatic", retention };
+  }
+  if (row.mode === "explicit") {
+    if (
+      row.ttl !== "30m" ||
+      row.stableAnchor !== "explicit" ||
+      row.sealedSpineBreakpoint !== "explicit"
+    ) {
+      throw new Error(
+        `${path} explicit mode requires ttl=30m and explicit stable/spine boundaries.`
+      );
+    }
+    return {
+      mode: "explicit",
+      ttl: "30m",
+      stableAnchor: "explicit",
+      sealedSpineBreakpoint: "explicit"
+    };
+  }
+  throw new Error(`${path}.mode must be "automatic" or "explicit".`);
 }
 
 function normalizeOptionalBoundedString(
@@ -1210,10 +1251,36 @@ function normalizeProviderPriceMetadata(
   }
 }
 
+function resolveCacheWriteInputTokenWeight(params: {
+  supplied: unknown;
+  inputTokenWeight: number;
+  providerPriceMetadata: RuntimeProviderTokenMeteredPriceConfig;
+  path: string;
+}): number {
+  if (params.supplied !== undefined && params.supplied !== null) {
+    return normalizeTokenWeight(params.supplied, params.path);
+  }
+  const pricing = params.providerPriceMetadata.tokenPricing;
+  return pricing.inputPer1M > 0 && pricing.cacheCreationInputPer1M > 0
+    ? params.inputTokenWeight * (pricing.cacheCreationInputPer1M / pricing.inputPer1M)
+    : params.inputTokenWeight;
+}
+
+function readPersistedCacheWriteInputTokenWeight(
+  value: unknown,
+  inputTokenWeight: number,
+  path: string
+): number {
+  return value === undefined || value === null
+    ? inputTokenWeight
+    : normalizeTokenWeight(value, path);
+}
+
 function normalizeModelProfiles(
   provider: ManagedRuntimeCatalogProvider,
   value: unknown[],
-  path: string
+  path: string,
+  mode: "write" | "read"
 ): RuntimeProviderModelProfile[] {
   const result: RuntimeProviderModelProfile[] = [];
   const activeModels = new Set<string>();
@@ -1297,6 +1364,10 @@ function normalizeModelProfiles(
         ) ??
         MODEL_CAPABILITY_DEFAULTS[model]?.promptCacheRetention ??
         null,
+      promptCachePolicy: normalizeOptionalPromptCachePolicy(
+        row.promptCachePolicy,
+        `${entryPath}.promptCachePolicy`
+      ),
       displayLabel: normalizeOptionalBoundedString(
         row.displayLabel,
         `${entryPath}.displayLabel`,
@@ -1316,15 +1387,31 @@ function normalizeModelProfiles(
     };
     switch (billingMode) {
       case "token_metered":
-        result.push({
-          ...base,
-          billingMode,
-          providerPriceMetadata: normalizeProviderPriceMetadata(
+        {
+          const providerPriceMetadata = normalizeProviderPriceMetadata(
             row.providerPriceMetadata,
             `${entryPath}.providerPriceMetadata`,
             "token_metered"
-          )
-        });
+          );
+          result.push({
+            ...base,
+            billingMode,
+            cacheWriteInputTokenWeight:
+              mode === "write"
+                ? resolveCacheWriteInputTokenWeight({
+                    supplied: row.cacheWriteInputTokenWeight,
+                    inputTokenWeight: base.inputTokenWeight,
+                    providerPriceMetadata,
+                    path: `${entryPath}.cacheWriteInputTokenWeight`
+                  })
+                : readPersistedCacheWriteInputTokenWeight(
+                    row.cacheWriteInputTokenWeight,
+                    base.inputTokenWeight,
+                    `${entryPath}.cacheWriteInputTokenWeight`
+                  ),
+            providerPriceMetadata
+          });
+        }
         break;
       case "time_metered":
         result.push({
@@ -1443,6 +1530,7 @@ function createDefaultModelProfiles(
       maxOutputTokens: capabilityDefaults?.maxOutputTokens ?? null,
       contextWindow: capabilityDefaults?.contextWindow ?? null,
       promptCacheRetention: capabilityDefaults?.promptCacheRetention ?? null,
+      promptCachePolicy: null,
       displayLabel: null,
       notes: null
     };
@@ -1450,6 +1538,7 @@ function createDefaultModelProfiles(
       return {
         ...base,
         billingMode,
+        cacheWriteInputTokenWeight: DEFAULT_RUNTIME_PROVIDER_MODEL_TOKEN_WEIGHT,
         providerPriceMetadata: createDefaultRuntimeProviderPriceMetadata("token_metered")
       };
     }
@@ -1516,6 +1605,7 @@ function normalizeLegacyCapabilityCatalog(
       maxOutputTokens: capabilityDefaults?.maxOutputTokens ?? null,
       contextWindow: capabilityDefaults?.contextWindow ?? null,
       promptCacheRetention: capabilityDefaults?.promptCacheRetention ?? null,
+      promptCachePolicy: null,
       displayLabel: null,
       notes: null
     };
@@ -1523,6 +1613,7 @@ function normalizeLegacyCapabilityCatalog(
       return {
         ...base,
         billingMode,
+        cacheWriteInputTokenWeight: DEFAULT_RUNTIME_PROVIDER_MODEL_TOKEN_WEIGHT,
         providerPriceMetadata: createDefaultRuntimeProviderPriceMetadata("token_metered")
       };
     }
@@ -2048,7 +2139,9 @@ export function buildPlatformRuntimeProviderSettingsState(params: {
   );
   const availableModelCatalogByProvider = normalizeAvailableModelCatalogByProvider(
     params.settings.availableModelCatalogByProvider,
-    availableModelsFallback
+    availableModelsFallback,
+    "availableModelCatalogByProvider",
+    "read"
   );
   assertNoDuplicateActiveVideoModelsAcrossProviders(
     availableModelCatalogByProvider,

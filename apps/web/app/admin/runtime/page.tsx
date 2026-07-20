@@ -765,6 +765,7 @@ function createModelProfile(
         {
           ...base,
           billingMode,
+          cacheWriteInputTokenWeight: 1,
           providerPriceMetadata: createDefaultProviderPriceMetadata("token_metered")
         },
         provider
@@ -834,6 +835,8 @@ function rebuildProfileForBillingMode(
       return {
         ...base,
         billingMode,
+        cacheWriteInputTokenWeight:
+          profile.billingMode === "token_metered" ? profile.cacheWriteInputTokenWeight : 1,
         providerPriceMetadata: {
           ...createDefaultProviderPriceMetadata("token_metered"),
           currency: profile.providerPriceMetadata.currency
@@ -993,7 +996,9 @@ function modelProfileCostLabel(profile: RuntimeProviderModelProfileState | null)
   if (profile === null) {
     return "No active model profile selected.";
   }
-  return `${profile.billingMode} • input ${profile.inputTokenWeight} / cached ${profile.cachedInputTokenWeight} / output ${profile.outputTokenWeight}`;
+  return profile.billingMode === "token_metered"
+    ? `${profile.billingMode} • input ${profile.inputTokenWeight} / cache write ${profile.cacheWriteInputTokenWeight} / cached ${profile.cachedInputTokenWeight} / output ${profile.outputTokenWeight}`
+    : `${profile.billingMode} • input ${profile.inputTokenWeight} / cached ${profile.cachedInputTokenWeight} / output ${profile.outputTokenWeight}`;
 }
 
 function formatIsoDateForInput(value: string | null): string {
@@ -2141,16 +2146,20 @@ function ModelProfileEditor({
         />
       </div>
 
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-4">
         {profile.billingMode === "token_metered" ? (
           <>
             <DerivedWeightField label="Input weight" value={profile.inputTokenWeight} />
+            <DerivedWeightField
+              label="Cache-write input weight"
+              value={profile.cacheWriteInputTokenWeight}
+            />
             <DerivedWeightField
               label="Cached input weight"
               value={profile.cachedInputTokenWeight}
             />
             <DerivedWeightField label="Output weight" value={profile.outputTokenWeight} />
-            <p className="text-[10px] text-text-subtle sm:col-span-3">
+            <p className="text-[10px] text-text-subtle sm:col-span-4">
               Quota weights are derived from token prices below. Input is always 1; cached and
               output update automatically when prices change.
             </p>

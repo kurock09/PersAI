@@ -215,6 +215,7 @@ export function formatRuntimeProviderModelProfilesText(
         String(profile.inputTokenWeight),
         String(profile.cachedInputTokenWeight),
         String(profile.outputTokenWeight),
+        profile.billingMode === "token_metered" ? String(profile.cacheWriteInputTokenWeight) : "",
         profile.displayLabel ?? ""
       ].join(" | ")
     )
@@ -231,9 +232,11 @@ export function parseRuntimeProviderModelProfilesText(
     if (trimmed.length === 0) {
       continue;
     }
-    const [modelRaw, capabilitiesRaw, inputRaw, cachedRaw, outputRaw, labelRaw = ""] = trimmed
-      .split("|")
-      .map((entry) => entry.trim());
+    const columns = trimmed.split("|").map((entry) => entry.trim());
+    const [modelRaw, capabilitiesRaw, inputRaw, cachedRaw, outputRaw] = columns;
+    const hasCacheWriteColumn = columns.length >= 7;
+    const cacheWriteRaw = hasCacheWriteColumn ? (columns[5] ?? "") : (inputRaw ?? "");
+    const labelRaw = hasCacheWriteColumn ? (columns[6] ?? "") : (columns[5] ?? "");
     if (!modelRaw) {
       throw new Error(`Model profile line ${String(index + 1)} is missing a model id.`);
     }
@@ -276,11 +279,20 @@ export function parseRuntimeProviderModelProfilesText(
     };
     switch (billingMode) {
       case "token_metered":
-        profiles.push({
-          ...base,
-          billingMode,
-          providerPriceMetadata: createDefaultProviderPriceMetadata("token_metered")
-        });
+        {
+          const cacheWriteInputTokenWeight = Number(cacheWriteRaw);
+          if (!Number.isFinite(cacheWriteInputTokenWeight) || cacheWriteInputTokenWeight < 0) {
+            throw new Error(
+              `Model profile line ${String(index + 1)} must include a non-negative cache-write weight for token-metered models.`
+            );
+          }
+          profiles.push({
+            ...base,
+            billingMode,
+            cacheWriteInputTokenWeight,
+            providerPriceMetadata: createDefaultProviderPriceMetadata("token_metered")
+          });
+        }
         break;
       case "time_metered":
         profiles.push({

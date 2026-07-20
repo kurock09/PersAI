@@ -9,5 +9,7 @@ import type { RuntimeProviderTokenMeteredPriceMetadataState } from "./runtimePro
 
 export type RuntimeProviderTokenMeteredModelProfileStateAllOf = {
   billingMode: RuntimeProviderTokenMeteredModelProfileStateAllOfBillingMode;
+  /** @minimum 0 */
+  cacheWriteInputTokenWeight: number;
   providerPriceMetadata: RuntimeProviderTokenMeteredPriceMetadataState;
 };

@@ -158,6 +158,17 @@ export type VideoGenerateRuntimeProvider = (typeof VIDEO_GENERATE_PROVIDERS)[num
 export type ManagedRuntimeProvider = ChatRoutingRuntimeProvider;
 export type RuntimeProviderPromptCacheRetention =
   (typeof RUNTIME_PROVIDER_PROMPT_CACHE_RETENTIONS)[number];
+export type RuntimeProviderPromptCachePolicy =
+  | {
+      mode: "automatic";
+      retention: RuntimeProviderPromptCacheRetention;
+    }
+  | {
+      mode: "explicit";
+      ttl: "30m";
+      stableAnchor: "explicit";
+      sealedSpineBreakpoint: "explicit";
+    };
 export type RuntimeCredentialSecretRefSource = "env" | "file" | "exec" | "persai";
 
 export type RuntimeCredentialSecretRef = {
@@ -289,12 +300,16 @@ type RuntimeProviderModelProfileBase = {
   contextWindow: number | null;
   /** ADR-124 — admin-set OpenAI prompt-cache retention; null ⇒ runtime fallback applies. */
   promptCacheRetention: RuntimeProviderPromptCacheRetention | null;
+  /** ADR-161 S0 — model-declared cache wire policy; null is undeclared, never a runtime fallback. */
+  promptCachePolicy: RuntimeProviderPromptCachePolicy | null;
   displayLabel: string | null;
   notes: string | null;
   videoModelParameters?: RuntimeVideoModelParameters | null;
 };
 export type RuntimeProviderTokenMeteredModelProfile = RuntimeProviderModelProfileBase & {
   billingMode: "token_metered";
+  /** ADR-161 S0 — explicit quota weight for provider cache writes. */
+  cacheWriteInputTokenWeight: number;
   providerPriceMetadata: RuntimeProviderTokenMeteredPriceConfig;
 };
 export type RuntimeProviderTimeMeteredModelProfile = RuntimeProviderModelProfileBase & {
@@ -579,6 +594,33 @@ function parseOptionalPromptCacheRetentionFromStorage(
     return null;
   }
   return normalizePromptCacheRetention(value);
+}
+
+function parsePromptCachePolicyFromStorage(
+  value: unknown
+): RuntimeProviderPromptCachePolicy | null {
+  const row = asObject(value);
+  if (row === null) {
+    return null;
+  }
+  if (row.mode === "automatic") {
+    const retention = normalizePromptCacheRetention(row.retention);
+    return retention === null ? null : { mode: "automatic", retention };
+  }
+  if (
+    row.mode === "explicit" &&
+    row.ttl === "30m" &&
+    row.stableAnchor === "explicit" &&
+    row.sealedSpineBreakpoint === "explicit"
+  ) {
+    return {
+      mode: "explicit",
+      ttl: "30m",
+      stableAnchor: "explicit",
+      sealedSpineBreakpoint: "explicit"
+    };
+  }
+  return null;
 }
 
 function nullableTrimmedString(value: unknown): string | null {
@@ -1114,6 +1156,7 @@ function createDefaultModelProfiles(
       maxOutputTokens: capabilityDefaults?.maxOutputTokens ?? null,
       contextWindow: capabilityDefaults?.contextWindow ?? null,
       promptCacheRetention: capabilityDefaults?.promptCacheRetention ?? null,
+      promptCachePolicy: null,
       displayLabel: null,
       notes: null
     };
@@ -1121,6 +1164,7 @@ function createDefaultModelProfiles(
       return {
         ...base,
         billingMode,
+        cacheWriteInputTokenWeight: DEFAULT_RUNTIME_PROVIDER_MODEL_TOKEN_WEIGHT,
         providerPriceMetadata: createDefaultRuntimeProviderPriceMetadata("token_metered")
       };
     }
@@ -1222,6 +1266,7 @@ function parseRuntimeProviderModelProfiles(
         parseOptionalPromptCacheRetentionFromStorage(row.promptCacheRetention) ??
         MODEL_CAPABILITY_DEFAULTS[model]?.promptCacheRetention ??
         null,
+      promptCachePolicy: parsePromptCachePolicyFromStorage(row.promptCachePolicy),
       displayLabel: nullableTrimmedString(row.displayLabel),
       notes: nullableTrimmedString(row.notes),
       videoModelParameters: capabilities.includes("video")
@@ -1235,14 +1280,18 @@ function parseRuntimeProviderModelProfiles(
     }
     switch (billingMode) {
       case "token_metered":
-        result.push({
-          ...base,
-          billingMode,
-          providerPriceMetadata: normalizeProviderPriceMetadata(
+        {
+          const providerPriceMetadata = normalizeProviderPriceMetadata(
             row.providerPriceMetadata,
             "token_metered"
-          )
-        });
+          );
+          result.push({
+            ...base,
+            billingMode,
+            cacheWriteInputTokenWeight: normalizeTokenWeight(row.cacheWriteInputTokenWeight),
+            providerPriceMetadata
+          });
+        }
         break;
       case "time_metered":
         result.push({
@@ -1331,6 +1380,7 @@ function parseLegacyCapabilityCatalog(
       maxOutputTokens: capabilityDefaults?.maxOutputTokens ?? null,
       contextWindow: capabilityDefaults?.contextWindow ?? null,
       promptCacheRetention: capabilityDefaults?.promptCacheRetention ?? null,
+      promptCachePolicy: null,
       displayLabel: null,
       notes: null
     };
@@ -1338,6 +1388,7 @@ function parseLegacyCapabilityCatalog(
       return {
         ...base,
         billingMode,
+        cacheWriteInputTokenWeight: DEFAULT_RUNTIME_PROVIDER_MODEL_TOKEN_WEIGHT,
         providerPriceMetadata: createDefaultRuntimeProviderPriceMetadata("token_metered")
       };
     }

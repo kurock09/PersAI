@@ -7,6 +7,7 @@
 import type { RuntimeVideoModelKind } from "./runtimeVideoModelKind";
 import type { RuntimeProviderModelCapability } from "./runtimeProviderModelCapability";
 import type { RuntimeProviderModelProfileCommonStatePromptCacheRetention } from "./runtimeProviderModelProfileCommonStatePromptCacheRetention";
+import type { RuntimeProviderModelProfileCommonStatePromptCachePolicy } from "./runtimeProviderModelProfileCommonStatePromptCachePolicy";
 import type { RuntimeProviderModelProfileCommonStateVideoModelParameters } from "./runtimeProviderModelProfileCommonStateVideoModelParameters";
 
 export interface RuntimeProviderModelProfileCommonState {
@@ -42,6 +43,11 @@ export interface RuntimeProviderModelProfileCommonState {
    * @nullable
    */
   promptCacheRetention?: RuntimeProviderModelProfileCommonStatePromptCacheRetention;
+  /**
+   * ADR-161 S0 — model-declared cache wire policy. Null is undeclared and must not activate a runtime fallback.
+   * @nullable
+   */
+  promptCachePolicy?: RuntimeProviderModelProfileCommonStatePromptCachePolicy;
   /** @nullable */
   displayLabel: string | null;
   /** @nullable */

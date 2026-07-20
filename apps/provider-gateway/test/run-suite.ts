@@ -26,8 +26,10 @@ import { runRunwayProviderClientTest } from "./runway-provider.client.test";
 import { runYandexProviderClientTest } from "./yandex-provider.client.test";
 import { runElevenLabsProviderClientTest } from "./elevenlabs-provider.client.test";
 import { runElevenLabsV3TagCompilerTest } from "./elevenlabs-v3-tag-compiler.test";
+import { runAdr161ContractsTest } from "./adr161-contracts.test";
 
 async function run(): Promise<void> {
+  await runAdr161ContractsTest();
   await runProviderGatewayConfigTest();
   await runProviderDebugPayloadLoggerTest();
   await runElevenLabsV3TagCompilerTest();

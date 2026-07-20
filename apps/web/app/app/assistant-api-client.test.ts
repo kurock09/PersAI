@@ -718,6 +718,7 @@ describe("admin rollout client", () => {
                 effectiveFrom: null,
                 effectiveTo: null,
                 inputTokenWeight: 1,
+                cacheWriteInputTokenWeight: 1,
                 cachedInputTokenWeight: 1,
                 outputTokenWeight: 1,
                 displayLabel: null,

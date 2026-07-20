@@ -692,6 +692,412 @@ export interface RuntimeUsageAccounting {
   entries: RuntimeUsageAccountingEntry[];
 }
 
+/**
+ * ADR-161 canonical text-only accounting. It intentionally does not replace
+ * RuntimeUsageSnapshot, which is also used by non-text provider capabilities.
+ */
+export interface TextGenerationUsageAccountingV2 {
+  schemaVersion: 2;
+  stepType: TextGenerationUsageStepType;
+  modelRole: PersaiRuntimeModelRole | null;
+  providerKey: TextGenerationUsageProviderKey;
+  modelKey: string;
+  totalInputTokens: number;
+  uncachedInputTokens: number;
+  cacheWriteInputTokens: number;
+  cacheReadInputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  toolCode?: string | null;
+}
+
+export const PERSAI_TEXT_GENERATION_USAGE_PROVIDER_KEYS = [
+  "openai",
+  "anthropic",
+  "deepseek"
+] as const;
+export type TextGenerationUsageProviderKey =
+  (typeof PERSAI_TEXT_GENERATION_USAGE_PROVIDER_KEYS)[number];
+export const PERSAI_TEXT_GENERATION_USAGE_STEP_TYPES = [
+  "main_turn",
+  "tool_loop_followup",
+  "router",
+  "system_tool",
+  "retrieval",
+  "tool_worker"
+] as const;
+export type TextGenerationUsageStepType = (typeof PERSAI_TEXT_GENERATION_USAGE_STEP_TYPES)[number];
+
+export type TextGenerationUsageAccountingV2Status =
+  | "accounted"
+  | "usage_unavailable"
+  | "usage_mismatch";
+
+export type TextGenerationUsageAccountingV2Result =
+  | { status: "accounted"; entry: TextGenerationUsageAccountingV2 }
+  | { status: "usage_unavailable"; reason: string }
+  | { status: "usage_mismatch"; reason: string };
+
+export type TextGenerationUsageMixedVersionEnvelope =
+  | { schemaVersion?: 1; usage: RuntimeUsageAccounting }
+  | { schemaVersion: 2; usage: TextGenerationUsageAccountingV2[] };
+
+export interface TextGenerationCacheCostPricing {
+  inputPer1M: number;
+  cacheWriteInputPer1M: number;
+  cacheReadInputPer1M: number;
+}
+
+export interface TextGenerationCacheCostComparison {
+  noCacheInputCost: number;
+  actualCachedInputCost: number;
+  netCacheSavings: number;
+  netCacheSavingsPercent: number | null;
+}
+
+export interface TextGenerationCacheZoneTelemetry {
+  requestClassification: ProviderGatewayRequestClassification;
+  toolLoopIteration: number;
+  providerKey: TextGenerationUsageProviderKey;
+  modelKey: string;
+  /**
+   * Structured diagnostic evidence only. Hashes are intentionally not metric
+   * labels and must never be promoted to metric dimensions.
+   */
+  stableSystemHash: string | null;
+  stableSystemChars: number;
+  hydratedHistoryHash: string | null;
+  hydratedHistoryChars: number;
+  cacheContentHash: string | null;
+  cacheContentChars: number;
+  /** Complete immutable spine through this iteration; it is expected to grow. */
+  sealedSpineHash: string | null;
+  sealedSpineChars: number;
+  /** The prior iteration's sealed boundary as represented in this request. */
+  priorSealedBoundaryHash: string | null;
+  sealedBoundaryKind: "none" | "stable_history" | "sealed_spine";
+  toolProjectionFamilyHash: string | null;
+  toolProjectionChars: number;
+  toolCount: number;
+  catalogToolCount: number;
+  fullToolCount: number;
+  projectionReasons: Array<
+    | "bundle_baseline"
+    | "skill_source_family"
+    | "scenario_script_family"
+    | "catalog_expansion"
+    | "excluded_tools"
+  >;
+  volatileContextChars: number;
+  developerTailChars: number;
+  cachePolicyMode: "none" | "automatic" | "explicit";
+  cacheKeyHash: string | null;
+  cacheBreakpointCount: number;
+}
+
+export type TextGenerationPromptCachePolicy =
+  | { mode: "automatic"; retention: "in_memory" | "24h" }
+  | {
+      mode: "explicit";
+      ttl: "30m";
+      stableAnchor: "explicit";
+      sealedSpineBreakpoint: "explicit";
+    };
+
+export interface TextGenerationProviderUsageFixture {
+  providerKey: "openai" | "anthropic" | "deepseek";
+  response: Record<string, unknown>;
+  expected: TextGenerationUsageAccountingV2Result;
+}
+
+export interface TextGenerationCacheLoopFixtureIteration {
+  telemetry: TextGenerationCacheZoneTelemetry;
+  usage: TextGenerationUsageAccountingV2;
+}
+
+function isNonNegativeInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0;
+}
+
+export function validateTextGenerationUsageAccountingV2(
+  value: unknown
+): TextGenerationUsageAccountingV2Result {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return { status: "usage_mismatch", reason: "entry_must_be_an_object" };
+  }
+  const entry = value as Record<string, unknown>;
+  if (entry.schemaVersion !== 2) {
+    return { status: "usage_mismatch", reason: "schema_version_mismatch" };
+  }
+  if (
+    !PERSAI_TEXT_GENERATION_USAGE_PROVIDER_KEYS.includes(
+      entry.providerKey as TextGenerationUsageProviderKey
+    )
+  ) {
+    return { status: "usage_mismatch", reason: "provider_key_invalid" };
+  }
+  if (
+    !PERSAI_TEXT_GENERATION_USAGE_STEP_TYPES.includes(entry.stepType as TextGenerationUsageStepType)
+  ) {
+    return { status: "usage_mismatch", reason: "step_type_invalid" };
+  }
+  if (
+    entry.modelRole !== null &&
+    !PERSAI_RUNTIME_MODEL_ROLES.includes(entry.modelRole as PersaiRuntimeModelRole)
+  ) {
+    return { status: "usage_mismatch", reason: "model_role_invalid" };
+  }
+  if (typeof entry.modelKey !== "string" || entry.modelKey.trim().length === 0) {
+    return { status: "usage_mismatch", reason: "model_key_invalid" };
+  }
+  if (
+    entry.toolCode !== undefined &&
+    entry.toolCode !== null &&
+    (typeof entry.toolCode !== "string" || entry.toolCode.trim().length === 0)
+  ) {
+    return { status: "usage_mismatch", reason: "tool_code_invalid" };
+  }
+  const tokenValues = [
+    entry.totalInputTokens,
+    entry.uncachedInputTokens,
+    entry.cacheWriteInputTokens,
+    entry.cacheReadInputTokens,
+    entry.outputTokens,
+    entry.totalTokens
+  ];
+  if (!tokenValues.every(isNonNegativeInteger)) {
+    return { status: "usage_mismatch", reason: "token_fields_must_be_non_negative_integers" };
+  }
+  const totalInputTokens = tokenValues[0] as number;
+  const uncachedInputTokens = tokenValues[1] as number;
+  const cacheWriteInputTokens = tokenValues[2] as number;
+  const cacheReadInputTokens = tokenValues[3] as number;
+  const outputTokens = tokenValues[4] as number;
+  const totalTokens = tokenValues[5] as number;
+  if (totalInputTokens !== uncachedInputTokens + cacheWriteInputTokens + cacheReadInputTokens) {
+    return { status: "usage_mismatch", reason: "input_token_partition_mismatch" };
+  }
+  if (totalTokens !== totalInputTokens + outputTokens) {
+    return { status: "usage_mismatch", reason: "total_token_partition_mismatch" };
+  }
+  return {
+    status: "accounted",
+    entry: {
+      schemaVersion: 2,
+      stepType: entry.stepType as TextGenerationUsageStepType,
+      modelRole: entry.modelRole as PersaiRuntimeModelRole | null,
+      providerKey: entry.providerKey as TextGenerationUsageProviderKey,
+      modelKey: entry.modelKey.trim(),
+      totalInputTokens,
+      uncachedInputTokens,
+      cacheWriteInputTokens,
+      cacheReadInputTokens,
+      outputTokens,
+      totalTokens,
+      ...(entry.toolCode === undefined ? {} : { toolCode: entry.toolCode as string | null })
+    }
+  };
+}
+
+export function decodeTextGenerationUsageMixedVersion(
+  envelope: unknown
+): TextGenerationUsageMixedVersionEnvelope {
+  if (envelope === null || typeof envelope !== "object" || Array.isArray(envelope)) {
+    throw new Error("text_generation_usage_invalid_envelope");
+  }
+  const row = envelope as Record<string, unknown>;
+  if (row.schemaVersion === undefined || row.schemaVersion === 1) {
+    return { schemaVersion: 1, usage: row.usage as RuntimeUsageAccounting };
+  }
+  if (row.schemaVersion === 2 && Array.isArray(row.usage)) {
+    const entries: TextGenerationUsageAccountingV2[] = [];
+    for (const value of row.usage) {
+      const result = validateTextGenerationUsageAccountingV2(value);
+      if (result.status !== "accounted") {
+        throw new Error(`text_generation_usage_v2_${result.reason}`);
+      }
+      entries.push(result.entry);
+    }
+    return { schemaVersion: 2, usage: entries };
+  }
+  throw new Error("text_generation_usage_unknown_schema_version");
+}
+
+export function calculateTextGenerationCacheCostComparison(
+  usage: TextGenerationUsageAccountingV2,
+  pricing: TextGenerationCacheCostPricing
+): TextGenerationCacheCostComparison {
+  const noCacheInputCost = (usage.totalInputTokens * pricing.inputPer1M) / 1_000_000;
+  const actualCachedInputCost =
+    (usage.uncachedInputTokens * pricing.inputPer1M +
+      usage.cacheWriteInputTokens * pricing.cacheWriteInputPer1M +
+      usage.cacheReadInputTokens * pricing.cacheReadInputPer1M) /
+    1_000_000;
+  const netCacheSavings = noCacheInputCost - actualCachedInputCost;
+  return {
+    noCacheInputCost,
+    actualCachedInputCost,
+    netCacheSavings,
+    netCacheSavingsPercent: noCacheInputCost === 0 ? null : netCacheSavings / noCacheInputCost
+  };
+}
+
+function readUsageInteger(row: Record<string, unknown>, key: string): number | null {
+  const value = row[key];
+  return isNonNegativeInteger(value) ? value : null;
+}
+
+function readNestedUsageInteger(
+  row: Record<string, unknown>,
+  containerKey: string,
+  key: string
+): number | null {
+  const container = row[containerKey];
+  if (container === null || typeof container !== "object" || Array.isArray(container)) {
+    return null;
+  }
+  return readUsageInteger(container as Record<string, unknown>, key);
+}
+
+export function normalizeProviderTextGenerationUsageV2(params: {
+  providerKey: TextGenerationUsageProviderKey;
+  modelKey: string;
+  stepType: TextGenerationUsageStepType;
+  modelRole: PersaiRuntimeModelRole | null;
+  responseUsage: Record<string, unknown> | null | undefined;
+  promptCachePolicy?: TextGenerationPromptCachePolicy | null;
+  toolCode?: string | null;
+}): TextGenerationUsageAccountingV2Result {
+  const usage = params.responseUsage;
+  if (usage === null || usage === undefined) {
+    return { status: "usage_unavailable", reason: "provider_usage_missing" };
+  }
+  const outputTokens =
+    readUsageInteger(usage, "output_tokens") ?? readUsageInteger(usage, "completion_tokens");
+  const totalTokens = readUsageInteger(usage, "total_tokens");
+  let totalInputTokens: number | null = null;
+  let uncachedInputTokens: number | null = null;
+  let cacheWriteInputTokens: number | null = null;
+  let cacheReadInputTokens: number | null = null;
+
+  if (params.providerKey === "openai") {
+    const policy = params.promptCachePolicy;
+    if (policy === null || policy === undefined) {
+      return { status: "usage_unavailable", reason: "openai_prompt_cache_policy_missing" };
+    }
+    totalInputTokens = readUsageInteger(usage, "input_tokens");
+    cacheReadInputTokens =
+      readNestedUsageInteger(usage, "input_tokens_details", "cached_tokens") ?? 0;
+    const openAiCacheWriteInputTokens =
+      policy.mode === "automatic" ? 0 : readUsageInteger(usage, "cache_write_tokens");
+    cacheWriteInputTokens = openAiCacheWriteInputTokens;
+    uncachedInputTokens =
+      totalInputTokens === null || openAiCacheWriteInputTokens === null
+        ? null
+        : totalInputTokens - openAiCacheWriteInputTokens - cacheReadInputTokens;
+  } else if (params.providerKey === "deepseek") {
+    totalInputTokens = readUsageInteger(usage, "prompt_tokens");
+    cacheReadInputTokens = readUsageInteger(usage, "prompt_cache_hit_tokens");
+    uncachedInputTokens = readUsageInteger(usage, "prompt_cache_miss_tokens");
+    cacheWriteInputTokens = 0;
+  } else {
+    uncachedInputTokens = readUsageInteger(usage, "input_tokens");
+    cacheWriteInputTokens = readUsageInteger(usage, "cache_creation_input_tokens");
+    cacheReadInputTokens = readUsageInteger(usage, "cache_read_input_tokens");
+    totalInputTokens =
+      uncachedInputTokens === null ||
+      cacheWriteInputTokens === null ||
+      cacheReadInputTokens === null
+        ? null
+        : uncachedInputTokens + cacheWriteInputTokens + cacheReadInputTokens;
+  }
+
+  if (
+    totalInputTokens === null ||
+    uncachedInputTokens === null ||
+    cacheWriteInputTokens === null ||
+    cacheReadInputTokens === null ||
+    outputTokens === null
+  ) {
+    return { status: "usage_unavailable", reason: "provider_usage_component_missing" };
+  }
+  const entry: TextGenerationUsageAccountingV2 = {
+    schemaVersion: 2,
+    stepType: params.stepType,
+    modelRole: params.modelRole,
+    providerKey: params.providerKey,
+    modelKey: params.modelKey,
+    totalInputTokens,
+    uncachedInputTokens,
+    cacheWriteInputTokens,
+    cacheReadInputTokens,
+    outputTokens,
+    totalTokens: totalTokens ?? totalInputTokens + outputTokens,
+    ...(params.toolCode === undefined ? {} : { toolCode: params.toolCode })
+  };
+  return validateTextGenerationUsageAccountingV2(entry);
+}
+
+export function assertReusableSealedBoundary(params: {
+  priorSealedSpineHash: string | null;
+  nextPriorSealedBoundaryHash: string | null;
+  priorSealedBoundaryKind: TextGenerationCacheZoneTelemetry["sealedBoundaryKind"];
+}): void {
+  if (
+    params.priorSealedBoundaryKind === "sealed_spine" &&
+    (params.priorSealedSpineHash === null ||
+      params.nextPriorSealedBoundaryHash === null ||
+      params.priorSealedSpineHash !== params.nextPriorSealedBoundaryHash)
+  ) {
+    throw new Error("sealed_boundary_not_reused");
+  }
+}
+
+export function assertFixedFamilyCacheLoop(
+  iterations: TextGenerationCacheLoopFixtureIteration[],
+  pricing: TextGenerationCacheCostPricing
+): TextGenerationCacheCostComparison {
+  if (iterations.length !== 50) {
+    throw new Error("cache_loop_requires_exactly_50_iterations");
+  }
+  let aggregate: TextGenerationCacheCostComparison = {
+    noCacheInputCost: 0,
+    actualCachedInputCost: 0,
+    netCacheSavings: 0,
+    netCacheSavingsPercent: null
+  };
+  for (let index = 0; index < iterations.length; index += 1) {
+    const current = iterations[index] as TextGenerationCacheLoopFixtureIteration;
+    const validated = validateTextGenerationUsageAccountingV2(current.usage);
+    if (validated.status !== "accounted") {
+      throw new Error(`cache_loop_${validated.reason}`);
+    }
+    const previous =
+      index === 0 ? null : (iterations[index - 1] as TextGenerationCacheLoopFixtureIteration);
+    if (previous !== null) {
+      assertReusableSealedBoundary({
+        priorSealedSpineHash: previous.telemetry.sealedSpineHash,
+        nextPriorSealedBoundaryHash: current.telemetry.priorSealedBoundaryHash,
+        priorSealedBoundaryKind: previous.telemetry.sealedBoundaryKind
+      });
+    }
+    const cost = calculateTextGenerationCacheCostComparison(current.usage, pricing);
+    aggregate = {
+      noCacheInputCost: aggregate.noCacheInputCost + cost.noCacheInputCost,
+      actualCachedInputCost: aggregate.actualCachedInputCost + cost.actualCachedInputCost,
+      netCacheSavings: aggregate.netCacheSavings + cost.netCacheSavings,
+      netCacheSavingsPercent: null
+    };
+  }
+  return {
+    ...aggregate,
+    netCacheSavingsPercent:
+      aggregate.noCacheInputCost === 0
+        ? null
+        : aggregate.netCacheSavings / aggregate.noCacheInputCost
+  };
+}
+
 export const RUNTIME_BILLING_FACT_CAPABILITIES = [
   "chat",
   "image",

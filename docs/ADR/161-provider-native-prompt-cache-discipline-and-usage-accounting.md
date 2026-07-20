@@ -15,12 +15,16 @@ refinement returned **CLEAN with zero P0/P1/P2 findings**. No implementation
 has begun.
 
 The parent agent orchestrates, audits, reconciles documentation, and commits
-only after an accepted slice. Implementation must be delegated one bounded
-slice at a time to `gpt-5.6-terra-medium` or
-`claude-sonnet-5-thinking-high`. Provider request repairs remain locally
-batched, but the cross-service usage-contract cutover requires an explicit
-versioned rollout protocol: additive consumer support first, canonical v2
-producers second, then removal of the transitional v1 seam. The final state
+only after an accepted coherent checkpoint. Founder-directed implementation
+delegation: use `gpt-5.6-terra-medium` for complex tasks and `gpt-5.4-medium`
+for simple tasks; `gpt-5.6-sol-medium` and all Opus models are forbidden.
+Do not proliferate artificial slices: execute the dependency-ordered flow
+below, keeping each delegated task bounded by one clear contract. Provider
+request repairs remain locally batched, but the cross-service usage-contract
+cutover requires an explicit versioned rollout protocol: additive consumer
+support first, canonical v2 producers second, then removal of the transitional
+v1 seam. Local commits are allowed at accepted checkpoints; push happens once,
+only after all implementation, audits, and full gates pass. The final state
 contains no legacy path.
 
 ADR-119, ADR-124, ADR-130, ADR-135, ADR-143, and ADR-151 remain closed.
