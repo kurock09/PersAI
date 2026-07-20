@@ -574,18 +574,9 @@ export type InternalFindCrossSessionCarryOverOutcome = {
   unresolvedOpenLoops: InternalCrossSessionCarryOverOpenLoop[];
 };
 
-// ADR-074 Slice M3.2 — fire-and-forget bookkeeping bump after a non-empty
-// cross-session carry-over render. The runtime treats failures as soft
-// (logs a WARN and continues) so that a transient bookkeeping issue cannot
-// fail the whole turn over a missed cooldown write.
-export type InternalMarkCrossSessionCarryOverFiredInput = {
+export type InternalResolveCrossSessionCarryOverSnapshotInput = {
   assistantChatId: string;
-  firedAt: string;
-  requestId: string | null;
-};
-
-export type InternalMarkCrossSessionCarryOverFiredOutcome = {
-  outcome: "advanced" | "noop_already_newer";
+  snapshot: string;
 };
 
 @Injectable()
@@ -2747,15 +2738,14 @@ export class PersaiInternalApiClientService {
     );
   }
 
-  async markCrossSessionCarryOverFired(
-    input: InternalMarkCrossSessionCarryOverFiredInput
-  ): Promise<InternalMarkCrossSessionCarryOverFiredOutcome> {
+  async resolveCrossSessionCarryOverSnapshot(
+    input: InternalResolveCrossSessionCarryOverSnapshotInput
+  ): Promise<string> {
     if (!this.isConfigured()) {
       throw new ServiceUnavailableException("PersAI internal API base URL is not configured.");
     }
-
     const response = await this.fetchJson(
-      "/api/v1/internal/runtime/cross-session/mark-carry-over-fired",
+      "/api/v1/internal/runtime/cross-session/resolve-carry-over-snapshot",
       {
         method: "POST",
         headers: {
@@ -2765,28 +2755,23 @@ export class PersaiInternalApiClientService {
         body: JSON.stringify(input)
       }
     );
-
     if (response.ok) {
       const payload = this.asObject(response.body);
-      const outcome = payload?.outcome;
-      if (payload?.ok === true && (outcome === "advanced" || outcome === "noop_already_newer")) {
-        return { outcome };
+      if (payload?.ok === true && typeof payload.snapshot === "string") {
+        return payload.snapshot;
       }
       throw new BadGatewayException(
-        "PersAI internal API returned an invalid mark-cross-session-carry-over-fired response."
+        "PersAI internal API returned an invalid cross-session carry-over snapshot response."
       );
     }
-
     const error = this.extractError(response.body);
     if (response.status >= 500) {
       throw new ServiceUnavailableException(
-        error.message ?? "PersAI internal API mark-cross-session-carry-over-fired request failed."
+        error.message ?? "PersAI internal API cross-session carry-over snapshot request failed."
       );
     }
-
     throw new BadRequestException(
-      error.message ??
-        "PersAI internal API rejected the mark-cross-session-carry-over-fired request."
+      error.message ?? "PersAI internal API rejected the cross-session carry-over snapshot request."
     );
   }
 

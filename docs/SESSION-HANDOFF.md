@@ -1,5 +1,27 @@
 # SESSION-HANDOFF
 
+## 2026-07-21 — ADR-161 cache-prefix repair + Admin Business repair
+
+Baseline: `5d8f7be0892e84e5c65e3803df7f937298e9a22f`.
+
+Founder-directed repair is implemented locally:
+
+- `cross_session_carry_over` is atomically snapshotted once per Assistant chat,
+  including the empty case, and reused byte-for-byte on every later turn;
+- catalog `{action:"describe"}` returns the full contract only as its tool
+  result; the plan-selected catalog `tools` payload never expands or mutates
+  inside a turn on any provider;
+- the superseded long-idle/cooldown/mark-fired active path is deleted;
+- Admin Business cache percentages are cast/normalized to finite JavaScript
+  numbers so PostgreSQL `numeric` strings cannot crash `.toFixed()`.
+
+Full local gate passes: recursive lint, repository format, all workspace
+typechecks, complete API/runtime suites, Prisma generate/validate, CI
+affected-rule tests, ADR-152 rollout-order tests, Helm lint/template, and
+`git diff --check`. Commit, push, rollout monitoring, and DeepSeek-only live
+acceptance remain. Do not switch the B2B tariff to OpenAI until the founder
+explicitly requests it.
+
 ## 2026-07-20 — ADR-161 founder-directed final canonical cutover
 
 Release A is deployed and accepted at `03bacd5d`; the migration is applied,

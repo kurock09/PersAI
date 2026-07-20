@@ -156,7 +156,7 @@ import {
   isCatalogReadOnlyToolCall,
   isToolContractDescribeCall,
   isToolLevelContractDescribeCall,
-  markCatalogToolWireExpandedForTurn,
+  markCatalogToolContractLoadedForTurn,
   shouldGuardCatalogToolExecution
 } from "./runtime-tool-contract-describe";
 import {
@@ -328,8 +328,8 @@ type TurnExecutionState = {
    * tool-loop provider call only.
    */
   pendingFilePreviewBlocks?: ProviderGatewayMessageContentBlock[];
-  /** ADR-135 S3 — catalog tools described this turn expand to full wire on next iteration. */
-  wireExpandedCatalogToolCodes: Set<string>;
+  /** Catalog contracts successfully described during this turn. */
+  loadedCatalogToolCodes: Set<string>;
   /** ADR-135 S6 — per-turn catalog projection observability counters. */
   catalogToolMetrics: CatalogToolTurnMetrics;
   admittedWaitToolCallIds: Set<string>;
@@ -1282,7 +1282,6 @@ export class TurnExecutionService {
           iteration < maxToolLoopIterations + previewFollowUpExtraIterations;
           iteration += 1
         ) {
-          this.refreshTurnProjectedToolsForWireExpansion(execution, turnState);
           if (projectModeActive && iteration > 0) {
             for (const projectEvent of createProjectModeReplanStreamEvents({
               identity: projectStreamIdentity,
@@ -1714,8 +1713,7 @@ export class TurnExecutionService {
                   await this.refreshVolatilePrefix(
                     execution,
                     input,
-                    toolBudgetPolicy.getSnapshot(),
-                    turnState
+                    toolBudgetPolicy.getSnapshot()
                   );
                   const refreshElapsedMs = Date.now() - refreshStartedAtMs;
                   trace?.stage(`iter${String(iteration)}.provider_request_refreshed`);
@@ -1728,8 +1726,7 @@ export class TurnExecutionService {
                   await this.refreshVolatilePrefix(
                     execution,
                     input,
-                    toolBudgetPolicy.getSnapshot(),
-                    turnState
+                    toolBudgetPolicy.getSnapshot()
                   );
                   trace?.stage(`iter${String(iteration)}.volatile_prefix_refreshed`);
                 }
@@ -3187,7 +3184,6 @@ export class TurnExecutionService {
       iteration < maxToolLoopIterations + previewFollowUpExtraIterations;
       iteration += 1
     ) {
-      this.refreshTurnProjectedToolsForWireExpansion(execution, turnState);
       let providerResult: ProviderGatewayTextGenerateResult;
       let availableWorkingFileHandles = execution.availableWorkingFileHandles;
       let pendingFilePreviewBlocks: ProviderGatewayMessageContentBlock[] | undefined;
@@ -3414,19 +3410,9 @@ export class TurnExecutionService {
         // so the next iteration still carries the scenario block, chat plan,
         // and `<system-reminder>` blocks with up-to-date state.
         execution.volatilePrefixLength = 0;
-        await this.refreshVolatilePrefix(
-          execution,
-          input,
-          toolBudgetPolicy.getSnapshot(),
-          turnState
-        );
+        await this.refreshVolatilePrefix(execution, input, toolBudgetPolicy.getSnapshot());
       } else if (volatileRefreshNeeded) {
-        await this.refreshVolatilePrefix(
-          execution,
-          input,
-          toolBudgetPolicy.getSnapshot(),
-          turnState
-        );
+        await this.refreshVolatilePrefix(execution, input, toolBudgetPolicy.getSnapshot());
       }
       previewFollowUpExtraIterations = this.reservePreviewFollowUpIterationIfNeeded({
         turnState,
@@ -3697,7 +3683,7 @@ export class TurnExecutionService {
         bundle: execution.bundle,
         toolCode: toolCall.name,
         arguments: toolCall.arguments,
-        wireExpandedCatalogToolCodes: turnState.wireExpandedCatalogToolCodes
+        loadedCatalogToolCodes: turnState.loadedCatalogToolCodes
       })
     ) {
       recordToolContractNotLoaded(turnState.catalogToolMetrics);
@@ -3706,22 +3692,22 @@ export class TurnExecutionService {
         createToolContractNotLoadedPayload(toolCall.name)
       );
     }
-    if (
-      markCatalogToolWireExpandedForTurn(
-        execution.bundle,
-        toolCall.name,
-        turnState.wireExpandedCatalogToolCodes
-      )
-    ) {
-      this.refreshTurnProjectedToolsForWireExpansion(execution, turnState);
-    }
     if (isToolLevelContractDescribeCall(toolCall.name, toolCall.arguments)) {
       const described = executeRuntimeToolContractDescribe({
         bundle: execution.bundle,
         toolCode: toolCall.name
       });
       const outcome = this.createToolExecutionOutcome(toolCall, described.payload, false);
-      this.recordCatalogToolWireExpansionFromOutcome(turnState, outcome);
+      if (
+        described.payload.action === "described_contract" &&
+        markCatalogToolContractLoadedForTurn(
+          execution.bundle,
+          toolCall.name,
+          turnState.loadedCatalogToolCodes
+        )
+      ) {
+        recordCatalogDescribeCall(turnState.catalogToolMetrics);
+      }
       return outcome;
     }
 
@@ -5761,59 +5747,10 @@ export class TurnExecutionService {
       deliveryFacts: createEmptyTurnDeliveryFacts(),
       currentChatId: null,
       workspaceId: "",
-      wireExpandedCatalogToolCodes: new Set<string>(),
+      loadedCatalogToolCodes: new Set<string>(),
       catalogToolMetrics: createEmptyCatalogToolTurnMetrics(),
       admittedWaitToolCallIds: new Set<string>()
     };
-  }
-
-  private refreshTurnProjectedToolsForWireExpansion(
-    execution: PreparedTurnExecution,
-    turnState: TurnExecutionState
-  ): void {
-    const projectedTools = this.applyExcludedToolNames(
-      projectRuntimeNativeTools(execution.bundle, {
-        ...execution.nativeToolProjectionOptions,
-        wireExpandedCatalogToolCodes: turnState.wireExpandedCatalogToolCodes
-      }),
-      execution.excludedToolNames
-    );
-    execution.projectedTools = projectedTools;
-    execution.providerRequest = {
-      ...execution.providerRequest,
-      tools: projectedTools.tools
-    };
-  }
-
-  private recordCatalogToolWireExpansionFromOutcome(
-    turnState: TurnExecutionState,
-    outcome: ToolExecutionOutcome
-  ): void {
-    const payload = outcome.payload;
-    if (payload === null || typeof payload !== "object" || Array.isArray(payload)) {
-      return;
-    }
-    const toolCode = (payload as { toolCode?: unknown }).toolCode;
-    if (typeof toolCode !== "string" || toolCode.trim().length === 0) {
-      return;
-    }
-    const action = (payload as { action?: unknown }).action;
-    if (action === "described_contract") {
-      turnState.wireExpandedCatalogToolCodes.add(toolCode);
-      recordCatalogDescribeCall(turnState.catalogToolMetrics);
-      return;
-    }
-    if (outcome.exchange.toolResult.isError === true) {
-      return;
-    }
-    if (
-      toolCode === VIDEO_GENERATE_TOOL_CODE &&
-      (action === "listed_personas" ||
-        action === "listed_voices" ||
-        action === "described_avatar_mode")
-    ) {
-      turnState.wireExpandedCatalogToolCodes.add(toolCode);
-    }
   }
 
   private recordToolLoopToolsJsonCharCount(
@@ -6092,7 +6029,6 @@ export class TurnExecutionService {
       payload: outcome.payload,
       isError: outcome.exchange.toolResult.isError === true
     });
-    this.recordCatalogToolWireExpansionFromOutcome(turnState, outcome);
     if (
       outcome.exchange.toolCall.name === "document" &&
       outcome.exchange.toolResult.isError !== true &&
@@ -6858,8 +6794,7 @@ export class TurnExecutionService {
   private async refreshVolatilePrefix(
     execution: PreparedTurnExecution,
     input: RuntimeTurnRequest,
-    toolBudgetSnapshot: ToolBudgetSnapshot,
-    turnState: TurnExecutionState
+    toolBudgetSnapshot: ToolBudgetSnapshot
   ): Promise<void> {
     const chatPlan = await this.turnContextHydrationService.buildChatPlanBlock(input);
     // ADR-130 D5: derive the current scenario step from the same windowed plan.
@@ -6898,8 +6833,7 @@ export class TurnExecutionService {
     };
     const projectedTools = this.applyExcludedToolNames(
       projectRuntimeNativeTools(execution.bundle, {
-        ...execution.nativeToolProjectionOptions,
-        wireExpandedCatalogToolCodes: turnState.wireExpandedCatalogToolCodes
+        ...execution.nativeToolProjectionOptions
       }),
       execution.excludedToolNames
     );

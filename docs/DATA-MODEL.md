@@ -224,6 +224,12 @@ Current active truth for the visible-workspace document rollout:
 
 Web/Capacitor chat sends now carry a stable client envelope:
 
+- ADR-161 adds nullable `assistant_chats.cross_session_carry_over_snapshot`.
+  `NULL` means uninitialized; the empty string is an initialized no-content
+  snapshot. The internal control plane atomically stores the first proposal
+  and returns the winning exact bytes, which Runtime reuses for the full chat
+  lifetime. The former `last_cross_session_carry_over_at` cooldown column is
+  removed.
 - ADR-100 Slice 2 adds `assistant_chats.chat_mode` (`normal`, `smart`, `project`) as the explicit chat-scoped behavior mode. Existing `assistant_chats.deep_mode_enabled` remains during migration as a compatibility boolean; writes through `chatMode` keep it synchronized (`normal=false`, `smart/project=true`), and old `deepModeEnabled` writes map back to `normal` / `smart`.
 - `assistant_web_chat_turn_attempts` records each logical send with status `accepted`, `running`, `completed`, `failed`, or `interrupted`, plus chat/message ids and terminal replay payloads when available.
 - `assistant_media_jobs` is the ADR-086 durable generated-media job registry for `image` / `audio` / `video` work across both `web` and `telegram`. It now carries not only the canonical job row and web continuity projection for open states (`queued`, `running`, `completion_pending`), but also the source surface, worker-owned request payload, result payload, claim TTL, retry timing, acknowledgement/completion assistant message ids, and terminal error state needed for durable backend execution plus backend-owned web/Telegram completion delivery. ADR-112 Slice 7 leaves that persisted/web continuity truth unchanged, but runtime prompt projection now interprets it in two buckets: true in-progress generation (`queued`, `running`) vs post-completion delivery updates (`completion_pending` and very recent delivered rows).

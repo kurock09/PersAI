@@ -288,17 +288,11 @@ type CanonicalChatMessageRow = {
   metadata?: Record<string, unknown> | null;
 };
 
-// ADR-074 Slice M3.2 — minimal `assistant_chats` row metadata needed to
-// evaluate the long-idle re-trigger and per-thread cooldown gates.
-// `lastMessageAt` is the canonical "freshness" cell already maintained by
-// the chat-message persistence path and is used as the idle-since anchor.
-// `lastCrossSessionCarryOverAt` is the new bookkeeping cell introduced by
-// M3.2 and is bumped fire-and-forget by the runtime after each non-empty
-// carry-over render.
+// The durable carry-over snapshot is initialized once and then reused
+// byte-for-byte for every provider call in this chat.
 type AssistantChatRowMeta = {
   id: string;
-  lastMessageAt: Date | null;
-  lastCrossSessionCarryOverAt: Date | null;
+  crossSessionCarryOverSnapshot: string | null;
 };
 
 type CanonicalChatAttachmentRow = {
@@ -414,31 +408,11 @@ export class TurnContextHydrationService {
       contextHydration,
       chatRowMeta?.id ?? null
     );
-    // ADR-074 Slice M3 + M3.2 — the cross-session continuity carry-over block
-    // fires when EITHER the current turn is the first turn of a brand-new
-    // thread (M3, cooldown-exempt) OR the most recent stored user message is
-    // older than `crossSessionCarryOverIdleHours` AND the per-thread cooldown
-    // (`crossSessionCarryOverCooldownHours`) has elapsed since the last fire
-    // (M3.2). The post-compaction sub-trigger is intentionally OUT OF SCOPE
-    // (founder 2026-04-22): re-firing the magic block in the middle of a
-    // live conversation just because auto-compaction silently ran would
-    // feel like the assistant "suddenly remembers" things mid-flow.
-    const fireDecision = this.shouldFireCrossSessionCarryOver({
-      storedMessages,
+    const carryOver = await this.resolveCrossSessionCarryOverSnapshot(
       input,
       contextHydration,
       chatRowMeta
-    });
-    const carryOver = fireDecision.shouldFire
-      ? await this.loadCrossSessionCarryOverHydration(input, contextHydration)
-      : null;
-    if (carryOver !== null && chatRowMeta !== null) {
-      this.markCrossSessionCarryOverFiredFireAndForget({
-        assistantChatId: chatRowMeta.id,
-        firedAt: new Date(),
-        requestId: input.requestId
-      });
-    }
+    );
     if (storedMessages === null) {
       const currentUserMessage = await this.createCurrentUserMessage(
         input,
@@ -713,7 +687,7 @@ export class TurnContextHydrationService {
     durableMemory: DurableMemoryHydration
   ): ProviderGatewayTextMessage[] {
     // Order is fixed: durable_memory_core (M1, stable) -> cross_session_carry_over
-    // (M3, stable, turn-0-only). Both are cache-stable; the rolling-session-synopsis
+    // (M3, stable). Both are cache-stable; the rolling-session-synopsis
     // block is inserted by the canonical-web hydration path between core and the
     // conversation when a prior in-thread compaction exists. ADR-120 Slice 1 retired
     // the per-turn `durable_memory_contextual` block, so the prefix is now entirely stable.
@@ -833,9 +807,7 @@ export class TurnContextHydrationService {
       directInputPreviewLimits
     );
     // Stable prefix order: durable_memory_core (stable) ->
-    // cross_session_carry_over (stable, turn-0-only — typically NOT present
-    // here because the in-thread compaction implies prior turns; left in
-    // place for symmetry / paranoia) -> rolling_session_synopsis (stable).
+    // cross_session_carry_over (stable) -> rolling_session_synopsis (stable).
     // ADR-120 Slice 1 retired the per-turn `durable_memory_contextual` block,
     // so the whole hydrated prefix is now cache-stable.
     const prefixMessages: ProviderGatewayTextMessage[] = [];
@@ -856,123 +828,6 @@ export class TurnContextHydrationService {
         preserveLeadingMessageCount: prefixMessages.length
       }
     );
-  }
-
-  private isFirstTurnOfThread(
-    storedMessages: CanonicalChatMessageRow[] | null,
-    input: RuntimeTurnRequest
-  ): boolean {
-    if (storedMessages === null) {
-      return true;
-    }
-    const priorMessages = storedMessages.filter(
-      (message) => message.id !== input.idempotencyKey && this.isHydratableCanonicalMessage(message)
-    );
-    return priorMessages.length === 0;
-  }
-
-  // ADR-074 Slice M3.2 — combined trigger predicate. Returns whether the
-  // current turn should fetch+render the cross-session carry-over block, and
-  // — for telemetry / future expansion — which sub-trigger fired.
-  //
-  // Sub-triggers (founder-trim 2026-04-22, post-compaction is OUT):
-  //   * `thread_first_turn` — turn 0 of a brand-new thread; cooldown-exempt.
-  //   * `long_idle` — the previous user message in this thread is older
-  //     than `crossSessionCarryOverIdleHours` AND the thread has not fired
-  //     a carry-over within the last `crossSessionCarryOverCooldownHours`.
-  //
-  // The decision is a pure function of `storedMessages`, the cooldown row,
-  // and the resolved hydration config; no I/O. The hydration call site is
-  // still allowed to bail (e.g. internal API not configured, both lists
-  // empty after filtering) — in which case nothing fires and the cooldown
-  // bookkeeping cell is intentionally NOT bumped.
-  private shouldFireCrossSessionCarryOver(args: {
-    storedMessages: CanonicalChatMessageRow[] | null;
-    input: RuntimeTurnRequest;
-    contextHydration: ReturnType<typeof resolveRuntimeContextHydrationConfig>;
-    chatRowMeta: AssistantChatRowMeta | null;
-  }): { shouldFire: boolean; subTrigger: "thread_first_turn" | "long_idle" | null } {
-    const { storedMessages, input, contextHydration, chatRowMeta } = args;
-
-    if (this.isFirstTurnOfThread(storedMessages, input)) {
-      return { shouldFire: true, subTrigger: "thread_first_turn" };
-    }
-
-    const idleHours = contextHydration.crossSessionCarryOverIdleHours;
-    const cooldownHours = contextHydration.crossSessionCarryOverCooldownHours;
-    if (
-      !Number.isFinite(idleHours) ||
-      idleHours <= 0 ||
-      !Number.isFinite(cooldownHours) ||
-      cooldownHours <= 0 ||
-      chatRowMeta === null ||
-      chatRowMeta.lastMessageAt === null
-    ) {
-      return { shouldFire: false, subTrigger: null };
-    }
-
-    const now = Date.now();
-    const idleMs = idleHours * 60 * 60 * 1000;
-    const cooldownMs = cooldownHours * 60 * 60 * 1000;
-    const previousUserMessageAt =
-      this.resolvePreviousUserMessageAt(storedMessages, input) ?? chatRowMeta.lastMessageAt;
-    const idleElapsedMs = now - previousUserMessageAt.getTime();
-    if (idleElapsedMs < idleMs) {
-      return { shouldFire: false, subTrigger: null };
-    }
-    const lastFired = chatRowMeta.lastCrossSessionCarryOverAt;
-    if (lastFired !== null && now - lastFired.getTime() < cooldownMs) {
-      return { shouldFire: false, subTrigger: null };
-    }
-    return { shouldFire: true, subTrigger: "long_idle" };
-  }
-
-  private resolvePreviousUserMessageAt(
-    storedMessages: CanonicalChatMessageRow[] | null,
-    input: RuntimeTurnRequest
-  ): Date | null {
-    if (storedMessages === null) {
-      return null;
-    }
-    for (let index = storedMessages.length - 1; index >= 0; index--) {
-      const message = storedMessages[index];
-      if (
-        message === undefined ||
-        message.id === input.idempotencyKey ||
-        message.author !== "user" ||
-        !this.isHydratableCanonicalMessage(message)
-      ) {
-        continue;
-      }
-      if (message.createdAt instanceof Date) {
-        return message.createdAt;
-      }
-    }
-    return null;
-  }
-
-  // ADR-074 Slice M3.2 — fire-and-forget bookkeeping bump. Failures are
-  // intentionally swallowed (logged as WARN) so that a transient internal
-  // API hiccup cannot fail the user-visible turn over a missed cooldown
-  // write. Idempotency lives on the API side (the SQL writer only advances
-  // the cell when `firedAt` is strictly newer than the stored value), so
-  // duplicate calls under retry are safe.
-  private markCrossSessionCarryOverFiredFireAndForget(input: {
-    assistantChatId: string;
-    firedAt: Date;
-    requestId: string | null;
-  }): void {
-    void this.persaiInternalApiClient
-      .markCrossSessionCarryOverFired({
-        assistantChatId: input.assistantChatId,
-        firedAt: input.firedAt.toISOString(),
-        requestId: input.requestId
-      })
-      .catch((error) => {
-        this.logger.warn(
-          `Cross-session carry-over cooldown bookkeeping failed; continuing. assistantChatId=${input.assistantChatId} error=${this.describeError(error)}`
-        );
-      });
   }
 
   // ADR-074 Slice T1 — compute the per-turn "presence" developer-tail block.
@@ -1184,8 +1039,7 @@ export class TurnContextHydrationService {
       },
       select: {
         id: true,
-        lastMessageAt: true,
-        lastCrossSessionCarryOverAt: true
+        crossSessionCarryOverSnapshot: true
       }
     });
     if (chat === null) {
@@ -1193,8 +1047,7 @@ export class TurnContextHydrationService {
     }
     return {
       id: chat.id,
-      lastMessageAt: chat.lastMessageAt,
-      lastCrossSessionCarryOverAt: chat.lastCrossSessionCarryOverAt
+      crossSessionCarryOverSnapshot: chat.crossSessionCarryOverSnapshot
     };
   }
 
@@ -1255,6 +1108,43 @@ export class TurnContextHydrationService {
         content: formatCrossSessionCarryOverStableBlock(rendered.bodyText)
       }
     };
+  }
+
+  private async resolveCrossSessionCarryOverSnapshot(
+    input: RuntimeTurnRequest,
+    contextHydration: ReturnType<typeof resolveRuntimeContextHydrationConfig>,
+    chatRowMeta: AssistantChatRowMeta | null
+  ): Promise<CrossSessionCarryOverHydration | null> {
+    if (chatRowMeta !== null && chatRowMeta.crossSessionCarryOverSnapshot !== null) {
+      return chatRowMeta.crossSessionCarryOverSnapshot.length === 0
+        ? null
+        : {
+            message: {
+              role: "assistant",
+              content: chatRowMeta.crossSessionCarryOverSnapshot
+            }
+          };
+    }
+    const proposed = await this.loadCrossSessionCarryOverHydration(input, contextHydration);
+    if (chatRowMeta === null) {
+      return proposed;
+    }
+    try {
+      const proposedSnapshot =
+        proposed !== null && typeof proposed.message.content === "string"
+          ? proposed.message.content
+          : "";
+      const snapshot = await this.persaiInternalApiClient.resolveCrossSessionCarryOverSnapshot({
+        assistantChatId: chatRowMeta.id,
+        snapshot: proposedSnapshot
+      });
+      return snapshot.length === 0 ? null : { message: { role: "assistant", content: snapshot } };
+    } catch (error) {
+      this.logger.warn(
+        `Cross-session carry-over snapshot resolution failed; continuing without M3 block. error=${this.describeError(error)}`
+      );
+      return null;
+    }
   }
 
   private async hydrateCanonicalMessageSequence(

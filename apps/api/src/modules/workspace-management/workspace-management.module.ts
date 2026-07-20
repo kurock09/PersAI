@@ -65,7 +65,7 @@ import { InternalRuntimeMemoryCloseMostSimilarController } from "./interface/htt
 import { InternalRuntimeMemoryCloseByRefController } from "./interface/http/internal-runtime-memory-close-by-ref.controller";
 import { InternalRuntimeMemoryOpenLoopRefsController } from "./interface/http/internal-runtime-memory-open-loop-refs.controller";
 import { InternalRuntimeCrossSessionCarryOverController } from "./interface/http/internal-runtime-cross-session-carry-over.controller";
-import { InternalRuntimeCrossSessionMarkFiredController } from "./interface/http/internal-runtime-cross-session-mark-fired.controller";
+import { InternalRuntimeCrossSessionSnapshotController } from "./interface/http/internal-runtime-cross-session-snapshot.controller";
 import { InternalRuntimeTaskRegistryController } from "./interface/http/internal-runtime-task-registry.controller";
 import { InternalRuntimeBackgroundTasksController } from "./interface/http/internal-runtime-background-tasks.controller";
 import { InternalRuntimeToolQuotaController } from "./interface/http/internal-runtime-tool-quota.controller";
@@ -257,7 +257,7 @@ import { CloseMostSimilarOpenLoopService } from "./application/close-most-simila
 import { CloseAssistantMemoryByRefService } from "./application/close-assistant-memory-by-ref.service";
 import { ListRuntimeOpenLoopRefsService } from "./application/list-runtime-open-loop-refs.service";
 import { FindCrossSessionCarryOverService } from "./application/find-cross-session-carry-over.service";
-import { MarkCrossSessionCarryOverFiredService } from "./application/mark-cross-session-carry-over-fired.service";
+import { ResolveCrossSessionCarryOverSnapshotService } from "./application/resolve-cross-session-carry-over-snapshot.service";
 import { MaterializeAssistantPublishedVersionService } from "./application/materialize-assistant-published-version.service";
 import { ManageAdminPlansService } from "./application/manage-admin-plans.service";
 import { ManageSitePagesService } from "./application/manage-site-pages.service";
@@ -500,7 +500,7 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     InternalRuntimeMemoryCloseByRefController,
     InternalRuntimeMemoryOpenLoopRefsController,
     InternalRuntimeCrossSessionCarryOverController,
-    InternalRuntimeCrossSessionMarkFiredController,
+    InternalRuntimeCrossSessionSnapshotController,
     InternalRuntimeCompactionEnqueueController,
     InternalRuntimeDocumentJobsEnqueueController,
     InternalRuntimeAsyncJobsController,
@@ -725,7 +725,7 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     CloseAssistantMemoryByRefService,
     ListRuntimeOpenLoopRefsService,
     FindCrossSessionCarryOverService,
-    MarkCrossSessionCarryOverFiredService,
+    ResolveCrossSessionCarryOverSnapshotService,
     ApplyAssistantPublishedVersionService,
     AssistantRuntimePreflightService,
     MaterializeAssistantPublishedVersionService,

@@ -918,7 +918,6 @@ test("album webhook parts are collected without starting a runtime turn", async 
           skillRetrievalState: null,
           archivedAt: null,
           lastMessageAt: null,
-          lastCrossSessionCarryOverAt: null,
           createdAt: new Date("2026-05-01T00:00:00.000Z"),
           updatedAt: new Date("2026-05-01T00:00:00.000Z")
         };
@@ -1109,7 +1108,6 @@ test("single photo with caption still starts a runtime turn when media_group_id 
           skillRetrievalState: null,
           archivedAt: null,
           lastMessageAt: null,
-          lastCrossSessionCarryOverAt: null,
           createdAt: new Date("2026-05-01T00:00:00.000Z"),
           updatedAt: new Date("2026-05-01T00:00:00.000Z")
         };

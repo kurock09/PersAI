@@ -2,14 +2,40 @@
 
 ## Status
 
-**Open — final canonical cutover implemented locally; deployment and S6 live acceptance pending.**
+**Open — canonical v2 cutover deployed; cache-prefix repair implemented locally; repair deployment and S6 live acceptance pending.**
+
+### 2026-07-21 cache-prefix repair checkpoint
+
+Post-cutover DeepSeek live turns still reported only approximately 27–29%
+cache-read share. Request/log correlation and source inspection identified two
+additional exact prefix changes:
+
+- `cross_session_carry_over` was present when initialized, then removed on
+  later turns by the old first-turn/long-idle trigger;
+- a successful catalog `{action:"describe"}` changed the provider-visible
+  `tools` payload from the catalog stub to the full contract for later calls.
+
+The provider-independent repair freezes `cross_session_carry_over` once per
+Assistant chat, including an explicit empty snapshot, through an atomic
+control-plane first-writer-wins resolve endpoint. Runtime reuses those exact
+stored bytes on every later turn and fails closed without injecting an
+unpersisted proposal. The superseded long-idle/cooldown/mark-fired runtime path
+and API endpoint are deleted.
+
+Catalog `tools` now remain byte-stable for the whole turn on every provider.
+`describe` returns the full description and `inputSchema` only in its immutable
+tool result. A turn-local loaded-contract set authorizes later execution
+server-side; it never reprojects or mutates `providerRequest.tools`. Catalog
+stubs accept the contract arguments returned by `describe`, while Runtime
+continues to validate and authorize every actual call.
 
 This is a new parent-orchestrated program. The opening baseline is
 `d4bd32679929bef89cc13120cf2719ad9a2b0df3`. The documentation opening is
 `de265c57`; S0 contracts/catalog migration landed locally in `07bf3843`;
 the managed-secret-only OpenAI prerequisite cleanup landed locally in
 `65c11816`; and S1-S3 provider/runtime cache behavior landed locally in
-`ebf310c4`. Nothing from this program has been pushed or deployed.
+`ebf310c4`. The final canonical accounting cutover was later deployed from
+`ce5d7f06`; the 2026-07-21 repair below is not yet deployed.
 The initial opening audit returned CLEAN after repair of all findings. The
 founder then added a mandatory long-tool-loop requirement: prove append-only
 prefix reuse and positive net provider-cost savings over 40–50 exchanges, not
@@ -174,15 +200,17 @@ tools + system breakpoint but receives no moving message-history breakpoint.
 Conversation and growing `toolHistory` therefore remain outside the history
 cache frontier on those calls.
 
-### F3 — OpenAI cache configuration can become stale inside a turn
+### F3 — OpenAI cache configuration could become stale inside a turn
 
 The initial OpenAI `prompt_cache_key` includes a `variantHash` of
 `deepModeEnabled` and the complete projected tools array.
 
-Catalog `describe` expansion and active Scenario Script re-projection mutate
-`providerRequest.tools` inside the tool loop. Those mutation seats do not
-rebuild `promptCache`; the wire tools can therefore differ from the tools used
-to derive the current key.
+At the opening baseline, catalog `describe` expansion and active Scenario
+Script re-projection mutated `providerRequest.tools` inside the tool loop.
+Those mutation seats did not rebuild `promptCache`; the wire tools could
+therefore differ from the tools used to derive the current key. The 2026-07-21
+repair removes catalog expansion from the wire entirely. Scenario-driven
+projection remains an explicit family change.
 
 This is a confirmed routing-key granularity inconsistency, not proof of unsafe
 cache reuse: OpenAI combines `prompt_cache_key` with its own initial exact
@@ -193,13 +221,15 @@ assumed; it must be measured.
 
 ### F4 — tool projection families are intentionally and accidentally dynamic
 
-Confirmed dynamic inputs include:
+Confirmed dynamic inputs at the opening baseline included:
 
 - active/inactive Skill knowledge-source enums;
 - Scenario-bound Script appearance and schema;
-- catalog stub-to-full expansion after `describe` and related read actions;
 - explicit excluded-tool sets;
 - bundle/policy/credential changes.
+
+The 2026-07-21 repair removes catalog stub-to-full wire expansion. The full
+contract is now returned only as the immutable `describe` tool result.
 
 Tool order is deterministic for identical bundle and projection options.
 The audit did not prove random JSON object-key ordering and this ADR does not
@@ -615,11 +645,13 @@ The family identity is observability and cache-key input only where the
 selected provider policy requires it. It is not authorization. Runtime still
 re-resolves every tool call server-side.
 
-ADR-135 catalog behavior and ADR-151 Scenario Script authorization remain
-unchanged in this program. Reducing or stabilizing a specific tool schema is
-allowed only after projection-family telemetry proves it is a material source
-of misses. The current 43k payload is a measured size, not by itself proof that
-one named tool caused a miss.
+ADR-151 Scenario Script authorization remains unchanged. ADR-135 is narrowly
+superseded only for post-`describe` wire expansion: the plan-selected
+catalog/full projection remains authoritative, but catalog tools never expand
+inside `providerRequest.tools`. The full contract exists only in the
+`describe` result and a turn-local loaded marker authorizes subsequent calls.
+The current 43k payload is a measured size, not by itself proof that one named
+tool caused a miss.
 
 ### D7 — safe cache observability
 
@@ -699,7 +731,8 @@ Likely modules:
 - changing prompt prose, persona, Role, Skill, Scenario, memory, or response
   semantics beyond D1's bounded per-exchange ordering/projection rule and D4's
   exact OpenAI developer-channel boundary marker;
-- changing ADR-135 catalog/full product behavior without measured evidence;
+- changing plan-selected ADR-135 catalog/full exposure beyond removal of the
+  measured post-`describe` wire mutation;
 - changing ADR-143/156 compact/full definitions or cross-turn windows;
 - changing provider/model routing or fallback policy;
 - adding a cache service or PersAI-owned KV cache;
@@ -812,7 +845,7 @@ For each active provider/model family:
 3. same stable history with changed developer/volatile context;
 4. seeded history beyond the provider cache unit;
 5. one short tool loop;
-6. catalog `describe` expansion;
+6. catalog `describe` contract delivery with an unchanged tools-family hash;
 7. active Scenario Script projection family;
 8. provider fallback before output.
 
@@ -928,6 +961,10 @@ handoff, changelog, architecture/API/data-model/test-plan documentation.
     no overflow recovery, truncation, compaction rewrite, or history reset
     occurs.
 17. Full local, CI, exact-image, and provider-matrix live gates pass.
+18. A chat's `cross_session_carry_over` snapshot, including an empty snapshot,
+    remains byte-identical for the lifetime of that chat.
+19. Catalog `describe` exposes the full contract only in tool history and does
+    not change provider-visible `tools` on OpenAI, DeepSeek, or Anthropic.
 
 ## Risks and mitigations
 

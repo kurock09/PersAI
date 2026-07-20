@@ -4,8 +4,27 @@ import type { AdminAuthorizationService } from "../src/modules/workspace-managem
 import type { AssistantPlanCatalogRepository } from "../src/modules/workspace-management/domain/assistant-plan-catalog.repository";
 import type { WorkspaceManagementPrismaService } from "../src/modules/workspace-management/infrastructure/persistence/workspace-management-prisma.service";
 
-async function run(): Promise<void> {
-  const service = new ResolveAdminBusinessPlatformService(
+type RuntimeTurnAveragesRow = {
+  completed_turns: unknown;
+  turns_with_v2_text_usage_accounting: unknown;
+  v2_text_usage_call_count: unknown;
+  v2_cache_read_hit_turns: unknown;
+  avg_total_input_tokens: unknown;
+  avg_uncached_input_tokens: unknown;
+  avg_cache_write_input_tokens: unknown;
+  avg_cache_read_input_tokens: unknown;
+  avg_output_tokens: unknown;
+  avg_total_tokens: unknown;
+  avg_usage_steps_per_turn: unknown;
+  cache_read_share_percent: unknown;
+  cache_write_share_percent: unknown;
+  cache_read_hit_turn_share_percent: unknown;
+};
+
+function createService(
+  runtimeTurnAveragesRowOverrides: Partial<RuntimeTurnAveragesRow> = {}
+): ResolveAdminBusinessPlatformService {
+  return new ResolveAdminBusinessPlatformService(
     {
       async assertCanReadAdminSurface(userId: string) {
         assert.equal(userId, "admin-1");
@@ -279,7 +298,8 @@ async function run(): Promise<void> {
             avg_usage_steps_per_turn: 2,
             cache_read_share_percent: 50,
             cache_write_share_percent: 4.2,
-            cache_read_hit_turn_share_percent: 63
+            cache_read_hit_turn_share_percent: 63,
+            ...runtimeTurnAveragesRowOverrides
           }
         ];
       }
@@ -336,8 +356,14 @@ async function run(): Promise<void> {
       }
     } as Pick<AssistantPlanCatalogRepository, "listAll"> as AssistantPlanCatalogRepository
   );
+}
 
-  const result = await service.execute("admin-1");
+async function run(): Promise<void> {
+  const result = await createService({
+    cache_read_share_percent: "50",
+    cache_write_share_percent: "4.2",
+    cache_read_hit_turn_share_percent: "63"
+  }).execute("admin-1");
 
   assert.equal(result.totalUsers, 3);
   assert.equal(result.totalAssistants, 2);
@@ -436,6 +462,16 @@ async function run(): Promise<void> {
       ["starter", 1, 33]
     ]
   );
+
+  const malformedPercentages = await createService({
+    cache_read_share_percent: "not-a-number",
+    cache_write_share_percent: Number.POSITIVE_INFINITY,
+    cache_read_hit_turn_share_percent: "Infinity"
+  }).execute("admin-1");
+
+  assert.equal(malformedPercentages.runtimeTurnAverages.cacheReadSharePercent, null);
+  assert.equal(malformedPercentages.runtimeTurnAverages.cacheWriteSharePercent, null);
+  assert.equal(malformedPercentages.runtimeTurnAverages.cacheReadHitTurnSharePercent, null);
 }
 
 void run();

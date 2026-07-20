@@ -53,22 +53,18 @@ export function isCatalogTierToolPolicy(bundle: AssistantRuntimeBundle, toolCode
   return policy !== null && resolveModelExposure(policy) === "catalog";
 }
 
-/**
- * ADR-135 — once a catalog-tier tool passes the contract guard in a turn, keep
- * full wire projection for every later tool-loop step in that same user turn
- * (provider errors and invalid_arguments must not revert to catalog stub).
- */
-export function markCatalogToolWireExpandedForTurn(
+/** Records a successfully described catalog contract for this turn only. */
+export function markCatalogToolContractLoadedForTurn(
   bundle: AssistantRuntimeBundle,
   toolCode: string,
-  wireExpandedCatalogToolCodes: Set<string>
+  loadedCatalogToolCodes: Set<string>
 ): boolean {
   if (!isCatalogTierToolPolicy(bundle, toolCode)) {
     return false;
   }
-  const before = wireExpandedCatalogToolCodes.size;
-  wireExpandedCatalogToolCodes.add(toolCode);
-  return wireExpandedCatalogToolCodes.size > before;
+  const before = loadedCatalogToolCodes.size;
+  loadedCatalogToolCodes.add(toolCode);
+  return loadedCatalogToolCodes.size > before;
 }
 
 export function isCatalogReadOnlyToolCall(
@@ -101,12 +97,12 @@ export function shouldGuardCatalogToolExecution(params: {
   bundle: AssistantRuntimeBundle;
   toolCode: string;
   arguments: Record<string, unknown> | undefined;
-  wireExpandedCatalogToolCodes: ReadonlySet<string>;
+  loadedCatalogToolCodes: ReadonlySet<string>;
 }): boolean {
   if (!isCatalogTierToolPolicy(params.bundle, params.toolCode)) {
     return false;
   }
-  if (params.wireExpandedCatalogToolCodes.has(params.toolCode)) {
+  if (params.loadedCatalogToolCodes.has(params.toolCode)) {
     return false;
   }
   return !isCatalogReadOnlyToolCall(params.toolCode, params.arguments);

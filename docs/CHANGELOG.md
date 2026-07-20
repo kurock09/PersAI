@@ -3,6 +3,23 @@
 > Archive: detailed historical entries from 2026-06-05 and earlier moved to `docs/CHANGELOG.archive-2026-06-05-details-and-earlier.md`; entries from 2026-05-19 and earlier remain in `docs/CHANGELOG.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: current entries plus concise recent summaries only.
 
+## 2026-07-21
+
+- **ADR-161 cache-prefix repair (local):** Assistant-chat
+  `cross_session_carry_over` is now an atomic first-writer-wins durable
+  snapshot, including an explicit empty value, and is reused byte-for-byte for
+  the thread lifetime. Catalog `{action:"describe"}` returns the full contract
+  only as immutable tool history; a turn-local loaded set authorizes later
+  calls while provider-visible `tools` remains the original plan-selected
+  catalog projection for OpenAI, DeepSeek, and Anthropic. The obsolete
+  catalog-to-full reprojection and cross-session long-idle/cooldown/mark-fired
+  active paths are removed.
+
+- **Admin Business cache-metrics crash repair (local):** SQL percentage
+  aggregates are cast to `double precision` and API mapping accepts only finite
+  numeric values, preventing PostgreSQL `numeric` strings or malformed values
+  from reaching React `.toFixed()`.
+
 ## 2026-07-20
 
 - **ADR-161 final canonical maintenance cutover:** after Release A was

@@ -2324,8 +2324,7 @@ export async function runAdr151TurnDispatchIntegrationTest(): Promise<void> {
     refreshVolatilePrefix(
       execution: unknown,
       input: RuntimeTurnRequest,
-      toolBudgetSnapshot: unknown,
-      turnState: unknown
+      toolBudgetSnapshot: unknown
     ): Promise<void>;
     extractProducedFileHandles(payload: unknown): RuntimeFileHandle[];
   };
@@ -2347,7 +2346,7 @@ export async function runAdr151TurnDispatchIntegrationTest(): Promise<void> {
     currentTurnHasUserAttachedImage: false
   };
   const turnState = {
-    wireExpandedCatalogToolCodes: new Set<string>(),
+    loadedCatalogToolCodes: new Set<string>(),
     catalogToolMetrics: {
       projectedCatalogCount: 0,
       describedCount: 0,
@@ -2407,17 +2406,17 @@ export async function runAdr151TurnDispatchIntegrationTest(): Promise<void> {
 
   execution.currentSkillDecisionState = activeSkillState;
   liveTodos = stepOneTodos;
-  await privateAccess.refreshVolatilePrefix(execution, request, {}, turnState);
+  await privateAccess.refreshVolatilePrefix(execution, request, {});
   assert.ok(execution.providerRequest.tools.some((tool) => tool.name === "script"));
   liveTodos = stepTwoTodos;
-  await privateAccess.refreshVolatilePrefix(execution, request, {}, turnState);
+  await privateAccess.refreshVolatilePrefix(execution, request, {});
   assert.ok(
     execution.providerRequest.tools.some((tool) => tool.name === "script"),
     "script remains projected on later steps while Scenario still binds Scripts"
   );
   execution.currentSkillDecisionState = null;
   liveTodos = stepOneTodos;
-  await privateAccess.refreshVolatilePrefix(execution, request, {}, turnState);
+  await privateAccess.refreshVolatilePrefix(execution, request, {});
   assert.equal(
     execution.providerRequest.tools.some((tool) => tool.name === "script"),
     false

@@ -633,30 +633,19 @@ export class PrismaAssistantChatRepository implements AssistantChatRepository {
     return message ? this.mapMessageToDomain(message) : null;
   }
 
-  async findLastCrossSessionCarryOverAt(chatId: string): Promise<Date | null> {
+  async resolveCrossSessionCarryOverSnapshot(
+    chatId: string,
+    proposedSnapshot: string
+  ): Promise<string | null> {
+    await this.prisma.assistantChat.updateMany({
+      where: { id: chatId, crossSessionCarryOverSnapshot: null },
+      data: { crossSessionCarryOverSnapshot: proposedSnapshot }
+    });
     const row = await this.prisma.assistantChat.findUnique({
       where: { id: chatId },
-      select: { lastCrossSessionCarryOverAt: true }
+      select: { crossSessionCarryOverSnapshot: true }
     });
-    return row?.lastCrossSessionCarryOverAt ?? null;
-  }
-
-  async setLastCrossSessionCarryOverAt(chatId: string, firedAt: Date): Promise<boolean> {
-    // Idempotent advance: only bump the bookkeeping cell if the new value is
-    // strictly greater than the stored one. Conditional update via a WHERE
-    // clause guarded by `lastCrossSessionCarryOverAt: { lt: firedAt } | null`
-    // ensures concurrent fire-and-forget marks cannot regress the cooldown.
-    const updated = await this.prisma.assistantChat.updateMany({
-      where: {
-        id: chatId,
-        OR: [
-          { lastCrossSessionCarryOverAt: null },
-          { lastCrossSessionCarryOverAt: { lt: firedAt } }
-        ]
-      },
-      data: { lastCrossSessionCarryOverAt: firedAt }
-    });
-    return updated.count > 0;
+    return row?.crossSessionCarryOverSnapshot ?? null;
   }
 
   private mapChatToDomain(chat: PrismaAssistantChat): AssistantChat {

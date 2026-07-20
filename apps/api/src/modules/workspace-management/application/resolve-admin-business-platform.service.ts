@@ -22,6 +22,23 @@ function toPercent(value: number, total: number): number {
   return Math.max(0, Math.min(100, Math.round((value / total) * 100)));
 }
 
+function readFiniteNumberOrNull(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+  return null;
+}
+
+function readFiniteNumberOrZero(value: unknown): number {
+  return readFiniteNumberOrNull(value) ?? 0;
+}
+
 @Injectable()
 export class ResolveAdminBusinessPlatformService {
   constructor(
@@ -257,20 +274,20 @@ export class ResolveAdminBusinessPlatformService {
   private async computeRuntimeTurnAverages(windowStart: Date): Promise<RuntimeTurnAverages> {
     const rows = await this.prisma.$queryRaw<
       Array<{
-        completed_turns: number;
-        turns_with_v2_text_usage_accounting: number;
-        v2_text_usage_call_count: number;
-        v2_cache_read_hit_turns: number;
-        avg_total_input_tokens: number;
-        avg_uncached_input_tokens: number;
-        avg_cache_write_input_tokens: number;
-        avg_cache_read_input_tokens: number;
-        avg_output_tokens: number;
-        avg_total_tokens: number;
-        avg_usage_steps_per_turn: number;
-        cache_read_share_percent: number | null;
-        cache_write_share_percent: number | null;
-        cache_read_hit_turn_share_percent: number | null;
+        completed_turns: unknown;
+        turns_with_v2_text_usage_accounting: unknown;
+        v2_text_usage_call_count: unknown;
+        v2_cache_read_hit_turns: unknown;
+        avg_total_input_tokens: unknown;
+        avg_uncached_input_tokens: unknown;
+        avg_cache_write_input_tokens: unknown;
+        avg_cache_read_input_tokens: unknown;
+        avg_output_tokens: unknown;
+        avg_total_tokens: unknown;
+        avg_usage_steps_per_turn: unknown;
+        cache_read_share_percent: unknown;
+        cache_write_share_percent: unknown;
+        cache_read_hit_turn_share_percent: unknown;
       }>
     >`
       WITH candidate_v2_receipts AS (
@@ -369,15 +386,15 @@ export class ResolveAdminBusinessPlatformService {
           CASE WHEN SUM((usage ->> 'totalInputTokens')::numeric) > 0 THEN
             (SUM((usage ->> 'cacheReadInputTokens')::numeric) * 100) /
             SUM((usage ->> 'totalInputTokens')::numeric)
-          ELSE NULL END AS cache_read_share_percent,
+          ELSE NULL END::double precision AS cache_read_share_percent,
           CASE WHEN SUM((usage ->> 'totalInputTokens')::numeric) > 0 THEN
             (SUM((usage ->> 'cacheWriteInputTokens')::numeric) * 100) /
             SUM((usage ->> 'totalInputTokens')::numeric)
-          ELSE NULL END AS cache_write_share_percent,
+          ELSE NULL END::double precision AS cache_write_share_percent,
           CASE WHEN COUNT(*) > 0 THEN
             (COUNT(*) FILTER (WHERE COALESCE((usage ->> 'cacheReadInputTokens')::numeric, 0) > 0) * 100.0) /
             COUNT(*)
-          ELSE NULL END AS cache_read_hit_turn_share_percent
+          ELSE NULL END::double precision AS cache_read_hit_turn_share_percent
         FROM validated_v2_receipts
       )
       SELECT
@@ -394,20 +411,22 @@ export class ResolveAdminBusinessPlatformService {
     const row = rows[0];
     return {
       window: "last_7_days",
-      completedTurns: row?.completed_turns ?? 0,
-      turnsWithV2TextUsageAccounting: row?.turns_with_v2_text_usage_accounting ?? 0,
-      v2TextUsageCallCount: row?.v2_text_usage_call_count ?? 0,
-      v2CacheReadHitTurns: row?.v2_cache_read_hit_turns ?? 0,
-      avgTotalInputTokens: row?.avg_total_input_tokens ?? 0,
-      avgUncachedInputTokens: row?.avg_uncached_input_tokens ?? 0,
-      avgCacheWriteInputTokens: row?.avg_cache_write_input_tokens ?? 0,
-      avgCacheReadInputTokens: row?.avg_cache_read_input_tokens ?? 0,
-      avgOutputTokens: row?.avg_output_tokens ?? 0,
-      avgTotalTokens: row?.avg_total_tokens ?? 0,
-      avgUsageStepsPerTurn: row?.avg_usage_steps_per_turn ?? 0,
-      cacheReadSharePercent: row?.cache_read_share_percent ?? null,
-      cacheWriteSharePercent: row?.cache_write_share_percent ?? null,
-      cacheReadHitTurnSharePercent: row?.cache_read_hit_turn_share_percent ?? null
+      completedTurns: readFiniteNumberOrZero(row?.completed_turns),
+      turnsWithV2TextUsageAccounting: readFiniteNumberOrZero(
+        row?.turns_with_v2_text_usage_accounting
+      ),
+      v2TextUsageCallCount: readFiniteNumberOrZero(row?.v2_text_usage_call_count),
+      v2CacheReadHitTurns: readFiniteNumberOrZero(row?.v2_cache_read_hit_turns),
+      avgTotalInputTokens: readFiniteNumberOrZero(row?.avg_total_input_tokens),
+      avgUncachedInputTokens: readFiniteNumberOrZero(row?.avg_uncached_input_tokens),
+      avgCacheWriteInputTokens: readFiniteNumberOrZero(row?.avg_cache_write_input_tokens),
+      avgCacheReadInputTokens: readFiniteNumberOrZero(row?.avg_cache_read_input_tokens),
+      avgOutputTokens: readFiniteNumberOrZero(row?.avg_output_tokens),
+      avgTotalTokens: readFiniteNumberOrZero(row?.avg_total_tokens),
+      avgUsageStepsPerTurn: readFiniteNumberOrZero(row?.avg_usage_steps_per_turn),
+      cacheReadSharePercent: readFiniteNumberOrNull(row?.cache_read_share_percent),
+      cacheWriteSharePercent: readFiniteNumberOrNull(row?.cache_write_share_percent),
+      cacheReadHitTurnSharePercent: readFiniteNumberOrNull(row?.cache_read_hit_turn_share_percent)
     };
   }
 }

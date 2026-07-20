@@ -168,7 +168,6 @@ function buildChat(overrides?: Partial<AssistantChat>): AssistantChat {
     skillDecisionState: null,
     skillRetrievalState: null,
     lastMessageAt: baseDate,
-    lastCrossSessionCarryOverAt: null,
     archivedAt: null,
     createdAt: baseDate,
     updatedAt: baseDate,

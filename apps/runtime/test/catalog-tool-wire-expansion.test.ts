@@ -4,13 +4,15 @@ import type { ProviderGatewayToolCall } from "@persai/runtime-contract";
 import { TurnExecutionService } from "../src/modules/turns/turn-execution.service";
 import {
   createToolContractNotLoadedPayload,
-  markCatalogToolWireExpandedForTurn,
   shouldGuardCatalogToolExecution
 } from "../src/modules/turns/runtime-tool-contract-describe";
 import { createEmptyCatalogToolTurnMetrics } from "../src/modules/turns/catalog-tool-turn-metrics";
-import { projectRuntimeNativeTools } from "../src/modules/turns/native-tool-projection";
+import {
+  buildFullNativeToolDefinition,
+  projectRuntimeNativeTools
+} from "../src/modules/turns/native-tool-projection";
 
-function buildMinimalCatalogBundle(toolCode: string): AssistantRuntimeBundle {
+function buildMinimalCatalogBundle(): AssistantRuntimeBundle {
   return {
     metadata: {
       assistantId: "assistant-catalog",
@@ -27,26 +29,15 @@ function buildMinimalCatalogBundle(toolCode: string): AssistantRuntimeBundle {
     governance: {
       toolPolicies: [
         {
-          toolCode,
-          displayName: toolCode,
-          description: `${toolCode} tool`,
+          toolCode: "summarize_context",
+          displayName: "Summarize",
+          description: "Summarize context.",
           usageGuidance: null,
           enabled: true,
           usageRule: "allowed",
           visibleToModel: true,
           executionMode: "inline",
           modelExposure: "catalog"
-        },
-        {
-          toolCode: "web_search",
-          displayName: "Web Search",
-          description: "Search the web.",
-          usageGuidance: null,
-          enabled: true,
-          usageRule: "allowed",
-          visibleToModel: true,
-          executionMode: "inline",
-          modelExposure: "full"
         }
       ],
       toolCredentialRefs: {}
@@ -93,27 +84,11 @@ function buildMinimalTurnExecutionService(): TurnExecutionService {
 }
 
 type CatalogTurnState = {
-  wireExpandedCatalogToolCodes: Set<string>;
+  loadedCatalogToolCodes: Set<string>;
   catalogToolMetrics: ReturnType<typeof createEmptyCatalogToolTurnMetrics>;
 };
 
-type CatalogWireExpansionAccessor = {
-  refreshTurnProjectedToolsForWireExpansion: (
-    execution: {
-      bundle: AssistantRuntimeBundle;
-      projectedTools: ReturnType<typeof projectRuntimeNativeTools>;
-      nativeToolProjectionOptions: Record<string, unknown>;
-      providerRequest: { tools?: unknown[] };
-    },
-    turnState: CatalogTurnState
-  ) => void;
-  recordCatalogToolWireExpansionFromOutcome: (
-    turnState: CatalogTurnState,
-    outcome: {
-      exchange: { toolResult: { isError?: boolean } };
-      payload: unknown;
-    }
-  ) => void;
+type CatalogExecutionAccessor = {
   executeProjectedToolCall: (
     execution: {
       bundle: AssistantRuntimeBundle;
@@ -141,64 +116,36 @@ type CatalogWireExpansionAccessor = {
 };
 
 export async function runCatalogToolWireExpansionTest(): Promise<void> {
-  const bundle = buildMinimalCatalogBundle("summarize_context");
+  const bundle = buildMinimalCatalogBundle();
+  const before = projectRuntimeNativeTools(bundle).tools;
+  const beforeJson = JSON.stringify(before);
+  const stub = before.find((tool) => tool.name === "summarize_context");
+  assert.ok(stub);
+  assert.equal(stub.inputSchema.additionalProperties, true);
+  assert.equal(
+    (stub.inputSchema.properties as Record<string, unknown>).instructions,
+    undefined,
+    "the provider tool list must retain only the catalog stub"
+  );
 
+  const turnState: CatalogTurnState = {
+    loadedCatalogToolCodes: new Set<string>(),
+    catalogToolMetrics: createEmptyCatalogToolTurnMetrics()
+  };
   assert.equal(
     shouldGuardCatalogToolExecution({
       bundle,
       toolCode: "summarize_context",
-      arguments: { instructions: "shorter please" },
-      wireExpandedCatalogToolCodes: new Set()
+      arguments: { instructions: "short" },
+      loadedCatalogToolCodes: turnState.loadedCatalogToolCodes
     }),
     true
   );
-  assert.equal(
-    shouldGuardCatalogToolExecution({
-      bundle,
-      toolCode: "summarize_context",
-      arguments: { action: "describe" },
-      wireExpandedCatalogToolCodes: new Set()
-    }),
-    false
-  );
-  assert.equal(
-    shouldGuardCatalogToolExecution({
-      bundle,
-      toolCode: "summarize_context",
-      arguments: { instructions: "shorter please" },
-      wireExpandedCatalogToolCodes: new Set(["summarize_context"])
-    }),
-    false
-  );
-  assert.equal(
-    shouldGuardCatalogToolExecution({
-      bundle,
-      toolCode: "web_search",
-      arguments: { query: "news" },
-      wireExpandedCatalogToolCodes: new Set()
-    }),
-    false
-  );
 
-  const notLoaded = createToolContractNotLoadedPayload("summarize_context");
-  assert.equal(notLoaded.reason, "tool_contract_not_loaded");
-  assert.match(notLoaded.guidance, /summarize_context\(\{action:"describe"\}\)/);
-
-  const catalogProjection = projectRuntimeNativeTools(bundle);
-  const service = buildMinimalTurnExecutionService() as unknown as CatalogWireExpansionAccessor;
-  const turnState = {
-    wireExpandedCatalogToolCodes: new Set<string>(),
-    catalogToolMetrics: createEmptyCatalogToolTurnMetrics()
-  };
-  const execution = {
-    bundle,
-    projectedTools: catalogProjection,
-    nativeToolProjectionOptions: {},
-    providerRequest: { tools: catalogProjection.tools }
-  };
-
+  const service = buildMinimalTurnExecutionService() as unknown as CatalogExecutionAccessor;
+  const projection = projectRuntimeNativeTools(bundle);
   const describeOutcome = await service.executeProjectedToolCall(
-    execution,
+    { bundle, projectedTools: projection },
     {
       session: {
         sessionId: "session-1",
@@ -222,155 +169,33 @@ export async function runCatalogToolWireExpansionTest(): Promise<void> {
     [],
     turnState
   );
+
   assert.equal(describeOutcome.payload.action, "described_contract");
-  service.recordCatalogToolWireExpansionFromOutcome(turnState, {
-    exchange: { toolResult: { isError: false } },
-    payload: describeOutcome.payload
-  });
-  assert.ok(turnState.wireExpandedCatalogToolCodes.has("summarize_context"));
-
-  service.refreshTurnProjectedToolsForWireExpansion(execution, turnState);
-  const expandedTool = execution.projectedTools.tools.find(
-    (tool) => tool.name === "summarize_context"
-  );
-  assert.ok(expandedTool);
-  assert.doesNotMatch(expandedTool.description, /Call summarize_context\(\{action:"describe"\}\)/);
-
-  const guardedOutcome = await service.executeProjectedToolCall(
-    execution,
-    {
-      session: {
-        sessionId: "session-1",
-        conversation: { channel: "web", externalThreadKey: "thread-1" }
-      },
-      receipt: { requestId: "req-1" }
-    },
-    {
-      message: { text: "summarize", attachments: [] },
-      conversation: { channel: "web", externalThreadKey: "thread-1" },
-      idempotencyKey: "msg-1"
-    },
-    {
-      id: "tool-summarize-unguarded",
-      name: "summarize_context",
-      arguments: { instructions: "shorter please" }
-    },
-    "msg-1",
-    [],
-    [],
-    [],
-    {
-      wireExpandedCatalogToolCodes: new Set(),
-      catalogToolMetrics: createEmptyCatalogToolTurnMetrics()
-    }
-  );
-  assert.equal(guardedOutcome.payload.reason, "tool_contract_not_loaded");
-
-  const filesBundle = buildMinimalCatalogBundle("files");
-  const filesProjection = projectRuntimeNativeTools(filesBundle);
-  const filesExecution = {
-    bundle: filesBundle,
-    projectedTools: filesProjection,
-    nativeToolProjectionOptions: {},
-    providerRequest: { tools: filesProjection.tools }
-  };
-  const filesDescribeOutcome = await service.executeProjectedToolCall(
-    filesExecution,
-    {
-      session: {
-        sessionId: "session-files",
-        conversation: { channel: "web", externalThreadKey: "thread-files" }
-      },
-      receipt: { requestId: "req-files" }
-    },
-    {
-      message: { text: "list files", attachments: [] },
-      conversation: { channel: "web", externalThreadKey: "thread-files" },
-      idempotencyKey: "msg-files"
-    },
-    {
-      id: "tool-files-describe",
-      name: "files",
-      arguments: { action: "describe" }
-    },
-    "msg-files",
-    [],
-    [],
-    [],
-    {
-      wireExpandedCatalogToolCodes: new Set(),
-      catalogToolMetrics: createEmptyCatalogToolTurnMetrics()
-    }
-  );
+  assert.equal(describeOutcome.payload.toolCode, "summarize_context");
+  assert.equal(typeof describeOutcome.payload.description, "string");
+  assert.equal(typeof describeOutcome.payload.inputSchema, "object");
+  assert.ok(turnState.loadedCatalogToolCodes.has("summarize_context"));
   assert.equal(
-    filesDescribeOutcome.payload.action,
-    "described_contract",
-    "catalog-tier full-default tools must dispatch describe before tool-specific services"
-  );
-  assert.equal(filesDescribeOutcome.payload.toolCode, "files");
-
-  const videoService =
-    buildMinimalTurnExecutionService() as unknown as CatalogWireExpansionAccessor;
-  const videoTurnState = {
-    wireExpandedCatalogToolCodes: new Set<string>(),
-    catalogToolMetrics: createEmptyCatalogToolTurnMetrics()
-  };
-  videoService.recordCatalogToolWireExpansionFromOutcome(videoTurnState, {
-    exchange: { toolResult: { isError: false } },
-    payload: {
-      toolCode: "video_generate",
-      action: "listed_personas",
-      personas: []
-    }
-  });
-  assert.ok(
-    videoTurnState.wireExpandedCatalogToolCodes.has("video_generate"),
-    "video read-only lookups should expand catalog wire for the rest of the turn"
+    shouldGuardCatalogToolExecution({
+      bundle,
+      toolCode: "summarize_context",
+      arguments: { instructions: "short" },
+      loadedCatalogToolCodes: turnState.loadedCatalogToolCodes
+    }),
+    false
   );
 
-  const videoTurnStateAfterFailure = {
-    wireExpandedCatalogToolCodes: new Set(["video_generate"]),
-    catalogToolMetrics: createEmptyCatalogToolTurnMetrics()
-  };
-  videoService.recordCatalogToolWireExpansionFromOutcome(videoTurnStateAfterFailure, {
-    exchange: { toolResult: { isError: true } },
-    payload: {
-      toolCode: "video_generate",
-      action: "skipped",
-      reason: "video_generation_failed"
-    }
-  });
-  assert.ok(
-    videoTurnStateAfterFailure.wireExpandedCatalogToolCodes.has("video_generate"),
-    "provider failures must not clear turn-local catalog wire expansion"
-  );
-
-  const persistBundle = buildMinimalCatalogBundle("summarize_context");
-  const persistTurnState = {
-    wireExpandedCatalogToolCodes: new Set<string>(),
-    catalogToolMetrics: createEmptyCatalogToolTurnMetrics()
-  };
   assert.equal(
-    markCatalogToolWireExpandedForTurn(
-      persistBundle,
-      "summarize_context",
-      persistTurnState.wireExpandedCatalogToolCodes
-    ),
-    true
+    JSON.stringify(projection.tools),
+    beforeJson,
+    "describe must not mutate providerRequest.tools"
   );
+  assert.equal(JSON.stringify(projectRuntimeNativeTools(bundle).tools), beforeJson);
+  const full = buildFullNativeToolDefinition(bundle, "summarize_context");
+  assert.ok(full);
+  assert.notEqual(JSON.stringify(full), JSON.stringify(stub));
   assert.equal(
-    markCatalogToolWireExpandedForTurn(
-      persistBundle,
-      "summarize_context",
-      persistTurnState.wireExpandedCatalogToolCodes
-    ),
-    false,
-    "re-marking the same catalog tool in the same turn is a no-op"
+    createToolContractNotLoadedPayload("summarize_context").reason,
+    "tool_contract_not_loaded"
   );
-  const persistedProjection = projectRuntimeNativeTools(persistBundle, {
-    wireExpandedCatalogToolCodes: persistTurnState.wireExpandedCatalogToolCodes
-  });
-  const persistedTool = persistedProjection.tools.find((tool) => tool.name === "summarize_context");
-  assert.ok(persistedTool);
-  assert.doesNotMatch(persistedTool.description, /Call summarize_context\(\{action:"describe"\}\)/);
 }

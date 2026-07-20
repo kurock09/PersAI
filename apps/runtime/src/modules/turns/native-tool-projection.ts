@@ -49,8 +49,6 @@ export type NativeToolProjectionOptions = {
   allowModelToolExposure?: boolean;
   allowedKnowledgeSearchSources?: readonly PersaiRuntimeKnowledgeSource[];
   allowedKnowledgeFetchSources?: readonly PersaiRuntimeKnowledgeSource[];
-  /** ADR-135 S3 — catalog tools described this turn project as full on wire. */
-  wireExpandedCatalogToolCodes?: ReadonlySet<string>;
   /**
    * Scenario-scoped Script availability — every pinned Script referenced by
    * any step of the active Scenario (unique by `scriptKey`), or
@@ -82,17 +80,19 @@ function buildCatalogStubDescription(toolCode: string, policy: RuntimeToolPolicy
 }
 
 function buildCatalogStubInputSchema(readOnlyActions: readonly string[]): Record<string, unknown> {
-  const actions = ["describe", ...readOnlyActions.filter((action) => action !== "describe")];
+  const directReadOnlyActions = readOnlyActions.filter((action) => action !== "describe");
+  const readOnlyGuidance =
+    directReadOnlyActions.length === 0
+      ? ""
+      : ` Read-only actions available before describe: ${directReadOnlyActions.join(", ")}.`;
   return {
     type: "object",
-    additionalProperties: false,
+    additionalProperties: true,
     required: ["action"],
     properties: {
       action: {
         type: "string",
-        enum: [...new Set(actions)],
-        description:
-          'Use "describe" to load the full tool contract before the first real execution call.'
+        description: `Use "describe" to load the full contract before the first real execution call. After describe, follow the returned contract.${readOnlyGuidance}`
       }
     }
   };
@@ -433,7 +433,7 @@ export function projectRuntimeNativeTools(
     knowledgeSearchSources: projectedKnowledgeSearchSources,
     knowledgeFetchSources: projectedKnowledgeFetchSources
   };
-  return applyWireExpandedCatalogToolProjection(bundle, projection, options);
+  return projection;
 }
 
 function createAwaitToolDefinition(): ProviderGatewayToolDefinition {
@@ -465,32 +465,6 @@ function createAwaitToolDefinition(): ProviderGatewayToolDefinition {
         }
       }
     }
-  };
-}
-
-function applyWireExpandedCatalogToolProjection(
-  bundle: AssistantRuntimeBundle,
-  projection: RuntimeNativeToolProjection,
-  options?: NativeToolProjectionOptions
-): RuntimeNativeToolProjection {
-  const expandedCodes = options?.wireExpandedCatalogToolCodes;
-  if (expandedCodes === undefined || expandedCodes.size === 0) {
-    return projection;
-  }
-  return {
-    ...projection,
-    tools: projection.tools.map((tool) => {
-      if (!expandedCodes.has(tool.name)) {
-        return tool;
-      }
-      const policy =
-        bundle.governance.toolPolicies.find((entry) => entry.toolCode === tool.name) ?? null;
-      if (policy === null || resolveModelExposure(policy) !== "catalog") {
-        return tool;
-      }
-      const fullDefinition = buildFullNativeToolDefinition(bundle, tool.name, options);
-      return fullDefinition ?? tool;
-    })
   };
 }
 

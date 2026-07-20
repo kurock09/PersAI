@@ -4,6 +4,23 @@ This document defines the current verification baseline for the active PersAI-na
 
 ADR-072 is closed as the historical native migration ADR. Current continuation work should be checked against `docs/ADR/078-consolidated-follow-through-program.md`. `Step 15a` is cancelled and is not an active verification track. ADR-087 defines the unified quota-advisory and paid light-mode target state. ADR-088 defines the unified notification platform target state.
 
+## 2026-07-21 ADR-161 cache-prefix repair
+
+- Runtime hydration coverage proves first-writer-wins non-empty snapshots,
+  byte-identical reuse without refetch, durable empty snapshots, and fail-closed
+  behavior when the snapshot cannot be persisted.
+- Catalog projection/turn execution coverage proves the provider-visible
+  `tools` JSON is unchanged after `{action:"describe"}`, the full schema exists
+  in the describe result, real calls remain guarded until that result loads the
+  contract, and the compact stub accepts returned-contract arguments.
+- API coverage pins empty/non-empty snapshot resolve semantics, request bounds,
+  missing chats, PostgreSQL numeric-string normalization, and malformed
+  Business cache percentages.
+- Shipping gate: recursive lint/tests, repository format check, API/Web
+  typechecks, Prisma generation/validation and migration checks, Helm
+  lint/template, then exact-image DeepSeek-only live turns and cache-log
+  inspection. Do not switch to OpenAI without founder direction.
+
 ## 2026-07-19 ADR-159 Session Work Queue (Slices 1–3 CLEAN/GO local; S5 shipping pending)
 
 Completed focused coverage plus S5 shipping coverage (no intermediate deploy until S5):
