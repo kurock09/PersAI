@@ -5,6 +5,18 @@
 
 ## 2026-07-20
 
+- **ADR-161 S5 local audits and full gates complete:** independent
+  billing/rollout and security/privacy audits returned CLEAN. The
+  architecture/cache audit found one P1: OpenAI and Anthropic placed mutable
+  volatile context before the sealed tool spine. Both provider assemblers now
+  emit stable history/request, sealed spine/boundary, newest-three overlays,
+  then volatile/developer suffix; volatile-only fixtures prove the prior
+  sealed prefix remains byte-identical. Full API, provider-gateway, runtime,
+  and web suites pass, together with recursive lint, repository formatting,
+  affected typechecks, contracts generation, Prisma validation, and migration
+  fixtures. S6 live provider matrix/50-loop acceptance remains pending; no
+  push or deploy has occurred.
+
 - **ADR-161 S4 canonical text accounting implemented locally:** provider
   streaming and non-streaming results now emit explicit v2 usage; runtime
   propagates it through web, Telegram, sync, fallback, and receipt paths; API

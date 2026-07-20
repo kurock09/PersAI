@@ -9,6 +9,7 @@ import type {
   ProviderGatewayVideoGenerateRequest,
   ProviderGatewayTextStreamEvent
 } from "@persai/runtime-contract";
+import { hashProviderCacheSemanticPrefix } from "@persai/runtime-contract";
 import { OpenAIProviderClient } from "../src/modules/providers/openai/openai-provider.client";
 
 function createConfig(): ProviderGatewayConfig {
@@ -607,10 +608,8 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
       })
   );
 
-  // ADR-120 Slice 1 — the pushed contextual short-memory volatile block was
-  // retired; the surviving volatile kind exercised here is `active_scenario`.
-  // The repositioning mechanism (splice volatile as a `developer` block right
-  // before the current question) is shared and must stay intact.
+  // ADR-120 Slice 1 / ADR-161 — volatile context remains a developer block,
+  // but follows the active user request and any sealed spine.
   await client.generateText({
     ...request,
     developerInstructions: "Volatile working files and presence context.",
@@ -625,14 +624,15 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
       ...request.messages
     ]
   });
-  // The flagged volatile-context block is moved out of the cached prefix and projected as a
-  // `developer` block immediately before the current user question (symmetric with Anthropic).
+  // The flagged volatile-context block is projected after the stable request
+  // content, so its per-turn rotation cannot rewrite a sealed prefix.
   // Developer instructions stay a provider-native `developer` suffix at the very end.
   // ADR-119 Slice 2: baselineGenerateInput[0] is now the developer-system item; indices shift.
   assert.deepEqual(capturedGeneratePayload!.input, [
     baselineGenerateInput[0],
     baselineGenerateInput[1],
     baselineGenerateInput[2],
+    baselineGenerateInput[3],
     {
       role: "developer",
       content:
@@ -644,7 +644,6 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
         '<step number="1"><directive>Per-turn scenario step that changes with the latest user input.</directive></step>' +
         "\n</persai_active_scenario>"
     },
-    baselineGenerateInput[3],
     {
       role: "developer",
       content: [
@@ -655,6 +654,163 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
       ]
     }
   ]);
+
+  // ADR-161 P1: changing only mutable volatile/developer suffix context must
+  // retain the exact OpenAI provider-semantic prefix through the sealed
+  // boundary. Full observations follow that boundary without becoming duplicate
+  // function-call/function-output protocol pairs.
+  const openAiSealedSuffixRequest: ProviderGatewayTextGenerateRequest = {
+    ...request,
+    promptCache: {
+      key: "adr161-openai-prefix",
+      openaiPolicy: {
+        mode: "explicit",
+        ttl: "30m",
+        stableAnchor: "explicit",
+        sealedSpineBreakpoint: "explicit"
+      }
+    },
+    developerInstructions: "volatile developer one",
+    messages: [
+      {
+        role: "assistant",
+        content: "Prior stable answer."
+      },
+      {
+        role: "user",
+        content: "Current request."
+      },
+      {
+        role: "assistant",
+        content: "scenario one",
+        cacheRole: "volatile_context",
+        volatileKind: "active_scenario"
+      }
+    ],
+    toolHistory: [
+      {
+        assistantText: "I will inspect the result.",
+        toolCall: { id: "call-sealed", name: "knowledge_search", arguments: { query: "cache" } },
+        toolResult: {
+          toolCallId: "call-sealed",
+          name: "knowledge_search",
+          content: '{"action":"completed","result":"compact"}',
+          isError: false
+        }
+      }
+    ],
+    toolObservationOverlays: [
+      {
+        ordinal: 1,
+        exchange: {
+          assistantText: "I will inspect the result.",
+          toolCall: { id: "call-sealed", name: "knowledge_search", arguments: { query: "cache" } },
+          toolResult: {
+            toolCallId: "call-sealed",
+            name: "knowledge_search",
+            content: '{"action":"completed","result":"full"}',
+            isError: false
+          }
+        }
+      }
+    ],
+    requestMetadata: {
+      classification: "tool_loop_followup",
+      runtimeRequestId: "adr161-openai",
+      runtimeSessionId: "adr161-session",
+      toolLoopIteration: 1,
+      compactionToolCode: null
+    }
+  };
+  await client.generateText(openAiSealedSuffixRequest);
+  const firstOpenAiItems = capturedGeneratePayload!.input as Array<Record<string, unknown>>;
+  const findOpenAiBoundaryIndex = (items: Array<Record<string, unknown>>): number =>
+    items.findIndex(
+      (item) =>
+        item.role === "developer" &&
+        Array.isArray(item.content) &&
+        item.content.some(
+          (block) =>
+            block !== null &&
+            typeof block === "object" &&
+            (block as { type?: unknown }).type === "input_text" &&
+            (block as { text?: unknown }).text ===
+              '<persai_tool_exchange_boundary ordinal="000001"/>' &&
+            (block as { prompt_cache_breakpoint?: { mode?: unknown } }).prompt_cache_breakpoint
+              ?.mode === "explicit"
+        )
+    );
+  const findNearestCallSealedResultIndex = (
+    items: Array<Record<string, unknown>>,
+    boundaryIndex: number
+  ): number => {
+    for (let index = boundaryIndex - 1; index >= 0; index -= 1) {
+      const item = items[index];
+      if (item?.type === "function_call_output" && item.call_id === "call-sealed") {
+        return index;
+      }
+    }
+    return -1;
+  };
+  const openAiBoundaryIndex = findOpenAiBoundaryIndex(firstOpenAiItems);
+  assert.ok(openAiBoundaryIndex >= 0, "must include the explicit sealed-spine boundary item");
+  const openAiResultIndex = findNearestCallSealedResultIndex(firstOpenAiItems, openAiBoundaryIndex);
+  assert.ok(openAiResultIndex >= 0, "must find the matching call-sealed function_call_output");
+  const openAiCallIndex = openAiResultIndex - 1;
+  const openAiAssistantTextIndex = openAiCallIndex - 1;
+  assert.equal(firstOpenAiItems[openAiCallIndex]?.type, "function_call");
+  assert.equal(firstOpenAiItems[openAiCallIndex]?.call_id, "call-sealed");
+  assert.equal(firstOpenAiItems[openAiResultIndex]?.type, "function_call_output");
+  assert.equal(firstOpenAiItems[openAiResultIndex]?.call_id, "call-sealed");
+  assert.equal(firstOpenAiItems[openAiAssistantTextIndex]?.role, "assistant");
+  assert.deepEqual(firstOpenAiItems[openAiAssistantTextIndex]?.content, [
+    { type: "input_text", text: "I will inspect the result." }
+  ]);
+  const openAiOverlayIndex = firstOpenAiItems.findIndex((item) =>
+    JSON.stringify(item.content ?? "").includes("<persai_recent_tool_observation")
+  );
+  assert.ok(openAiBoundaryIndex === openAiResultIndex + 1);
+  assert.ok(openAiOverlayIndex > openAiBoundaryIndex);
+  const firstOpenAiPrefix = firstOpenAiItems.slice(0, openAiBoundaryIndex + 1);
+  const firstOpenAiPrefixBytes = JSON.stringify(firstOpenAiPrefix);
+  const firstOpenAiPrefixHash = hashProviderCacheSemanticPrefix({
+    provider: "openai",
+    serializedPrefix: firstOpenAiPrefix
+  }).hash;
+
+  await client.generateText({
+    ...openAiSealedSuffixRequest,
+    developerInstructions: "volatile developer two",
+    messages: [
+      ...openAiSealedSuffixRequest.messages.slice(0, 2),
+      {
+        role: "assistant",
+        content: "scenario two",
+        cacheRole: "volatile_context",
+        volatileKind: "active_scenario"
+      }
+    ],
+    requestMetadata: {
+      ...openAiSealedSuffixRequest.requestMetadata!,
+      toolLoopIteration: 2
+    }
+  });
+  const secondOpenAiItems = capturedGeneratePayload!.input as Array<Record<string, unknown>>;
+  const secondOpenAiBoundaryIndex = findOpenAiBoundaryIndex(secondOpenAiItems);
+  assert.ok(
+    secondOpenAiBoundaryIndex >= 0,
+    "must retain the explicit sealed-spine boundary on the next volatile-only iteration"
+  );
+  const secondOpenAiPrefix = secondOpenAiItems.slice(0, secondOpenAiBoundaryIndex + 1);
+  assert.equal(JSON.stringify(secondOpenAiPrefix), firstOpenAiPrefixBytes);
+  assert.equal(
+    hashProviderCacheSemanticPrefix({
+      provider: "openai",
+      serializedPrefix: secondOpenAiPrefix
+    }).hash,
+    firstOpenAiPrefixHash
+  );
+  assert.notEqual(JSON.stringify(secondOpenAiItems), JSON.stringify(firstOpenAiItems));
 
   const structuredRequest: ProviderGatewayTextGenerateRequest = {
     ...request,

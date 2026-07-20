@@ -5,6 +5,7 @@ import type {
   ProviderGatewayTextGenerateRequest,
   ProviderGatewayTextStreamEvent
 } from "@persai/runtime-contract";
+import { hashProviderCacheSemanticPrefix } from "@persai/runtime-contract";
 import { AnthropicProviderClient } from "../src/modules/providers/anthropic/anthropic-provider.client";
 
 function createConfig(): ProviderGatewayConfig {
@@ -1345,10 +1346,8 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
     : 0;
   assert.ok(systemBreakpoints + cacheMarkedBlocks.length <= 4, "stay within Anthropic slots");
 
-  // ADR-120 Slice 1 — the pushed contextual short-memory volatile block was
-  // retired; the surviving volatile kind exercised here is `active_scenario`.
-  // The repositioning mechanism (move volatile out of the cached prefix, splice
-  // next to the user question) is shared and must stay intact.
+  // ADR-120 Slice 1 / ADR-161 — volatile context remains a user-role
+  // projection but is now a suffix after stable request content.
   const contextualMemoryMovingCacheRequest: ProviderGatewayTextGenerateRequest = {
     ...movingHistoryCacheRequest,
     messages: [
@@ -1363,9 +1362,8 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
     ]
   };
   await client.generateText(contextualMemoryMovingCacheRequest);
-  // The stable history breakpoint stays cached; the flagged volatile-context block is moved out of
-  // the prefix and re-projected as a `user` block immediately before the current user question, so
-  // its per-turn rotation cannot invalidate the cached history.
+  // The stable history breakpoint stays cached; volatile context follows the
+  // active request so its per-turn rotation cannot invalidate the cache prefix.
   assert.deepEqual(capturedGeneratePayload!.system, [
     {
       type: "text",
@@ -1390,6 +1388,10 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
     },
     {
       role: "user",
+      content: "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    {
+      role: "user",
       content: [
         {
           type: "text",
@@ -1405,13 +1407,9 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
             "</persai_runtime_context>"
         }
       ]
-    },
-    {
-      role: "user",
-      content: "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
     }
   ]);
-  const contextualProjection = capturedGeneratePayload!.messages[1] as {
+  const contextualProjection = capturedGeneratePayload!.messages[2] as {
     role?: unknown;
     content?: Array<{ type?: unknown; text?: unknown; cache_control?: unknown }>;
   };
@@ -1433,6 +1431,160 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
     ),
     [1, 0, 0]
   );
+
+  // ADR-161 P1: the prior sealed Anthropic prefix remains byte-identical when
+  // only volatile context/developer suffix content changes. The latest compact
+  // result remains the cache marker; the full overlay is a separate text block,
+  // never a duplicate tool-use/tool-result protocol pair.
+  const anthropicSealedSuffixRequest: ProviderGatewayTextGenerateRequest = {
+    ...request,
+    promptCache: {
+      anthropicHistoryBreakpointMinTokens: 1
+    },
+    developerInstructions: "volatile developer one",
+    messages: [
+      {
+        role: "assistant",
+        content: "Stable history."
+      },
+      {
+        role: "user",
+        content: "Current request."
+      },
+      {
+        role: "assistant",
+        content: "scenario one",
+        cacheRole: "volatile_context",
+        volatileKind: "active_scenario"
+      }
+    ],
+    toolHistory: [
+      {
+        assistantText: "I will inspect the result.",
+        toolCall: {
+          id: "toolu-sealed-adr161",
+          name: "knowledge_search",
+          arguments: { query: "cache" }
+        },
+        toolResult: {
+          toolCallId: "toolu-sealed-adr161",
+          name: "knowledge_search",
+          content: '{"action":"completed","result":"compact"}',
+          isError: false
+        }
+      }
+    ],
+    toolObservationOverlays: [
+      {
+        ordinal: 1,
+        exchange: {
+          assistantText: "I will inspect the result.",
+          toolCall: {
+            id: "toolu-sealed-adr161",
+            name: "knowledge_search",
+            arguments: { query: "cache" }
+          },
+          toolResult: {
+            toolCallId: "toolu-sealed-adr161",
+            name: "knowledge_search",
+            content: '{"action":"completed","result":"full"}',
+            isError: false
+          }
+        }
+      }
+    ],
+    requestMetadata: {
+      classification: "tool_loop_followup",
+      runtimeRequestId: "adr161-anthropic",
+      runtimeSessionId: "adr161-session",
+      toolLoopIteration: 1,
+      compactionToolCode: null
+    }
+  };
+  await client.generateText(anthropicSealedSuffixRequest);
+  const firstAnthropicMessages = capturedGeneratePayload!.messages as Array<
+    Record<string, unknown>
+  >;
+  const anthropicResultIndex = firstAnthropicMessages.findIndex(
+    (message) =>
+      Array.isArray(message.content) &&
+      message.content.some(
+        (block) =>
+          block !== null &&
+          typeof block === "object" &&
+          (block as { type?: unknown; tool_use_id?: unknown }).type === "tool_result" &&
+          (block as { tool_use_id?: unknown }).tool_use_id === "toolu-sealed-adr161"
+      )
+  );
+  const anthropicToolUseIndex = firstAnthropicMessages.findIndex(
+    (message) =>
+      Array.isArray(message.content) &&
+      message.content.some(
+        (block) =>
+          block !== null &&
+          typeof block === "object" &&
+          (block as { type?: unknown }).type === "tool_use"
+      )
+  );
+  const anthropicOverlayIndex = firstAnthropicMessages.findIndex((message) =>
+    JSON.stringify(message.content).includes("<persai_recent_tool_observation")
+  );
+  assert.ok(anthropicToolUseIndex >= 0 && anthropicResultIndex === anthropicToolUseIndex + 1);
+  assert.ok(anthropicOverlayIndex > anthropicResultIndex);
+  const firstAnthropicPrefix = {
+    system: capturedGeneratePayload!.system,
+    messages: firstAnthropicMessages.slice(0, anthropicResultIndex + 1)
+  };
+  const firstAnthropicPrefixBytes = JSON.stringify(firstAnthropicPrefix);
+  const firstAnthropicPrefixHash = hashProviderCacheSemanticPrefix({
+    provider: "anthropic",
+    serializedPrefix: firstAnthropicPrefix
+  }).hash;
+
+  await client.generateText({
+    ...anthropicSealedSuffixRequest,
+    developerInstructions: "volatile developer two",
+    messages: [
+      ...anthropicSealedSuffixRequest.messages.slice(0, 2),
+      {
+        role: "assistant",
+        content: "scenario two",
+        cacheRole: "volatile_context",
+        volatileKind: "active_scenario"
+      }
+    ],
+    requestMetadata: {
+      ...anthropicSealedSuffixRequest.requestMetadata!,
+      toolLoopIteration: 2
+    }
+  });
+  const secondAnthropicMessages = capturedGeneratePayload!.messages as Array<
+    Record<string, unknown>
+  >;
+  const secondAnthropicResultIndex = secondAnthropicMessages.findIndex(
+    (message) =>
+      Array.isArray(message.content) &&
+      message.content.some(
+        (block) =>
+          block !== null &&
+          typeof block === "object" &&
+          (block as { type?: unknown; tool_use_id?: unknown }).type === "tool_result" &&
+          (block as { tool_use_id?: unknown }).tool_use_id === "toolu-sealed-adr161"
+      )
+  );
+  const secondAnthropicPrefix = {
+    system: capturedGeneratePayload!.system,
+    messages: secondAnthropicMessages.slice(0, secondAnthropicResultIndex + 1)
+  };
+  assert.equal(JSON.stringify(secondAnthropicPrefix), firstAnthropicPrefixBytes);
+  assert.equal(
+    hashProviderCacheSemanticPrefix({
+      provider: "anthropic",
+      serializedPrefix: secondAnthropicPrefix
+    }).hash,
+    firstAnthropicPrefixHash
+  );
+  assert.notEqual(JSON.stringify(secondAnthropicMessages), JSON.stringify(firstAnthropicMessages));
 
   const mediaOnlyTailCacheRequest: ProviderGatewayTextGenerateRequest = {
     ...request,

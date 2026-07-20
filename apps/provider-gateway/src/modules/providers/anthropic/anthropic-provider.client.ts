@@ -860,9 +860,6 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
       });
     }
     const stableHistoryMessageCount = messages.length;
-    // Index of the current user question within `messages` (before tool-history is appended).
-    // Volatile context is spliced in just ahead of it so the question keeps the highest recency.
-    const userQuestionIndex = messages.length - 1;
     const isToolLoopFollowUp = input.requestMetadata?.classification === "tool_loop_followup";
     // The quantized stable-history anchor and the latest sealed result are
     // separate cache zones. Anchor only durable history, never the in-turn
@@ -898,16 +895,14 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
         latestSealedSpine: isToolLoopFollowUp && (input.toolHistory?.length ?? 0) > 0
       });
     }
-    if (volatileContextMessages.length > 0) {
-      const insertAt = userQuestionIndex >= 0 ? userQuestionIndex : messages.length;
-      messages.splice(
-        insertAt,
-        0,
-        ...volatileContextMessages.map((message) =>
-          this.buildAnthropicVolatileContextMessage(message)
-        )
-      );
-    }
+    // ADR-161: keep the immutable compact spine and latest sealed-result
+    // marker ahead of mutable context. Volatile context must never move the
+    // provider cache frontier or receive a cache-control marker.
+    messages.push(
+      ...volatileContextMessages.map((message) =>
+        this.buildAnthropicVolatileContextMessage(message)
+      )
+    );
     const developerInstructionsSuffix = this.buildAnthropicDeveloperInstructionsSuffix(input);
     if (developerInstructionsSuffix !== null) {
       messages.push(developerInstructionsSuffix);

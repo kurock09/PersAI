@@ -2,8 +2,9 @@
 
 ## 2026-07-20 — ADR-161 S0-S4 implemented locally
 
-Status: **S0-S3 committed through `ebf310c4`; S4 implemented and awaiting its
-local checkpoint commit; S5-S6 pending. No push, deploy, or live acceptance.**
+Status: **S0-S4 committed through `8f172151`; S5 implementation/audits/gates
+complete and awaiting its local checkpoint commit; S6 pending. No push,
+deploy, or live acceptance.**
 
 Repo truth:
 
@@ -46,10 +47,21 @@ suites pass; the full API suite reached one stale currency fixture, which was
 corrected and its focused test passes. Prisma validation, recursive lint,
 affected typechecks, contracts generation, and formatting pass.
 
-Next: commit S4, run S5 full API/full repository gates and independent
-architecture/security/billing audits, then execute S6 provider matrix,
-50-iteration loops, authenticated 40–50-tool turn, one final push/deploy, and
-live acceptance.
+S5 local closure:
+
+- billing/rollout and security/privacy audits returned CLEAN;
+- architecture/cache audit found one P1: mutable OpenAI/Anthropic context
+  preceded the sealed spine;
+- provider assembly now orders stable history/request, sealed spine/boundary,
+  newest-three overlays, then volatile/developer suffix;
+- volatile-only fixtures prove the prior sealed provider prefix is
+  byte-identical;
+- full API, provider-gateway, runtime, and web suites pass;
+- recursive lint, repository format, API/Web/provider/runtime typechecks,
+  contracts generation, Prisma validation, and migration fixtures pass.
+
+Next: commit S5, then execute S6 provider matrix, sequential 50-iteration loops,
+authenticated 40–50-tool turn, one final push/deploy, and live acceptance.
 
 ## 2026-07-20 — provider-gateway OpenAI env fallback removed locally
 

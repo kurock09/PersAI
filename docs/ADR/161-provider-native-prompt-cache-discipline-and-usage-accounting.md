@@ -2,7 +2,7 @@
 
 ## Status
 
-**Open — 2026-07-20; S0-S4 implemented locally, S5-S6 pending.**
+**Open — 2026-07-20; S0-S5 implemented locally, S6 pending.**
 
 This is a new parent-orchestrated program. The opening baseline is
 `d4bd32679929bef89cc13120cf2719ad9a2b0df3`. The documentation opening is
@@ -42,6 +42,19 @@ Unknown versions fail closed. Currency aggregates are partitioned, explicit
 zero cache-write pricing is preserved, and non-text accounting remains
 unchanged. The independent S4 audit returned four P1 findings; all were
 corrected. S5 full audits/gates and S6 live acceptance remain pending.
+
+S5 local closure gates are complete. Independent billing/rollout and
+security/privacy audits returned CLEAN. The independent architecture/cache
+audit found one P1: OpenAI and Anthropic placed mutable volatile context before
+the sealed in-turn spine. The provider assemblers now emit stable
+history/request, sealed spine/boundary, newest-three overlays, then the mutable
+volatile/developer suffix; volatile-only regression fixtures prove the prior
+sealed provider prefix remains byte-identical. Full API, provider-gateway,
+runtime, and web suites pass, together with recursive lint, repository format,
+API/Web/provider/runtime typechecks, contracts generation, Prisma validation,
+and migration fixtures. S6 live provider matrix, sequential 50-iteration
+benchmarks, authenticated 40–50-tool turn, deployment, and live acceptance
+remain pending.
 
 The parent agent orchestrates, audits, reconciles documentation, and commits
 only after an accepted coherent checkpoint. Founder-directed implementation

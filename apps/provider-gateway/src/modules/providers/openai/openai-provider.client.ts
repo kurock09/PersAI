@@ -1527,9 +1527,6 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
         content: this.toOpenAIMessageContent(message.content)
       });
     }
-    // Index of the current user question (before tool-history items are appended). Volatile
-    // context is spliced in just ahead of it so the question keeps the highest recency.
-    const userQuestionIndex = items.length - 1;
     for (const exchange of input.toolHistory ?? []) {
       this.pushOpenAIExchangeItems(items, exchange);
       this.pushOpenAISealedSpineBoundary(items, exchange, input);
@@ -1541,18 +1538,25 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
         content: this.toOpenAIMessageContent(toolFollowUpUserContent)
       });
     }
-    // ADR-110 prompt-cache discipline: per-turn relevance memory is volatile, so it must sit
-    // OUTSIDE the cached prefix. Splice it in as a `developer` block right before the current
-    // question so it never invalidates the cached history while staying high in recency. The
-    // `developer` role (app-provided context, not user speech) keeps the model from treating the
-    // memory block as something to answer or recite. Developer instructions stay a `developer` suffix.
-    if (volatileContextMessages.length > 0) {
-      const insertAt = userQuestionIndex >= 0 ? userQuestionIndex : items.length;
-      items.splice(insertAt, 0, this.buildOpenAIVolatileContextItem(volatileContextMessages));
+    for (const overlay of input.toolObservationOverlays ?? []) {
+      items.push({
+        role: "developer",
+        content: [
+          {
+            type: "input_text",
+            text: `<persai_recent_tool_observation ordinal="${String(overlay.ordinal).padStart(6, "0")}">\n${overlay.exchange.toolResult.content}\n</persai_recent_tool_observation>`
+          }
+        ]
+      });
     }
-    // ADR-074 P1: per-turn developer instructions live OUTSIDE the cached `instructions` prefix.
-    // Appending them as the last input item (after history and any tool exchange) keeps the
-    // common prompt prefix byte-stable across turns so OpenAI prompt caching can stay hot.
+    // ADR-161: volatile context belongs after the immutable sealed spine and
+    // newest-three observation overlays. This preserves the provider-visible
+    // prefix through the latest boundary when only volatile context rotates.
+    if (volatileContextMessages.length > 0) {
+      items.push(this.buildOpenAIVolatileContextItem(volatileContextMessages));
+    }
+    // ADR-074 P1 / ADR-161: mutable developer guidance is the final suffix,
+    // after both sealed exchanges and rotating observation overlays.
     const developerInstructions = this.normalizeOptionalText(input.developerInstructions);
     if (developerInstructions !== null) {
       items.push({
@@ -1561,17 +1565,6 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
           {
             type: "input_text",
             text: developerInstructions
-          }
-        ]
-      });
-    }
-    for (const overlay of input.toolObservationOverlays ?? []) {
-      items.push({
-        role: "developer",
-        content: [
-          {
-            type: "input_text",
-            text: `<persai_recent_tool_observation ordinal="${String(overlay.ordinal).padStart(6, "0")}">\n${overlay.exchange.toolResult.content}\n</persai_recent_tool_observation>`
           }
         ]
       });
