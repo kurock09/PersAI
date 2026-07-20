@@ -5,6 +5,20 @@
 
 ## 2026-07-20
 
+- **Provider-gateway OpenAI env fallback removed (local, not committed/deployed):**
+  verified on clean baseline `07bf3843` that the active PersAI-native
+  production path already resolves OpenAI through the managed internal secret
+  service (`openai/api-key`) and that the remaining
+  `PROVIDER_GATEWAY_OPENAI_API_KEY` usage was only legacy fallback wiring.
+  Removed the static OpenAI env key from the active provider-gateway config
+  schema/types, client fallback behavior, Helm/dev secret wiring, focused
+  tests/fixtures, and current API boundary docs. OpenAI text-provider warmup
+  now fails closed/unconfigured when the managed secret is missing or
+  unavailable; Anthropic/DeepSeek behavior is unchanged aside from the shared
+  test/config cleanup. Focused provider-gateway tests, provider-gateway
+  lint/typecheck, repo lint, repo format check, API/web typecheck, Helm
+  lint/template, and `git diff --check` pass.
+
 - **Architecture (ADR-161 opened, docs only):** the provider-cache audit
   confirmed that the compiled stable system prompt is stable and that, for
   ordinary/deep chat, early volatile `developerInstructions` placement is

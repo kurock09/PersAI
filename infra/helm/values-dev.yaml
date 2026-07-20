@@ -421,10 +421,6 @@ providerGateway:
     PERSAI_INTERNAL_API_TOKEN:
       secretName: persai-runtime-secrets
       secretKey: PERSAI_INTERNAL_API_TOKEN
-    PROVIDER_GATEWAY_OPENAI_API_KEY:
-      secretName: persai-runtime-secrets
-      secretKey: OPENAI_API_KEY
-      optional: true
     PROVIDER_GATEWAY_ANTHROPIC_API_KEY:
       secretName: persai-runtime-secrets
       secretKey: ANTHROPIC_API_KEY

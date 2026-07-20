@@ -150,7 +150,6 @@ export async function runProviderWebSearchServiceTest(): Promise<void> {
       loadProviderGatewayConfig({
         APP_ENV: "local",
         PROVIDER_GATEWAY_WARM_ON_BOOT: "false",
-        PROVIDER_GATEWAY_OPENAI_API_KEY: "openai-test-key",
         PERSAI_API_BASE_URL: "http://api.local",
         PERSAI_INTERNAL_API_TOKEN: "internal-token"
       }),

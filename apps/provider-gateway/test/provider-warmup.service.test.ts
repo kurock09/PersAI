@@ -25,7 +25,6 @@ function createConfig(): ProviderGatewayConfig {
     PROVIDER_GATEWAY_REQUEST_TIMEOUT_MS: 90_000,
     PROVIDER_GATEWAY_STREAM_TIMEOUT_MS: 90_000,
     PROVIDER_GATEWAY_BROWSERLESS_BASE_URL: "https://production-sfo.browserless.io",
-    PROVIDER_GATEWAY_OPENAI_API_KEY: "openai-test-key",
     PROVIDER_GATEWAY_ANTHROPIC_API_KEY: undefined,
     PROVIDER_GATEWAY_OPENAI_MODELS: ["gpt-5.4"],
     PROVIDER_GATEWAY_ANTHROPIC_MODELS: ["claude-sonnet-4-5"]
@@ -76,8 +75,8 @@ export async function runProviderWarmupServiceTest(): Promise<void> {
 
   const beforeWarmup = readinessService.getSnapshot();
   assert.equal(beforeWarmup.ready, false);
-  assert.equal(beforeWarmup.providerCacheReady, false);
-  assert.equal(beforeWarmup.providers[0]?.state, "pending");
+  assert.equal(beforeWarmup.providerCacheReady, true);
+  assert.equal(beforeWarmup.providers[0]?.state, "unconfigured");
   assert.equal(beforeWarmup.providers[1]?.state, "unconfigured");
   assert.equal(beforeWarmup.providers[2]?.state, "unconfigured");
   assert.equal(beforeWarmup.providers[0]?.catalogSource, "bootstrap_config");
@@ -111,8 +110,8 @@ export async function runProviderWarmupServiceTest(): Promise<void> {
   assert.equal(warmup.runs, 1);
   assert.equal(warmup.failures, 0);
   assert.equal(warmup.providers[0]?.provider, "openai");
-  assert.equal(warmup.providers[0]?.configured, true);
-  assert.equal(warmup.providers[0]?.state, "ready");
+  assert.equal(warmup.providers[0]?.configured, false);
+  assert.equal(warmup.providers[0]?.state, "unconfigured");
   assert.equal(warmup.providers[0]?.catalogSource, "control_plane_apply");
   assert.deepEqual(warmup.providers[0]?.catalogModels, ["gpt-5.4-mini", "gpt-5.4"]);
   assert.equal(warmup.providers[1]?.provider, "anthropic");
@@ -129,12 +128,14 @@ export async function runProviderWarmupServiceTest(): Promise<void> {
   const afterWarmup = readinessService.getSnapshot();
   assert.equal(afterWarmup.ready, true);
   assert.equal(afterWarmup.providerCacheReady, true);
-  const ensured = await warmupService.ensureReadyForRequest({
-    provider: "openai",
-    model: "gpt-5.4"
-  });
-  assert.equal(ensured.provider, "openai");
-  assert.equal(ensured.state, "ready");
+  await assert.rejects(
+    () =>
+      warmupService.ensureReadyForRequest({
+        provider: "openai",
+        model: "gpt-5.4"
+      }),
+    /Provider "openai" is not ready/
+  );
   assert.deepEqual(catalogService.getSnapshot().providers, [
     {
       provider: "openai",
@@ -175,6 +176,9 @@ export async function runProviderWarmupServiceTest(): Promise<void> {
         return true;
       },
       async resolveSecretValue(secretId: string) {
+        if (secretId === "openai/api-key") {
+          return "openai-managed-test-key";
+        }
         throw new Error(`PersAI-managed runtime secret "${secretId}" is not configured.`);
       },
       async getDefaultProviderSettings() {

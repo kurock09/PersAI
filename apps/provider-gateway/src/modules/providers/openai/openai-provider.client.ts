@@ -157,7 +157,7 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
   ) {}
 
   isConfigured(): boolean {
-    return typeof this.config.PROVIDER_GATEWAY_OPENAI_API_KEY === "string";
+    return false;
   }
 
   getCatalogModels(): string[] {
@@ -165,8 +165,8 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
   }
 
   async warm(apiKeyOverride?: string): Promise<void> {
-    const apiKey = apiKeyOverride ?? this.config.PROVIDER_GATEWAY_OPENAI_API_KEY;
-    if (!apiKey) {
+    const apiKey = apiKeyOverride?.trim() ?? "";
+    if (apiKey.length === 0) {
       this.client = null;
       return;
     }
@@ -872,7 +872,7 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
     input: ProviderGatewayVideoGenerateRequest,
     options?: { apiKey?: string }
   ): Promise<ProviderGatewayVideoGenerateResult> {
-    const apiKey = this.resolveApiKey(options?.apiKey);
+    const apiKey = this.requireApiKey(options?.apiKey);
     const { signal, dispose } = this.createTimedSignal(
       Math.max(this.config.PROVIDER_GATEWAY_REQUEST_TIMEOUT_MS, OPENAI_VIDEO_GENERATION_TIMEOUT_MS)
     );
@@ -1874,15 +1874,11 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
     return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : null;
   }
 
-  private resolveApiKey(apiKey?: string): string {
+  private requireApiKey(apiKey?: string): string {
     if (typeof apiKey === "string" && apiKey.trim().length > 0) {
       return apiKey.trim();
     }
-    const configuredApiKey = this.config.PROVIDER_GATEWAY_OPENAI_API_KEY?.trim();
-    if (configuredApiKey && configuredApiKey.length > 0) {
-      return configuredApiKey;
-    }
-    throw new Error("OpenAI provider client is not warmed.");
+    throw new Error("OpenAI API key must be resolved from the managed secret service.");
   }
 
   private getApiClient(apiKey?: string, baseURL?: string): OpenAI {

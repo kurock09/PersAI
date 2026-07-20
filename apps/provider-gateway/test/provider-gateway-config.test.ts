@@ -6,8 +6,7 @@ export async function runProviderGatewayConfigTest(): Promise<void> {
     APP_ENV: "local",
     PROVIDER_GATEWAY_WARM_ON_BOOT: "false",
     PROVIDER_GATEWAY_OPENAI_MODELS: "gpt-5.4, gpt-4.1",
-    PROVIDER_GATEWAY_ANTHROPIC_MODELS: "claude-sonnet-4-5",
-    PROVIDER_GATEWAY_OPENAI_API_KEY: "openai-test-key"
+    PROVIDER_GATEWAY_ANTHROPIC_MODELS: "claude-sonnet-4-5"
   });
 
   assert.equal(config.PORT, 3011);
@@ -24,6 +23,5 @@ export async function runProviderGatewayConfigTest(): Promise<void> {
   );
   assert.deepEqual(config.PROVIDER_GATEWAY_OPENAI_MODELS, ["gpt-5.4", "gpt-4.1"]);
   assert.deepEqual(config.PROVIDER_GATEWAY_ANTHROPIC_MODELS, ["claude-sonnet-4-5"]);
-  assert.equal(config.PROVIDER_GATEWAY_OPENAI_API_KEY, "openai-test-key");
   assert.equal(config.PROVIDER_GATEWAY_ANTHROPIC_API_KEY, undefined);
 }

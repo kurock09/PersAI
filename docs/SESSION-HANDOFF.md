@@ -1,5 +1,62 @@
 # SESSION-HANDOFF
 
+## 2026-07-20 — provider-gateway OpenAI env fallback removed locally
+
+Status: **Local only on clean baseline `07bf38435b0c88c5aa10a5378a67c89996db147a`.
+No commit, push, deploy, or live acceptance.**
+
+Founder-confirmed scope: verify whether static
+`PROVIDER_GATEWAY_OPENAI_API_KEY` is still required anywhere on the active
+PersAI-native production path, and remove it only if the active request path
+already depends solely on Admin-managed encrypted provider secrets.
+
+Evidence from the active path:
+
+- `apps/api` runtime-provider routing already materializes OpenAI credentials as
+  PersAI-managed secret refs with id `openai/api-key`.
+- `apps/provider-gateway` warmup already resolves provider secrets through
+  `POST /api/v1/internal/runtime/provider-secrets/resolve`; the remaining
+  static OpenAI env key usage lived only in `ProviderGatewayConfig`,
+  `OpenAIProviderClient.isConfigured()/warm()/resolveApiKey()`, Helm secret
+  wiring, and stale tests/docs.
+- No active API/runtime/provider-gateway/Helm doc now requires an OpenAI env
+  fallback on the provider-gateway path.
+
+Implemented bounded repair:
+
+- removed `PROVIDER_GATEWAY_OPENAI_API_KEY` from
+  `packages/config/src/provider-gateway-config.ts`
+- removed direct OpenAI env fallback from
+  `apps/provider-gateway/src/modules/providers/openai/openai-provider.client.ts`
+  so OpenAI warms only from the managed `openai/api-key` resolution path and
+  direct request-time callers must pass an explicit managed key
+- updated focused provider-gateway tests/fixtures to stop modeling the removed
+  env key, while preserving valid managed-secret behavior
+- removed provider-gateway OpenAI secret wiring from
+  `infra/helm/values.yaml` and `infra/helm/values-dev.yaml`
+- updated `docs/API-BOUNDARY.md` to describe managed-secret-only OpenAI
+  configuration on the active path
+
+Verification:
+
+- `corepack pnpm --filter @persai/provider-gateway run test`
+- `corepack pnpm --filter @persai/provider-gateway run lint`
+- `corepack pnpm --filter @persai/provider-gateway run typecheck`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `helm lint infra/helm -f infra/helm/values-dev.yaml`
+- `helm template persai-dev infra/helm -f infra/helm/values-dev.yaml`
+- `git diff --check`
+
+Residual historical-only references remain in archived handoff/changelog files
+that document the old fallback era; active-path files no longer reference
+`PROVIDER_GATEWAY_OPENAI_API_KEY`.
+
+Next recommended step: parent review and commit this bounded cleanup slice if
+the managed-secret-only OpenAI provider path is accepted as the new repo truth.
+
 ## 2026-07-20 — ADR-161 provider-native prompt-cache discipline opened
 
 Status: **Founder long-loop refinement independently re-audited CLEAN with

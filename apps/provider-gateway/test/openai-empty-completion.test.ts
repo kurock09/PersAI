@@ -28,7 +28,6 @@ function createConfig(): ProviderGatewayConfig {
     PROVIDER_GATEWAY_REQUEST_TIMEOUT_MS: 90_000,
     PROVIDER_GATEWAY_STREAM_TIMEOUT_MS: 90_000,
     PROVIDER_GATEWAY_BROWSERLESS_BASE_URL: "https://production-sfo.browserless.io",
-    PROVIDER_GATEWAY_OPENAI_API_KEY: "openai-test-key",
     PROVIDER_GATEWAY_ANTHROPIC_API_KEY: undefined,
     PROVIDER_GATEWAY_OPENAI_MODELS: ["gpt-5.4"],
     PROVIDER_GATEWAY_ANTHROPIC_MODELS: ["claude-sonnet-4-5"]
@@ -70,7 +69,7 @@ async function collectStream(
 
 async function runEmptyNonStreamingTest(): Promise<void> {
   const client = new OpenAIProviderClient(createConfig());
-  await client.warm();
+  await client.warm("openai-test-key");
   installFakeOpenAI(client, () => ({
     output: [{ type: "reasoning", id: "r-1" }],
     output_text: "",
@@ -87,7 +86,7 @@ async function runEmptyNonStreamingTest(): Promise<void> {
 
 async function runToolCallsStillSurfaceTest(): Promise<void> {
   const client = new OpenAIProviderClient(createConfig());
-  await client.warm();
+  await client.warm("openai-test-key");
   installFakeOpenAI(client, () => ({
     output: [
       {
@@ -110,7 +109,7 @@ async function runToolCallsStillSurfaceTest(): Promise<void> {
 
 async function runEmptyStreamingTest(): Promise<void> {
   const client = new OpenAIProviderClient(createConfig());
-  await client.warm();
+  await client.warm("openai-test-key");
   installFakeOpenAI(client, () =>
     (async function* (): AsyncGenerator<unknown> {
       yield {

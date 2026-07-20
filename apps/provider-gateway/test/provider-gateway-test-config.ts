@@ -6,7 +6,6 @@ export function createProviderGatewayTestConfig(
   return loadProviderGatewayConfig({
     APP_ENV: "local",
     PROVIDER_GATEWAY_WARM_ON_BOOT: "false",
-    PROVIDER_GATEWAY_OPENAI_API_KEY: "openai-test-key",
     ...overrides
   });
 }

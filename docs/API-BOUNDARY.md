@@ -707,13 +707,13 @@ ADR-097's current document generation boundary is `POST /api/v1/providers/genera
 Current active secret split:
 
 - `persai-api-secrets`: API/web/database/admin secrets
-- `persai-runtime-secrets`: runtime/provider-gateway secrets and provider API keys
+- `persai-runtime-secrets`: runtime/provider-gateway internal service secrets and any remaining static provider API keys that are still explicitly wired on the active path
 
 Current runtime/provider path:
 
 1. `apps/api` resolves the active runtime bundle and forwards request-time execution to `apps/runtime`
 2. `apps/runtime` uses `apps/provider-gateway` for provider calls
-3. `apps/provider-gateway` prewarms text-generation providers from `persai-runtime-secrets` env vars when present, and falls back to PersAI-managed runtime provider keys stored by the admin runtime-provider settings flow through `POST /api/v1/internal/runtime/provider-secrets/resolve`
+3. `apps/provider-gateway` resolves the OpenAI text-provider key only through the PersAI-managed runtime provider secret flow (`openai/api-key` via `POST /api/v1/internal/runtime/provider-secrets/resolve`); missing or unavailable managed secret leaves OpenAI unconfigured. Other providers keep their own active-path wiring until explicitly migrated.
 4. tool credentials continue to resolve through the same internal secret resolver when tool calls need per-provider keys
 
 ## Deploy truth

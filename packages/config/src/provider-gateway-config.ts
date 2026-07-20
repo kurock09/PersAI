@@ -67,7 +67,6 @@ const baseProviderGatewayConfigSchema = z.object({
   PROVIDER_GATEWAY_BROWSERLESS_BASE_URL: optionalUrl.default(
     "https://production-sfo.browserless.io"
   ),
-  PROVIDER_GATEWAY_OPENAI_API_KEY: optionalString,
   PROVIDER_GATEWAY_ANTHROPIC_API_KEY: optionalString,
   PROVIDER_GATEWAY_OPENAI_MODELS: modelList.default(["gpt-5.4"]),
   PROVIDER_GATEWAY_ANTHROPIC_MODELS: modelList.default(["claude-sonnet-4-5"])

@@ -19,7 +19,6 @@ function createConfig(): ProviderGatewayConfig {
     PROVIDER_GATEWAY_REQUEST_TIMEOUT_MS: 90_000,
     PROVIDER_GATEWAY_STREAM_TIMEOUT_MS: 90_000,
     PROVIDER_GATEWAY_BROWSERLESS_BASE_URL: "https://production-sfo.browserless.io",
-    PROVIDER_GATEWAY_OPENAI_API_KEY: "openai-test-key",
     PROVIDER_GATEWAY_ANTHROPIC_API_KEY: undefined,
     PROVIDER_GATEWAY_OPENAI_MODELS: ["gpt-5.4"],
     PROVIDER_GATEWAY_ANTHROPIC_MODELS: ["claude-sonnet-4-5"]
