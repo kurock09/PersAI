@@ -5,12 +5,13 @@
 
 ## 2026-07-22
 
-- **ADR-161 append-full + two-tier pressure cutover (local):** A1 sends full
-  sanitized in-turn `toolHistory` and drops compact-at-insert spine plus
+- **ADR-161 append-full + two-tier pressure cutover:** A1 sends full sanitized
+  in-turn `toolHistory` and drops compact-at-insert spine plus
   `<persai_recent_tool_observation>` overlays; A2 hydrate-time micro-clear
   keeps newest 5 full at ≥50% of `compactionTriggerThreshold` (never mid
   tool-loop); A3 100% `SessionCompactionService` unchanged; A4 deletes overlay
   contract fields and unused ADR-156 in-turn dual-window projector. No D2a.
+  Independent Grok architecture + wire audits CLEAN before push.
 
 - **ADR-161 founder amendment recorded (docs):** append-full tool transcript +
   50%/100% two-tier pressure (`N=5`, micro clear only after user-turn

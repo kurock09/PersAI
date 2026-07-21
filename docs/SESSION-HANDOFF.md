@@ -9,8 +9,9 @@ Parent-orchestrated with Grok-only subs. Local commits (not pushed):
 - **A2** `43adbfe0` — hydrate micro-clear ≥50%, keep last 5; never mid-loop
 - **A4** `0f9316b0` — delete overlay contract + unused in-turn dual window
 
-A3 confirm-only (100% `SessionCompactionService` unchanged). Next: independent
-Grok audits to CLEAN, one push (= deploy), then A5 live evidence.
+A3 confirm-only (100% `SessionCompactionService` unchanged). Independent Grok
+audits returned **CLEAN** (architecture + prompt/wire). Pushing once (= deploy);
+A5 live evidence after images land.
 
 ## 2026-07-22 — ADR-161 founder amendment + Grok-only subs (docs)
 
