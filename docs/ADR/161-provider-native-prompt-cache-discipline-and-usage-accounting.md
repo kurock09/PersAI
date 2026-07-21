@@ -2,7 +2,7 @@
 
 ## Status
 
-**Open — canonical v2, cache-prefix, and OpenAI protocol repairs deployed; shared append-only tool-history repair implemented locally; repair deployment and S6 live acceptance pending.**
+**Open — canonical v2, cache-prefix, and OpenAI protocol repairs deployed; shared append-only tool-history repair implemented locally; repair deployment and S6 live acceptance pending. DeepSeek D2a durable append-trace was fully rolled back on 2026-07-22 after live proof that byte-stable PersAI prefixes still saw DeepSeek tool-followup cache collapse; do not reintroduce D2a.**
 
 ### 2026-07-21 cache-prefix repair checkpoint
 

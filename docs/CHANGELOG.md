@@ -3,6 +3,18 @@
 > Archive: detailed historical entries from 2026-06-05 and earlier moved to `docs/CHANGELOG.archive-2026-06-05-details-and-earlier.md`; entries from 2026-05-19 and earlier remain in `docs/CHANGELOG.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: current entries plus concise recent summaries only.
 
+## 2026-07-22
+
+- **ADR-161 DeepSeek D2a full rollback:** reverted durable append-trace
+  (`42e24b2e`), API 20mb body-limit for its seeds (`f53dcf22`), changelog ship
+  note (`30a45d1e`), and gateway empty-`messages` allowance (`695fec10`). Live
+  smoke proved PersAI prefix frames byte-stable while DeepSeek tool-followup
+  cache-read still collapsed (e.g. 17408→6400 on `ee113169`); D2a is not the
+  cache fix. Kept opaque safety-banner `bg-surface`. Kept applied migration
+  `20260721180000_*` in history and added `20260721200000_*` to drop the
+  tables. Founder append-full / 50%–100% pressure notes preserved outside the
+  repo (not re-applied here).
+
 ## 2026-07-21
 
 - **ADR-161 cache frame telemetry (local):** `provider_cache_zone` now emits

@@ -1,5 +1,18 @@
 # SESSION-HANDOFF
 
+## 2026-07-22 — ADR-161 DeepSeek D2a full rollback
+
+Rolled back the entire D2a stack from `main` (`695fec10` → `42e24b2e`, plus
+body-limit `f53dcf22`). Live evidence: append-only PersAI frames held, but
+DeepSeek `main_turn` 99.8% → `tool_loop_followup` 33.4% on the same request
+(`ee113169` / chat `4a2e68ab-…`). Drop migration
+`20260721200000_adr161_drop_d2a_deepseek_append_trace` removes the operational
+tables; opaque safety banner kept. Founder append-full + 50%/100% pressure
+amendment and the live numbers are saved outside the repo at
+`C:\Users\alex\.cursor\projects\c-Users-alex-Documents-PersAI\adr161-preserved-2026-07-22.md`
+so they are not wiped by the revert. Next: push/deploy rollback (migration
+approval), then implement append-full pressure without D2a.
+
 ## 2026-07-21 — ADR-161 cache frame telemetry
 
 The isolated DeepSeek third tool-turn cache drop cannot yet be assigned to a
