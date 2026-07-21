@@ -440,10 +440,6 @@ generic compact spine or newest-three overlays. This retains a described
 catalog tool's complete contract for the whole DeepSeek epoch while preserving
 the catalog-stable `tools` payload.
 
-Internal Runtime→API `reset`/`append` payloads carry the exact model-visible
-seed and therefore require the API JSON body ceiling used by sibling services
-(`20mb`), not Nest’s default ~100kb parser.
-
 The active DeepSeek epoch is atomically discarded and reseeded from current
 canonical chat state when:
 

@@ -592,9 +592,7 @@ Current active internal `runtime → api` endpoints (served by `apps/api` on the
   `POST /api/v1/internal/runtime/deepseek-append-trace/{read,append,reset,clear}`
   is bearer-guarded by `PERSAI_INTERNAL_API_TOKEN` only. It stores server-only
   DeepSeek epoch replay state; it is not a public/OpenAPI surface and is not
-  used by OpenAI/Anthropic. Seed/append JSON bodies may exceed Nest’s default
-  100kb parser; API accepts JSON/urlencoded up to `20mb` for this control plane
-  (same ceiling as runtime/provider-gateway).
+  used by OpenAI/Anthropic.
 - `POST /api/v1/internal/runtime/files/search` — **ADR-134.** Runtime-only manifest search for the model-facing `files.search` action. Accepts `workspaceId`, `assistantId`, optional `sessionId`, and a tokenized `query`; returns ranked manifest rows with hierarchical `path`, `shortDescription`, mime/size facts, and scope metadata. Matches path basename and `shortDescription` in memory after a bounded manifest fetch. Gated by `PERSAI_INTERNAL_API_TOKEN`.
 - `POST /api/v1/internal/runtime/files/short-descriptions` — batch join of `workspace_file_metadata.shortDescription` for a list of paths (used by runtime `files.list` enrichment and Working Files hydration).
 - `POST /api/v1/internal/runtime/files/chat-attachments` — runtime attach registration seam (`RegisterChatAttachmentService.executeFromRuntime`).
