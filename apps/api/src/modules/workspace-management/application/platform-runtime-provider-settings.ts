@@ -1527,7 +1527,7 @@ function createDefaultModelProfiles(
       outputTokenWeight: DEFAULT_RUNTIME_PROVIDER_MODEL_TOKEN_WEIGHT,
       maxOutputTokens: capabilityDefaults?.maxOutputTokens ?? null,
       contextWindow: capabilityDefaults?.contextWindow ?? null,
-      promptCachePolicy: capabilityDefaults?.promptCachePolicy ?? null,
+      promptCachePolicy: null,
       displayLabel: null,
       notes: null
     };
@@ -1601,7 +1601,7 @@ function normalizeLegacyCapabilityCatalog(
       outputTokenWeight: DEFAULT_RUNTIME_PROVIDER_MODEL_TOKEN_WEIGHT,
       maxOutputTokens: capabilityDefaults?.maxOutputTokens ?? null,
       contextWindow: capabilityDefaults?.contextWindow ?? null,
-      promptCachePolicy: capabilityDefaults?.promptCachePolicy ?? null,
+      promptCachePolicy: null,
       displayLabel: null,
       notes: null
     };

@@ -1,5 +1,29 @@
 # SESSION-HANDOFF
 
+## 2026-07-21 — ADR-161 OpenAI catalog cache-policy control
+
+Baseline: `aac7e7d7f43e374ab1ebde4bde923cece864fbc8`.
+
+Production inspection found every persisted chat catalog profile, including
+OpenAI `gpt-5.6-terra` and `gpt-5.6-sol`, has
+`promptCachePolicy: null`. The previous `MODEL_CAPABILITY_DEFAULTS` entries
+were therefore not actual published policy and cannot be used as a runtime
+fallback.
+
+The local repair adds one `Prompt cache policy` selector to the existing
+Admin → Runtime → Provider Model Catalog editor for OpenAI chat rows:
+automatic/in-memory, automatic/24h, explicit/30m, or uncached. The selected
+value is stored directly on that catalog row. The source-code capability table
+now owns only token ceilings; it neither contains cache policy nor seeds it
+for legacy catalog synthesis. Assistant settings and runtime provider behavior
+are unchanged.
+
+Focused Admin UI and API catalog tests plus API/Web typechecks pass. Next:
+run the mandatory recursive lint/format/full suites, commit and push, set
+the exact production policies in the existing Admin catalog (Terra/Sol:
+explicit/30m), then confirm a rematerialized bundle and run the OpenAI 5+5
+cache test.
+
 ## 2026-07-21 — ADR-161 shared append-only tool-history repair
 
 Baseline: `938a34a4986a1dbb93ebab71e3ca75186370201c`.

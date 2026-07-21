@@ -62,6 +62,8 @@ export type RuntimeProviderPromptCachePolicy =
  *   maxOutputTokens from the per-model published ceiling.
  * OpenAI values are official limits as of 2026-06. Any OpenAI key not listed here
  * resolves to OUTPUT_BUDGET_FALLBACK (safe, admin-tunable via the runtime UI).
+ * Prompt cache transport is deliberately absent from this source-code default
+ * table: it is operator-managed per exact catalog model.
  */
 export const MODEL_CAPABILITY_DEFAULTS: Partial<
   Record<
@@ -69,99 +71,80 @@ export const MODEL_CAPABILITY_DEFAULTS: Partial<
     {
       contextWindow: number | null;
       maxOutputTokens: number | null;
-      promptCachePolicy: RuntimeProviderPromptCachePolicy | null;
     }
   >
 > = {
   "claude-sonnet-4-6": {
     contextWindow: 200_000,
-    maxOutputTokens: 64_000,
-    promptCachePolicy: { mode: "automatic", retention: "in_memory" }
+    maxOutputTokens: 64_000
   },
   "claude-sonnet-4-5": {
     contextWindow: 200_000,
-    maxOutputTokens: 64_000,
-    promptCachePolicy: { mode: "automatic", retention: "in_memory" }
+    maxOutputTokens: 64_000
   },
   "claude-haiku-4-5": {
     contextWindow: 200_000,
-    maxOutputTokens: 64_000,
-    promptCachePolicy: { mode: "automatic", retention: "in_memory" }
+    maxOutputTokens: 64_000
   },
   "claude-opus-4-5": {
     contextWindow: 200_000,
-    maxOutputTokens: 64_000,
-    promptCachePolicy: { mode: "automatic", retention: "in_memory" }
+    maxOutputTokens: 64_000
   },
   "claude-opus-4-6": {
     contextWindow: 200_000,
-    maxOutputTokens: 128_000,
-    promptCachePolicy: { mode: "automatic", retention: "in_memory" }
+    maxOutputTokens: 128_000
   },
   "claude-opus-4-7": {
     contextWindow: 200_000,
-    maxOutputTokens: 128_000,
-    promptCachePolicy: { mode: "automatic", retention: "in_memory" }
+    maxOutputTokens: 128_000
   },
   "claude-opus-4-8": {
     contextWindow: 200_000,
-    maxOutputTokens: 128_000,
-    promptCachePolicy: { mode: "automatic", retention: "in_memory" }
+    maxOutputTokens: 128_000
   },
   "gpt-5.1": {
     contextWindow: 400_000,
-    maxOutputTokens: 128_000,
-    promptCachePolicy: { mode: "automatic", retention: "in_memory" }
+    maxOutputTokens: 128_000
   },
   "gpt-5.1-codex": {
     contextWindow: 400_000,
-    maxOutputTokens: 128_000,
-    promptCachePolicy: { mode: "automatic", retention: "in_memory" }
+    maxOutputTokens: 128_000
   },
   "gpt-5": {
     contextWindow: 400_000,
-    maxOutputTokens: 128_000,
-    promptCachePolicy: { mode: "automatic", retention: "in_memory" }
+    maxOutputTokens: 128_000
   },
   "gpt-5-mini": {
     contextWindow: 400_000,
-    maxOutputTokens: 128_000,
-    promptCachePolicy: { mode: "automatic", retention: "in_memory" }
+    maxOutputTokens: 128_000
   },
   "gpt-5-nano": {
     contextWindow: 400_000,
-    maxOutputTokens: 128_000,
-    promptCachePolicy: { mode: "automatic", retention: "in_memory" }
+    maxOutputTokens: 128_000
   },
   "gpt-5.5": {
     contextWindow: null,
-    maxOutputTokens: null,
-    promptCachePolicy: { mode: "automatic", retention: "24h" }
+    maxOutputTokens: null
   },
   "gpt-5.5-pro": {
     contextWindow: null,
-    maxOutputTokens: null,
-    promptCachePolicy: { mode: "automatic", retention: "24h" }
+    maxOutputTokens: null
   },
   "gpt-4o": {
     contextWindow: 128_000,
-    maxOutputTokens: 16_384,
-    promptCachePolicy: { mode: "automatic", retention: "in_memory" }
+    maxOutputTokens: 16_384
   },
   "gpt-4o-mini": {
     contextWindow: 128_000,
-    maxOutputTokens: 16_384,
-    promptCachePolicy: { mode: "automatic", retention: "in_memory" }
+    maxOutputTokens: 16_384
   },
   "deepseek-v4-flash": {
     contextWindow: 1_000_000,
-    maxOutputTokens: 384_000,
-    promptCachePolicy: { mode: "automatic", retention: "in_memory" }
+    maxOutputTokens: 384_000
   },
   "deepseek-v4-pro": {
     contextWindow: 1_000_000,
-    maxOutputTokens: 384_000,
-    promptCachePolicy: { mode: "automatic", retention: "in_memory" }
+    maxOutputTokens: 384_000
   }
 };
 
@@ -1146,7 +1129,7 @@ function createDefaultModelProfiles(
       outputTokenWeight: DEFAULT_RUNTIME_PROVIDER_MODEL_TOKEN_WEIGHT,
       maxOutputTokens: capabilityDefaults?.maxOutputTokens ?? null,
       contextWindow: capabilityDefaults?.contextWindow ?? null,
-      promptCachePolicy: capabilityDefaults?.promptCachePolicy ?? null,
+      promptCachePolicy: null,
       displayLabel: null,
       notes: null
     };
@@ -1365,7 +1348,7 @@ function parseLegacyCapabilityCatalog(
       outputTokenWeight: DEFAULT_RUNTIME_PROVIDER_MODEL_TOKEN_WEIGHT,
       maxOutputTokens: capabilityDefaults?.maxOutputTokens ?? null,
       contextWindow: capabilityDefaults?.contextWindow ?? null,
-      promptCachePolicy: capabilityDefaults?.promptCachePolicy ?? null,
+      promptCachePolicy: null,
       displayLabel: null,
       notes: null
     };

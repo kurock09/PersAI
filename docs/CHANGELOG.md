@@ -5,6 +5,14 @@
 
 ## 2026-07-21
 
+- **ADR-161 OpenAI catalog cache-policy control (local):** the existing
+  Admin → Runtime → Provider Model Catalog editor now exposes the exact
+  OpenAI chat-model cache transport choice: automatic in-memory, automatic
+  24-hour, explicit 30-minute, or uncached. This value is persisted in the
+  catalog profile and is the sole runtime source. `MODEL_CAPABILITY_DEFAULTS`
+  no longer contains cache-policy entries or seeds a policy from a model key;
+  Assistant settings are unchanged.
+
 - **ADR-161 shared append-only tool-history repair (local):** controlled
   DeepSeek A/B reached 99.4% cache read on consecutive warmed no-tool requests
   but only 32.0% across identical `skill.list` tool-loop turns. Runtime no

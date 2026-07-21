@@ -236,6 +236,37 @@ describe("AdminRuntimePage", () => {
     expect(imageProfile.providerPriceMetadata).not.toHaveProperty("timePricing");
   }, 15000);
 
+  it("edits and persists the OpenAI chat prompt cache policy", async () => {
+    render(<AdminRuntimePage />);
+
+    await waitFor(() =>
+      expect(apiMocks.getAdminRuntimeProviderSettings).toHaveBeenCalledWith("token-1")
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Provider Model Catalog/i }));
+    fireEvent.change(screen.getByLabelText("Prompt cache policy"), {
+      target: { value: "explicit:30m" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(apiMocks.putAdminRuntimeProviderSettings).toHaveBeenCalledWith(
+        "token-1",
+        expect.any(Object)
+      )
+    );
+    const request = apiMocks.putAdminRuntimeProviderSettings.mock.calls[0]![1];
+    const chatProfile = request.availableModelCatalogByProvider.openai.models.find(
+      (profile: { model: string }) => profile.model === "gpt-5.4"
+    );
+    expect(chatProfile?.promptCachePolicy).toEqual({
+      mode: "explicit",
+      ttl: "30m",
+      stableAnchor: "explicit",
+      sealedSpineBreakpoint: "explicit"
+    });
+  });
+
   it("archives existing catalog rows instead of deleting them from the saved catalog", async () => {
     render(<AdminRuntimePage />);
 

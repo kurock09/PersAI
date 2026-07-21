@@ -1449,7 +1449,7 @@ function runAdr122NormalizationTests() {
 
 function runAdr122SeedingTests() {
   // Synthesis from legacy availableModelsByProvider (createDefaultModelProfiles path)
-  // seeds known Anthropic models with MODEL_CAPABILITY_DEFAULTS
+  // seeds known model token ceilings but never invents a cache transport policy.
   const fromLegacy = parseUpdatePlatformRuntimeProviderSettingsInput({
     primary: { provider: "anthropic", model: "claude-sonnet-4-6" },
     fallback: null,
@@ -1461,7 +1461,7 @@ function runAdr122SeedingTests() {
   );
   assert.equal(seededModel?.maxOutputTokens, 64_000, "claude-sonnet-4-6 seeded maxOutputTokens");
   assert.equal(seededModel?.contextWindow, 200_000, "claude-sonnet-4-6 seeded contextWindow");
-  assert.deepEqual(seededModel?.promptCachePolicy, automaticPromptCachePolicy("in_memory"));
+  assert.equal(seededModel?.promptCachePolicy, null);
 
   // claude-opus-4-6 has higher maxOutputTokens
   const fromLegacyOpus = parseUpdatePlatformRuntimeProviderSettingsInput({
@@ -1475,7 +1475,7 @@ function runAdr122SeedingTests() {
   );
   assert.equal(opusModel?.maxOutputTokens, 128_000, "claude-opus-4-6 seeded maxOutputTokens=128k");
   assert.equal(opusModel?.contextWindow, 200_000, "claude-opus-4-6 seeded contextWindow=200k");
-  assert.deepEqual(opusModel?.promptCachePolicy, automaticPromptCachePolicy("in_memory"));
+  assert.equal(opusModel?.promptCachePolicy, null);
 
   const fromLegacyGpt55 = parseUpdatePlatformRuntimeProviderSettingsInput({
     primary: { provider: "openai", model: "gpt-5.5" },
@@ -1486,10 +1486,10 @@ function runAdr122SeedingTests() {
   const gpt55Seeded = fromLegacyGpt55.availableModelCatalogByProvider.openai.models.find(
     (m) => m.model === "gpt-5.5"
   );
-  assert.deepEqual(
+  assert.equal(
     gpt55Seeded?.promptCachePolicy,
-    automaticPromptCachePolicy("24h"),
-    "gpt-5.5 seeded promptCachePolicy=automatic 24h"
+    null,
+    "legacy catalog synthesis must not infer a prompt cache policy from a model key"
   );
 
   // Unknown model seeds null (no defaults applied)

@@ -321,6 +321,10 @@ Current OpenAI documentation checked 2026-07-20 states:
 Supporting both active model families is current provider behavior, not a
 legacy PersAI compatibility shim. The model catalog must declare the exact
 wire policy; runtime must not infer it from model-name string heuristics.
+The existing Admin → Runtime → Provider Model Catalog is the only authoring
+surface: each OpenAI chat row selects automatic/in-memory, automatic/24h,
+explicit/30m, or uncached. Source-code capability defaults may provide token
+ceilings only; they must never seed or override catalog cache policy.
 
 ## Decision
 

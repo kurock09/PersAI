@@ -28,6 +28,10 @@ const Card = RuntimeCard;
 
 type RuntimeProviderBillingModeState = RuntimeProviderModelProfileState["billingMode"];
 type RuntimeProviderPriceMetadataState = RuntimeProviderModelProfileState["providerPriceMetadata"];
+type OpenAIPromptCachePolicy = Exclude<
+  RuntimeProviderModelProfileState["promptCachePolicy"],
+  null | undefined
+>;
 type RuntimeProviderModelProfileForMode<M extends RuntimeProviderBillingModeState> = Extract<
   RuntimeProviderModelProfileState,
   { billingMode: M }
@@ -86,6 +90,44 @@ const ACTIVE_VIDEO_INPUT_CAPABILITIES = [
 const HEYGEN_TALKING_AVATAR_RESOLUTIONS = ["720p", "1080p", "4k"] as const;
 const HEYGEN_TALKING_AVATAR_ASPECT_RATIOS = ["auto", "16:9", "9:16", "1:1", "4:5", "5:4"] as const;
 const HEYGEN_TALKING_AVATAR_ENGINES = ["avatar_v", "avatar_iv"] as const;
+const OPENAI_PROMPT_CACHE_POLICY_OPTIONS = [
+  { value: "automatic:in_memory", label: "Automatic · in memory" },
+  { value: "automatic:24h", label: "Automatic · 24 hours" },
+  { value: "explicit:30m", label: "Explicit · 30 minutes" },
+  { value: "uncached", label: "Uncached" }
+] as const;
+
+function formatOpenAIPromptCachePolicy(
+  policy: RuntimeProviderModelProfileState["promptCachePolicy"]
+): (typeof OPENAI_PROMPT_CACHE_POLICY_OPTIONS)[number]["value"] {
+  if (policy === null || policy === undefined) {
+    return "uncached";
+  }
+  if (policy.mode === "automatic") {
+    return `automatic:${policy.retention}`;
+  }
+  return "explicit:30m";
+}
+
+function parseOpenAIPromptCachePolicy(
+  value: (typeof OPENAI_PROMPT_CACHE_POLICY_OPTIONS)[number]["value"]
+): OpenAIPromptCachePolicy | null {
+  switch (value) {
+    case "automatic:in_memory":
+      return { mode: "automatic", retention: "in_memory" };
+    case "automatic:24h":
+      return { mode: "automatic", retention: "24h" };
+    case "explicit:30m":
+      return {
+        mode: "explicit",
+        ttl: "30m",
+        stableAnchor: "explicit",
+        sealedSpineBreakpoint: "explicit"
+      };
+    case "uncached":
+      return null;
+  }
+}
 
 /** Accepts `0.075` and `0,075` while typing; incomplete fragments like `0.` stay in the field until blur. */
 export function normalizeDecimalInputText(raw: string): string {
@@ -756,6 +798,7 @@ function createModelProfile(
     outputTokenWeight: 1,
     maxOutputTokens: null,
     contextWindow: null,
+    promptCachePolicy: null,
     displayLabel: null,
     notes: null
   };
@@ -825,6 +868,7 @@ function rebuildProfileForBillingMode(
     outputTokenWeight: profile.outputTokenWeight,
     maxOutputTokens: (profile as RuntimeProviderModelProfileState).maxOutputTokens ?? null,
     contextWindow: (profile as RuntimeProviderModelProfileState).contextWindow ?? null,
+    promptCachePolicy: profile.promptCachePolicy ?? null,
     displayLabel: profile.displayLabel,
     notes: profile.notes,
     videoModelParameters:
@@ -2201,6 +2245,25 @@ function ModelProfileEditor({
           }
         />
       </div>
+
+      {provider === "openai" && profile.capabilities.includes("chat") && (
+        <SelectField
+          label="Prompt cache policy"
+          value={formatOpenAIPromptCachePolicy(profile.promptCachePolicy)}
+          onChange={(value) =>
+            onChange({
+              ...profile,
+              promptCachePolicy: parseOpenAIPromptCachePolicy(
+                value as (typeof OPENAI_PROMPT_CACHE_POLICY_OPTIONS)[number]["value"]
+              )
+            })
+          }
+          options={OPENAI_PROMPT_CACHE_POLICY_OPTIONS.map((option) => ({
+            value: option.value,
+            label: option.label
+          }))}
+        />
+      )}
 
       <PriceMetadataEditor
         profile={profile}
