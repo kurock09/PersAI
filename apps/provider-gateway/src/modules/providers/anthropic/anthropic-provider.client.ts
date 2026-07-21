@@ -862,8 +862,8 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
     const stableHistoryMessageCount = messages.length;
     const isToolLoopFollowUp = input.requestMetadata?.classification === "tool_loop_followup";
     // The quantized stable-history anchor and the latest sealed result are
-    // separate cache zones. Anchor only durable history, never the in-turn
-    // spine, overlay, incomplete follow-up, or volatile suffix.
+    // separate cache zones. Anchor only durable history, never in-turn
+    // incomplete follow-up content or the volatile suffix.
     if (isToolLoopFollowUp && this.shouldApplyAnthropicMovingHistoryBreakpoint(input)) {
       const stableHistory = messages.slice(0, stableHistoryMessageCount);
       this.applyAnthropicMovingHistoryBreakpoint(stableHistory, input.promptCache);
@@ -871,17 +871,6 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
     }
     for (const exchange of input.toolHistory ?? []) {
       this.pushAnthropicExchangeMessages(messages, exchange);
-    }
-    for (const overlay of input.toolObservationOverlays ?? []) {
-      messages.push({
-        role: "user",
-        content: [
-          {
-            type: "text",
-            text: `<persai_recent_tool_observation ordinal="${String(overlay.ordinal).padStart(6, "0")}">\n${overlay.exchange.toolResult.content}\n</persai_recent_tool_observation>`
-          }
-        ]
-      });
     }
     const toolFollowUpUserContent = input.toolFollowUpUserContent;
     if (toolFollowUpUserContent !== undefined) {
@@ -895,9 +884,10 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
         latestSealedSpine: isToolLoopFollowUp && (input.toolHistory?.length ?? 0) > 0
       });
     }
-    // ADR-161: keep the immutable compact spine and latest sealed-result
-    // marker ahead of mutable context. Volatile context must never move the
-    // provider cache frontier or receive a cache-control marker.
+    // ADR-161 A1: keep append-full toolHistory and the latest sealed-result
+    // marker ahead of mutable context. Observation overlays are retired.
+    // Volatile context must never move the provider cache frontier or receive
+    // a cache-control marker.
     messages.push(
       ...volatileContextMessages.map((message) =>
         this.buildAnthropicVolatileContextMessage(message)

@@ -370,12 +370,6 @@ export class DeepSeekProviderClient implements ProviderWarmableClient {
     for (const exchange of input.toolHistory ?? []) {
       this.pushDeepSeekExchangeMessages(messages, exchange);
     }
-    for (const overlay of input.toolObservationOverlays ?? []) {
-      messages.push({
-        role: "system",
-        content: `<persai_recent_tool_observation ordinal="${String(overlay.ordinal).padStart(6, "0")}">\n${overlay.exchange.toolResult.content}\n</persai_recent_tool_observation>`
-      });
-    }
     if (input.toolFollowUpUserContent !== undefined) {
       messages.push({
         role: "user",

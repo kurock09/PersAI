@@ -19,11 +19,11 @@ export function buildPriorToolExchangeReplayMap(
     .filter((message) => message.author === "assistant" && (message.toolExchanges?.length ?? 0) > 0)
     .map((message) => ({
       messageId: message.id,
-      // A canonical assistant turn has one immutable compact replay shape.
-      // Later turns therefore append history without reprioritizing or
-      // evicting an earlier provider-visible tool protocol pair.
+      // ADR-161 A1: prior turns replay full sanitized protocol pairs.
+      // A2 will later placeholder older results (keep last 5); A1 must not
+      // leave always-compact projection on this path.
       toolExchanges: (message.toolExchanges ?? []).map((exchange) =>
-        projectOneToolExchange(exchange, "compact")
+        projectOneToolExchange(exchange, "full")
       )
     }));
 

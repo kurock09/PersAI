@@ -1538,25 +1538,14 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
         content: this.toOpenAIMessageContent(toolFollowUpUserContent)
       });
     }
-    for (const overlay of input.toolObservationOverlays ?? []) {
-      items.push({
-        role: "developer",
-        content: [
-          {
-            type: "input_text",
-            text: `<persai_recent_tool_observation ordinal="${String(overlay.ordinal).padStart(6, "0")}">\n${overlay.exchange.toolResult.content}\n</persai_recent_tool_observation>`
-          }
-        ]
-      });
-    }
-    // ADR-161: volatile context belongs after the immutable sealed spine and
-    // newest-three observation overlays. This preserves the provider-visible
-    // prefix through the latest boundary when only volatile context rotates.
+    // ADR-161 A1: volatile context belongs after full append-only toolHistory
+    // (and optional explicit exchange boundaries). Observation overlays are
+    // retired; only volatile rotation may change the suffix.
     if (volatileContextMessages.length > 0) {
       items.push(this.buildOpenAIVolatileContextItem(volatileContextMessages));
     }
-    // ADR-074 P1 / ADR-161: mutable developer guidance is the final suffix,
-    // after both sealed exchanges and rotating observation overlays.
+    // ADR-074 P1 / ADR-161: mutable developer guidance is the final suffix
+    // after sealed tool exchanges.
     const developerInstructions = this.normalizeOptionalText(input.developerInstructions);
     if (developerInstructions !== null) {
       items.push({

@@ -116,12 +116,7 @@ import {
 import { RuntimeBrowserToolService } from "./runtime-browser-tool.service";
 import { RuntimeDocumentToolService } from "./runtime-document-tool.service";
 import { stringifyToolResultPayloadForModel } from "./sanitize-tool-result-for-model";
-import {
-  appendCompletedToolExchangeToSpine,
-  buildInTurnToolExchangeProjection,
-  createSealedToolExchangeSpine,
-  type SealedToolExchangeSpine
-} from "./project-tool-exchanges-for-model";
+import { buildSealedToolExchangeBoundary } from "./project-tool-exchanges-for-model";
 import { buildAsyncJobAcceptedEvent } from "./build-async-job-accepted-event";
 import { RuntimeFilesToolService } from "./runtime-files-tool.service";
 import { RuntimeImageEditToolService } from "./runtime-image-edit-tool.service";
@@ -1269,7 +1264,6 @@ export class TurnExecutionService {
       sessionId: acceptedTurn.session.sessionId
     });
     const toolBudgetPolicy = this.createToolBudgetPolicy(execution);
-    const sealedToolExchangeSpine = createSealedToolExchangeSpine();
     const maxToolLoopIterations =
       toolBudgetPolicy.loopLimit() + NATIVE_TOOL_LOOP_WRAP_UP_ITERATIONS;
     let previewFollowUpExtraIterations = 0;
@@ -1301,7 +1295,6 @@ export class TurnExecutionService {
           let providerRequest = this.buildToolLoopProviderRequest(execution.providerRequest, {
             baseDeveloperInstructionSections: execution.developerInstructionSections,
             toolHistory,
-            sealedToolExchangeSpine,
             availableToolNames: execution.projectedTools.tools.map((tool) => tool.name),
             availableWorkingFileHandles: execution.availableWorkingFileHandles,
             closedOpenLoopRefs: turnState.closedOpenLoopRefs,
@@ -1516,12 +1509,8 @@ export class TurnExecutionService {
                         );
                         result.outcome.exchange.reasoningContent =
                           event.result.reasoningContent ?? null;
+                        result.outcome.exchange.assistantText = event.result.text ?? null;
                         toolHistory.push(result.outcome.exchange);
-                        appendCompletedToolExchangeToSpine(
-                          sealedToolExchangeSpine,
-                          result.outcome.exchange,
-                          event.result.text ?? null
-                        );
                         turnState.toolExchanges.push(result.outcome.exchange);
                         this.applyToolExecutionOutcome(turnState, result.outcome, iteration);
                         this.maybeApplySkillStateMutationFromTool(execution, result.outcome);
@@ -1600,12 +1589,8 @@ export class TurnExecutionService {
                       outcome
                     );
                     outcome.exchange.reasoningContent = event.result.reasoningContent ?? null;
+                    outcome.exchange.assistantText = event.result.text ?? null;
                     toolHistory.push(outcome.exchange);
-                    appendCompletedToolExchangeToSpine(
-                      sealedToolExchangeSpine,
-                      outcome.exchange,
-                      event.result.text ?? null
-                    );
                     turnState.toolExchanges.push(outcome.exchange);
                     this.applyToolExecutionOutcome(turnState, outcome, iteration);
                     this.maybeApplySkillStateMutationFromTool(execution, outcome);
@@ -3169,7 +3154,6 @@ export class TurnExecutionService {
     turnState: TurnExecutionState
   ): Promise<ProviderGatewayTextGenerateResult> {
     const toolHistory: ProviderGatewayToolExchange[] = [];
-    const sealedToolExchangeSpine = createSealedToolExchangeSpine();
     let accumulatedText = "";
     let forceFinalTextOnly = false;
     let contextOverflowRetryAttempted = false;
@@ -3203,7 +3187,6 @@ export class TurnExecutionService {
         const request = this.buildToolLoopProviderRequest(execution.providerRequest, {
           baseDeveloperInstructionSections: execution.developerInstructionSections,
           toolHistory,
-          sealedToolExchangeSpine,
           availableToolNames: execution.projectedTools.tools.map((tool) => tool.name),
           availableWorkingFileHandles,
           closedOpenLoopRefs: turnState.closedOpenLoopRefs,
@@ -3332,12 +3315,8 @@ export class TurnExecutionService {
                 result.outcome
               );
               result.outcome.exchange.reasoningContent = providerResult.reasoningContent ?? null;
+              result.outcome.exchange.assistantText = providerResult.text ?? null;
               toolHistory.push(result.outcome.exchange);
-              appendCompletedToolExchangeToSpine(
-                sealedToolExchangeSpine,
-                result.outcome.exchange,
-                providerResult.text ?? null
-              );
               turnState.toolExchanges.push(result.outcome.exchange);
               this.applyToolExecutionOutcome(turnState, result.outcome, iteration);
               this.maybeApplySkillStateMutationFromTool(execution, result.outcome);
@@ -3378,12 +3357,8 @@ export class TurnExecutionService {
               );
           this.maybeRefundToolRequestRejectionReservation(toolBudgetPolicy, entry, outcome);
           outcome.exchange.reasoningContent = providerResult.reasoningContent ?? null;
+          outcome.exchange.assistantText = providerResult.text ?? null;
           toolHistory.push(outcome.exchange);
-          appendCompletedToolExchangeToSpine(
-            sealedToolExchangeSpine,
-            outcome.exchange,
-            providerResult.text ?? null
-          );
           turnState.toolExchanges.push(outcome.exchange);
           this.applyToolExecutionOutcome(turnState, outcome, iteration);
           this.maybeApplySkillStateMutationFromTool(execution, outcome);
@@ -4735,7 +4710,6 @@ export class TurnExecutionService {
     input: {
       baseDeveloperInstructionSections: DeveloperInstructionSection[];
       toolHistory: ProviderGatewayToolExchange[];
-      sealedToolExchangeSpine: SealedToolExchangeSpine;
       availableToolNames: string[];
       availableWorkingFileHandles: RuntimeFileHandle[];
       closedOpenLoopRefs: string[];
@@ -4764,21 +4738,15 @@ export class TurnExecutionService {
       input.workingFilesContext
     );
     const pendingFilePreviewBlocks = input.pendingFilePreviewBlocks ?? [];
-    const inTurnProjection = buildInTurnToolExchangeProjection(
-      input.sealedToolExchangeSpine,
-      input.toolHistory
-    );
+    // ADR-161 A1: provider-facing toolHistory is the loop's full sanitized
+    // exchanges. No compact-at-insert spine and no observation overlays.
+    const sealedToolExchangeBoundary = buildSealedToolExchangeBoundary(input.toolHistory);
     return {
       ...baseRequest,
       ...(developerInstructions === null ? {} : { developerInstructions }),
       messages: baseRequest.messages,
-      ...(inTurnProjection.spine.length === 0 ? {} : { toolHistory: [...inTurnProjection.spine] }),
-      ...(inTurnProjection.overlays.length === 0
-        ? {}
-        : { toolObservationOverlays: [...inTurnProjection.overlays] }),
-      ...(inTurnProjection.boundary === null
-        ? {}
-        : { sealedToolExchangeBoundary: inTurnProjection.boundary }),
+      ...(input.toolHistory.length === 0 ? {} : { toolHistory: [...input.toolHistory] }),
+      ...(sealedToolExchangeBoundary === null ? {} : { sealedToolExchangeBoundary }),
       ...(pendingFilePreviewBlocks.length === 0
         ? {}
         : { toolFollowUpUserContent: pendingFilePreviewBlocks }),
@@ -6324,7 +6292,6 @@ export class TurnExecutionService {
       }
 
       const toolHistory: ProviderGatewayToolExchange[] = [];
-      const sealedToolExchangeSpine = createSealedToolExchangeSpine();
       for (const toolCall of firstResult.toolCalls) {
         const outcome = await this.executeProjectedToolCall(
           input.execution,
@@ -6338,12 +6305,8 @@ export class TurnExecutionService {
           input.turnState
         );
         outcome.exchange.reasoningContent = firstResult.reasoningContent ?? null;
+        outcome.exchange.assistantText = firstResult.text ?? null;
         toolHistory.push(outcome.exchange);
-        appendCompletedToolExchangeToSpine(
-          sealedToolExchangeSpine,
-          outcome.exchange,
-          firstResult.text ?? null
-        );
         this.applyToolExecutionOutcome(input.turnState, outcome, 0);
       }
 
@@ -6354,7 +6317,6 @@ export class TurnExecutionService {
       const finalRequest = this.buildToolLoopProviderRequest(selfCheckBaseRequest, {
         baseDeveloperInstructionSections: input.execution.developerInstructionSections,
         toolHistory,
-        sealedToolExchangeSpine,
         availableToolNames: input.execution.projectedTools.tools.map((tool) => tool.name),
         availableWorkingFileHandles: input.execution.availableWorkingFileHandles,
         closedOpenLoopRefs: input.turnState.closedOpenLoopRefs,

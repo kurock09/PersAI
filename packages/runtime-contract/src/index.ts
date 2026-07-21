@@ -4422,13 +4422,14 @@ export interface ProviderGatewayTextGenerateRequest {
   tools?: ProviderGatewayToolDefinition[];
   toolChoice?: ProviderGatewayToolChoice;
   /**
-   * D1 compact protocol pairs, sealed exactly once when their tool result
-   * completes. Provider adapters consume this as their cacheable tool history.
+   * ADR-161 A1: full sanitized tool protocol pairs appended at insertion.
+   * Provider adapters consume this as cacheable tool history. Compact-at-insert
+   * spine projection is retired.
    */
   toolHistory?: ProviderGatewayToolExchange[];
   /**
-   * D1 newest-three full observations. This remains distinct from the compact
-   * tool protocol spine so rotation never rewrites the sealed prefix.
+   * Deprecated (ADR-161 A1). Runtime no longer populates observation overlays;
+   * gateway adapters ignore this field. Hard-delete deferred to A4.
    */
   toolObservationOverlays?: ProviderGatewayToolObservationOverlay[];
   sealedToolExchangeBoundary?: ProviderGatewaySealedToolExchangeBoundary | null;

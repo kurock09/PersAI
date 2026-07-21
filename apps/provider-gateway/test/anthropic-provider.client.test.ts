@@ -1469,27 +1469,8 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
         toolResult: {
           toolCallId: "toolu-sealed-adr161",
           name: "knowledge_search",
-          content: '{"action":"completed","result":"compact"}',
+          content: '{"action":"completed","result":"full"}',
           isError: false
-        }
-      }
-    ],
-    toolObservationOverlays: [
-      {
-        ordinal: 1,
-        exchange: {
-          assistantText: "I will inspect the result.",
-          toolCall: {
-            id: "toolu-sealed-adr161",
-            name: "knowledge_search",
-            arguments: { query: "cache" }
-          },
-          toolResult: {
-            toolCallId: "toolu-sealed-adr161",
-            name: "knowledge_search",
-            content: '{"action":"completed","result":"full"}',
-            isError: false
-          }
         }
       }
     ],
@@ -1530,7 +1511,11 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
     JSON.stringify(message.content).includes("<persai_recent_tool_observation")
   );
   assert.ok(anthropicToolUseIndex >= 0 && anthropicResultIndex === anthropicToolUseIndex + 1);
-  assert.ok(anthropicOverlayIndex > anthropicResultIndex);
+  assert.equal(
+    anthropicOverlayIndex,
+    -1,
+    "ADR-161 A1: Anthropic must not emit <persai_recent_tool_observation> overlays"
+  );
   const firstAnthropicPrefix = {
     system: capturedGeneratePayload!.system,
     messages: firstAnthropicMessages.slice(0, anthropicResultIndex + 1)

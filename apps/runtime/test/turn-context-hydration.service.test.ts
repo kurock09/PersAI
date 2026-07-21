@@ -1985,7 +1985,7 @@ async function runCrossSessionCarryOverSnapshotAcceptance(): Promise<void> {
       );
 
     // Test 5: every retained canonical assistant tool turn receives one
-    // deterministic compact projection. Appending a later turn must only grow
+    // deterministic full projection. Appending a later turn must only grow
     // the replay map; it must not rewrite or evict earlier protocol pairs.
     {
       const { svc, prisma } = buildMinimalHarness();
@@ -2050,9 +2050,9 @@ async function runCrossSessionCarryOverSnapshotAcceptance(): Promise<void> {
         [assistantOne, assistantTwo, assistantThree, assistantFour].every(
           (message) =>
             JSON.parse(message?.priorToolExchanges?.[0]?.toolResult.content ?? "{}")
-              ._observationTier === "compact"
+              ._observationTier === "full"
         ),
-        "replay test 5: every retained turn must have its deterministic compact projection"
+        "replay test 5: every retained turn must have its deterministic full projection"
       );
       assert.equal(
         "priorToolExchanges" in (currentUser ?? {}),
@@ -2101,8 +2101,9 @@ async function runCrossSessionCarryOverSnapshotAcceptance(): Promise<void> {
       );
     }
 
-    // Test 6: replay uses bounded compact projections per retained turn, never
-    // a moving aggregate budget. Errors remain informative.
+    // Test 6: ADR-161 A1 prior replay uses full projections per retained turn
+    // (A2 will later placeholder older results). Argument caps and binary
+    // safety remain. Errors remain informative.
     {
       const { svc, prisma } = buildMinimalHarness();
       const oversizedResult = "A".repeat(5_000);
@@ -2204,16 +2205,18 @@ async function runCrossSessionCarryOverSnapshotAcceptance(): Promise<void> {
             role: assistantHeavy!.role,
             content: assistantHeavy!.content
           }),
-        "replay test 6: canonical hydration budget must include compact replay tokens"
+        "replay test 6: canonical hydration budget must include full replay tokens"
       );
       assert.equal(assistantHeavy?.priorToolExchanges?.length, 4);
       assert.ok(
-        (assistantHeavy?.priorToolExchanges ?? []).every(
-          (exchange) =>
-            JSON.parse(exchange.toolResult.content)._observationTier === "compact" &&
-            exchange.toolResult.content.length < oversizedResult.length
-        ),
-        "replay test 6: every oversized retained exchange must use a bounded compact projection"
+        (assistantHeavy?.priorToolExchanges ?? []).every((exchange) => {
+          const parsed = JSON.parse(exchange.toolResult.content) as {
+            _observationTier?: string;
+            content?: string;
+          };
+          return parsed._observationTier === "full" && parsed.content === oversizedResult;
+        }),
+        "replay test 6: every oversized retained exchange must use full projection"
       );
 
       const browserExchanges = assistantBrowser?.priorToolExchanges ?? [];
@@ -2232,30 +2235,22 @@ async function runCrossSessionCarryOverSnapshotAcceptance(): Promise<void> {
       >;
       assert.equal(
         olderBrowser._observationTier,
-        "compact",
-        "replay test 6: older browser exchange in a replayed turn must be structured compact"
+        "full",
+        "replay test 6: older browser exchange in a replayed turn must be full"
       );
       assert.equal(olderBrowser.toolCode, "browser");
-      assert.equal(olderBrowser.elementCount, 12);
-      assert.equal(
+      assert.ok(
         "page" in olderBrowser,
-        false,
-        "replay test 6: compact browser must drop page.content / page.elements"
-      );
-      assert.equal(
-        typeof olderBrowser.content,
-        "undefined",
-        "replay test 6: compact browser must not keep raw page content"
+        "replay test 6: A1 full prior replay retains browser page payload"
       );
       assert.equal(
         newerBrowser._observationTier,
-        "compact",
-        "replay test 6: each replayed browser exchange stays compact"
+        "full",
+        "replay test 6: each replayed browser exchange stays full"
       );
-      assert.equal(
+      assert.ok(
         "page" in newerBrowser,
-        false,
-        "replay test 6: compact replay must not retain page content or elements"
+        "replay test 6: A1 full prior replay retains browser page payload"
       );
 
       const serializedArguments = JSON.stringify(browserExchanges[0]!.toolCall.arguments);
@@ -2273,14 +2268,15 @@ async function runCrossSessionCarryOverSnapshotAcceptance(): Promise<void> {
       ) as Record<string, unknown>;
       assert.equal(
         binaryProjected._observationTier,
-        "compact",
-        "replay test 6: binary tool_result content must use compact projection"
+        "full",
+        "replay test 6: binary tool_result content must use full projection safety wrap"
       );
+      assert.equal(binaryProjected.content, "[binary content omitted]");
       const errorProjected = JSON.parse(
         assistantBinary?.priorToolExchanges?.[1]?.toolResult.content ?? "{}"
       ) as Record<string, unknown>;
-      assert.equal(errorProjected._observationTier, "compact");
-      assert.equal(errorProjected.isError, true);
+      assert.equal(errorProjected._observationTier, "full");
+      assert.equal(assistantBinary?.priorToolExchanges?.[1]?.toolResult.isError, true);
       assert.equal(errorProjected.reason, "permission denied");
     }
   }

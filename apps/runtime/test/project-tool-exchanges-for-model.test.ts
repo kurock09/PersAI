@@ -5,9 +5,7 @@ import {
   type ProviderGatewayToolExchange
 } from "@persai/runtime-contract";
 import {
-  appendCompletedToolExchangeToSpine,
-  buildInTurnToolExchangeProjection,
-  createSealedToolExchangeSpine,
+  buildSealedToolExchangeBoundary,
   formatToolHistoryProjectionMetricsLog,
   projectToolExchangesForModel,
   projectToolExchangesForModelWithMetrics,
@@ -196,7 +194,7 @@ export async function runProjectToolExchangesForModelTest(): Promise<void> {
   assert.equal(TOOL_OBSERVATION_CROSS_TURN_FULL_COUNT, 1);
   assert.equal(TOOL_OBSERVATION_CROSS_TURN_COMPACT_COUNT, 4);
 
-  // ── ADR-161 D1 sealed compact spine / full suffix overlays ───────────────
+  // ── ADR-161 A1 sealed boundary over full append-only toolHistory ─────────
   {
     for (const exchangeCount of [1, 3, 4, 6, 7, 50]) {
       const completed = Array.from({ length: exchangeCount }, (_, index) =>
@@ -215,13 +213,12 @@ export async function runProjectToolExchangesForModelTest(): Promise<void> {
         })
       );
       completed[0]!.assistantText = `working note ${String(exchangeCount)}`;
-      const spine = createSealedToolExchangeSpine();
       const priorBoundaries: Array<{ bytes: string; hash: string }> = [];
-      for (const exchange of completed) {
-        appendCompletedToolExchangeToSpine(spine, exchange);
-        const boundary = spine.boundary;
+      for (let index = 0; index < completed.length; index += 1) {
+        const prefix = completed.slice(0, index + 1);
+        const boundary = buildSealedToolExchangeBoundary(prefix);
         assert.ok(boundary !== null);
-        const prior = spine.exchanges.slice(0, -1);
+        const prior = prefix.slice(0, -1);
         if (prior.length > 0) {
           const previous = priorBoundaries.at(-1)!;
           assert.equal(JSON.stringify(prior), previous.bytes);
@@ -245,41 +242,27 @@ export async function runProjectToolExchangesForModelTest(): Promise<void> {
           assert.equal(boundary.priorSealedCacheContentChars, null);
         }
         priorBoundaries.push({
-          bytes: JSON.stringify(spine.exchanges),
+          bytes: JSON.stringify(prefix),
           hash: boundary.cacheContentHash
         });
       }
 
-      const projection = buildInTurnToolExchangeProjection(spine, completed);
-      assert.equal(projection.spine.length, exchangeCount);
-      assert.equal(projection.boundary?.exchangeCount, exchangeCount);
-      assert.equal(projection.boundary?.cacheContentHash, priorBoundaries.at(-1)?.hash);
-      assert.deepEqual(
-        projection.overlays.map((overlay) => overlay.ordinal),
-        Array.from(
-          { length: Math.min(3, exchangeCount) },
-          (_, index) => exchangeCount - Math.min(3, exchangeCount) + index + 1
-        )
-      );
-      assert.ok(projection.spine.every((exchange) => tierOf(exchange) === "compact"));
-      assert.ok(projection.overlays.every((overlay) => tierOf(overlay.exchange) === "full"));
+      const boundary = buildSealedToolExchangeBoundary(completed);
+      assert.equal(boundary?.exchangeCount, exchangeCount);
+      assert.equal(boundary?.cacheContentHash, priorBoundaries.at(-1)?.hash);
+      assert.equal(boundary?.boundaryKind, "sealed_tool_exchange_spine");
+      assert.equal(completed[0]!.assistantText, `working note ${String(exchangeCount)}`);
       assert.equal(
-        tierOf(projection.spine[0]!),
-        "compact",
-        "errors remain informative compact spine entries, never bare masks"
+        parseContent(completed[0]!)._observationTier,
+        undefined,
+        "A1 full-at-insert history is canonical sanitized content, not compact projection"
       );
-      assert.equal(projection.spine[0]!.assistantText, `working note ${String(exchangeCount)}`);
     }
   }
 
-  // An incomplete call has no result/exchange and therefore cannot enter D1's
-  // sealed spine or create a boundary.
+  // Empty history has no sealed boundary.
   {
-    const spine = createSealedToolExchangeSpine();
-    const projection = buildInTurnToolExchangeProjection(spine, []);
-    assert.equal(projection.boundary, null);
-    assert.deepEqual(projection.spine, []);
-    assert.deepEqual(projection.overlays, []);
+    assert.equal(buildSealedToolExchangeBoundary([]), null);
   }
 
   // ── Tier windows ──────────────────────────────────────────────────────────

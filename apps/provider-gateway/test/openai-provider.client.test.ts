@@ -741,23 +741,8 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
         toolResult: {
           toolCallId: "call-sealed",
           name: "knowledge_search",
-          content: '{"action":"completed","result":"compact"}',
+          content: '{"action":"completed","result":"full"}',
           isError: false
-        }
-      }
-    ],
-    toolObservationOverlays: [
-      {
-        ordinal: 1,
-        exchange: {
-          assistantText: "I will inspect the result.",
-          toolCall: { id: "call-sealed", name: "knowledge_search", arguments: { query: "cache" } },
-          toolResult: {
-            toolCallId: "call-sealed",
-            name: "knowledge_search",
-            content: '{"action":"completed","result":"full"}',
-            isError: false
-          }
         }
       }
     ],
@@ -815,7 +800,11 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
     JSON.stringify(item.content ?? "").includes("<persai_recent_tool_observation")
   );
   assert.ok(openAiBoundaryIndex === openAiResultIndex + 1);
-  assert.ok(openAiOverlayIndex > openAiBoundaryIndex);
+  assert.equal(
+    openAiOverlayIndex,
+    -1,
+    "ADR-161 A1: OpenAI must not emit <persai_recent_tool_observation> overlays"
+  );
   const firstOpenAiPrefix = firstOpenAiItems.slice(0, openAiBoundaryIndex + 1);
   const firstOpenAiPrefixBytes = JSON.stringify(firstOpenAiPrefix);
   const firstOpenAiPrefixHash = hashProviderCacheSemanticPrefix({

@@ -5723,7 +5723,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   assert.deepEqual(
     providerGatewayClient.streamCalls.at(-1)?.messages,
     providerGatewayClient.streamCalls.at(-2)?.messages,
-    "ADR-161: streamed tool-loop follow-up must not insert aggregate assistant text before the sealed spine"
+    "ADR-161: streamed tool-loop follow-up must not insert aggregate assistant text into base messages"
   );
   assert.equal(
     providerGatewayClient.streamCalls.at(-1)?.toolHistory?.[0]?.assistantText,
@@ -7982,9 +7982,9 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     false
   );
 
-  // ── ADR-161 D1 — sealed in-turn compact spine + newest-three overlays ──
-  // Provider-facing toolHistory is the immutable compact protocol spine. Full
-  // newest-three observations are a separate suffix field; canonical turnState
+  // ── ADR-161 A1 — append-full in-turn toolHistory (no overlays) ──
+  // Provider-facing toolHistory is the loop's full sanitized exchanges.
+  // Observation overlays are retired; canonical turnState
   // / completed toolExchanges stay full and unprojected.
   {
     const observationProjectionRequest = createRuntimeTurnRequest();
@@ -8046,44 +8046,37 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     assert.deepEqual(
       observationFollowUpRequest?.messages,
       observationInitialRequest?.messages,
-      "ADR-161: a tool-loop follow-up must preserve base messages byte-for-byte; assistant pre-tool text belongs only to the sealed exchange spine."
+      "ADR-161: a tool-loop follow-up must preserve base messages byte-for-byte; assistant pre-tool text belongs only on toolHistory exchanges."
     );
     const projectedToolHistory = observationFollowUpRequest?.toolHistory ?? [];
     assert.equal(
       projectedToolHistory.length,
       6,
-      "ADR-156: follow-up provider request must include all six in-turn exchanges."
+      "ADR-161 A1: follow-up provider request must include all six full in-turn exchanges."
     );
-    const projectedTiers = projectedToolHistory.map((exchange) => {
+    for (const exchange of projectedToolHistory) {
       const parsed = JSON.parse(exchange.toolResult.content) as {
+        action?: string;
+        requestedKind?: string;
         _observationTier?: string;
       };
-      return parsed._observationTier;
-    });
-    assert.deepEqual(
-      projectedTiers,
-      ["compact", "compact", "compact", "compact", "compact", "compact"],
-      "ADR-161 D1: every sealed protocol entry is compact and never re-aged."
-    );
-    const observationOverlays = observationFollowUpRequest?.toolObservationOverlays ?? [];
-    assert.deepEqual(
-      observationOverlays.map((overlay) => overlay.ordinal),
-      [4, 5, 6]
+      assert.equal(
+        parsed._observationTier,
+        undefined,
+        "ADR-161 A1: in-turn toolHistory must be full sanitized content, not compact/overlay projection."
+      );
+      assert.equal(parsed.action, "remembered");
+      assert.equal(parsed.requestedKind, "preference");
+    }
+    assert.equal(
+      observationFollowUpRequest?.toolObservationOverlays,
+      undefined,
+      "ADR-161 A1: Runtime must not populate toolObservationOverlays."
     );
     const sealedBoundary = observationFollowUpRequest?.sealedToolExchangeBoundary;
     assert.equal(sealedBoundary?.exchangeCount, 6);
     assert.equal(sealedBoundary?.boundaryKind, "sealed_tool_exchange_spine");
     assert.match(sealedBoundary?.cacheContentHash ?? "", /^[a-f0-9]{64}$/);
-    const newestProjected = JSON.parse(
-      observationOverlays[2]?.exchange.toolResult.content ?? "{}"
-    ) as {
-      action?: string;
-      requestedKind?: string;
-      _observationTier?: string;
-    };
-    assert.equal(newestProjected._observationTier, "full");
-    assert.equal(newestProjected.action, "remembered");
-    assert.equal(newestProjected.requestedKind, "preference");
     assert.equal(projectedToolHistory[0]?.assistantText, "Inspecting observations.");
 
     const storedExchanges = observationProjectionCompleted.toolExchanges ?? [];
@@ -8399,8 +8392,8 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     ["r2-par-1", "r2-par-2", "r2-par-3"],
     "ADR-074 R2 regression: toolHistory must remain in model-declared order even when safe calls finish out of order."
   );
-  // ADR-156: provider-facing in-turn history keeps the newest three exchanges
-  // full. Argument order remains declaration-stable.
+  // ADR-161 A1: provider-facing in-turn history is full sanitized content.
+  // Argument order remains declaration-stable.
   assert.deepEqual(
     (providerGatewayClient.calls.at(-1)?.toolHistory ?? []).map(
       (entry) => entry.toolCall.arguments.url ?? null
@@ -8421,9 +8414,9 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     }
   );
   assert.deepEqual(parallelSafeHistoryTiers, [
-    { tier: "compact", documentUrl: null },
-    { tier: "compact", documentUrl: null },
-    { tier: "compact", documentUrl: null }
+    { tier: null, documentUrl: "https://example.com/a" },
+    { tier: null, documentUrl: "https://example.com/b" },
+    { tier: null, documentUrl: "https://example.com/c" }
   ]);
   providerGatewayClient.webFetchDelayQueueMs = [];
   providerGatewayClient.webFetchResultQueue = [];
