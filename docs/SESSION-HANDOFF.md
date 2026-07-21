@@ -12,9 +12,10 @@ content-free SHA-256 fields to `provider_cache_zone`: hashes/lengths for the
 volatile and developer-tail segments, the complete provider request frame, and
 each hydrated-history wire frame in order. Frame output is capped at 128 with
 an explicit omitted count, never logs content, and is not used as a metric
-label. Next: deploy it and repeat the same DeepSeek 5+5 run; a changed
-pre-existing frame proves a PersAI mutation, while identical old frames with
-a cache-read reset is provider-side evidence.
+label. `runtimeRequestId` joins every provider event to its exact receipt.
+Next: deploy it and repeat the same DeepSeek 5+5 run; a changed pre-existing
+frame proves a PersAI mutation, while identical old frames with a cache-read
+reset is provider-side evidence.
 
 ## 2026-07-21 — ADR-161 OpenAI explicit cache-write accounting repair
 

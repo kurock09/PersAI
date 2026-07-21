@@ -330,8 +330,10 @@ ceilings only; they must never seed or override catalog cache policy.
 For provider-cache investigations, `provider_cache_zone` emits only
 content-free SHA-256 evidence: each fixed zone, the full provider request
 frame, and every hydrated-history wire frame in order (up to 128, with an
-explicit omitted count). This makes a request-frame mutation attributable to a
-zone/frame without logging prompt content or using hashes as metric labels.
+explicit omitted count). The event carries `runtimeRequestId` to join exact
+provider evidence to a turn receipt. This makes a request-frame mutation
+attributable to a zone/frame without logging prompt content or using hashes as
+metric labels.
 
 ## Decision
 

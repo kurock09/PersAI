@@ -390,7 +390,14 @@ export async function runAdr161ContractsTest(): Promise<void> {
     input: {
       provider: "deepseek",
       model: "fixture-model",
-      messages: []
+      messages: [],
+      requestMetadata: {
+        classification: "main_turn",
+        runtimeRequestId: "telemetry-request-1",
+        runtimeSessionId: "telemetry-session-1",
+        toolLoopIteration: 0,
+        compactionToolCode: null
+      }
     } as never,
     representation: {
       tools: [{ type: "function", function: { name: "skill" } }],
@@ -407,6 +414,7 @@ export async function runAdr161ContractsTest(): Promise<void> {
   });
   const frameTelemetry = telemetryEvents[0] as Record<string, unknown>;
   assert.equal(frameTelemetry.event, "provider_cache_zone");
+  assert.equal(frameTelemetry.runtimeRequestId, "telemetry-request-1");
   assert.equal(typeof frameTelemetry.requestFrameHash, "string");
   assert.equal(typeof frameTelemetry.volatileContextHash, "string");
   assert.equal(typeof frameTelemetry.developerTailHash, "string");

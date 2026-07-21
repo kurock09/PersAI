@@ -83,6 +83,7 @@ export function logProviderCacheZoneTelemetry(params: {
     event: "provider_cache_zone",
     provider,
     requestClassification: params.input.requestMetadata?.classification ?? "unknown",
+    runtimeRequestId: params.input.requestMetadata?.runtimeRequestId ?? null,
     toolLoopIteration: params.input.requestMetadata?.toolLoopIteration ?? null,
     model: params.input.model,
     cachePolicyMode: explicitPolicy ? "explicit" : automaticPolicy ? "automatic" : "none",
