@@ -30,30 +30,21 @@ alwaysApply: true
 - **ADR-161** provider-native prompt-cache discipline and canonical usage
   accounting is an active founder-prioritized parent-orchestrated program
   (docs-only opening 2026-07-20; long-loop refinement independently audited
-  CLEAN with zero P0/P1/P2). The stable compiled system prefix is verified
-  stable; for ordinary/deep chat, early volatile developer placement is
-  DeepSeek-only. Scope is clean
-  DeepSeek history placement, an immutable compact exchange spine with
-  newest-three full suffix overlays, Anthropic stable + latest-sealed
-  breakpoints, measured OpenAI key plus GPT-5.6+ explicit stable/spine boundary
-  blocks, canonical
-  total/uncached/write/read cost + Credits accounting,
-  projection-family identity, actual-vs-no-cache provider-input cost, and safe
-  observability. Closure requires a sequential 50-iteration benchmark per
-  active provider/model-family policy and one authenticated 40–50-tool PersAI
-  turn proving growing cache reads and positive net provider-cost savings; hit
-  percentage alone fails. No unrelated prompt-semantic change, speculative
-  commit attribution, universal 90% gate, feature flag, permanent
-  legacy serializer, or permanent dual-read alias. ADR-161 narrowly supersedes
-  ADR-156 in-turn aging: compact spine at insertion + newest-three full overlays
-  and no later in-turn masking; cross-turn windows and compact/full definitions
-  stay unchanged.
-  Parent orchestrates/audits/commits; complex implementation uses
-  `gpt-5.6-terra-medium`, simple implementation uses `gpt-5.4-medium`; Sol and
-  Opus subagents are forbidden. Do not proliferate artificial slices. Usage v2
-  uses a bounded consumer-first versioned rollout and removes v1 after old
-  producers drain; push exactly once after final audits/full gates, then complete
-  provider-matrix production acceptance.
+  CLEAN with zero P0/P1/P2; DeepSeek D2a rolled back 2026-07-22). Founder
+  2026-07-22 amendment: append **full** tool results; micro clear at 50% of
+  `compactionTriggerThreshold` (keep last 5, only after user-turn completion);
+  100% path stays the existing `SessionCompactionService` (A3 = no-op); delete
+  compact-at-insert spine and observation overlays; **no D2a**. Active slices
+  A1/A2/A4/A5. Prior spine / newest-three overlay text in older ADR sections is
+  historical debt until A1/A2/A4.
+  Closure still requires sequential 50-iteration benchmarks per active
+  provider/model-family policy and one authenticated 40–50-tool PersAI turn
+  proving growing cache reads and positive net provider-cost savings; hit
+  percentage alone fails. Parent orchestrates/audits/commits; ADR-161
+  implementation subagents may use **only** Grok 4.5
+  (`cursor-grok-4.5-high-fast`); Terra, Sonnet, Sol, and Opus are forbidden for
+  those subs. Do not proliferate artificial slices.
+
 - Treat `docs/SESSION-HANDOFF.md` as the source of truth for the latest completed checkpoint and the user's next stated priority.
 - Treat `docs/CHANGELOG.md` as the source of truth for what has actually landed.
 - If ADR, handoff, changelog, and code disagree, stop and reconcile docs before code changes.

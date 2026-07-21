@@ -2,7 +2,115 @@
 
 ## Status
 
-**Open — canonical v2, cache-prefix, and OpenAI protocol repairs deployed; shared append-only tool-history repair implemented locally; repair deployment and S6 live acceptance pending. DeepSeek D2a durable append-trace was fully rolled back on 2026-07-22 after live proof that byte-stable PersAI prefixes still saw DeepSeek tool-followup cache collapse; do not reintroduce D2a.**
+**Open — canonical v2 and cache-prefix repairs deployed; DeepSeek D2a fully
+rolled back 2026-07-22; founder 2026-07-22 amendment supersedes in-turn
+compact-spine + observation overlays with append-full + two-tier pressure.
+Implementation of that cutover is pending; S6 long-loop acceptance remains
+open. Parent orchestrates/audits/commits; implementation subagents may use
+only Grok 4.5 (`cursor-grok-4.5-high-fast`). Terra, Sonnet, Sol, and Opus are
+forbidden for ADR-161 subs.**
+
+### 2026-07-22 founder amendment — append-full + two-tier pressure
+
+Industry agents (Claude Code, OpenAI Codex, Cursor) keep tool results **full**
+in an append-only transcript, then relieve pressure with clear/summary — not
+with a dual view (compact spine + rotating full developer overlays).
+
+PersAI adopts that model for ordinary/deep chat:
+
+1. **Append full** sanitized tool protocol pairs at insertion. No
+   compact-at-insert spine. No `<persai_recent_tool_observation>` overlays.
+2. **Micro clear (S2)** at **50%** of the existing
+   `compactionTriggerThreshold` (token-pressure family, not message count):
+   model-facing bodies of older tool results become placeholders; keep the
+   newest **5** full (`N = 5`). Canonical storage may remain full.
+   Micro clear runs **only after a user turn fully completes** (final
+   assistant reply / terminal turn outcome) — never mid tool-loop, never
+   between in-turn provider dispatches, so an active task is not disrupted.
+3. **Summary compact (S3)** at **100%** of `compactionTriggerThreshold` (and
+   on existing manual `compact_context` / `summarize_context`): reuse the
+   current `SessionCompactionService` / shared compaction path and rolling
+   synopsis. Do **not** invent a second summary engine. Auto S3 remains on its
+   existing trigger path; it must not be confused with mid-loop micro clear.
+4. **DeepSeek D2a is retracted** (full rollback 2026-07-22; tip
+   `1d7ed104`). Do not reintroduce durable append-trace / epoch reseed.
+   DeepSeek uses the same append-full + pressure model as other providers
+   (pre-D2a gateway path until A1–A3 land).
+5. **Delete** compact-at-insert spine projection, overlay emission, and the
+   ADR-156-style in-turn dual full/compact/mask rewrite of sealed history.
+   OpenAI explicit `persai_tool_exchange_boundary` markers may remain only if
+   a later measured slice proves they still help on a pure append-full
+   transcript; they are not required by this amendment and must not reintroduce
+   overlays.
+
+Trigger split (one family, two levels — never the same threshold for both):
+
+| Pressure | Threshold | Action |
+| --- | --- | --- |
+| Micro clear | After user-turn completion, if `currentTokens >= 0.5 * compactionTriggerThreshold` | Placeholder old tool bodies; keep last **5** full. Never mid tool-loop. All providers. |
+| Full compact | `currentTokens >= compactionTriggerThreshold` (or manual tool) | Existing session compaction for all providers. |
+
+Implementation order for this amendment only:
+
+- **A0** — this ADR text (docs).
+- **A1** — Runtime/Gateway cutover: full-at-insert; remove overlays and
+  compact-at-insert; **no D2a**.
+- **A2** — wire 50% micro-clear for model-facing history (all providers).
+- **A3** — **confirm-only (code-verified 2026-07-22; no rewire slice).**
+  Parent read the live Runtime path after D2a rollback:
+  - Auto 100% gate:
+    `TurnExecutionService.fireBackgroundCompactionEnqueue` enqueues
+    post-turn compaction only when
+    `currentTokens` is fresh and
+    `currentTokens >= compactionTriggerThreshold`
+    (`apps/runtime/src/modules/turns/turn-execution.service.ts`).
+  - Same threshold re-checked inside
+    `SessionCompactionService` (`threshold_not_reached` skip) before synopsis
+    work (`apps/runtime/src/modules/turns/session-compaction.service.ts`).
+  - Channel flags: auto path runs only for `web` /
+    `telegram` when `autoCompactionWeb` / `autoCompactionTelegram` is true.
+  - Manual `compact_context` / `summarize_context` stay on the same service
+    and bypass the auto threshold.
+  - Provider-agnostic: synopsis LLM uses bundle
+    `resolveProviderSelection` — no DeepSeek-only branch and no D2a clear/
+    reseed after rollback.
+  Do **not** open an implementation slice to reinvent 100% compaction.
+  If A1/A2 accidentally break this path, that is a regression fix, not A3
+  scope.
+- **A4** — delete dead overlay/spine types and tests; update observability.
+- **A5** — live cache/long-loop evidence under the new model.
+
+Active implementation slices: **A1, A2, A4, A5**. A3 is confirm-only, not a
+build item.
+
+Out of scope for the amendment: billing/usage v2 changes, UI, new synopsis
+product, permanent dual serializers, feature flags, and any redesign of the
+existing 100% `SessionCompactionService` path.
+
+### 2026-07-22 DeepSeek D2a live verdict (rolled back)
+
+Thread `adr161-d2a-live-20260722b`, chat
+`4a2e68ab-f9b4-4c4e-a0b5-f88a4ff7182e`, model `deepseek-v4-pro`, smoking-gun
+request `ee113169-f59f-4222-a3c2-0dabe82689f4`.
+
+Functional path worked (append-trace read/append/reset 200; 5 simple + 5
+`skill.list`). Cache acceptance **failed** — same class as pre-D2a tool-loop
+numbers.
+
+| step | totalInput | cacheRead | uncached | pct |
+| --- | ---: | ---: | ---: | ---: |
+| main_turn | 17444 | 17408 | 36 | **99.8%** |
+| tool_loop_followup | 19163 | 6400 | 12763 | **33.4%** |
+
+Later tool turns stayed ~36–46% with growing absolute `cacheRead` but low %.
+`provider_cache_zone` for that request: `stableSystemHash`,
+`toolProjectionFamilyHash`, volatile/developer hashes identical; hydrated
+frames **[0]–[16] byte-identical**; followup only appended assistant+tool
+frames. PersAI prefix held; DeepSeek still collapsed cache-read 17408→6400.
+~6400 tokens ≈ first four history frames only. DeepSeek Context Caching /
+Sliding Window Attention matches prefix **units**, not arbitrary byte
+prefixes — best-effort. Cache-frame telemetry (`778c5553` / `ee059b40`)
+stays; D2a does not return.
 
 ### 2026-07-21 cache-prefix repair checkpoint
 
@@ -128,8 +236,9 @@ steady state contains only validated canonical v2 accounting.
 
 The parent agent orchestrates, audits, reconciles documentation, and commits
 only after an accepted coherent checkpoint. Founder-directed implementation
-delegation: use `gpt-5.6-terra-medium` for complex tasks and `gpt-5.4-medium`
-for simple tasks; `gpt-5.6-sol-medium` and all Opus models are forbidden.
+delegation for ADR-161: **only** Grok 4.5 (`cursor-grok-4.5-high-fast`).
+`gpt-5.6-terra-medium`, `gpt-5.4-medium`, `gpt-5.6-sol-medium`, Sonnet, and
+all Opus models are forbidden as ADR-161 implementation subagents.
 Do not proliferate artificial slices: execute the dependency-ordered flow
 below, keeping each delegated task bounded by one clear contract. Provider
 request repairs remain locally batched, but the cross-service usage-contract
@@ -140,13 +249,13 @@ only after all implementation, audits, and full gates pass. The final state
 contains no legacy path.
 
 ADR-119, ADR-124, ADR-130, ADR-135, ADR-143, and ADR-151 remain closed.
-ADR-156 remains closed except for two explicitly superseded cache-safety
-details. In-turn, every completed exchange gets one immutable compact spine
-entry at first insertion; newest-three full observations are bounded suffix
-overlays; older spine entries are not remasked. Cross-turn, every assistant
-tool turn retained by canonical history gets one deterministic compact replay;
-future turns do not re-rank, rewrite, or evict that replay independently of
-canonical history compaction. Compact/full definitions remain unchanged.
+ADR-156 remains closed. The 2026-07-22 founder amendment above **supersedes**
+the prior ADR-161 in-turn compact-spine + newest-three overlay model: ordinary
+/deep chat must append **full** tool results and relieve pressure only via the
+50% micro-clear / 100% session-compaction split. Until A1–A4 land, deployed
+code may still emit the old spine/overlays; that is debt to delete, not
+current design truth. Cross-turn compact/full definitions stay unchanged until
+the amendment cutover explicitly replaces them.
 
 ## Context
 
@@ -338,6 +447,13 @@ metric labels.
 ## Decision
 
 ### D1 — one canonical cache-zone model
+
+> **Superseded for forward work by the 2026-07-22 founder amendment:** do not
+> implement new compact-at-insert spine or newest-three observation overlays.
+> The zone list below remains the historical Release A / S1–S3 design record;
+> A1–A4 replace in-turn zones 4–6 with append-full transcript + two-tier
+> pressure. Do not reintroduce D2a.
+
 
 Every text-provider request is assembled from the same logical zones:
 

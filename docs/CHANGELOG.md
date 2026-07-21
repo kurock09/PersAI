@@ -5,6 +5,12 @@
 
 ## 2026-07-22
 
+- **ADR-161 founder amendment recorded (docs):** append-full tool transcript +
+  50%/100% two-tier pressure (`N=5`, micro clear only after user-turn
+  completion); D2a live verdict and rollback noted; D1 spine/overlays
+  superseded for forward work. ADR-161 implementation subagents: **only**
+  Grok 4.5 (`cursor-grok-4.5-high-fast`).
+
 - **ADR-161 DeepSeek D2a full rollback:** reverted durable append-trace
   (`42e24b2e`), API 20mb body-limit for its seeds (`f53dcf22`), changelog ship
   note (`30a45d1e`), and gateway empty-`messages` allowance (`695fec10`). Live
@@ -12,8 +18,7 @@
   cache-read still collapsed (e.g. 17408→6400 on `ee113169`); D2a is not the
   cache fix. Kept opaque safety-banner `bg-surface`. Kept applied migration
   `20260721180000_*` in history and added `20260721200000_*` to drop the
-  tables. Founder append-full / 50%–100% pressure notes preserved outside the
-  repo (not re-applied here).
+  tables. Shipped as `1d7ed104`.
 
 ## 2026-07-21
 
