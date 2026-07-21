@@ -3,9 +3,9 @@
 ## Status
 
 **Open — canonical v2 and cache-prefix repairs deployed; DeepSeek D2a fully
-rolled back 2026-07-22; founder 2026-07-22 amendment supersedes in-turn
-compact-spine + observation overlays with append-full + two-tier pressure.
-Implementation of that cutover is pending; S6 long-loop acceptance remains
+rolled back 2026-07-22; founder 2026-07-22 append-full + two-tier pressure
+cutover landed in code at `418d7fce` (A0–A4; independent Grok architecture +
+wire audits CLEAN). A5 live cache/long-loop evidence and S6 acceptance remain
 open. Parent orchestrates/audits/commits; implementation subagents may use
 only Grok 4.5 (`cursor-grok-4.5-high-fast`). Terra, Sonnet, Sol, and Opus are
 forbidden for ADR-161 subs.**
@@ -87,8 +87,8 @@ Implementation order for this amendment only:
   longer instructs live `[toolHistoryProjection]` in-turn metrics checks.
 - **A5** — live cache/long-loop evidence under the new model.
 
-Active implementation slices: **A1, A2, A4, A5**. A3 is confirm-only, not a
-build item.
+A0–A4 landed and pushed (`418d7fce`). A3 was confirm-only. Remaining:
+**A5** live evidence.
 
 Out of scope for the amendment: billing/usage v2 changes, UI, new synopsis
 product, permanent dual serializers, feature flags, and any redesign of the
