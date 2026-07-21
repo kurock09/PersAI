@@ -1,12 +1,21 @@
 # SESSION-HANDOFF
 
+## 2026-07-22 — ADR-161 A1–A4 append-full + micro-clear cutover (local)
+
+Parent-orchestrated with Grok-only subs. Local commits (not pushed):
+
+- **A0** `7b474b08` — founder amendment + Grok-only subs in ADR/AGENTS
+- **A1** `a037ea79` — full in-turn `toolHistory`; no compact spine; no overlays
+- **A2** `43adbfe0` — hydrate micro-clear ≥50%, keep last 5; never mid-loop
+- **A4** `0f9316b0` — delete overlay contract + unused in-turn dual window
+
+A3 confirm-only (100% `SessionCompactionService` unchanged). Next: independent
+Grok audits to CLEAN, one push (= deploy), then A5 live evidence.
+
 ## 2026-07-22 — ADR-161 founder amendment + Grok-only subs (docs)
 
-Re-applied the preserved append-full + 50%/100% pressure amendment and D2a
-live verdict into ADR-161 Status. Parent orchestrates; ADR-161 implementation
-subagents may use **only** `cursor-grok-4.5-high-fast`. A3 (100%
-`SessionCompactionService`) is already live — not a work item. Active slices:
-**A1, A2, A4, A5**. Next after rollback deploy: A1 full-at-insert (no D2a).
+Amendment and D2a live verdict recorded in ADR-161. Subs: only
+`cursor-grok-4.5-high-fast`.
 
 ## 2026-07-22 — ADR-161 DeepSeek D2a full rollback
 
