@@ -1054,7 +1054,9 @@ export function normalizeProviderTextGenerationUsageV2(params: {
       cacheReadInputTokens =
         readNestedUsageInteger(usage, "input_tokens_details", "cached_tokens") ?? 0;
       const openAiCacheWriteInputTokens =
-        policy.mode === "automatic" ? 0 : readUsageInteger(usage, "cache_write_tokens");
+        policy.mode === "automatic"
+          ? 0
+          : readNestedUsageInteger(usage, "input_tokens_details", "cache_write_tokens");
       cacheWriteInputTokens = openAiCacheWriteInputTokens;
       uncachedInputTokens =
         totalInputTokens === null || openAiCacheWriteInputTokens === null

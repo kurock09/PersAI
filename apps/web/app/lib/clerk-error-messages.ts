@@ -28,7 +28,8 @@ export function mapClerkError(
 
   const key = `clerkErrors.${code}`;
   try {
-    return t(key);
+    const translated = t(key);
+    return translated === key ? t(fallbackKey) : translated;
   } catch {
     return t(fallbackKey);
   }

@@ -315,8 +315,9 @@ Current OpenAI documentation checked 2026-07-20 states:
   `prompt_cache_breakpoint`, and uses
   `prompt_cache_options: { mode, ttl: "30m" }`;
 - older models reject `prompt_cache_options` and explicit breakpoints;
-- GPT-5.6+ reports cache writes as `cache_write_tokens`, billed at 1.25×
-  uncached input.
+- GPT-5.6+ reports cache writes as
+  `usage.input_tokens_details.cache_write_tokens`, billed at 1.25× uncached
+  input.
 
 Supporting both active model families is current provider behavior, not a
 legacy PersAI compatibility shim. The model catalog must declare the exact

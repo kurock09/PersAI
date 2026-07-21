@@ -475,6 +475,20 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
             }
           };
         }
+        if (payload.model === "gpt-5.6-terra") {
+          return {
+            output_text: "cached done",
+            usage: {
+              input_tokens: 100,
+              input_tokens_details: {
+                cached_tokens: 80,
+                cache_write_tokens: 10
+              },
+              output_tokens: 5,
+              total_tokens: 105
+            }
+          };
+        }
         return {
           output_text: "done",
           usage: {
@@ -576,6 +590,39 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
   assert.equal(capturedGeneratePayload!.prompt_cache_key, "persai:ordinary_chat:bundle-hash-1:b03");
   assert.equal(capturedGeneratePayload!.prompt_cache_retention, "in_memory");
   const baselineGenerateInput = capturedGeneratePayload!.input as unknown[];
+  const explicitCacheUsageResult = await client.generateText({
+    ...request,
+    model: "gpt-5.6-terra",
+    promptCache: {
+      key: "persai:explicit-cache-usage",
+      openaiPolicy: {
+        mode: "explicit",
+        ttl: "30m",
+        stableAnchor: "explicit",
+        sealedSpineBreakpoint: "explicit"
+      }
+    }
+  });
+  assert.deepEqual(
+    explicitCacheUsageResult.textUsage,
+    {
+      status: "accounted",
+      entry: {
+        schemaVersion: 2,
+        stepType: "main_turn",
+        modelRole: null,
+        providerKey: "openai",
+        modelKey: "gpt-5.6-terra",
+        totalInputTokens: 100,
+        uncachedInputTokens: 10,
+        cacheWriteInputTokens: 10,
+        cacheReadInputTokens: 80,
+        outputTokens: 5,
+        totalTokens: 105
+      }
+    },
+    "GPT-5.6 explicit cache writes are read from usage.input_tokens_details"
+  );
   await withEnv(
     {
       PERSAI_DEBUG_PROVIDER_PAYLOAD: undefined,

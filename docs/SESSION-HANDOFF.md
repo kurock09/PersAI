@@ -1,5 +1,33 @@
 # SESSION-HANDOFF
 
+## 2026-07-21 — ADR-161 OpenAI explicit cache-write accounting repair
+
+Production re-test after the catalog policy repair confirmed real OpenAI
+cache reads (Terra simple turns: 86.26–86.53% after warm-up; `skill.list`
+tool-loop turns: 79.81–81.83%), but the canonical receipt envelope was zero.
+
+The exact defect is local: the GPT-5.6 Responses field is
+`usage.input_tokens_details.cache_write_tokens`, not top-level
+`usage.cache_write_tokens`. Because the normalizer read the wrong path, it
+reported `usage_unavailable` and Runtime correctly omitted the entry, leaving
+an empty aggregate. The local repair uses the documented nested field and
+adds a provider regression proving that an explicit response with cache reads
+and writes produces a canonical accounted entry. Full provider and Web suites,
+recursive lint, repository format, and API/Web/provider-gateway/runtime-contract
+typechecks pass.
+
+## 2026-07-21 — Clerk authentication-error localization
+
+Baseline: `aac7e7d7f43e374ab1ebde4bde923cece864fbc8`.
+
+The registration form had surfaced raw keys such as
+`auth.clerkErrors.form_identifier_exists` because `next-intl` returns an
+unresolved key rather than throwing. Russian and English copy now explicitly
+explains a duplicate email and a temporary Clerk API failure; the Clerk-error
+mapper detects unresolved keys and falls back to the normal screen error
+message. Focused mapper coverage proves both the known-code and unknown-code
+paths.
+
 ## 2026-07-21 — ADR-161 OpenAI catalog cache-policy control
 
 Baseline: `aac7e7d7f43e374ab1ebde4bde923cece864fbc8`.

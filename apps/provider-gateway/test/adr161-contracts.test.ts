@@ -120,8 +120,7 @@ export async function runAdr161ContractsTest(): Promise<void> {
       input_tokens: 100,
       output_tokens: 20,
       total_tokens: 120,
-      cache_write_tokens: 10,
-      input_tokens_details: { cached_tokens: 60 }
+      input_tokens_details: { cached_tokens: 60, cache_write_tokens: 10 }
     },
     promptCachePolicy: {
       mode: "explicit",
@@ -139,7 +138,8 @@ export async function runAdr161ContractsTest(): Promise<void> {
         input_tokens: 100,
         output_tokens: 20,
         total_tokens: 120,
-        input_tokens_details: { cached_tokens: 60, cache_write_tokens: 10 }
+        cache_write_tokens: 10,
+        input_tokens_details: { cached_tokens: 60 }
       },
       promptCachePolicy: {
         mode: "explicit",

@@ -5,6 +5,19 @@
 
 ## 2026-07-21
 
+- **ADR-161 OpenAI explicit cache-write accounting repair (local):** OpenAI
+  Responses returns GPT-5.6 `cache_write_tokens` under
+  `usage.input_tokens_details`; the normalizer had read a nonexistent
+  top-level field and therefore discarded otherwise factual usage as
+  unavailable. Canonical usage now reads the provider’s exact nested field;
+  a regression covers a response with both cache reads and writes.
+
+- **Clerk auth-error localization (local):** Russian and English auth screens
+  now explain duplicate-email (`form_identifier_exists`) and temporary Clerk
+  API (`api_response_error`) failures in user-facing language. Unknown Clerk
+  codes now fall back to the screen's ordinary error message instead of
+  exposing a raw `auth.clerkErrors.*` translation key.
+
 - **ADR-161 OpenAI catalog cache-policy control (local):** the existing
   Admin → Runtime → Provider Model Catalog editor now exposes the exact
   OpenAI chat-model cache transport choice: automatic in-memory, automatic
