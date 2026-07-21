@@ -1,20 +1,27 @@
 # SESSION-HANDOFF
 
-## 2026-07-22 — ADR-161 D2a live: empty messages rejected after body-limit fix
+## 2026-07-21 — ADR-161 D2a live: API body limit blocks append-trace reset
 
-Cluster: `api=30a45d1e` (20mb body fix), `runtime`/`provider-gateway=42e24b2e`
-(D2a). Live smoke `adr161-d2a-cache-20260722` / `d2a-simple-1`:
+Deployed `42e24b2e` images are live (`api` / `runtime` / `provider-gateway`),
+but the first DeepSeek cache smoke failed before provider dispatch:
 
-- append-trace `reset` now **200** (body-limit repair confirmed);
-- chat still **400** `native_runtime_request_invalid` /
-  “Provider gateway rejected … 400”.
+- `POST /api/v1/internal/runtime/deepseek-append-trace/reset` →
+  `PayloadTooLargeError: request entity too large`
+- Runtime surfaces that as
+  `DeepSeek chat trace could not prepare provider dispatch`
+- Public chat then returns `native_runtime_request_invalid` / gateway 400
 
-Root cause: D2a coordinator correctly clears generic `messages` and sends
-`deepSeekAppendTrace` as the sole transcript, but gateway
-`assertValidRequest` still required `messages.length > 0`, so the request died
-before the DeepSeek client. Local fix: allow empty `messages` only when
-`provider=deepseek` and `deepSeekAppendTrace.events` is non-empty; reject the
-trace on other providers. Next: ship provider-gateway, re-run DeepSeek smoke.
+Root cause: API kept Nest’s default ~100kb JSON body parser while D2a seed
+payloads (compiled system + developer + context) exceed it. Local fix raises
+API JSON/urlencoded limits to `20mb` with `bodyParser: false` so the raised
+limit is the only parser (same ceiling as runtime/provider-gateway).
+
+Local gates before commit/push: recursive lint, format:check, api/web/runtime/
+provider-gateway typecheck, adr146-slice5, helm lint+template, api+runtime+
+provider-gateway suites, api test:step2, full build — green. Full recursive
+`pnpm test` / `test:step2` web suite hit unrelated admin timeout flakes under
+load (`plans`/`site-pages`); both pass in isolation. Next after push: wait for
+exact `api` image pin, re-run DeepSeek 5+5 cache smoke.
 
 ## 2026-07-21 — ADR-161 D2a DeepSeek durable append-trace
 
