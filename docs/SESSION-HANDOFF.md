@@ -1,27 +1,5 @@
 # SESSION-HANDOFF
 
-## 2026-07-21 — ADR-161 D2a DeepSeek durable append-trace
-
-Local implementation of the DeepSeek-only append-only chat trace from ADR-161
-D2a passed full CI-equivalent gates except SQL migrate check (no local DB):
-
-- durable `deepseek_chat_append_traces` / events with epoch + `configHash`;
-- Runtime coordinator seeds/appends/resets before every DeepSeek chat dispatch
-  and strips generic spine/overlay sources from the provider request;
-- gateway replays `deepSeekAppendTrace` verbatim when present;
-- full catalog describe contracts and text follow-up previews persist;
-- context revisions supersede prior state without mutating old bytes and land
-  before the active user/follow-up input;
-- compaction and provider leave clear the epoch; chat delete cascades;
-- pre-dispatch budget uses admin context/output capability with one
-  no-more-tools finalize then fail closed;
-- opaque safety-restriction chat banner restored (`bg-surface`).
-
-Independent terra re-audits hit API usage limits; parent re-audit found and
-fixed append ordering of context vs active input. Next: finish full suites,
-commit/push once, migrate, deploy, then DeepSeek long tool-loop cache
-acceptance.
-
 ## 2026-07-21 — ADR-161 cache frame telemetry
 
 The isolated DeepSeek third tool-turn cache drop cannot yet be assigned to a

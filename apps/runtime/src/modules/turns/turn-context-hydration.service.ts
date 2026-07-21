@@ -381,17 +381,10 @@ export class TurnContextHydrationService {
     if (telegramChatId !== null) {
       return telegramChatId;
     }
-    if (input === null || input === undefined) {
+    if (input === null || input === undefined || !this.shouldFallbackCanonicalChatId(input)) {
       return null;
     }
-    return this.resolveCanonicalChatIdForConversation(input.conversation);
-  }
-
-  async resolveCanonicalChatIdForConversation(
-    conversation: RuntimeConversationAddress
-  ): Promise<string | null> {
-    if (!this.shouldFallbackCanonicalChatId(conversation)) return null;
-    return (await this.loadAssistantChatRowMeta(conversation))?.id ?? null;
+    return (await this.loadAssistantChatRowMeta(input.conversation))?.id ?? null;
   }
 
   async buildMessages(
@@ -1058,12 +1051,12 @@ export class TurnContextHydrationService {
     };
   }
 
-  private shouldFallbackCanonicalChatId(conversation: RuntimeConversationAddress): boolean {
-    const canonicalSurface = toHydratedCanonicalSurface(conversation.channel);
+  private shouldFallbackCanonicalChatId(input: RuntimeTurnRequest): boolean {
+    const canonicalSurface = toHydratedCanonicalSurface(input.conversation.channel);
     if (canonicalSurface === null) {
       return false;
     }
-    const externalThreadKey = normalizeOptionalString(conversation.externalThreadKey);
+    const externalThreadKey = normalizeOptionalString(input.conversation.externalThreadKey);
     if (externalThreadKey === null) {
       return false;
     }

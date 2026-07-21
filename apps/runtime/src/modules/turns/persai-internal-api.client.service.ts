@@ -85,31 +85,6 @@ type JsonResponse = {
   body: unknown;
 };
 
-export type InternalDeepSeekAppendTraceEvent = {
-  ordinal: number;
-  sourceKey: string;
-  kind:
-    | "stable_snapshot"
-    | "conversation"
-    | "assistant_tool_call"
-    | "tool_result"
-    | "catalog_describe"
-    | "context_revision";
-  role: "system" | "developer" | "user" | "assistant" | "tool";
-  contentText: string | null;
-  contentJson: unknown | null;
-  stateKey: string | null;
-  revision: number | null;
-  supersedes: string | null;
-};
-
-export type InternalDeepSeekAppendTrace = {
-  activeEpoch: number;
-  nextOrdinal: number;
-  configHash: string;
-  events: InternalDeepSeekAppendTraceEvent[];
-};
-
 /**
  * ADR-074 L1.1 — `limit` is now nullable on the success branch. The API
  * counts every cost-tool call for observability even when the plan does
@@ -2800,48 +2775,6 @@ export class PersaiInternalApiClientService {
     );
   }
 
-  // ADR-161 D2a foundation only. No turn path calls these until the DeepSeek
-  // assembler integration slice explicitly owns event projection/replay.
-  async readDeepSeekAppendTrace(
-    assistantChatId: string
-  ): Promise<InternalDeepSeekAppendTrace | null> {
-    const response = await this.callDeepSeekAppendTrace("read", { assistantChatId });
-    const payload = this.asObject(response.body);
-    if (
-      response.ok &&
-      payload?.ok === true &&
-      (payload.trace === null || this.isDeepSeekAppendTrace(payload.trace))
-    ) {
-      return payload.trace === null ? null : (payload.trace as InternalDeepSeekAppendTrace);
-    }
-    this.throwDeepSeekAppendTraceResponseError(response);
-  }
-
-  async appendDeepSeekAppendTrace(input: {
-    assistantChatId: string;
-    epoch: number;
-    expectedOrdinal: number;
-    events: Omit<InternalDeepSeekAppendTraceEvent, "ordinal">[];
-  }): Promise<InternalDeepSeekAppendTrace> {
-    return this.mutateDeepSeekAppendTrace("append", input);
-  }
-
-  async resetDeepSeekAppendTrace(input: {
-    assistantChatId: string;
-    expectedEpoch: number;
-    configHash: string;
-    seedEvents: Omit<InternalDeepSeekAppendTraceEvent, "ordinal">[];
-  }): Promise<InternalDeepSeekAppendTrace> {
-    return this.mutateDeepSeekAppendTrace("reset", input);
-  }
-
-  async clearDeepSeekAppendTrace(input: {
-    assistantChatId: string;
-    expectedEpoch: number;
-  }): Promise<InternalDeepSeekAppendTrace> {
-    return this.mutateDeepSeekAppendTrace("clear", input);
-  }
-
   async ensureFreshSpec(input: {
     assistantId: string;
     currentConfigGeneration: number;
@@ -3000,77 +2933,6 @@ export class PersaiInternalApiClientService {
       throw new ServiceUnavailableException("PersAI internal API base URL is not configured.");
     }
     return new URL(pathname, baseUrl).toString();
-  }
-
-  private async mutateDeepSeekAppendTrace(
-    operation: "append" | "reset" | "clear",
-    input: Record<string, unknown>
-  ): Promise<InternalDeepSeekAppendTrace> {
-    const response = await this.callDeepSeekAppendTrace(operation, input);
-    const payload = this.asObject(response.body);
-    if (response.ok && payload?.ok === true && this.isDeepSeekAppendTrace(payload.trace)) {
-      return payload.trace as InternalDeepSeekAppendTrace;
-    }
-    return this.throwDeepSeekAppendTraceResponseError(response);
-  }
-
-  private async callDeepSeekAppendTrace(
-    operation: "read" | "append" | "reset" | "clear",
-    input: Record<string, unknown>
-  ): Promise<JsonResponse> {
-    if (!this.isConfigured()) {
-      throw new ServiceUnavailableException("PersAI internal API base URL is not configured.");
-    }
-    return this.fetchJson(`/api/v1/internal/runtime/deepseek-append-trace/${operation}`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${this.config.PERSAI_INTERNAL_API_TOKEN}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify(input)
-    });
-  }
-
-  private throwDeepSeekAppendTraceResponseError(response: JsonResponse): never {
-    const error = this.extractError(response.body);
-    if (response.status >= 500) {
-      throw new ServiceUnavailableException(
-        error.message ?? "PersAI internal API DeepSeek trace request failed."
-      );
-    }
-    throw new BadRequestException(
-      error.message ?? "PersAI internal API rejected the DeepSeek trace request."
-    );
-  }
-
-  private isDeepSeekAppendTrace(value: unknown): value is InternalDeepSeekAppendTrace {
-    const trace = this.asObject(value);
-    return (
-      trace !== null &&
-      typeof trace.activeEpoch === "number" &&
-      Number.isInteger(trace.activeEpoch) &&
-      typeof trace.nextOrdinal === "number" &&
-      Number.isInteger(trace.nextOrdinal) &&
-      typeof trace.configHash === "string" &&
-      (trace.configHash.length === 0 || /^[0-9a-f]{64}$/.test(trace.configHash)) &&
-      Array.isArray(trace.events) &&
-      trace.events.every((event) => {
-        const row = this.asObject(event);
-        return (
-          row !== null &&
-          typeof row.ordinal === "number" &&
-          typeof row.sourceKey === "string" &&
-          typeof row.kind === "string" &&
-          typeof row.role === "string" &&
-          (row.contentText === null || typeof row.contentText === "string") &&
-          (row.contentJson === null || row.contentJson !== undefined) &&
-          (row.stateKey === null || typeof row.stateKey === "string") &&
-          (row.revision === null ||
-            (typeof row.revision === "number" && Number.isInteger(row.revision))) &&
-          (row.supersedes === null || typeof row.supersedes === "string")
-        );
-      })
-    );
   }
 
   private async fetchJson(

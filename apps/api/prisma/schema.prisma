@@ -2284,48 +2284,10 @@ model AssistantChat {
   moderationCases               ModerationCase[]
   safetyModerationReviewJobs    SafetyModerationReviewJob[]
   todos                         AssistantChatTodo[]
-  deepSeekAppendTrace           DeepSeekChatAppendTrace?
 
   @@unique([assistantId, surface, surfaceThreadKey])
   @@unique([id, assistantId])
   @@map("assistant_chats")
-}
-
-/// ADR-161 D2a — provider-operational replay state only. Canonical chat
-/// messages/tool exchanges remain the durable product record.
-model DeepSeekChatAppendTrace {
-  chatId        String                      @id @map("chat_id") @db.Uuid
-  activeEpoch   Int                         @default(0) @map("active_epoch")
-  nextOrdinal   Int                         @default(0) @map("next_ordinal")
-  configHash    String                      @default("") @map("config_hash") @db.VarChar(64)
-  createdAt     DateTime                    @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt     DateTime                    @updatedAt @map("updated_at") @db.Timestamptz(6)
-  chat          AssistantChat               @relation(fields: [chatId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  events        DeepSeekChatAppendTraceEvent[]
-
-  @@map("deepseek_chat_append_traces")
-}
-
-model DeepSeekChatAppendTraceEvent {
-  id          String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  chatId      String                    @map("chat_id") @db.Uuid
-  epoch       Int
-  ordinal     Int
-  sourceKey   String                    @map("source_key") @db.VarChar(256)
-  kind        String                    @db.VarChar(64)
-  role        String                    @db.VarChar(32)
-  contentText String?                   @map("content_text") @db.Text
-  contentJson Json?                     @map("content_json") @db.JsonB
-  stateKey    String?                   @map("state_key") @db.VarChar(256)
-  revision    Int?
-  supersedes  String?                   @map("supersedes") @db.VarChar(256)
-  createdAt   DateTime                  @default(now()) @map("created_at") @db.Timestamptz(6)
-  trace       DeepSeekChatAppendTrace   @relation(fields: [chatId], references: [chatId], onDelete: Cascade, onUpdate: Cascade)
-
-  @@unique([chatId, epoch, ordinal])
-  @@unique([chatId, epoch, sourceKey])
-  @@index([chatId, epoch, ordinal])
-  @@map("deepseek_chat_append_trace_events")
 }
 
 /// ADR-125 — per-chat hierarchical todo list owned by the model via the

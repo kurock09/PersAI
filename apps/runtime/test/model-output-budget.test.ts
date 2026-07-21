@@ -1,8 +1,6 @@
 import assert from "node:assert/strict";
 import {
-  assessDeepSeekAppendTraceDispatchBudget,
   resolveModelOutputBudget,
-  resolveDeepSeekAppendTraceOverflowAction,
   OUTPUT_BUDGET_MAX,
   OUTPUT_BUDGET_FALLBACK,
   OUTPUT_BUDGET_FLOOR,
@@ -169,66 +167,6 @@ export async function runModelOutputBudgetTest(): Promise<void> {
       answer,
       64_000,
       "Edge: sonnet long answer returns its 64k ceiling when context has room and no thinking"
-    );
-  }
-
-  // D2a: an append-only DeepSeek trace may dispatch only with explicit,
-  // admin-managed capability values and a complete input + output reserve fit.
-  {
-    assert.deepEqual(
-      assessDeepSeekAppendTraceDispatchBudget(
-        { maxOutputTokens: 8_000, contextWindow: 32_000 },
-        24_000,
-        8_000
-      ),
-      { outcome: "fits", inputTokensEstimate: 24_000, outputTokensReserve: 8_000 }
-    );
-    assert.deepEqual(
-      assessDeepSeekAppendTraceDispatchBudget(
-        { maxOutputTokens: 8_000, contextWindow: 32_000 },
-        24_001,
-        8_000
-      ),
-      { outcome: "exceeded" },
-      "the full trace input plus selected output reserve must fit before dispatch"
-    );
-    assert.deepEqual(
-      assessDeepSeekAppendTraceDispatchBudget(
-        { maxOutputTokens: null, contextWindow: 32_000 },
-        24_000,
-        8_000
-      ),
-      { outcome: "capability_unavailable" },
-      "a generic output fallback is not valid for an append-only DeepSeek trace"
-    );
-  }
-
-  // D2a: overflow gets one explicit no-more-tools finalization pass, never
-  // generic compaction/recovery; a final-only overflow fails before dispatch.
-  {
-    assert.equal(
-      resolveDeepSeekAppendTraceOverflowAction({
-        budgetFits: false,
-        hasTools: true,
-        finalizationRequested: false
-      }),
-      "finalize_no_more_tools"
-    );
-    assert.equal(
-      resolveDeepSeekAppendTraceOverflowAction({
-        budgetFits: false,
-        hasTools: false,
-        finalizationRequested: true
-      }),
-      "fail_closed"
-    );
-    assert.equal(
-      resolveDeepSeekAppendTraceOverflowAction({
-        budgetFits: true,
-        hasTools: true,
-        finalizationRequested: false
-      }),
-      "dispatch"
     );
   }
 

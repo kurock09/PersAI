@@ -19,7 +19,6 @@ import type { RuntimeStatePostgresService } from "../src/modules/runtime-state/i
 import { ProviderGatewayClientService } from "../src/modules/turns/provider-gateway.client.service";
 import type { RuntimeBundleAutoRefreshService } from "../src/modules/turns/runtime-bundle-auto-refresh.service";
 import { SessionCompactionService } from "../src/modules/turns/session-compaction.service";
-import type { DeepSeekAppendTraceCoordinatorService } from "../src/modules/turns/deepseek-append-trace-coordinator.service";
 import { REUSABLE_SHARED_COMPACTION_OUTPUT_SCHEMA } from "../src/modules/turns/shared-compaction-state";
 import type {
   RuntimeCompactionMessageSource,
@@ -495,18 +494,6 @@ class FakeTurnContextHydrationService {
     this.inputs.push(input);
     return this.source;
   }
-
-  async resolveCanonicalChatIdForConversation(): Promise<string | null> {
-    return "11111111-1111-4111-8111-111111111111";
-  }
-}
-
-class FakeDeepSeekAppendTraceCoordinatorService {
-  clearedChatIds: string[] = [];
-
-  async clear(assistantChatId: string): Promise<void> {
-    this.clearedChatIds.push(assistantChatId);
-  }
 }
 
 class FakeSessionStoreService {
@@ -667,7 +654,6 @@ export async function runSessionCompactionServiceTest(): Promise<void> {
   const leaseService = new FakeSessionLeaseService();
   const postgres = new FakeRuntimeStatePostgresService();
   const autoExtract = new FakeAutoExtractToMemoryService();
-  const deepSeekTrace = new FakeDeepSeekAppendTraceCoordinatorService();
   const service = new SessionCompactionService(
     bundleRegistry as unknown as RuntimeBundleRegistryService,
     providerGateway as unknown as ProviderGatewayClientService,
@@ -683,8 +669,7 @@ export async function runSessionCompactionServiceTest(): Promise<void> {
     sessionStore as unknown as SessionStoreService,
     leaseService as unknown as SessionLeaseService,
     postgres as unknown as RuntimeStatePostgresService,
-    autoExtract as unknown as import("../src/modules/turns/auto-extract-to-memory.service").AutoExtractToMemoryService,
-    deepSeekTrace as unknown as DeepSeekAppendTraceCoordinatorService
+    autoExtract as unknown as import("../src/modules/turns/auto-extract-to-memory.service").AutoExtractToMemoryService
   );
 
   sessionStore.resolvedSession = createResolvedSession(7000);

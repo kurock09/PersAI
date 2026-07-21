@@ -104,7 +104,6 @@ import {
   PROJECT_EXECUTION_DEVELOPER_CONTRACT
 } from "./project-execution-profile";
 import { PersaiInternalApiClientService } from "./persai-internal-api.client.service";
-import { DeepSeekAppendTraceCoordinatorService } from "./deepseek-append-trace-coordinator.service";
 import { ProviderGatewayClientService } from "./provider-gateway.client.service";
 import {
   isRetryableRuntimeTextFailure,
@@ -203,12 +202,7 @@ import {
   recordToolContractNotLoaded,
   type CatalogToolTurnMetrics
 } from "./catalog-tool-turn-metrics";
-import {
-  assessDeepSeekAppendTraceDispatchBudget,
-  resolveDeepSeekAppendTraceOverflowAction,
-  resolveModelOutputBudget,
-  APPROX_BYTES_PER_TOKEN
-} from "./model-output-budget";
+import { resolveModelOutputBudget, APPROX_BYTES_PER_TOKEN } from "./model-output-budget";
 
 type NativeManagedProvider = "openai" | "anthropic" | "deepseek";
 type SlotPromptCachePolicyState =
@@ -229,24 +223,13 @@ function estimateProviderRequestInputTokens(req: {
   developerInstructions?: string | null;
   messages: unknown[];
   tools?: unknown[];
-  deepSeekAppendTrace?: { events: Array<{ message: Record<string, unknown> }> };
-  toolChoice?: unknown;
-  outputSchema?: unknown;
 }): number {
   const systemLen = typeof req.systemPrompt === "string" ? req.systemPrompt.length : 0;
   const devLen =
     typeof req.developerInstructions === "string" ? req.developerInstructions.length : 0;
-  const messagesLen = JSON.stringify(
-    req.deepSeekAppendTrace?.events.map((event) => event.message) ?? req.messages
-  ).length;
+  const messagesLen = JSON.stringify(req.messages).length;
   const toolsLen = measureToolsJsonCharCount(req.tools);
-  const toolChoiceLen = req.toolChoice === undefined ? 0 : JSON.stringify(req.toolChoice).length;
-  const outputSchemaLen =
-    req.outputSchema === undefined ? 0 : JSON.stringify(req.outputSchema).length;
-  return Math.ceil(
-    (systemLen + devLen + messagesLen + toolsLen + toolChoiceLen + outputSchemaLen) /
-      APPROX_BYTES_PER_TOKEN
-  );
+  return Math.ceil((systemLen + devLen + messagesLen + toolsLen) / APPROX_BYTES_PER_TOKEN);
 }
 
 const PROMPT_CACHE_KEY_BUCKETS = 8;
@@ -639,8 +622,7 @@ export class TurnExecutionService {
     private readonly runtimeExecutionAdmissionService: RuntimeExecutionAdmissionService,
     private readonly runtimeAwaitToolService: RuntimeAwaitToolService,
     private readonly mediaObjectStorage: PersaiMediaObjectStorageService,
-    @Optional() @Inject(RUNTIME_CONFIG) private readonly config?: RuntimeConfig,
-    private readonly deepSeekAppendTraceCoordinatorService?: DeepSeekAppendTraceCoordinatorService
+    @Optional() @Inject(RUNTIME_CONFIG) private readonly config?: RuntimeConfig
   ) {}
 
   async createTurn(input: RuntimeTurnRequest): Promise<RuntimeTurnResult> {
@@ -1338,38 +1320,6 @@ export class TurnExecutionService {
             )
           });
           this.recordToolLoopToolsJsonCharCount(turnState, iteration, providerRequest.tools);
-          providerRequest = await this.resolveDeepSeekAppendTraceRequest(
-            turnState,
-            providerRequest,
-            toolHistory
-          );
-          const deepSeekTraceOverflowAction = resolveDeepSeekAppendTraceOverflowAction({
-            budgetFits:
-              this.assessDeepSeekAppendTraceDispatchBudget(
-                execution.bundle,
-                execution.selectedModelRole,
-                providerRequest
-              ) === "fits",
-            hasTools: (providerRequest.tools?.length ?? 0) > 0,
-            finalizationRequested: forceFinalTextOnly
-          });
-          if (deepSeekTraceOverflowAction !== "dispatch") {
-            if (deepSeekTraceOverflowAction === "finalize_no_more_tools") {
-              this.restorePendingFilePreviewBlocksAfterOverflow(
-                turnState,
-                pendingFilePreviewBlocks
-              );
-              forceFinalTextOnly = true;
-              trace?.stage(`iter${String(iteration)}.deepseek_trace_finalize`);
-              continue;
-            }
-            throw new TurnExecutionError(
-              "deepseek_append_trace_context_budget_exceeded",
-              new ServiceUnavailableException(
-                "DeepSeek append trace cannot fit a final no-more-tools response inside the selected model context window."
-              )
-            );
-          }
           let advancedToNextIteration = false;
           let providerOutputSeen = false;
           let streamFallbackAttempted = false;
@@ -1399,14 +1349,6 @@ export class TurnExecutionService {
                   fallbackSelection
                 )
               ) {
-                if (fallbackSelection.provider === "deepseek") {
-                  throw new TurnExecutionError(
-                    "deepseek_append_trace_recovery_unsupported",
-                    new ServiceUnavailableException(
-                      "DeepSeek fallback cannot safely enter an existing provider loop without a resolved append trace."
-                    )
-                  );
-                }
                 streamFallbackAttempted = true;
                 this.logger.warn(
                   `[runtime-text-fallback-primary-failed] surface=turn_stream requestId=${acceptedTurn.receipt.requestId} classification=${providerRequest.requestMetadata?.classification ?? "unknown"} attempt=tool_loop:${String(iteration)} role=${execution.selectedModelRole} provider=${providerRequest.provider} model=${providerRequest.model} fallbackProvider=${fallbackSelection.provider} fallbackModel=${fallbackSelection.model} error=${
@@ -1863,13 +1805,6 @@ export class TurnExecutionService {
                   deferredDocumentJobs: turnState.deferredDocumentJobs,
                   locale: input.message.locale ?? execution.bundle.userContext.locale ?? null
                 });
-                await this.appendDeepSeekFinalAssistant(
-                  turnState,
-                  acceptedTurn.receipt.requestId,
-                  event.result.provider === "deepseek" && event.result.stopReason === "completed"
-                    ? event.result.text
-                    : null
-                );
                 correctedProviderResult = await this.runPostFinalChatPlanSelfCheck({
                   acceptedTurn,
                   execution,
@@ -1957,14 +1892,6 @@ export class TurnExecutionService {
                       fallbackSelection
                     )
                   ) {
-                    if (fallbackSelection.provider === "deepseek") {
-                      throw new TurnExecutionError(
-                        "deepseek_append_trace_recovery_unsupported",
-                        new ServiceUnavailableException(
-                          "DeepSeek fallback cannot safely enter an existing provider loop without a resolved append trace."
-                        )
-                      );
-                    }
                     streamFallbackAttempted = true;
                     this.logger.warn(
                       `[runtime-text-fallback-primary-failed] surface=turn_stream requestId=${acceptedTurn.receipt.requestId} classification=${providerRequest.requestMetadata?.classification ?? "unknown"} attempt=tool_loop:${String(iteration)} role=${execution.selectedModelRole} provider=${providerRequest.provider} model=${providerRequest.model} fallbackProvider=${fallbackSelection.provider} fallbackModel=${fallbackSelection.model} errorCode=${event.code ?? "unknown"} errorMessage=${event.message ?? "Provider stream failed."}`
@@ -1999,14 +1926,6 @@ export class TurnExecutionService {
                   deliveredText.trim().length === 0 &&
                   iteration + 1 < maxToolLoopIterations + previewFollowUpExtraIterations
                 ) {
-                  if (providerRequest.provider === "deepseek") {
-                    throw new TurnExecutionError(
-                      "deepseek_append_trace_context_overflow",
-                      new ServiceUnavailableException(
-                        "DeepSeek append trace cannot use generic context-overflow recovery."
-                      )
-                    );
-                  }
                   contextOverflowRetryAttempted = true;
                   this.restorePendingFilePreviewBlocksAfterOverflow(
                     turnState,
@@ -3265,7 +3184,6 @@ export class TurnExecutionService {
       iteration += 1
     ) {
       let providerResult: ProviderGatewayTextGenerateResult;
-      let request: ProviderGatewayTextGenerateRequest = execution.providerRequest;
       let availableWorkingFileHandles = execution.availableWorkingFileHandles;
       let pendingFilePreviewBlocks: ProviderGatewayMessageContentBlock[] | undefined;
       try {
@@ -3282,7 +3200,7 @@ export class TurnExecutionService {
           turnState.pendingFilePreviewBlocks
         );
         delete turnState.pendingFilePreviewBlocks;
-        request = this.buildToolLoopProviderRequest(execution.providerRequest, {
+        const request = this.buildToolLoopProviderRequest(execution.providerRequest, {
           baseDeveloperInstructionSections: execution.developerInstructionSections,
           toolHistory,
           sealedToolExchangeSpine,
@@ -3304,30 +3222,6 @@ export class TurnExecutionService {
           )
         });
         this.recordToolLoopToolsJsonCharCount(turnState, iteration, request.tools);
-        request = await this.resolveDeepSeekAppendTraceRequest(turnState, request, toolHistory);
-        const deepSeekTraceOverflowAction = resolveDeepSeekAppendTraceOverflowAction({
-          budgetFits:
-            this.assessDeepSeekAppendTraceDispatchBudget(
-              execution.bundle,
-              execution.selectedModelRole,
-              request
-            ) === "fits",
-          hasTools: (request.tools?.length ?? 0) > 0,
-          finalizationRequested: forceFinalTextOnly
-        });
-        if (deepSeekTraceOverflowAction !== "dispatch") {
-          if (deepSeekTraceOverflowAction === "finalize_no_more_tools") {
-            this.restorePendingFilePreviewBlocksAfterOverflow(turnState, pendingFilePreviewBlocks);
-            forceFinalTextOnly = true;
-            continue;
-          }
-          throw new TurnExecutionError(
-            "deepseek_append_trace_context_budget_exceeded",
-            new ServiceUnavailableException(
-              "DeepSeek append trace cannot fit a final no-more-tools response inside the selected model context window."
-            )
-          );
-        }
         providerResult = await this.generateTextWithRuntimeFallback({
           bundle: execution.bundle,
           request,
@@ -3345,14 +3239,6 @@ export class TurnExecutionService {
           !contextOverflowRetryAttempted &&
           iteration + 1 < maxToolLoopIterations + previewFollowUpExtraIterations
         ) {
-          if (request.provider === "deepseek") {
-            throw new TurnExecutionError(
-              "deepseek_append_trace_context_overflow",
-              new ServiceUnavailableException(
-                "DeepSeek append trace cannot use generic context-overflow recovery."
-              )
-            );
-          }
           contextOverflowRetryAttempted = true;
           this.restorePendingFilePreviewBlocksAfterOverflow(turnState, pendingFilePreviewBlocks);
           toolHistory.splice(0, toolHistory.length);
@@ -3388,13 +3274,6 @@ export class TurnExecutionService {
             deferredDocumentJobs: turnState.deferredDocumentJobs,
             locale: input.message.locale ?? execution.bundle.userContext.locale ?? null
           })
-        );
-        await this.appendDeepSeekFinalAssistant(
-          turnState,
-          acceptedTurn.receipt.requestId,
-          providerResult.provider === "deepseek" && providerResult.stopReason === "completed"
-            ? providerResult.text
-            : null
         );
         return this.runPostFinalChatPlanSelfCheck({
           acceptedTurn,
@@ -6422,7 +6301,6 @@ export class TurnExecutionService {
         execution: input.execution,
         request: selfCheckBaseRequest,
         turnState: input.turnState,
-        rawToolHistory: [],
         attemptKey: "self_check:0"
       });
 
@@ -6497,7 +6375,6 @@ export class TurnExecutionService {
         execution: input.execution,
         request: finalRequest,
         turnState: input.turnState,
-        rawToolHistory: toolHistory,
         attemptKey: "self_check:1"
       });
       if (finalResult.stopReason !== "completed") {
@@ -6523,48 +6400,23 @@ export class TurnExecutionService {
     execution: PreparedTurnExecution;
     request: ProviderGatewayTextGenerateRequest;
     turnState: TurnExecutionState;
-    rawToolHistory: readonly ProviderGatewayToolExchange[];
     attemptKey: string;
   }): Promise<ProviderGatewayTextGenerateResult> {
     input.execution.selfCheckHopsRemaining = Math.max(
       0,
       input.execution.selfCheckHopsRemaining - 1
     );
-    const request = await this.resolveDeepSeekAppendTraceRequest(
-      input.turnState,
-      input.request,
-      input.rawToolHistory
-    );
-    if (
-      this.assessDeepSeekAppendTraceDispatchBudget(
-        input.execution.bundle,
-        input.execution.selectedModelRole,
-        request
-      ) === "exceeded"
-    ) {
-      throw new TurnExecutionError(
-        "deepseek_append_trace_context_budget_exceeded",
-        new ServiceUnavailableException(
-          "DeepSeek append trace cannot fit a final no-more-tools response inside the selected model context window."
-        )
-      );
-    }
     const result = await this.generateTextWithRuntimeFallback({
       bundle: input.execution.bundle,
-      request,
+      request: input.request,
       modelRole: input.execution.selectedModelRole,
       telemetryContext: {
         surface: "turn_sync",
         requestId: input.acceptedTurn.receipt.requestId,
-        classification: request.requestMetadata?.classification ?? "tool_loop_followup",
+        classification: input.request.requestMetadata?.classification ?? "tool_loop_followup",
         attemptKey: input.attemptKey
       }
     });
-    await this.appendDeepSeekFinalAssistant(
-      input.turnState,
-      input.acceptedTurn.receipt.requestId,
-      result.provider === "deepseek" && result.stopReason === "completed" ? result.text : null
-    );
     this.recordUsageEntry(input.turnState, {
       stepType: "tool_loop_followup",
       modelRole: input.execution.selectedModelRole,
@@ -7272,111 +7124,6 @@ export class TurnExecutionService {
     }
   }
 
-  private async resolveDeepSeekAppendTraceRequest(
-    turnState: TurnExecutionState,
-    request: ProviderGatewayTextGenerateRequest,
-    rawToolHistory: readonly ProviderGatewayToolExchange[] = []
-  ): Promise<ProviderGatewayTextGenerateRequest> {
-    if (request.provider !== "deepseek") {
-      if (
-        turnState.currentChatId !== null &&
-        this.deepSeekAppendTraceCoordinatorService !== undefined
-      ) {
-        try {
-          await this.deepSeekAppendTraceCoordinatorService.clear(turnState.currentChatId);
-        } catch (error) {
-          this.logger.warn(
-            `DeepSeek append trace cleanup failed after provider switch: ${this.formatLogError(error)}`
-          );
-        }
-      }
-      return request;
-    }
-    if (turnState.currentChatId === null) {
-      throw new TurnExecutionError(
-        "deepseek_append_trace_chat_unavailable",
-        new ServiceUnavailableException(
-          "DeepSeek chat trace requires a canonical assistant chat before provider dispatch."
-        )
-      );
-    }
-    if (this.deepSeekAppendTraceCoordinatorService === undefined) {
-      throw new TurnExecutionError(
-        "deepseek_append_trace_unavailable",
-        new ServiceUnavailableException("DeepSeek append trace coordinator is unavailable.")
-      );
-    }
-    try {
-      return await this.deepSeekAppendTraceCoordinatorService.resolve({
-        assistantChatId: turnState.currentChatId,
-        request,
-        rawToolHistory
-      });
-    } catch (error) {
-      throw new TurnExecutionError(
-        "deepseek_append_trace_unavailable",
-        new ServiceUnavailableException(
-          `DeepSeek chat trace could not prepare provider dispatch: ${this.formatLogError(error)}`
-        )
-      );
-    }
-  }
-
-  private assessDeepSeekAppendTraceDispatchBudget(
-    bundle: AssistantRuntimeBundle,
-    modelRole: PersaiRuntimeModelRole,
-    request: ProviderGatewayTextGenerateRequest
-  ): "fits" | "exceeded" {
-    if (request.provider !== "deepseek" || request.deepSeekAppendTrace === undefined) {
-      return "fits";
-    }
-    const assessment = assessDeepSeekAppendTraceDispatchBudget(
-      this.resolveSlotCapability(bundle, modelRole),
-      estimateProviderRequestInputTokens(request),
-      request.maxOutputTokens
-    );
-    if (assessment.outcome === "fits") {
-      return "fits";
-    }
-    if (assessment.outcome === "exceeded") {
-      return "exceeded";
-    }
-    throw new TurnExecutionError(
-      "deepseek_append_trace_budget_unavailable",
-      new ServiceUnavailableException(
-        "DeepSeek append trace requires admin-managed contextWindow and maxOutputTokens before provider dispatch."
-      )
-    );
-  }
-
-  private async appendDeepSeekFinalAssistant(
-    turnState: TurnExecutionState,
-    requestId: string,
-    text: string | null
-  ): Promise<void> {
-    if (text === null || turnState.currentChatId === null) return;
-    if (this.deepSeekAppendTraceCoordinatorService === undefined) {
-      throw new TurnExecutionError(
-        "deepseek_append_trace_final_persistence_failed",
-        new ServiceUnavailableException("DeepSeek append trace coordinator is unavailable.")
-      );
-    }
-    try {
-      await this.deepSeekAppendTraceCoordinatorService.appendFinalAssistant({
-        assistantChatId: turnState.currentChatId,
-        requestId,
-        text
-      });
-    } catch (error) {
-      throw new TurnExecutionError(
-        "deepseek_append_trace_final_persistence_failed",
-        new ServiceUnavailableException(
-          `DeepSeek final assistant trace persistence failed: ${this.formatLogError(error)}`
-        )
-      );
-    }
-  }
-
   private async generateTextWithRuntimeFallback(input: {
     bundle: AssistantRuntimeBundle;
     request: ProviderGatewayTextGenerateRequest;
@@ -7401,14 +7148,6 @@ export class TurnExecutionService {
         )
       ) {
         throw error;
-      }
-      if (fallbackSelection.provider === "deepseek") {
-        throw new TurnExecutionError(
-          "deepseek_append_trace_recovery_unsupported",
-          new ServiceUnavailableException(
-            "DeepSeek fallback cannot safely enter an existing provider loop without a resolved append trace."
-          )
-        );
       }
       this.logger.warn(
         `[runtime-text-fallback-primary-failed] surface=${input.telemetryContext.surface} requestId=${input.telemetryContext.requestId} classification=${input.telemetryContext.classification} attempt=${input.telemetryContext.attemptKey} role=${input.modelRole} provider=${input.request.provider} model=${input.request.model} fallbackProvider=${fallbackSelection.provider} fallbackModel=${fallbackSelection.model} error=${

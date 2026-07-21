@@ -89,9 +89,6 @@ ADR-109 and ADR-111 add one bounded HeyGen-backed product seam inside the active
 - provider client boot/warmup
 - model/provider request transport
 - provider health/readiness surface
-- ADR-161 D2a: when a DeepSeek chat request carries `deepSeekAppendTrace`,
-  that resolved epoch is the sole conversation source; OpenAI/Anthropic keep
-  the generic sealed-spine protocol and ignore the DeepSeek trace
 
 ### Local browser bridge path
 

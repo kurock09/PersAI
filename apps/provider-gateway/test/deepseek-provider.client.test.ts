@@ -277,68 +277,6 @@ export async function runDeepSeekProviderClientTest(): Promise<void> {
     }
   ]);
 
-  const resolvedTraceRequest: ProviderGatewayTextGenerateRequest = {
-    ...createRequest(),
-    developerInstructions: "must not be emitted",
-    messages: [{ role: "user", content: "must not be emitted" }],
-    toolHistory: [
-      {
-        toolCall: { id: "must-not-emit", name: "knowledge_search", arguments: { query: "x" } },
-        toolResult: {
-          toolCallId: "must-not-emit",
-          name: "knowledge_search",
-          content: "must not be emitted",
-          isError: false
-        }
-      }
-    ],
-    deepSeekAppendTrace: {
-      epoch: 7,
-      events: [
-        {
-          ordinal: 0,
-          sourceKey: "stable:system",
-          kind: "stable_snapshot",
-          message: { role: "system", content: "Be concise." }
-        },
-        {
-          ordinal: 1,
-          sourceKey: "assistant-tool:trace-1",
-          kind: "assistant_tool_call",
-          message: {
-            role: "assistant",
-            content: null,
-            reasoning_content: "reasoning",
-            tool_calls: [
-              {
-                id: "trace-1",
-                type: "function",
-                function: { name: "knowledge_search", arguments: '{"query":"trace"}' }
-              }
-            ]
-          }
-        },
-        {
-          ordinal: 2,
-          sourceKey: "tool-result:trace-1",
-          kind: "tool_result",
-          message: { role: "tool", tool_call_id: "trace-1", content: "trace result" }
-        },
-        {
-          ordinal: 3,
-          sourceKey: "runtime-context:1",
-          kind: "context_revision",
-          message: { role: "system", content: "<runtime_context>updated</runtime_context>" }
-        }
-      ]
-    }
-  };
-  await client.generateText(resolvedTraceRequest);
-  assert.deepEqual(
-    capturedGeneratePayload?.["messages"],
-    resolvedTraceRequest.deepSeekAppendTrace!.events.map((event) => event.message)
-  );
-
   let capturedStreamPayload: Record<string, unknown> | null = null;
   (client as unknown as { client: unknown }).client = {
     chat: {

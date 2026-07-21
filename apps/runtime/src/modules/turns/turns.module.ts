@@ -14,7 +14,6 @@ import { IdempotencyService } from "./idempotency.service";
 import { LocalBrowserBridgeClient } from "./local-browser-bridge.client.service";
 import { PersaiMediaObjectStorageService } from "./persai-media-object-storage.service";
 import { PersaiInternalApiClientService } from "./persai-internal-api.client.service";
-import { DeepSeekAppendTraceCoordinatorService } from "./deepseek-append-trace-coordinator.service";
 import { ProviderGatewayClientService } from "./provider-gateway.client.service";
 import { RuntimeBrowserToolService } from "./runtime-browser-tool.service";
 import { RuntimeStoragePlaneFilesService } from "./runtime-storage-plane-files.service";
@@ -73,7 +72,6 @@ import { TurnRoutingService } from "./turn-routing.service";
   ],
   providers: [
     PersaiInternalApiClientService,
-    DeepSeekAppendTraceCoordinatorService,
     LocalBrowserBridgeClient,
     ProviderGatewayClientService,
     BuildActiveScenarioBlockService,
