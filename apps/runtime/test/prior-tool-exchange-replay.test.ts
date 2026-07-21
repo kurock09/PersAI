@@ -136,10 +136,15 @@ export async function runPriorToolExchangeReplayTest(): Promise<void> {
   // No pressure input / null pressure: all full.
   {
     const map = buildPriorToolExchangeReplayMap(messages, "u-3", null);
-    assert.deepEqual(
-      flattenReplay(map).map(tierOf),
-      ["full", "full", "full", "full", "full", "full", "full"]
-    );
+    assert.deepEqual(flattenReplay(map).map(tierOf), [
+      "full",
+      "full",
+      "full",
+      "full",
+      "full",
+      "full",
+      "full"
+    ]);
   }
 
   // At/above 50%: only newest 5 full; older placeholder (masked).

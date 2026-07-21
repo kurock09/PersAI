@@ -8070,7 +8070,10 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       assert.equal(parsed.requestedKind, "preference");
     }
     assert.equal(
-      Object.prototype.hasOwnProperty.call(observationFollowUpRequest ?? {}, "toolObservationOverlays"),
+      Object.prototype.hasOwnProperty.call(
+        observationFollowUpRequest ?? {},
+        "toolObservationOverlays"
+      ),
       false,
       "ADR-161 A4: toolObservationOverlays must be absent from the provider request contract."
     );
