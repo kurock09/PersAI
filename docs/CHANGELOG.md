@@ -5,6 +5,13 @@
 
 ## 2026-07-21
 
+- **ADR-161 cache frame telemetry (local):** `provider_cache_zone` now emits
+  SHA-256 hashes and lengths for volatile/developer suffixes, the complete
+  provider request frame, and ordered hydrated-history frames (bounded at 128
+  with an explicit omitted count). The evidence contains no prompt content and
+  is not a metric label; it permits exact comparison of a low-cache request
+  with adjacent turns.
+
 - **ADR-161 OpenAI explicit cache-write accounting repair (local):** OpenAI
   Responses returns GPT-5.6 `cache_write_tokens` under
   `usage.input_tokens_details`; the normalizer had read a nonexistent

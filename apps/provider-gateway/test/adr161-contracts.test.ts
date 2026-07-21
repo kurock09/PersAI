@@ -8,6 +8,7 @@ import {
   normalizeProviderTextGenerationUsageV2,
   type TextGenerationCacheZoneTelemetry
 } from "@persai/runtime-contract";
+import { logProviderCacheZoneTelemetry } from "../src/modules/providers/provider-cache-zone-observability";
 
 const metadata = {
   modelKey: "fixture-model",
@@ -380,4 +381,41 @@ export async function runAdr161ContractsTest(): Promise<void> {
     }
   );
   assert.ok(loopResult.netCacheSavings > 0);
+
+  const telemetryEvents: unknown[] = [];
+  logProviderCacheZoneTelemetry({
+    logger: {
+      log: (event: unknown) => telemetryEvents.push(event)
+    } as never,
+    input: {
+      provider: "deepseek",
+      model: "fixture-model",
+      messages: []
+    } as never,
+    representation: {
+      tools: [{ type: "function", function: { name: "skill" } }],
+      prefix: [{ role: "system", content: "stable" }],
+      stableSystem: [{ role: "system", content: "stable" }],
+      hydratedHistory: [
+        { role: "user", content: "first" },
+        { role: "assistant", content: "second" }
+      ],
+      volatileContext: [{ role: "developer", content: "volatile" }],
+      developerTail: "tail",
+      cacheBreakpointCount: 0
+    }
+  });
+  const frameTelemetry = telemetryEvents[0] as Record<string, unknown>;
+  assert.equal(frameTelemetry.event, "provider_cache_zone");
+  assert.equal(typeof frameTelemetry.requestFrameHash, "string");
+  assert.equal(typeof frameTelemetry.volatileContextHash, "string");
+  assert.equal(typeof frameTelemetry.developerTailHash, "string");
+  assert.deepEqual(
+    (frameTelemetry.hydratedHistoryFrameChars as unknown[]).every(
+      (value) => typeof value === "number" && value > 0
+    ),
+    true
+  );
+  assert.equal((frameTelemetry.hydratedHistoryFrameHashes as unknown[]).length, 2);
+  assert.equal(frameTelemetry.hydratedHistoryFrameOmittedCount, 0);
 }

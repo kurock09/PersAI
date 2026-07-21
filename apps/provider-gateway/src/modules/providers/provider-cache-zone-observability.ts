@@ -14,6 +14,8 @@ type ProviderCacheZoneRepresentation = {
   cacheBreakpointCount: number;
 };
 
+const MAX_HYDRATED_HISTORY_FRAME_HASHES = 128;
+
 /**
  * The provider client supplies its already-serialized provider representation.
  * This intentionally hashes the wire-shaped semantic prefix, rather than the
@@ -45,6 +47,27 @@ export function logProviderCacheZoneTelemetry(params: {
     provider,
     serializedPrefix: params.representation.tools
   });
+  const volatileContext = hashProviderCacheSemanticPrefix({
+    provider,
+    serializedPrefix: params.representation.volatileContext
+  });
+  const developerTail = hashProviderCacheSemanticPrefix({
+    provider,
+    serializedPrefix: params.representation.developerTail
+  });
+  const requestFrame = hashProviderCacheSemanticPrefix({
+    provider,
+    serializedPrefix: {
+      tools: params.representation.tools,
+      prefix: params.representation.prefix,
+      volatileContext: params.representation.volatileContext,
+      developerTail: params.representation.developerTail
+    }
+  });
+  const hydratedHistoryFrames = hashHydratedHistoryFrames(
+    provider,
+    params.representation.hydratedHistory
+  );
   const sealedBoundary = params.input.sealedToolExchangeBoundary ?? null;
   const explicitPolicy = params.input.promptCache?.openaiPolicy?.mode === "explicit";
   const automaticPolicy = params.input.promptCache?.openaiPolicy?.mode === "automatic";
@@ -67,8 +90,13 @@ export function logProviderCacheZoneTelemetry(params: {
     stableSystemChars: stableSystem.chars,
     hydratedHistoryHash: hydratedHistory.hash,
     hydratedHistoryChars: hydratedHistory.chars,
+    hydratedHistoryFrameHashes: hydratedHistoryFrames.hashes,
+    hydratedHistoryFrameChars: hydratedHistoryFrames.chars,
+    hydratedHistoryFrameOmittedCount: hydratedHistoryFrames.omittedCount,
     cacheContentHash: prefix.hash,
     cacheContentChars: prefix.chars,
+    requestFrameHash: requestFrame.hash,
+    requestFrameChars: requestFrame.chars,
     sealedSpineHash: sealedBoundary?.cacheContentHash ?? null,
     sealedSpineChars: sealedBoundary?.cacheContentChars ?? 0,
     priorSealedBoundaryHash: sealedBoundary?.priorSealedCacheContentHash ?? null,
@@ -76,8 +104,10 @@ export function logProviderCacheZoneTelemetry(params: {
     toolProjectionFamilyHash: toolProjection.hash,
     toolProjectionChars: toolProjection.chars,
     toolCount: params.input.tools?.length ?? 0,
-    volatileContextChars: serializedChars(params.representation.volatileContext),
-    developerTailChars: serializedChars(params.representation.developerTail),
+    volatileContextHash: volatileContext.hash,
+    volatileContextChars: volatileContext.chars,
+    developerTailHash: developerTail.hash,
+    developerTailChars: developerTail.chars,
     cacheBreakpointCount: params.representation.cacheBreakpointCount,
     // This is a bounded epoch identity, not a metric label. A changed exact
     // provider-visible tool family begins a new cache epoch.
@@ -89,6 +119,31 @@ export function logProviderCacheZoneTelemetry(params: {
   });
 }
 
-function serializedChars(value: unknown): number {
-  return JSON.stringify(value)?.length ?? 0;
+function hashHydratedHistoryFrames(
+  provider: string,
+  history: unknown
+): {
+  hashes: string[];
+  chars: number[];
+  omittedCount: number;
+} {
+  const frames = Array.isArray(history) ? history : [history];
+  const visibleFrames = frames.slice(0, MAX_HYDRATED_HISTORY_FRAME_HASHES);
+  return {
+    hashes: visibleFrames.map(
+      (frame) =>
+        hashProviderCacheSemanticPrefix({
+          provider,
+          serializedPrefix: frame
+        }).hash
+    ),
+    chars: visibleFrames.map(
+      (frame) =>
+        hashProviderCacheSemanticPrefix({
+          provider,
+          serializedPrefix: frame
+        }).chars
+    ),
+    omittedCount: frames.length - visibleFrames.length
+  };
 }

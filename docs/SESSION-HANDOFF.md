@@ -1,5 +1,21 @@
 # SESSION-HANDOFF
 
+## 2026-07-21 — ADR-161 cache frame telemetry
+
+The isolated DeepSeek third tool-turn cache drop cannot yet be assigned to a
+provider eviction or a PersAI request mutation: existing `stableSystemHash`
+and tool-family hash were stable, but whole-history hashes naturally change as
+a thread appends.
+
+The local diagnostic extension keeps provider behavior unchanged and adds
+content-free SHA-256 fields to `provider_cache_zone`: hashes/lengths for the
+volatile and developer-tail segments, the complete provider request frame, and
+each hydrated-history wire frame in order. Frame output is capped at 128 with
+an explicit omitted count, never logs content, and is not used as a metric
+label. Next: deploy it and repeat the same DeepSeek 5+5 run; a changed
+pre-existing frame proves a PersAI mutation, while identical old frames with
+a cache-read reset is provider-side evidence.
+
 ## 2026-07-21 — ADR-161 OpenAI explicit cache-write accounting repair
 
 Production re-test after the catalog policy repair confirmed real OpenAI

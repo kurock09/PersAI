@@ -327,6 +327,12 @@ surface: each OpenAI chat row selects automatic/in-memory, automatic/24h,
 explicit/30m, or uncached. Source-code capability defaults may provide token
 ceilings only; they must never seed or override catalog cache policy.
 
+For provider-cache investigations, `provider_cache_zone` emits only
+content-free SHA-256 evidence: each fixed zone, the full provider request
+frame, and every hydrated-history wire frame in order (up to 128, with an
+explicit omitted count). This makes a request-frame mutation attributable to a
+zone/frame without logging prompt content or using hashes as metric labels.
+
 ## Decision
 
 ### D1 — one canonical cache-zone model
