@@ -398,7 +398,7 @@ providerGateway:
       maxSurge: 1
   image:
     name: provider-gateway
-    tag: ee059b4044e3198ba86d52573863af28a17701e5
+    tag: 778c5553e0392d5577ff85cc2c464b7ee5f54190
     pullPolicy: IfNotPresent
   env:
     APP_ENV: dev
