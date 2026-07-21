@@ -75,7 +75,22 @@ export class ProviderTextGenerationService {
     if (toNormalizedNonEmptyModelKey(input.model) === null) {
       throw new BadRequestException("model must be a non-empty string");
     }
-    if (input.messages.length === 0) {
+    // ADR-161 D2a: DeepSeek ordinary/deep chat may clear generic `messages` and
+    // carry the sole provider-visible transcript in `deepSeekAppendTrace`.
+    const deepSeekAppendTraceEvents = input.deepSeekAppendTrace?.events;
+    if (input.deepSeekAppendTrace !== undefined) {
+      if (input.provider !== "deepseek") {
+        throw new BadRequestException("deepSeekAppendTrace is only valid for provider=deepseek");
+      }
+      if (!Array.isArray(deepSeekAppendTraceEvents) || deepSeekAppendTraceEvents.length === 0) {
+        throw new BadRequestException("deepSeekAppendTrace.events must include at least one item");
+      }
+    }
+    const hasDeepSeekAppendTrace =
+      input.provider === "deepseek" &&
+      Array.isArray(deepSeekAppendTraceEvents) &&
+      deepSeekAppendTraceEvents.length > 0;
+    if (input.messages.length === 0 && !hasDeepSeekAppendTrace) {
       throw new BadRequestException("messages must include at least one item");
     }
     for (const [index, message] of input.messages.entries()) {

@@ -448,6 +448,55 @@ export async function runProviderTextGenerationServiceTest(): Promise<void> {
     /messages must include at least one item/
   );
 
+  // ADR-161 D2a: resolved DeepSeek append-trace is the sole conversation source.
+  const deepSeekAppendTraceCallsBefore = deepseekClient.calls.length;
+  const deepSeekAppendTraceResult = await service.generateText({
+    ...createRequest("deepseek"),
+    systemPrompt: null,
+    messages: [],
+    deepSeekAppendTrace: {
+      epoch: 1,
+      events: [
+        {
+          ordinal: 0,
+          sourceKey: "stable:system",
+          kind: "stable_snapshot",
+          message: { role: "system", content: "Be concise." }
+        },
+        {
+          ordinal: 1,
+          sourceKey: "user-turn:req-1",
+          kind: "conversation",
+          message: { role: "user", content: "hello from append trace" }
+        }
+      ]
+    }
+  });
+  assert.equal(deepSeekAppendTraceResult.text, "deepseek-result");
+  assert.equal(deepseekClient.calls.length, deepSeekAppendTraceCallsBefore + 1);
+  assert.equal(deepseekClient.calls.at(-1)?.messages.length, 0);
+  assert.equal(deepseekClient.calls.at(-1)?.deepSeekAppendTrace?.events.length, 2);
+
+  await assert.rejects(
+    () =>
+      service.generateText({
+        ...createRequest("openai"),
+        messages: [],
+        deepSeekAppendTrace: {
+          epoch: 1,
+          events: [
+            {
+              ordinal: 0,
+              sourceKey: "stable:system",
+              kind: "stable_snapshot",
+              message: { role: "system", content: "ignored" }
+            }
+          ]
+        }
+      }),
+    /deepSeekAppendTrace is only valid for provider=deepseek/
+  );
+
   await assert.rejects(
     () =>
       service.generateText({

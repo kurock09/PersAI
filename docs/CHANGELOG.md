@@ -3,6 +3,15 @@
 > Archive: detailed historical entries from 2026-06-05 and earlier moved to `docs/CHANGELOG.archive-2026-06-05-details-and-earlier.md`; entries from 2026-05-19 and earlier remain in `docs/CHANGELOG.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: current entries plus concise recent summaries only.
 
+## 2026-07-22
+
+- **ADR-161 D2a gateway empty-messages repair (local):** after the API 20mb
+  body-limit fix, DeepSeek append-trace `reset` succeeded but provider-gateway
+  still 400'd because D2a clears generic `messages` and carries the transcript
+  only in `deepSeekAppendTrace`. Gateway validation now accepts empty
+  `messages` for `provider=deepseek` when the append-trace event list is
+  non-empty.
+
 ## 2026-07-21
 
 - **ADR-161 D2a API body-limit repair:** live DeepSeek append-trace `reset`
