@@ -5,8 +5,14 @@
 
 ## 2026-07-21
 
-- **ADR-161 D2a DeepSeek durable append-trace (local):** DeepSeek ordinary/deep
-  chat now owns a server-only chat-scoped append epoch that replays exact
+- **ADR-161 D2a API body-limit repair (local):** live DeepSeek append-trace
+  `reset` failed with Nest/Express `request entity too large` because API still
+  used the default ~100kb JSON parser. API now parses JSON/urlencoded up to
+  `20mb` (matching runtime/provider-gateway) so D2a seed/append payloads can
+  reach the internal control plane.
+
+- **ADR-161 D2a DeepSeek durable append-trace:** DeepSeek ordinary/deep chat
+  now owns a server-only chat-scoped append epoch that replays exact
   model-sanitized messages, full catalog `describe` contracts, reasoning
   content, and text follow-up previews. Mutable developer/volatile state
   appends as superseding `runtime_context` revisions without rewriting prior
@@ -14,7 +20,8 @@
   compaction/provider leave; chat hard-delete cascades. Pre-dispatch budget
   requires admin `contextWindow` + `maxOutputTokens`, allows one no-more-tools
   finalize, then fails closed. Opaque safety-restriction banner background was
-  restored to solid `bg-surface`.
+  restored to solid `bg-surface`. Shipped as `42e24b2e`; live smoke blocked on
+  the body-limit defect above.
 
 - **ADR-161 cache frame telemetry (local):** `provider_cache_zone` now emits
   SHA-256 hashes and lengths for volatile/developer suffixes, the complete

@@ -1,5 +1,28 @@
 # SESSION-HANDOFF
 
+## 2026-07-21 — ADR-161 D2a live: API body limit blocks append-trace reset
+
+Deployed `42e24b2e` images are live (`api` / `runtime` / `provider-gateway`),
+but the first DeepSeek cache smoke failed before provider dispatch:
+
+- `POST /api/v1/internal/runtime/deepseek-append-trace/reset` →
+  `PayloadTooLargeError: request entity too large`
+- Runtime surfaces that as
+  `DeepSeek chat trace could not prepare provider dispatch`
+- Public chat then returns `native_runtime_request_invalid` / gateway 400
+
+Root cause: API kept Nest’s default ~100kb JSON body parser while D2a seed
+payloads (compiled system + developer + context) exceed it. Local fix raises
+API JSON/urlencoded limits to `20mb` with `bodyParser: false` so the raised
+limit is the only parser (same ceiling as runtime/provider-gateway).
+
+Local gates before commit/push: recursive lint, format:check, api/web/runtime/
+provider-gateway typecheck, adr146-slice5, helm lint+template, api+runtime+
+provider-gateway suites, api test:step2, full build — green. Full recursive
+`pnpm test` / `test:step2` web suite hit unrelated admin timeout flakes under
+load (`plans`/`site-pages`); both pass in isolation. Next after push: wait for
+exact `api` image pin, re-run DeepSeek 5+5 cache smoke.
+
 ## 2026-07-21 — ADR-161 D2a DeepSeek durable append-trace
 
 Local implementation of the DeepSeek-only append-only chat trace from ADR-161
@@ -17,10 +40,7 @@ D2a passed full CI-equivalent gates except SQL migrate check (no local DB):
   no-more-tools finalize then fail closed;
 - opaque safety-restriction chat banner restored (`bg-surface`).
 
-Independent terra re-audits hit API usage limits; parent re-audit found and
-fixed append ordering of context vs active input. Next: finish full suites,
-commit/push once, migrate, deploy, then DeepSeek long tool-loop cache
-acceptance.
+Pushed as `42e24b2e`; live smoke then hit the API body-limit defect above.
 
 ## 2026-07-21 — ADR-161 cache frame telemetry
 

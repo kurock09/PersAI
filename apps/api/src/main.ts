@@ -2,10 +2,14 @@ import "reflect-metadata";
 import { createServer, type Server } from "node:http";
 import { loadApiConfig } from "@persai/config";
 import { NestFactory } from "@nestjs/core";
+import type { NestExpressApplication } from "@nestjs/platform-express";
 import { AppModule } from "./app.module";
 import { BrowserBridgeWebSocketServer } from "./modules/browser-bridge/application/browser-bridge-websocket.server";
 import { AppLoggerService } from "./modules/platform-core/infrastructure/logging/app-logger.service";
 import { ApiExceptionFilter } from "./modules/platform-core/interface/http/api-exception.filter";
+
+/** Match runtime/provider-gateway. DeepSeek append-trace reset/append seeds exceed Nest's 100kb default. */
+const API_BODY_LIMIT = "20mb";
 
 const INTERNAL_PATH_PREFIX = "/api/v1/internal";
 
@@ -61,7 +65,14 @@ async function bootstrap(): Promise<void> {
   const config = loadApiConfig(process.env);
   process.env.LOG_LEVEL = config.LOG_LEVEL;
 
-  const app = await NestFactory.create(AppModule, { bufferLogs: true, rawBody: true });
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    bufferLogs: true,
+    rawBody: true,
+    // Disable the default 100kb parsers so the raised limit below is the only JSON parser.
+    bodyParser: false
+  });
+  app.useBodyParser("json", { limit: API_BODY_LIMIT });
+  app.useBodyParser("urlencoded", { extended: true, limit: API_BODY_LIMIT });
   app.useLogger(app.get(AppLoggerService));
   app.useGlobalFilters(new ApiExceptionFilter());
 
