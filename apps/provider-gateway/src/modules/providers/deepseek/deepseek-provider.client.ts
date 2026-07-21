@@ -333,6 +333,31 @@ export class DeepSeekProviderClient implements ProviderWarmableClient {
   }
 
   private buildMessages(input: ProviderGatewayTextGenerateRequest): Array<Record<string, unknown>> {
+    if (input.deepSeekAppendTrace !== undefined) {
+      return input.deepSeekAppendTrace.events.map((event) => {
+        const message = event.message;
+        if (
+          message === null ||
+          typeof message !== "object" ||
+          Array.isArray(message) ||
+          typeof message.role !== "string"
+        ) {
+          throw toProviderTextHttpException(
+            "deepseek",
+            new Error("Resolved DeepSeek append trace contains an invalid message."),
+            "DeepSeek text generation request failed."
+          );
+        }
+        if (typeof message.content !== "string" && message.content !== null) {
+          throw toProviderTextHttpException(
+            "deepseek",
+            new Error("Resolved DeepSeek append trace contains non-text content."),
+            "DeepSeek text generation request failed."
+          );
+        }
+        return { ...message };
+      });
+    }
     const messages: Array<Record<string, unknown>> = [];
     if (typeof input.systemPrompt === "string" && input.systemPrompt.trim().length > 0) {
       messages.push({

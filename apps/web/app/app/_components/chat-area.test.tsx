@@ -529,6 +529,7 @@ describe("ChatArea", () => {
     expect(screen.getByText("safetyRestrictedTitle")).toBeInTheDocument();
     expect(screen.getByText("safetyRestrictedBodyHackAbuse")).toBeInTheDocument();
     expect(screen.getByText("safetyRestrictedDetail")).toBeInTheDocument();
+    expect(screen.getByTestId("safety-restricted-banner")).toHaveClass("bg-surface");
     fireEvent.click(screen.getByRole("button", { name: "safetyRestrictedOpenSupport" }));
     expect(openSettingsMock).toHaveBeenCalledWith("support");
   });

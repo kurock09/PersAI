@@ -39,6 +39,7 @@ import {
 } from "./runtime-context-hydration-policy";
 import { RuntimeBundleAutoRefreshService } from "./runtime-bundle-auto-refresh.service";
 import { AutoExtractToMemoryService } from "./auto-extract-to-memory.service";
+import { DeepSeekAppendTraceCoordinatorService } from "./deepseek-append-trace-coordinator.service";
 
 type NativeManagedProvider = "openai" | "anthropic" | "deepseek";
 type SlotPromptCachePolicyState =
@@ -122,7 +123,8 @@ export class SessionCompactionService {
     private readonly sessionStoreService: SessionStoreService,
     private readonly sessionLeaseService: SessionLeaseService,
     private readonly runtimeStatePostgresService: RuntimeStatePostgresService,
-    private readonly autoExtractToMemoryService: AutoExtractToMemoryService
+    private readonly autoExtractToMemoryService: AutoExtractToMemoryService,
+    private readonly deepSeekAppendTraceCoordinatorService: DeepSeekAppendTraceCoordinatorService
   ) {}
 
   async compactSession(input: SharedCompactionRequest): Promise<RuntimeCompactionResult> {
@@ -622,6 +624,15 @@ export class SessionCompactionService {
           currentTokens: null,
           totalTokensFresh: false
         });
+        if (providerSelection.provider === "deepseek") {
+          const assistantChatId =
+            await this.turnContextHydrationService.resolveCanonicalChatIdForConversation(
+              input.input.conversation
+            );
+          if (assistantChatId !== null) {
+            await this.deepSeekAppendTraceCoordinatorService.clear(assistantChatId);
+          }
+        }
       }
 
       const compactionResult = this.buildCompactionResult({

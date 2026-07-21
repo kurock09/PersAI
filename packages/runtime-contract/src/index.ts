@@ -4400,10 +4400,44 @@ export interface ProviderGatewayPromptCacheConfig {
   anthropicHistoryBreakpointMinTokens?: number;
 }
 
+/**
+ * ADR-161 D2a — resolved, server-only DeepSeek append-trace replay. Its
+ * events are already exact DeepSeek Chat Completions message records and must
+ * be serialized in this order without applying generic message/history,
+ * developer-tail, spine, or overlay projection.
+ */
+export interface ProviderGatewayDeepSeekAppendTraceEvent {
+  ordinal: number;
+  sourceKey: string;
+  kind:
+    | "stable_snapshot"
+    | "conversation"
+    | "assistant_tool_call"
+    | "tool_result"
+    | "catalog_describe"
+    | "context_revision";
+  message: Record<string, unknown>;
+}
+
+export interface ProviderGatewayDeepSeekResolvedAppendTrace {
+  epoch: number;
+  events: ProviderGatewayDeepSeekAppendTraceEvent[];
+}
+
+/**
+ * ADR-161 D2a — an already-resolved, server-only DeepSeek chat epoch. Unlike
+ * generic history, its messages are exact provider wire protocol records and
+ * must be replayed verbatim by the DeepSeek adapter.
+ */
 export interface ProviderGatewayTextGenerateRequest {
   provider: "openai" | "anthropic" | "deepseek";
   model: string;
   systemPrompt: string | null;
+  /**
+   * DeepSeek ordinary/deep chat only. When present, this is the sole
+   * provider-visible conversation source; OpenAI and Anthropic ignore it.
+   */
+  deepSeekAppendTrace?: ProviderGatewayDeepSeekResolvedAppendTrace;
   /**
    * ADR-074 P1: per-turn developer instructions appended OUTSIDE the cached system prefix.
    * This is the canonical place for content that must NOT invalidate provider prompt caching:

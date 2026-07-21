@@ -1053,7 +1053,10 @@ export function ChatArea({
             ) : null}
             {showSafetyRestrictedBanner ? (
               <div className="px-3 md:px-4">
-                <div className="mx-auto mb-2 w-full max-w-[50rem] rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2">
+                <div
+                  data-testid="safety-restricted-banner"
+                  className="mx-auto mb-2 w-full max-w-[50rem] rounded-lg border border-destructive/20 bg-surface px-3 py-2"
+                >
                   <div className="flex items-start gap-2.5">
                     <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-destructive/25 bg-destructive/10 text-destructive">
                       <AlertCircle className="h-4 w-4" />

@@ -4,6 +4,21 @@ This document defines the current verification baseline for the active PersAI-na
 
 ADR-072 is closed as the historical native migration ADR. Current continuation work should be checked against `docs/ADR/078-consolidated-follow-through-program.md`. `Step 15a` is cancelled and is not an active verification track. ADR-087 defines the unified quota-advisory and paid light-mode target state. ADR-088 defines the unified notification platform target state.
 
+## 2026-07-21 ADR-161 D2a DeepSeek append-trace
+
+- Persistence coverage proves exact append idempotency, epoch/ordinal conflict
+  rejection, and reset/clear semantics.
+- Coordinator coverage proves full describe retention beyond three later
+  exchanges, reasoning persistence, text follow-up consume-once, non-text
+  fail-closed, final-assistant request-id idempotency, context supersession,
+  and context-before-active-user append order.
+- Budget coverage proves admin capability required, fit/exceeded decisions,
+  one no-more-tools finalize, and final fail-closed.
+- Gateway coverage proves `deepSeekAppendTrace` is the sole message source
+  when present. Shipping gate: recursive lint/format, API/Web/runtime/
+  provider typechecks, full runtime/provider suites, Prisma validate, then
+  exact-image DeepSeek long tool-loop cache acceptance after deploy.
+
 ## 2026-07-21 ADR-161 cache-prefix repair
 
 - Runtime hydration coverage proves first-writer-wins non-empty snapshots,

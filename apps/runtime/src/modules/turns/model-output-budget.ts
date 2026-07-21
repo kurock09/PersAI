@@ -98,3 +98,46 @@ export function resolveModelOutputBudget(
   const answer = totalRoom - ctx.thinkingBudget;
   return Math.max(OUTPUT_BUDGET_FLOOR, Math.min(answer, OUTPUT_BUDGET_MAX));
 }
+
+/**
+ * D2a DeepSeek trace dispatch is stricter than the ordinary output allocator:
+ * a durable append-only trace cannot enter generic overflow recovery. It must
+ * have an explicit admin-owned context window and output reserve, and the
+ * complete resolved input plus that reserve must fit before provider dispatch.
+ */
+export function assessDeepSeekAppendTraceDispatchBudget(
+  capability: { maxOutputTokens: number | null; contextWindow: number | null },
+  inputTokensEstimate: number,
+  outputTokensReserve: number | undefined
+):
+  | { outcome: "fits"; inputTokensEstimate: number; outputTokensReserve: number }
+  | { outcome: "capability_unavailable" | "exceeded" } {
+  if (
+    capability.contextWindow === null ||
+    capability.maxOutputTokens === null ||
+    !Number.isFinite(inputTokensEstimate) ||
+    inputTokensEstimate < 0 ||
+    outputTokensReserve === undefined ||
+    !Number.isFinite(outputTokensReserve) ||
+    outputTokensReserve <= 0
+  ) {
+    return { outcome: "capability_unavailable" };
+  }
+  return inputTokensEstimate + outputTokensReserve <= capability.contextWindow
+    ? { outcome: "fits", inputTokensEstimate, outputTokensReserve }
+    : { outcome: "exceeded" };
+}
+
+/**
+ * An append-only DeepSeek trace may not use generic overflow recovery. A
+ * request that does not fit gets exactly one no-more-tools finalization retry;
+ * a final-only request that still does not fit fails closed before dispatch.
+ */
+export function resolveDeepSeekAppendTraceOverflowAction(input: {
+  budgetFits: boolean;
+  hasTools: boolean;
+  finalizationRequested: boolean;
+}): "dispatch" | "finalize_no_more_tools" | "fail_closed" {
+  if (input.budgetFits) return "dispatch";
+  return input.hasTools && !input.finalizationRequested ? "finalize_no_more_tools" : "fail_closed";
+}

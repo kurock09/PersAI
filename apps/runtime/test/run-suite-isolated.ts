@@ -34,6 +34,10 @@ const TESTS: Array<{ modulePath: string; exportName: string }> = [
     exportName: "runProviderGatewayClientServiceTest"
   },
   {
+    modulePath: "./deepseek-append-trace-coordinator.service.test.ts",
+    exportName: "runDeepSeekAppendTraceCoordinatorServiceTest"
+  },
+  {
     modulePath: "./runtime-media-transcription.service.test.ts",
     exportName: "runRuntimeMediaTranscriptionServiceTest"
   },
