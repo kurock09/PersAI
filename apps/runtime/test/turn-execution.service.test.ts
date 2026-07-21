@@ -8070,9 +8070,14 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       assert.equal(parsed.requestedKind, "preference");
     }
     assert.equal(
-      observationFollowUpRequest?.toolObservationOverlays,
-      undefined,
-      "ADR-161 A1: Runtime must not populate toolObservationOverlays."
+      Object.prototype.hasOwnProperty.call(observationFollowUpRequest ?? {}, "toolObservationOverlays"),
+      false,
+      "ADR-161 A4: toolObservationOverlays must be absent from the provider request contract."
+    );
+    assert.equal(
+      JSON.stringify(observationFollowUpRequest ?? {}).includes("persai_recent_tool_observation"),
+      false,
+      "ADR-161 A4: Runtime must not emit persai_recent_tool_observation overlays."
     );
     const sealedBoundary = observationFollowUpRequest?.sealedToolExchangeBoundary;
     assert.equal(sealedBoundary?.exchangeCount, 6);

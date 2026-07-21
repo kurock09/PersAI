@@ -4283,11 +4283,6 @@ export interface ProviderGatewaySealedToolExchangeBoundary {
   boundaryKind: "sealed_tool_exchange_spine";
 }
 
-export interface ProviderGatewayToolObservationOverlay {
-  ordinal: number;
-  exchange: ProviderGatewayToolExchange;
-}
-
 export const PERSAI_PROVIDER_REQUEST_CLASSIFICATIONS = [
   "role_selection",
   "turn_routing",
@@ -4423,15 +4418,9 @@ export interface ProviderGatewayTextGenerateRequest {
   toolChoice?: ProviderGatewayToolChoice;
   /**
    * ADR-161 A1: full sanitized tool protocol pairs appended at insertion.
-   * Provider adapters consume this as cacheable tool history. Compact-at-insert
-   * spine projection is retired.
+   * Provider adapters consume this as cacheable tool history.
    */
   toolHistory?: ProviderGatewayToolExchange[];
-  /**
-   * Deprecated (ADR-161 A1). Runtime no longer populates observation overlays;
-   * gateway adapters ignore this field. Hard-delete deferred to A4.
-   */
-  toolObservationOverlays?: ProviderGatewayToolObservationOverlay[];
   sealedToolExchangeBoundary?: ProviderGatewaySealedToolExchangeBoundary | null;
   requestMetadata?: ProviderGatewayRequestMetadata;
   outputSchema?: ProviderGatewayStructuredOutputSchema;

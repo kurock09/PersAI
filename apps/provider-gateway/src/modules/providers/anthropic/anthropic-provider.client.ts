@@ -885,9 +885,8 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
       });
     }
     // ADR-161 A1: keep append-full toolHistory and the latest sealed-result
-    // marker ahead of mutable context. Observation overlays are retired.
-    // Volatile context must never move the provider cache frontier or receive
-    // a cache-control marker.
+    // marker ahead of mutable context. Volatile context must never move the
+    // provider cache frontier or receive a cache-control marker.
     messages.push(
       ...volatileContextMessages.map((message) =>
         this.buildAnthropicVolatileContextMessage(message)

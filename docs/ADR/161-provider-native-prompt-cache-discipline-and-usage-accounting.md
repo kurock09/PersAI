@@ -78,6 +78,13 @@ Implementation order for this amendment only:
   If A1/A2 accidentally break this path, that is a regression fix, not A3
   scope.
 - **A4** — delete dead overlay/spine types and tests; update observability.
+  Landed locally after A1/A2: hard-deleted
+  `ProviderGatewayToolObservationOverlay` / `toolObservationOverlays`; removed
+  unused ADR-156 in-turn dual-window `projectToolExchangesForModel*` path and
+  `TOOL_OBSERVATION_IN_TURN_*` / cross-turn aging constants; retained
+  `projectOneToolExchange` + micro-clear helpers for hydrate-time placeholders;
+  negative asserts remain for `<persai_recent_tool_observation>`; TEST-PLAN no
+  longer instructs live `[toolHistoryProjection]` in-turn metrics checks.
 - **A5** — live cache/long-loop evidence under the new model.
 
 Active implementation slices: **A1, A2, A4, A5**. A3 is confirm-only, not a
@@ -252,10 +259,9 @@ ADR-119, ADR-124, ADR-130, ADR-135, ADR-143, and ADR-151 remain closed.
 ADR-156 remains closed. The 2026-07-22 founder amendment above **supersedes**
 the prior ADR-161 in-turn compact-spine + newest-three overlay model: ordinary
 /deep chat must append **full** tool results and relieve pressure only via the
-50% micro-clear / 100% session-compaction split. Until A1–A4 land, deployed
-code may still emit the old spine/overlays; that is debt to delete, not
-current design truth. Cross-turn compact/full definitions stay unchanged until
-the amendment cutover explicitly replaces them.
+50% micro-clear / 100% session-compaction split. A1/A2/A4 remove that dual-view
+from Runtime/Gateway/contract; older D1 zone text below that still describes
+spine/overlays is a historical Release A record only, not current design truth.
 
 ## Context
 

@@ -6,18 +6,12 @@ import {
 } from "@persai/runtime-contract";
 import {
   buildSealedToolExchangeBoundary,
-  formatToolHistoryProjectionMetricsLog,
-  projectToolExchangesForModel,
-  projectToolExchangesForModelWithMetrics,
+  projectOneToolExchange,
   TOOL_OBSERVATION_ARGUMENTS_MAX_SERIALIZED_CHARS
 } from "../src/modules/turns/project-tool-exchanges-for-model";
 import {
-  assignToolObservationTier,
-  assignToolObservationTiersForExchanges,
-  TOOL_OBSERVATION_CROSS_TURN_COMPACT_COUNT,
-  TOOL_OBSERVATION_CROSS_TURN_FULL_COUNT,
-  TOOL_OBSERVATION_IN_TURN_COMPACT_COUNT,
-  TOOL_OBSERVATION_IN_TURN_FULL_COUNT
+  assignMicroClearObservationTier,
+  TOOL_OBSERVATION_MICRO_CLEAR_KEEP_FULL_COUNT
 } from "../src/modules/turns/tool-observation-policy";
 
 type ObservationTier = "full" | "compact" | "masked";
@@ -181,7 +175,8 @@ function createScriptPayload(output: unknown): Record<string, unknown> {
 }
 
 /**
- * ADR-143 / ADR-156 — core model-facing projection and mode-window tests.
+ * ADR-161 A4 — sealed-boundary + per-exchange compactors (micro-clear tiers).
+ * ADR-156 in-turn dual-window batch projection is deleted.
  */
 export async function runProjectToolExchangesForModelTest(): Promise<void> {
   assert.equal(
@@ -189,10 +184,7 @@ export async function runProjectToolExchangesForModelTest(): Promise<void> {
     200,
     "ADR-143 out of scope: MAX_RUNTIME_BROWSER_INTERACTIVE_ELEMENTS must stay 200"
   );
-  assert.equal(TOOL_OBSERVATION_IN_TURN_FULL_COUNT, 3);
-  assert.equal(TOOL_OBSERVATION_IN_TURN_COMPACT_COUNT, 3);
-  assert.equal(TOOL_OBSERVATION_CROSS_TURN_FULL_COUNT, 1);
-  assert.equal(TOOL_OBSERVATION_CROSS_TURN_COMPACT_COUNT, 4);
+  assert.equal(TOOL_OBSERVATION_MICRO_CLEAR_KEEP_FULL_COUNT, 5);
 
   // ── ADR-161 A1 sealed boundary over full append-only toolHistory ─────────
   {
@@ -265,90 +257,65 @@ export async function runProjectToolExchangesForModelTest(): Promise<void> {
     assert.equal(buildSealedToolExchangeBoundary([]), null);
   }
 
-  // ── Tier windows ──────────────────────────────────────────────────────────
+  // ── Micro-clear age tiers (keep newest 5 full) ────────────────────────────
   {
-    const sevenExchanges = Array.from({ length: 7 }, () => ({
-      toolResult: { isError: false }
-    }));
-    assert.deepEqual(assignToolObservationTiersForExchanges(sevenExchanges, "in_turn"), [
-      "masked",
-      "compact",
-      "compact",
-      "compact",
-      "full",
-      "full",
-      "full"
-    ]);
-    assert.deepEqual(assignToolObservationTiersForExchanges(sevenExchanges, "cross_turn"), [
-      "masked",
-      "masked",
-      "compact",
-      "compact",
-      "compact",
-      "compact",
-      "full"
-    ]);
     assert.equal(
-      assignToolObservationTier({
-        index: 0,
-        exchangeCount: 7,
-        isError: true,
-        mode: "in_turn"
-      }),
-      "compact",
-      "in-turn error exchanges must never fall to bare mask"
+      assignMicroClearObservationTier({ index: 0, exchangeCount: 7, isError: false }),
+      "masked"
     );
     assert.equal(
-      assignToolObservationTier({
-        index: 0,
-        exchangeCount: 7,
-        isError: true,
-        mode: "cross_turn"
-      }),
+      assignMicroClearObservationTier({ index: 1, exchangeCount: 7, isError: false }),
+      "masked"
+    );
+    assert.equal(
+      assignMicroClearObservationTier({ index: 2, exchangeCount: 7, isError: false }),
+      "full"
+    );
+    assert.equal(
+      assignMicroClearObservationTier({ index: 6, exchangeCount: 7, isError: false }),
+      "full"
+    );
+    assert.equal(
+      assignMicroClearObservationTier({ index: 0, exchangeCount: 7, isError: true }),
       "compact",
-      "cross-turn error exchanges must never fall to bare mask"
+      "micro-clear error exchanges must never fall to bare mask"
     );
   }
 
-  // ── Browser × full / compact / masked ─────────────────────────────────────
+  // ── Browser × full / compact / masked via projectOneToolExchange ──────────
   {
     const fullPayload = createBrowserPayload();
-    const exchanges = [
-      createExchange({ id: "b0", name: "browser", payload: createBrowserPayload() }),
-      createExchange({ id: "b1", name: "browser", payload: createBrowserPayload() }),
-      createExchange({ id: "b2", name: "browser", payload: createBrowserPayload() }),
-      createExchange({ id: "b3", name: "browser", payload: createBrowserPayload() }),
-      createExchange({ id: "b4", name: "browser", payload: createBrowserPayload() }),
-      createExchange({ id: "b5", name: "browser", payload: fullPayload })
-    ];
-    const projected = projectToolExchangesForModel(exchanges, { mode: "cross_turn" });
-    assert.equal(tierOf(projected[0]!), "masked");
-    assert.equal(tierOf(projected[1]!), "compact");
-    assert.equal(tierOf(projected[5]!), "full");
+    const exchange = createExchange({ id: "b0", name: "browser", payload: fullPayload });
+    const masked = projectOneToolExchange(exchange, "masked");
+    const compact = projectOneToolExchange(exchange, "compact");
+    const full = projectOneToolExchange(exchange, "full");
+    assert.equal(tierOf(masked), "masked");
+    assert.equal(tierOf(compact), "compact");
+    assert.equal(tierOf(full), "full");
 
-    const masked = parseContent(projected[0]!);
-    assert.equal(masked.toolCode, "browser");
-    assert.equal(typeof masked.gist, "string");
-    assert.equal(masked.page, undefined);
-    assert.match(String(masked.gist), /masked browser observation/);
+    const maskedBody = parseContent(masked);
+    assert.equal(maskedBody.toolCode, "browser");
+    assert.equal(typeof maskedBody.gist, "string");
+    assert.equal(maskedBody.page, undefined);
+    assert.match(String(maskedBody.gist), /masked browser observation/);
 
-    const compact = parseContent(projected[1]!);
-    assert.equal(compact.toolCode, "browser");
-    assert.equal(compact.action, "snapshot");
-    assert.equal(compact.finalUrl, "https://shop.example/catalog");
-    assert.equal(compact.title, "Catalog");
-    assert.equal(compact.elementCount, MAX_RUNTIME_BROWSER_INTERACTIVE_ELEMENTS);
-    assert.equal(compact.extractedCount, 1);
-    assert.equal(compact.page, undefined);
-    assert.ok(!("content" in compact));
+    const compactBody = parseContent(compact);
+    assert.equal(compactBody.toolCode, "browser");
+    assert.equal(compactBody.action, "snapshot");
+    assert.equal(compactBody.finalUrl, "https://shop.example/catalog");
+    assert.equal(compactBody.title, "Catalog");
+    assert.equal(compactBody.elementCount, MAX_RUNTIME_BROWSER_INTERACTIVE_ELEMENTS);
+    assert.equal(compactBody.extractedCount, 1);
+    assert.equal(compactBody.page, undefined);
+    assert.ok(!("content" in compactBody));
 
-    const full = parseContent(projected[5]!);
-    assert.equal(full._observationTier, "full");
-    const fullPage = full.page as Record<string, unknown>;
+    const fullBody = parseContent(full);
+    assert.equal(fullBody._observationTier, "full");
+    const fullPage = fullBody.page as Record<string, unknown>;
     const originalPage = fullPayload.page as Record<string, unknown>;
     assert.deepEqual(fullPage.elements, originalPage.elements);
     assert.equal(fullPage.content, originalPage.content);
-    const fullWithoutTier = { ...full };
+    const fullWithoutTier = { ...fullBody };
     delete fullWithoutTier._observationTier;
     assert.deepEqual(fullWithoutTier, fullPayload);
   }
@@ -356,20 +323,8 @@ export async function runProjectToolExchangesForModelTest(): Promise<void> {
   // ── Shell × full / compact / masked ───────────────────────────────────────
   {
     const shellFull = createShellPayload({ stdoutChars: 4_000 });
-    const exchanges = [
-      createExchange({ id: "s0", name: "shell", payload: createShellPayload() }),
-      createExchange({ id: "s1", name: "shell", payload: createShellPayload() }),
-      createExchange({ id: "s2", name: "shell", payload: createShellPayload() }),
-      createExchange({ id: "s3", name: "shell", payload: createShellPayload() }),
-      createExchange({ id: "s4", name: "shell", payload: createShellPayload() }),
-      createExchange({ id: "s5", name: "shell", payload: shellFull })
-    ];
-    const projected = projectToolExchangesForModel(exchanges);
-    assert.equal(tierOf(projected[0]!), "masked");
-    assert.equal(tierOf(projected[1]!), "compact");
-    assert.equal(tierOf(projected[5]!), "full");
-
-    const compact = parseContent(projected[1]!);
+    const exchange = createExchange({ id: "s0", name: "shell", payload: shellFull });
+    const compact = parseContent(projectOneToolExchange(exchange, "compact"));
     assert.equal(compact.toolCode, "shell");
     assert.equal(compact.exitCode, 0);
     assert.equal(typeof compact.stdoutTail, "string");
@@ -379,7 +334,7 @@ export async function runProjectToolExchangesForModelTest(): Promise<void> {
     assert.equal(compact.job, undefined);
     assert.ok(!("stdout" in compact));
 
-    const full = parseContent(projected[5]!);
+    const full = parseContent(projectOneToolExchange(exchange, "full"));
     const fullWithoutTier = { ...full };
     delete fullWithoutTier._observationTier;
     assert.deepEqual(fullWithoutTier, shellFull);
@@ -388,34 +343,22 @@ export async function runProjectToolExchangesForModelTest(): Promise<void> {
   // ── Files × full / compact / masked ───────────────────────────────────────
   {
     const filesFull = createFilesPayload({ contentChars: 3_000 });
-    const exchanges = [
-      createExchange({ id: "f0", name: "files", payload: createFilesPayload() }),
-      createExchange({ id: "f1", name: "files", payload: createFilesPayload() }),
-      createExchange({ id: "f2", name: "files", payload: createFilesPayload() }),
-      createExchange({ id: "f3", name: "files", payload: createFilesPayload() }),
-      createExchange({ id: "f4", name: "files", payload: createFilesPayload() }),
-      createExchange({ id: "f5", name: "files", payload: filesFull })
-    ];
-    const projected = projectToolExchangesForModel(exchanges);
-    assert.equal(tierOf(projected[0]!), "masked");
-    assert.equal(tierOf(projected[1]!), "compact");
-    assert.equal(tierOf(projected[5]!), "full");
-
-    const compact = parseContent(projected[1]!);
+    const exchange = createExchange({ id: "f0", name: "files", payload: filesFull });
+    const compact = parseContent(projectOneToolExchange(exchange, "compact"));
     assert.equal(compact.toolCode, "files");
     assert.equal(compact.action, "read");
     assert.equal(compact.path, "/workspace/assistants/a/sessions/s/notes.md");
-    assert.equal(compact.charCount, 10_000);
+    assert.equal(compact.charCount, 3_000);
     assert.equal(compact.truncated, false);
     assert.equal(compact.content, undefined);
 
-    const full = parseContent(projected[5]!);
+    const full = parseContent(projectOneToolExchange(exchange, "full"));
     const fullWithoutTier = { ...full };
     delete fullWithoutTier._observationTier;
     assert.deepEqual(fullWithoutTier, filesFull);
   }
 
-  // ── Live script → todo → skill follows the global mode windows ────────────
+  // ── Script compact placeholder drops exact output ─────────────────────────
   {
     const exactOutput = {
       echoed: "founder live value",
@@ -425,105 +368,28 @@ export async function runProjectToolExchangesForModelTest(): Promise<void> {
         value: `exact-script-row-${String(index)}`
       }))
     };
-    const canonicalScript = createExchange({
-      id: "script-before-follow-ups",
+    const canonical = createExchange({
+      id: "script-1",
       name: "script",
       payload: createScriptPayload(exactOutput)
     });
-    const exchanges = [
-      canonicalScript,
-      createExchange({
-        id: "todo-after-script",
-        name: "todo_write",
-        payload: {
-          toolCode: "todo_write",
-          action: "updated",
-          reason: null,
-          warning: null,
-          changedCount: 1
-        }
-      }),
-      createExchange({
-        id: "skill-after-script",
-        name: "skill",
-        payload: {
-          toolCode: "skill",
-          action: "released",
-          reason: null,
-          warning: null,
-          skillId: "skill-script"
-        }
-      })
-    ];
-    const canonicalSnapshot = structuredClone(exchanges);
-
-    const { exchanges: inTurn, metrics: inTurnMetrics } = projectToolExchangesForModelWithMetrics(
-      exchanges,
-      {
-        mode: "in_turn"
-      }
-    );
-    assert.deepEqual(inTurn.map(tierOf), ["full", "full", "full"]);
-    const inTurnScript = parseContent(inTurn[0]!);
-    assert.equal(inTurnScript.toolCode, "script.execute");
-    assert.equal(inTurnScript._observationTier, "full");
-    assert.deepEqual(inTurnScript.output, exactOutput);
-    assert.equal(inTurnScript.outputPresent, undefined);
-    assert.equal(inTurnMetrics.fullCount, 3);
-    assert.equal(inTurnMetrics.compactCount, 0);
-    assert.equal(inTurnMetrics.maskedCount, 0);
-
-    const { exchanges: crossTurn, metrics: crossTurnMetrics } =
-      projectToolExchangesForModelWithMetrics(exchanges, {
-        mode: "cross_turn"
-      });
-    assert.deepEqual(crossTurn.map(tierOf), ["compact", "compact", "full"]);
-    const crossTurnScript = parseContent(crossTurn[0]!);
-    assert.equal(crossTurnScript.toolCode, "script.execute");
-    assert.equal(crossTurnScript.action, "completed");
-    assert.equal(crossTurnScript.outputPresent, true);
-    assert.equal("output" in crossTurnScript, false);
-    assert.equal("__truncated" in crossTurnScript, false);
-    assert.equal("originalSerializedChars" in crossTurnScript, false);
-    assert.equal(crossTurnMetrics.fullCount, 1);
-    assert.equal(crossTurnMetrics.compactCount, 2);
-    assert.equal(crossTurnMetrics.maskedCount, 0);
-
-    assert.deepEqual(
-      exchanges,
-      canonicalSnapshot,
-      "in-turn and cross-turn projection must not mutate canonical stored exchanges"
-    );
-    const canonicalPayload = parseContent(exchanges[0]!);
-    assert.deepEqual(canonicalPayload.output, exactOutput);
-    assert.equal(canonicalPayload._observationTier, undefined);
-    const metricsLog = formatToolHistoryProjectionMetricsLog({
-      requestId: "req-script-follow-ups",
-      metrics: inTurnMetrics
-    });
-    assert.equal(
-      metricsLog,
-      `[toolHistoryProjection] requestId=req-script-follow-ups rawChars=${String(inTurnMetrics.rawChars)} projectedChars=${String(inTurnMetrics.projectedChars)} fullCount=3 compactCount=0 maskedCount=0`
-    );
+    const snapshot = structuredClone(canonical);
+    const full = parseContent(projectOneToolExchange(canonical, "full"));
+    const compact = parseContent(projectOneToolExchange(canonical, "compact"));
+    assert.deepEqual(full.output, exactOutput);
+    assert.equal(compact.toolCode, "script.execute");
+    assert.equal(compact.action, "completed");
+    assert.equal(compact.outputPresent, true);
+    assert.equal("output" in compact, false);
+    assert.deepEqual(canonical, snapshot, "projectOneToolExchange must not mutate canonical");
+    assert.equal(parseContent(canonical)._observationTier, undefined);
   }
 
   // ── Generic × full / compact / masked ─────────────────────────────────────
   {
     const genericFull = createGenericPayload();
-    const exchanges = [
-      createExchange({ id: "g0", name: "web_search", payload: createGenericPayload() }),
-      createExchange({ id: "g1", name: "web_search", payload: createGenericPayload() }),
-      createExchange({ id: "g2", name: "web_search", payload: createGenericPayload() }),
-      createExchange({ id: "g3", name: "web_search", payload: createGenericPayload() }),
-      createExchange({ id: "g4", name: "web_search", payload: createGenericPayload() }),
-      createExchange({ id: "g5", name: "web_search", payload: genericFull })
-    ];
-    const projected = projectToolExchangesForModel(exchanges);
-    assert.equal(tierOf(projected[0]!), "masked");
-    assert.equal(tierOf(projected[1]!), "compact");
-    assert.equal(tierOf(projected[5]!), "full");
-
-    const compact = parseContent(projected[1]!);
+    const exchange = createExchange({ id: "g0", name: "web_search", payload: genericFull });
+    const compact = parseContent(projectOneToolExchange(exchange, "compact"));
     assert.equal(compact.toolCode, "web_search");
     assert.equal(compact.action, "searched");
     assert.equal(compact.resultsCount, 20);
@@ -532,7 +398,7 @@ export async function runProjectToolExchangesForModelTest(): Promise<void> {
     assert.equal(compact.results, undefined);
     assert.equal(compact.blob, undefined);
 
-    const masked = parseContent(projected[0]!);
+    const masked = parseContent(projectOneToolExchange(exchange, "masked"));
     assert.match(String(masked.gist), /masked web_search observation/);
   }
 
@@ -549,21 +415,10 @@ export async function runProjectToolExchangesForModelTest(): Promise<void> {
         reason: "process_failed"
       })
     });
-    // Place error far from newest so policy would otherwise mask it.
-    const exchanges = [
-      errorExchange,
-      ...Array.from({ length: 6 }, (_, index) =>
-        createExchange({
-          id: `ok-${String(index)}`,
-          name: "shell",
-          payload: createShellPayload({ stdoutChars: 100 })
-        })
-      )
-    ];
-    const projected = projectToolExchangesForModel(exchanges);
-    assert.equal(tierOf(projected[0]!), "compact");
-    assert.equal(projected[0]!.toolResult.isError, true);
-    const compact = parseContent(projected[0]!);
+    const projected = projectOneToolExchange(errorExchange, "compact");
+    assert.equal(tierOf(projected), "compact");
+    assert.equal(projected.toolResult.isError, true);
+    const compact = parseContent(projected);
     assert.equal(compact.reason, "process_failed");
     assert.equal(compact.exitCode, 1);
     assert.equal(compact.isError, true);
@@ -573,157 +428,17 @@ export async function runProjectToolExchangesForModelTest(): Promise<void> {
     assert.equal(compact.gist, undefined);
   }
 
-  // ── Input array not mutated ───────────────────────────────────────────────
-  {
-    const originalPayload = createBrowserPayload({ contentChars: 500, elementCount: 3 });
-    const exchanges = [
-      createExchange({
-        id: "m0",
-        name: "browser",
-        payload: createBrowserPayload({ elementCount: 2 })
-      }),
-      createExchange({ id: "m1", name: "browser", payload: originalPayload })
-    ];
-    const snapshot = structuredClone(exchanges);
-    const projected = projectToolExchangesForModel(exchanges);
-    assert.notEqual(projected, exchanges);
-    assert.notEqual(projected[0], exchanges[0]);
-    assert.deepEqual(exchanges, snapshot);
-    assert.notEqual(projected[1]!.toolResult.content, exchanges[1]!.toolResult.content);
-  }
-
-  // ── 40-step browser fixture: projected ≪ raw; last stays full ─────────────
-  // Budget: projected total content chars must be < 10% of raw total content
-  // chars. Raw is dominated by page.content (12k) + ~200 elements each step.
-  {
-    const BROWSER_STEPS = 40;
-    const CONTENT_CHARS = 12_000;
-    const ELEMENT_COUNT = MAX_RUNTIME_BROWSER_INTERACTIVE_ELEMENTS;
-    const exchanges: ProviderGatewayToolExchange[] = Array.from(
-      { length: BROWSER_STEPS },
-      (_, index) =>
-        createExchange({
-          id: `browser-${String(index)}`,
-          name: "browser",
-          payload: createBrowserPayload({
-            contentChars: CONTENT_CHARS,
-            elementCount: ELEMENT_COUNT,
-            url: `https://shop.example/step-${String(index)}`,
-            action: index % 2 === 0 ? "snapshot" : "act"
-          })
-        })
-    );
-
-    const rawTotalChars = exchanges.reduce(
-      (sum, exchange) => sum + exchange.toolResult.content.length,
-      0
-    );
-    const projected = projectToolExchangesForModel(exchanges, { mode: "in_turn" });
-    const projectedTotalChars = projected.reduce(
-      (sum, exchange) => sum + exchange.toolResult.content.length,
-      0
-    );
-
-    assert.equal(projected.length, BROWSER_STEPS);
-    assert.ok(
-      projectedTotalChars < rawTotalChars * 0.1,
-      `ADR-143 S1 budget: projected (${String(projectedTotalChars)}) must be < 10% of raw (${String(rawTotalChars)}); ratio=${(
-        projectedTotalChars / rawTotalChars
-      ).toFixed(4)}`
-    );
-
-    for (let index = 0; index < BROWSER_STEPS; index += 1) {
-      const ageFromNewest = BROWSER_STEPS - 1 - index;
-      const expected: ObservationTier =
-        ageFromNewest < 3 ? "full" : ageFromNewest < 6 ? "compact" : "masked";
-      assert.equal(
-        tierOf(projected[index]!),
-        expected,
-        `exchange[${String(index)}] expected tier ${expected}`
-      );
-    }
-
-    const lastOriginal = parseContent(exchanges[BROWSER_STEPS - 1]!);
-    const lastProjected = parseContent(projected[BROWSER_STEPS - 1]!);
-    assert.equal(lastProjected._observationTier, "full");
-    const lastOriginalPage = lastOriginal.page as Record<string, unknown>;
-    const lastProjectedPage = lastProjected.page as Record<string, unknown>;
-    assert.deepEqual(lastProjectedPage.elements, lastOriginalPage.elements);
-    assert.equal(lastProjectedPage.content, lastOriginalPage.content);
-    const lastWithoutTier = { ...lastProjected };
-    delete lastWithoutTier._observationTier;
-    assert.deepEqual(lastWithoutTier, lastOriginal);
-
-    // Preserve ids / isError / toolCall identity
-    assert.equal(projected[0]!.toolCall.id, exchanges[0]!.toolCall.id);
-    assert.equal(projected[0]!.toolResult.toolCallId, exchanges[0]!.toolResult.toolCallId);
-    assert.equal(projected[0]!.toolResult.name, "browser");
-    assert.equal(projected[0]!.toolResult.isError, false);
-  }
-
-  // ── Mode-specific windows differ globally ─────────────────────────────────
-  {
-    const exchanges = Array.from({ length: 6 }, (_, index) =>
-      createExchange({
-        id: `x-${String(index)}`,
-        name: "files",
-        payload: createFilesPayload({ contentChars: 100 })
-      })
-    );
-    const inTurn = projectToolExchangesForModel(exchanges, { mode: "in_turn" }).map(tierOf);
-    const crossTurn = projectToolExchangesForModel(exchanges, { mode: "cross_turn" }).map(tierOf);
-    assert.deepEqual(inTurn, ["compact", "compact", "compact", "full", "full", "full"]);
-    assert.deepEqual(crossTurn, ["masked", "compact", "compact", "compact", "compact", "full"]);
-  }
-
   // ── Argument bounding lives under the projection module ───────────────────
   {
-    const exchanges = [
-      createExchange({
-        id: "args-1",
-        name: "files",
-        payload: createFilesPayload({ contentChars: 50 })
-      })
-    ];
-    exchanges[0]!.toolCall.arguments = { payload: "x".repeat(2_000) };
-    const projected = projectToolExchangesForModel(exchanges, { mode: "cross_turn" });
-    const serialized = JSON.stringify(projected[0]!.toolCall.arguments);
+    const exchange = createExchange({
+      id: "args-1",
+      name: "files",
+      payload: createFilesPayload({ contentChars: 50 })
+    });
+    exchange.toolCall.arguments = { payload: "x".repeat(2_000) };
+    const projected = projectOneToolExchange(exchange, "full");
+    const serialized = JSON.stringify(projected.toolCall.arguments);
     assert.ok(serialized.length <= TOOL_OBSERVATION_ARGUMENTS_MAX_SERIALIZED_CHARS);
     assert.ok(serialized.includes("tool arguments truncated"));
-  }
-
-  // ── S4 metrics: project once, char + tier counts, log format ──────────────
-  {
-    const exchanges = Array.from({ length: 7 }, (_, index) =>
-      createExchange({
-        id: `m-${String(index)}`,
-        name: "browser",
-        payload: createBrowserPayload({
-          contentChars: 2_000,
-          elementCount: 20
-        })
-      })
-    );
-    const rawChars = exchanges.reduce(
-      (sum, exchange) => sum + exchange.toolResult.content.length,
-      0
-    );
-    const { exchanges: projected, metrics } = projectToolExchangesForModelWithMetrics(exchanges, {
-      mode: "in_turn"
-    });
-    assert.equal(projected.length, 7);
-    assert.equal(metrics.rawChars, rawChars);
-    assert.ok(metrics.projectedChars < metrics.rawChars);
-    assert.equal(metrics.fullCount, 3);
-    assert.equal(metrics.compactCount, 3);
-    assert.equal(metrics.maskedCount, 1);
-    const logLine = formatToolHistoryProjectionMetricsLog({
-      requestId: "req-s4",
-      metrics
-    });
-    assert.equal(
-      logLine,
-      `[toolHistoryProjection] requestId=req-s4 rawChars=${String(metrics.rawChars)} projectedChars=${String(metrics.projectedChars)} fullCount=3 compactCount=3 maskedCount=1`
-    );
   }
 }

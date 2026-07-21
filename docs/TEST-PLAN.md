@@ -13,11 +13,13 @@ ADR-072 is closed as the historical native migration ADR. Current continuation w
   `tools` JSON is unchanged after `{action:"describe"}`, the full schema exists
   in the describe result, real calls remain guarded until that result loads the
   contract, and the compact stub accepts returned-contract arguments.
-- Tool-history coverage proves follow-up base messages remain byte-identical,
-  assistant pre-tool text appears only on its sealed exchange, appending a
-  later canonical tool turn does not rewrite or evict any earlier replay, every
-  retained replay is deterministically compact, errors remain informative, and
-  compact replay tokens count toward the ordinary hydration budget.
+- Tool-history coverage (post A1/A2/A4 amendment): follow-up base messages remain
+  byte-identical; assistant pre-tool text appears only on its sealed exchange;
+  in-turn `toolHistory` is append-full with no observation overlays; hydrate-time
+  prior replay is full below 50% pressure and micro-clears older-than-newest-5
+  bodies at/above 50%; errors remain informative placeholders (never bare mask);
+  micro-clear / compact placeholder tokens still count toward ordinary hydration
+  budget. Do not require in-turn `[toolHistoryProjection]` log lines.
 - API coverage pins empty/non-empty snapshot resolve semantics, request bounds,
   missing chats, PostgreSQL numeric-string normalization, and malformed
   Business cache percentages.
@@ -599,20 +601,18 @@ additionally covers:
   payloads round-trip `scriptRef` and never force `null` over authored
   bindings.
 - **Post-tool receipt and observation projection**
-  (`apps/runtime/test/turn-execution.service.test.ts` and
-  `apps/runtime/test/project-tool-exchanges-for-model.test.ts`): a completed
+  (`apps/runtime/test/turn-execution.service.test.ts`,
+  `apps/runtime/test/project-tool-exchanges-for-model.test.ts`, and
+  `apps/runtime/test/prior-tool-exchange-replay.test.ts`): a completed
   `RuntimeScriptToolResult` passes through the real produced-file extraction
   seam without being mistaken for an `exec`/`shell` sandbox job, throws no
   `job.files` error, and produces no file handles, while ordinary sandbox-job
-  file extraction remains unchanged. ADR-156 globally assigns in-turn
-  observations as newest 3 full / next 3 compact / older masked and retains the
-  ADR-143 cross-turn newest 1 full / next 4 compact / older masked policy, with
-  errors never bare-mask. Seven-exchange boundary tests prove both exact
-  windows and error upgrade. A live-shaped `script → todo_write → skill`
-  sequence is naturally all full in-turn and `compact/compact/full` cross-turn
-  without any Script-specific projection logic. Tests assert effective metrics,
-  canonical stored exchanges remain full/non-mutated, and existing generic/
-  browser/shell/files compact behavior remains unchanged.
+  file extraction remains unchanged. ADR-161 A1/A2/A4: in-turn `toolHistory`
+  is append-full (no ADR-156 dual-window rewrite, no observation overlays);
+  hydrate-time micro-clear keeps newest 5 full at/above 50% pressure;
+  `projectOneToolExchange` compactors still cover browser/shell/files/generic/
+  script placeholders and never bare-mask errors. Canonical stored exchanges
+  remain full/non-mutated.
 - **Sandbox admission/idempotency**
   (`apps/sandbox/test/script-execute-idempotency.test.ts`): atomic
   create-by-`(assistantId, scriptInvocationKey)` runs before ordinary
@@ -1184,12 +1184,13 @@ Manual desktop:
 2. Confirm opening the list and waiting 10s or clicking outside returns to the compact pill (never the mobile circle).
 3. From a chat with active skill + plan, click New chat; neither old value may appear while the fresh draft initializes. A delayed old-plan response must also remain invisible.
 
-## ADR-143 tiered tool observation projection (focused checks)
+## ADR-143 / ADR-161 tool observation projection (focused checks)
 
-When a change touches model-facing tool history projection, prior-tool-exchange replay, or in-turn `toolHistory` wiring, run:
+When a change touches model-facing tool compactors, hydrate-time prior-tool-exchange replay / micro-clear, or in-turn append-full `toolHistory` wiring, run:
 
 ```bash
 corepack pnpm --filter @persai/runtime exec tsx test/run-one.ts test/project-tool-exchanges-for-model.test.ts runProjectToolExchangesForModelTest
+corepack pnpm --filter @persai/runtime exec tsx test/run-one.ts test/prior-tool-exchange-replay.test.ts runPriorToolExchangeReplayTest
 corepack pnpm --filter @persai/runtime exec tsx test/run-one.ts test/turn-execution.service.test.ts runTurnExecutionServiceTest
 corepack pnpm --filter @persai/runtime exec tsx test/run-one.ts test/turn-context-hydration.service.test.ts runTurnContextHydrationServiceTest
 corepack pnpm --filter @persai/runtime run typecheck
@@ -1197,9 +1198,9 @@ corepack pnpm --filter @persai/runtime run typecheck
 
 Regression / live (post-deploy):
 
-1. Long browser loop / Lavka: the model still completes the turn with projected history (newest exchange structurally full; older steps compact/masked); provider input must not reintroduce a second truncate path alongside projection.
-2. Cluster logs for tool-loop iterations include one `[toolHistoryProjection] requestId=… rawChars=… projectedChars=… fullCount=… compactCount=… maskedCount=…` line per projected in-turn provider build; `projectedChars` should be materially below `rawChars` on multi-step browser turns.
-3. Canonical stored `toolExchanges` remain full; only provider-facing history is projected.
+1. Long browser / tool loop: in-turn provider `toolHistory` stays append-full (no mid-loop dual-window rewrite; no `<persai_recent_tool_observation>` blocks).
+2. After a completed user turn at/above 50% of `compactionTriggerThreshold`, the next hydrate keeps the newest 5 prior tool bodies full and placeholders older ones; below 50% (or stale tokens) prior replay stays full. Canonical stored `toolExchanges` remain full.
+3. Do **not** expect in-turn `[toolHistoryProjection]` cluster log lines — that ADR-143/156 in-turn metrics emission path was removed by ADR-161 A4.
 
 ## ADR-140 local browser bridge + headless Browserless boundary (focused checks)
 

@@ -1539,8 +1539,8 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
       });
     }
     // ADR-161 A1: volatile context belongs after full append-only toolHistory
-    // (and optional explicit exchange boundaries). Observation overlays are
-    // retired; only volatile rotation may change the suffix.
+    // (and optional explicit exchange boundaries). Only volatile rotation may
+    // change the suffix.
     if (volatileContextMessages.length > 0) {
       items.push(this.buildOpenAIVolatileContextItem(volatileContextMessages));
     }

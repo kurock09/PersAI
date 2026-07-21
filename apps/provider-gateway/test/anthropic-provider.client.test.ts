@@ -1432,10 +1432,10 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
     [1, 0, 0]
   );
 
-  // ADR-161 P1: the prior sealed Anthropic prefix remains byte-identical when
-  // only volatile context/developer suffix content changes. The latest compact
-  // result remains the cache marker; the full overlay is a separate text block,
-  // never a duplicate tool-use/tool-result protocol pair.
+  // ADR-161: the prior sealed Anthropic prefix remains byte-identical when
+  // only volatile context/developer suffix content changes. The latest sealed
+  // tool result remains the cache marker; append-full history is ordinary
+  // tool-use/tool-result protocol pairs (no recent-observation suffix blocks).
   const anthropicSealedSuffixRequest: ProviderGatewayTextGenerateRequest = {
     ...request,
     promptCache: {

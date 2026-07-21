@@ -4739,7 +4739,7 @@ export class TurnExecutionService {
     );
     const pendingFilePreviewBlocks = input.pendingFilePreviewBlocks ?? [];
     // ADR-161 A1: provider-facing toolHistory is the loop's full sanitized
-    // exchanges. No compact-at-insert spine and no observation overlays.
+    // exchanges (append-full; no mid-loop projection rewrite).
     const sealedToolExchangeBoundary = buildSealedToolExchangeBoundary(input.toolHistory);
     return {
       ...baseRequest,
