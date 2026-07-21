@@ -92,6 +92,20 @@ async function run(): Promise<void> {
     "ADR-074 M2 cutover regression: enqueue call must use `void` to make fire-and-forget intent explicit."
   );
 
+  // ADR-161 A3 confirm-only: 100% auto-compaction enqueue threshold must stay
+  // `currentTokens >= compactionTriggerThreshold`. A2's 50% micro-clear must
+  // not rewrite this gate.
+  assert.ok(
+    /freshCurrentTokens < tokenThreshold/.test(fireMethodBody),
+    "ADR-161 A3: fireBackgroundCompactionEnqueue must keep the 100% threshold comparison."
+  );
+  assert.ok(
+    !/0\.5\s*\*\s*tokenThreshold|tokenThreshold\s*\*\s*0\.5|MICRO_CLEAR|microClear|micro_clear/.test(
+      fireMethodBody
+    ),
+    "ADR-161 A3: fireBackgroundCompactionEnqueue must not apply the 50% micro-clear ratio."
+  );
+
   // The internal API client must still expose the method we depend on.
   const internalApiSource = loadPersaiInternalApiSource();
   assertSourceContains(

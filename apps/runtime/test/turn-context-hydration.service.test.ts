@@ -433,7 +433,11 @@ class FakeRuntimeStatePrismaService {
 }
 
 class FakeRuntimeStatePostgresService {
-  session: { id: string } | null = null;
+  session: {
+    id: string;
+    currentTokens?: number | null;
+    totalTokensFresh?: boolean;
+  } | null = null;
   latestCompaction: { summaryPayload: unknown } | null = null;
 
   async findSessionByConversationKey() {
@@ -1793,7 +1797,7 @@ async function runCrossSessionCarryOverSnapshotAcceptance(): Promise<void> {
         persaiInternalApiClient as unknown as PersaiInternalApiClientService
       );
       prisma.chat = { id: "chat-truncation-test" };
-      return { svc, prisma };
+      return { svc, prisma, runtimeStatePostgres };
     };
 
     const buildMinimalRequest = (idempotencyKey: string): RuntimeTurnRequest => {
@@ -2101,9 +2105,9 @@ async function runCrossSessionCarryOverSnapshotAcceptance(): Promise<void> {
       );
     }
 
-    // Test 6: ADR-161 A1 prior replay uses full projections per retained turn
-    // (A2 will later placeholder older results). Argument caps and binary
-    // safety remain. Errors remain informative.
+    // Test 6: ADR-161 A1/A2 prior replay uses full projections when pressure
+    // is below 50% (default harness has no fresh session tokens). Argument
+    // caps and binary safety remain. Errors remain informative.
     {
       const { svc, prisma } = buildMinimalHarness();
       const oversizedResult = "A".repeat(5_000);
@@ -2278,6 +2282,98 @@ async function runCrossSessionCarryOverSnapshotAcceptance(): Promise<void> {
       assert.equal(errorProjected._observationTier, "full");
       assert.equal(assistantBinary?.priorToolExchanges?.[1]?.toolResult.isError, true);
       assert.equal(errorProjected.reason, "permission denied");
+    }
+
+    // Test 7: ADR-161 A2 — at/above 50% fresh pressure, hydrate-time micro-clear
+    // keeps newest 5 prior tool results full and placeholders older ones.
+    {
+      const { svc, prisma, runtimeStatePostgres } = buildMinimalHarness();
+      runtimeStatePostgres.session = {
+        id: "session-micro-clear",
+        currentTokens: 4_000,
+        totalTokensFresh: true
+      };
+      const makeExchange = (id: string, content: string): ProviderGatewayToolExchange => ({
+        toolCall: { id, name: "web_search", arguments: { q: id } },
+        toolResult: {
+          toolCallId: id,
+          name: "web_search",
+          content: JSON.stringify({ result: content }),
+          isError: false
+        }
+      });
+      prisma.messages = [
+        { id: "u-1", author: "user", content: "q1", attachments: [] },
+        {
+          id: "a-1",
+          author: "assistant",
+          content: "assistant a",
+          attachments: [],
+          toolExchanges: [
+            makeExchange("call-1", "one"),
+            makeExchange("call-2", "two"),
+            makeExchange("call-3", "three")
+          ]
+        },
+        { id: "u-2", author: "user", content: "q2", attachments: [] },
+        {
+          id: "a-2",
+          author: "assistant",
+          content: "assistant b",
+          attachments: [],
+          toolExchanges: [
+            makeExchange("call-4", "four"),
+            makeExchange("call-5", "five"),
+            makeExchange("call-6", "six"),
+            makeExchange("call-7", "seven")
+          ]
+        },
+        { id: "u-3", author: "user", content: "continue", attachments: [] }
+      ];
+      const aboveHalf = await svc.buildMessages(
+        buildMinimalRequest("u-3"),
+        createRuntimeBundle({ compactionTriggerThreshold: 8_000 })
+      );
+      const assistantA = findHydratedMessage(aboveHalf, "assistant", "assistant a");
+      const assistantB = findHydratedMessage(aboveHalf, "assistant", "assistant b");
+      const tiers = [
+        ...(assistantA?.priorToolExchanges ?? []),
+        ...(assistantB?.priorToolExchanges ?? [])
+      ].map((exchange) => {
+        const parsed = JSON.parse(exchange.toolResult.content) as {
+          _observationTier?: string;
+        };
+        return parsed._observationTier;
+      });
+      assert.deepEqual(
+        tiers,
+        ["masked", "masked", "full", "full", "full", "full", "full"],
+        "replay test 7: at 50% pressure newest 5 stay full; older are placeholders"
+      );
+
+      runtimeStatePostgres.session = {
+        id: "session-micro-clear",
+        currentTokens: 3_999,
+        totalTokensFresh: true
+      };
+      const belowHalf = await svc.buildMessages(
+        buildMinimalRequest("u-3"),
+        createRuntimeBundle({ compactionTriggerThreshold: 8_000 })
+      );
+      const belowTiers = [
+        ...(findHydratedMessage(belowHalf, "assistant", "assistant a")?.priorToolExchanges ?? []),
+        ...(findHydratedMessage(belowHalf, "assistant", "assistant b")?.priorToolExchanges ?? [])
+      ].map((exchange) => {
+        const parsed = JSON.parse(exchange.toolResult.content) as {
+          _observationTier?: string;
+        };
+        return parsed._observationTier;
+      });
+      assert.deepEqual(
+        belowTiers,
+        ["full", "full", "full", "full", "full", "full", "full"],
+        "replay test 7: below 50% pressure all prior exchanges stay full"
+      );
     }
   }
 }

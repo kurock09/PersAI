@@ -1,11 +1,13 @@
 /**
- * ADR-143 / ADR-156 helpers for mode-aware tier windows, plus ADR-161 A1
- * sealed-boundary hashing over full append-only tool history.
+ * ADR-143 / ADR-156 helpers for mode-aware tier windows, plus ADR-161 A1/A2
+ * sealed-boundary hashing and per-exchange projection over append-only history.
  *
- * Canonical `toolExchanges` stay full. In-turn provider `toolHistory` is now
- * the loop's full sanitized exchanges (no compact-at-insert). Cross-turn prior
- * replay uses `projectOneToolExchange(..., "full")` until A2 micro-clear.
- * Fresh sanitize (`stringifyToolResultPayloadForModel`) remains a separate path.
+ * Canonical `toolExchanges` stay full. In-turn provider `toolHistory` is the
+ * loop's full sanitized exchanges (no compact-at-insert, no mid-loop micro
+ * clear). Cross-turn prior replay uses `prior-tool-exchange-replay.ts`, which
+ * projects full below 50% pressure and placeholders older-than-newest-5 at/above
+ * 50% of `compactionTriggerThreshold`. Fresh sanitize
+ * (`stringifyToolResultPayloadForModel`) remains a separate path.
  */
 
 import type {

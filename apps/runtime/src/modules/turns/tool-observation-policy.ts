@@ -9,6 +9,55 @@ export const TOOL_OBSERVATION_CROSS_TURN_FULL_COUNT = 1;
 export const TOOL_OBSERVATION_CROSS_TURN_COMPACT_COUNT = 4;
 
 /**
+ * ADR-161 A2 — after a completed user turn, when fresh session pressure is at
+ * or above 50% of `compactionTriggerThreshold`, model-facing prior tool
+ * history keeps only the newest N results full. Older bodies become
+ * placeholders. Distinct from ADR-156 in-turn full window (3).
+ */
+export const TOOL_OBSERVATION_MICRO_CLEAR_KEEP_FULL_COUNT = 5;
+export const TOOL_OBSERVATION_MICRO_CLEAR_PRESSURE_RATIO = 0.5;
+
+/**
+ * True when hydrate-time micro-clear should apply to prior tool exchanges.
+ * Requires fresh `currentTokens` (same freshness gate as 100% auto-compaction).
+ */
+export function shouldApplyToolObservationMicroClear(params: {
+  currentTokens: number | null | undefined;
+  totalTokensFresh: boolean | null | undefined;
+  compactionTriggerThreshold: number;
+}): boolean {
+  if (params.totalTokensFresh !== true) {
+    return false;
+  }
+  if (typeof params.currentTokens !== "number" || !Number.isFinite(params.currentTokens)) {
+    return false;
+  }
+  const threshold = Math.max(1, params.compactionTriggerThreshold);
+  return params.currentTokens >= threshold * TOOL_OBSERVATION_MICRO_CLEAR_PRESSURE_RATIO;
+}
+
+/**
+ * Assign the micro-clear tier for one exchange index in a chronological list
+ * (index 0 = oldest). Newest `TOOL_OBSERVATION_MICRO_CLEAR_KEEP_FULL_COUNT`
+ * stay full; older bodies are placeholders. Errors never become a bare mask
+ * (ADR-143 / ADR-156 invariant).
+ */
+export function assignMicroClearObservationTier(params: {
+  index: number;
+  exchangeCount: number;
+  isError: boolean;
+}): ToolObservationTier {
+  if (params.exchangeCount <= 0 || params.index < 0 || params.index >= params.exchangeCount) {
+    return params.isError === true ? "compact" : "masked";
+  }
+  const ageFromNewest = params.exchangeCount - 1 - params.index;
+  if (ageFromNewest < TOOL_OBSERVATION_MICRO_CLEAR_KEEP_FULL_COUNT) {
+    return "full";
+  }
+  return params.isError === true ? "compact" : "masked";
+}
+
+/**
  * Assign the mode-aware tier for one exchange index inside an exchange list.
  * Index 0 is oldest; the last index is newest.
  */

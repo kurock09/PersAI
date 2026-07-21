@@ -7982,10 +7982,11 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     false
   );
 
-  // ── ADR-161 A1 — append-full in-turn toolHistory (no overlays) ──
+  // ── ADR-161 A1/A2 — append-full in-turn toolHistory (no overlays) ──
   // Provider-facing toolHistory is the loop's full sanitized exchanges.
-  // Observation overlays are retired; canonical turnState
-  // / completed toolExchanges stay full and unprojected.
+  // A2 micro-clear is hydrate-time / next-turn facing only — never mid
+  // tool-loop. Observation overlays are retired; canonical turnState /
+  // completed toolExchanges stay full and unprojected.
   {
     const observationProjectionRequest = createRuntimeTurnRequest();
     observationProjectionRequest.bundle.bundleHash = request.bundle.bundleHash;
@@ -8063,7 +8064,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       assert.equal(
         parsed._observationTier,
         undefined,
-        "ADR-161 A1: in-turn toolHistory must be full sanitized content, not compact/overlay projection."
+        "ADR-161 A1/A2: in-turn toolHistory must stay full mid-loop (no micro-clear / overlay projection)."
       );
       assert.equal(parsed.action, "remembered");
       assert.equal(parsed.requestedKind, "preference");

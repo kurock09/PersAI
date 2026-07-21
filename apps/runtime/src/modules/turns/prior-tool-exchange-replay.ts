@@ -1,5 +1,9 @@
 import type { ProviderGatewayToolExchange } from "@persai/runtime-contract";
 import { projectOneToolExchange } from "./project-tool-exchanges-for-model";
+import {
+  assignMicroClearObservationTier,
+  shouldApplyToolObservationMicroClear
+} from "./tool-observation-policy";
 
 export interface PriorToolExchangeReplayMessage {
   id: string;
@@ -7,9 +11,25 @@ export interface PriorToolExchangeReplayMessage {
   toolExchanges?: readonly ProviderGatewayToolExchange[] | null;
 }
 
+export type PriorToolExchangeReplayPressure = {
+  currentTokens: number | null | undefined;
+  totalTokensFresh: boolean | null | undefined;
+  compactionTriggerThreshold: number;
+};
+
+/**
+ * Build model-facing prior tool-exchange replay for hydration.
+ *
+ * ADR-161 A1/A2: canonical storage stays full. Below 50% pressure (or when
+ * tokens are not fresh), every retained exchange projects full. At/above 50%
+ * of `compactionTriggerThreshold`, only the newest 5 full results remain;
+ * older bodies become placeholders. Projection is hydrate-time / next-turn
+ * facing — never applied to in-turn `toolHistory`.
+ */
 export function buildPriorToolExchangeReplayMap(
   messages: readonly PriorToolExchangeReplayMessage[],
-  currentInboundMessageId: string
+  currentInboundMessageId: string,
+  pressure?: PriorToolExchangeReplayPressure | null
 ): Map<string, ProviderGatewayToolExchange[]> {
   const currentInboundIndex = messages.findIndex(
     (message) => message.id === currentInboundMessageId
@@ -19,13 +39,50 @@ export function buildPriorToolExchangeReplayMap(
     .filter((message) => message.author === "assistant" && (message.toolExchanges?.length ?? 0) > 0)
     .map((message) => ({
       messageId: message.id,
-      // ADR-161 A1: prior turns replay full sanitized protocol pairs.
-      // A2 will later placeholder older results (keep last 5); A1 must not
-      // leave always-compact projection on this path.
-      toolExchanges: (message.toolExchanges ?? []).map((exchange) =>
-        projectOneToolExchange(exchange, "full")
-      )
+      toolExchanges: [...(message.toolExchanges ?? [])]
     }));
 
-  return new Map(replayTurns.map((turn) => [turn.messageId, turn.toolExchanges] as const));
+  const chronological: Array<{
+    messageId: string;
+    exchange: ProviderGatewayToolExchange;
+    index: number;
+  }> = [];
+  for (const turn of replayTurns) {
+    for (const exchange of turn.toolExchanges) {
+      chronological.push({
+        messageId: turn.messageId,
+        exchange,
+        index: chronological.length
+      });
+    }
+  }
+
+  const applyMicroClear =
+    pressure != null &&
+    shouldApplyToolObservationMicroClear({
+      currentTokens: pressure.currentTokens,
+      totalTokensFresh: pressure.totalTokensFresh,
+      compactionTriggerThreshold: pressure.compactionTriggerThreshold
+    });
+  const exchangeCount = chronological.length;
+  const projectedByMessageId = new Map<string, ProviderGatewayToolExchange[]>();
+
+  for (const item of chronological) {
+    const tier = applyMicroClear
+      ? assignMicroClearObservationTier({
+          index: item.index,
+          exchangeCount,
+          isError: item.exchange.toolResult.isError === true
+        })
+      : "full";
+    const projected = projectOneToolExchange(item.exchange, tier);
+    const existing = projectedByMessageId.get(item.messageId);
+    if (existing === undefined) {
+      projectedByMessageId.set(item.messageId, [projected]);
+    } else {
+      existing.push(projected);
+    }
+  }
+
+  return projectedByMessageId;
 }

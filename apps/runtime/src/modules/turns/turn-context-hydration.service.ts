@@ -1147,6 +1147,27 @@ export class TurnContextHydrationService {
     }
   }
 
+  private async resolvePriorToolExchangeReplayPressure(
+    conversation: RuntimeConversationAddress,
+    contextHydration: ReturnType<typeof resolveRuntimeContextHydrationConfig>
+  ): Promise<{
+    currentTokens: number | null;
+    totalTokensFresh: boolean;
+    compactionTriggerThreshold: number;
+  } | null> {
+    const conversationKey = this.runtimeStateKeyspaceService.createConversationKey(conversation);
+    const session =
+      await this.runtimeStatePostgresService.findSessionByConversationKey(conversationKey);
+    if (session === null) {
+      return null;
+    }
+    return {
+      currentTokens: typeof session.currentTokens === "number" ? session.currentTokens : null,
+      totalTokensFresh: session.totalTokensFresh === true,
+      compactionTriggerThreshold: contextHydration.compactionTriggerThreshold
+    };
+  }
+
   private async hydrateCanonicalMessageSequence(
     messages: CanonicalChatMessageRow[],
     input: RuntimeTurnRequest,
@@ -1155,12 +1176,20 @@ export class TurnContextHydrationService {
   ): Promise<ProviderGatewayTextMessage[]> {
     const hydrated: ProviderGatewayTextMessage[] = [];
     let currentMessageFound = false;
+    // ADR-161 A2: micro-clear is hydrate-time / next-turn facing, driven by
+    // fresh session token counters from the prior completed turn. Never
+    // rewrites in-turn toolHistory mid-loop.
+    const priorReplayPressure = await this.resolvePriorToolExchangeReplayPressure(
+      input.conversation,
+      contextHydration
+    );
     const priorToolExchangesByMessageId = buildPriorToolExchangeReplayMap(
       messages.filter(
         (message) =>
           message.id === input.idempotencyKey || this.isHydratableCanonicalMessage(message)
       ),
-      input.idempotencyKey
+      input.idempotencyKey,
+      priorReplayPressure
     );
 
     for (const message of messages) {
