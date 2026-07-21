@@ -5,11 +5,11 @@
 
 ## 2026-07-21
 
-- **ADR-161 D2a API body-limit repair:** live DeepSeek append-trace `reset`
-  failed with Nest/Express `request entity too large` because API still used
-  the default ~100kb JSON parser. API now parses JSON/urlencoded up to `20mb`
-  (matching runtime/provider-gateway) so D2a seed/append payloads can reach
-  the internal control plane.
+- **ADR-161 D2a API body-limit repair (local):** live DeepSeek append-trace
+  `reset` failed with Nest/Express `request entity too large` because API still
+  used the default ~100kb JSON parser. API now parses JSON/urlencoded up to
+  `20mb` (matching runtime/provider-gateway) so D2a seed/append payloads can
+  reach the internal control plane.
 
 - **ADR-161 D2a DeepSeek durable append-trace:** DeepSeek ordinary/deep chat
   now owns a server-only chat-scoped append epoch that replays exact
