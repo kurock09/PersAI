@@ -3,6 +3,12 @@
 > Archive: detailed historical entries from 2026-06-05 and earlier moved to `docs/CHANGELOG.archive-2026-06-05-details-and-earlier.md`; entries from 2026-05-19 and earlier remain in `docs/CHANGELOG.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: current entries plus concise recent summaries only.
 
+## 2026-07-23
+
+- **image_generate describe-only action (local):** full wire schema no longer
+  offers `action:"generate"`; real generation must omit `action`. Stops the
+  invalid_arguments loop after catalog describe.
+
 ## 2026-07-22
 
 - **ADR-162 Phases 0–4 CLEAN (local, pre-push):** ConversationalPublish at
