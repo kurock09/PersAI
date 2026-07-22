@@ -70,7 +70,12 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
               }
             }
           }),
+        assistantAsyncJobHandle: {
+          findUnique: async () => null,
+          findMany: async () => []
+        },
         assistantMediaJob: {
+          count: async () => 1,
           findFirst: async () => null,
           updateMany: async (input: Record<string, unknown>) => {
             finalUpdates.push(input);
@@ -201,7 +206,12 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
               update: async () => undefined
             }
           }),
+        assistantAsyncJobHandle: {
+          findUnique: async () => null,
+          findMany: async () => []
+        },
         assistantMediaJob: {
+          count: async () => 1,
           findFirst: async () => null,
           updateMany: async (input: Record<string, unknown>) => {
             finalUpdates.push(input);
@@ -355,7 +365,12 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
               update: async () => undefined
             }
           }),
+        assistantAsyncJobHandle: {
+          findUnique: async () => null,
+          findMany: async () => []
+        },
         assistantMediaJob: {
+          count: async () => 1,
           findFirst: async () => null,
           updateMany: async (input: Record<string, unknown>) => {
             finalUpdates.push(input);
@@ -478,7 +493,12 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
               update: async () => undefined
             }
           }),
+        assistantAsyncJobHandle: {
+          findUnique: async () => null,
+          findMany: async () => []
+        },
         assistantMediaJob: {
+          count: async () => 1,
           findFirst: async () => null,
           updateMany: async (input: Record<string, unknown>) => {
             finalUpdates.push(input);
@@ -582,7 +602,12 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
             ],
             assistantMediaJob: { update: async () => undefined }
           }),
+        assistantAsyncJobHandle: {
+          findUnique: async () => null,
+          findMany: async () => []
+        },
         assistantMediaJob: {
+          count: async () => 1,
           findFirst: async () => null,
           updateMany: async (input: Record<string, unknown>) => {
             finalUpdates.push(input);
@@ -694,7 +719,12 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
             ],
             assistantMediaJob: { update: async () => undefined }
           }),
+        assistantAsyncJobHandle: {
+          findUnique: async () => null,
+          findMany: async () => []
+        },
         assistantMediaJob: {
+          count: async () => 1,
           findFirst: async () => null,
           updateMany: async (input: Record<string, unknown>) => {
             finalUpdates.push(input);
@@ -798,7 +828,12 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
             ],
             assistantMediaJob: { update: async () => undefined }
           }),
+        assistantAsyncJobHandle: {
+          findUnique: async () => null,
+          findMany: async () => []
+        },
         assistantMediaJob: {
+          count: async () => 1,
           findFirst: async () => null,
           updateMany: async (input: Record<string, unknown>) => {
             finalUpdates.push(input);
@@ -920,7 +955,12 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
             ],
             assistantMediaJob: { update: async () => undefined }
           }),
+        assistantAsyncJobHandle: {
+          findUnique: async () => null,
+          findMany: async () => []
+        },
         assistantMediaJob: {
+          count: async () => 1,
           findFirst: async () => null,
           updateMany: async (input: Record<string, unknown>) => {
             finalUpdates.push(input);
@@ -1038,7 +1078,12 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
             ],
             assistantMediaJob: { update: async () => undefined }
           }),
+        assistantAsyncJobHandle: {
+          findUnique: async () => null,
+          findMany: async () => []
+        },
         assistantMediaJob: {
+          count: async () => 1,
           findFirst: async () => null,
           updateMany: async (input: Record<string, unknown>) => {
             finalUpdates.push(input);
@@ -1137,7 +1182,12 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
             ],
             assistantMediaJob: { update: async () => undefined }
           }),
+        assistantAsyncJobHandle: {
+          findUnique: async () => null,
+          findMany: async () => []
+        },
         assistantMediaJob: {
+          count: async () => 1,
           findFirst: async () => null,
           updateMany: async () => ({ count: 1 })
         }
@@ -1255,7 +1305,12 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
             ],
             assistantMediaJob: { update: async () => undefined }
           }),
+        assistantAsyncJobHandle: {
+          findUnique: async () => null,
+          findMany: async () => []
+        },
         assistantMediaJob: {
+          count: async () => 1,
           findFirst: async () => null,
           updateMany: async () => ({ count: 1 })
         }
@@ -1380,7 +1435,12 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
             ],
             assistantMediaJob: { update: async () => undefined }
           }),
+        assistantAsyncJobHandle: {
+          findUnique: async () => null,
+          findMany: async () => []
+        },
         assistantMediaJob: {
+          count: async () => 1,
           findFirst: async () => null,
           updateMany: async () => ({ count: 1 })
         }
@@ -1539,7 +1599,12 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
             ],
             assistantMediaJob: { update: async () => undefined }
           }),
+        assistantAsyncJobHandle: {
+          findUnique: async () => null,
+          findMany: async () => []
+        },
         assistantMediaJob: {
+          count: async () => 1,
           findFirst: async () => null,
           updateMany: async () => ({ count: 1 })
         }
@@ -1633,7 +1698,12 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
             ],
             assistantMediaJob: { update: async () => undefined }
           }),
+        assistantAsyncJobHandle: {
+          findUnique: async () => null,
+          findMany: async () => []
+        },
         assistantMediaJob: {
+          count: async () => 1,
           findFirst: async () => null,
           updateMany: async () => ({ count: 1 })
         }
@@ -1741,7 +1811,12 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
             ],
             assistantMediaJob: { update: async () => undefined }
           }),
+        assistantAsyncJobHandle: {
+          findUnique: async () => null,
+          findMany: async () => []
+        },
         assistantMediaJob: {
+          count: async () => 1,
           findFirst: async () => null,
           updateMany: async (input: Record<string, unknown>) => {
             finalUpdates.push(input);
@@ -1840,7 +1915,12 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
             ],
             assistantMediaJob: { update: async () => undefined }
           }),
+        assistantAsyncJobHandle: {
+          findUnique: async () => null,
+          findMany: async () => []
+        },
         assistantMediaJob: {
+          count: async () => 1,
           findFirst: async () => null,
           updateMany: async () => ({ count: 1 })
         }
@@ -1937,7 +2017,12 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
             ],
             assistantMediaJob: { update: async () => undefined }
           }),
+        assistantAsyncJobHandle: {
+          findUnique: async () => null,
+          findMany: async () => []
+        },
         assistantMediaJob: {
+          count: async () => 1,
           findFirst: async () => null,
           updateMany: async (input: Record<string, unknown>) => {
             finalUpdates.push(input);

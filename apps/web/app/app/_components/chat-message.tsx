@@ -2410,6 +2410,15 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
                 {backgroundWaitFooter}
               </p>
             ) : null}
+            {message.stopReason === "user_stopped" ? (
+              <p
+                role="status"
+                data-testid="user-stopped-badge"
+                className="mt-2 text-[11px] leading-4 text-text-subtle"
+              >
+                {t("stoppedByUser")}
+              </p>
+            ) : null}
           </div>
         )}
 

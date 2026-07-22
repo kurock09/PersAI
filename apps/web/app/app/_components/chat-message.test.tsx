@@ -1663,3 +1663,21 @@ describe("ChatMessageBubble — file attachment pill layout", () => {
     expect(pill).toHaveClass("w-fit");
   });
 });
+
+describe("ChatMessageBubble — user-stopped badge", () => {
+  it("keeps partial assistant text and shows a compact stopped-by-user status", () => {
+    render(
+      <ChatMessageBubble
+        chatId="chat-1"
+        message={makeAssistantMessage({
+          content: "Already wrote this part.",
+          status: "partial",
+          stopReason: "user_stopped"
+        })}
+      />
+    );
+
+    expect(screen.getByText("Already wrote this part.")).toBeInTheDocument();
+    expect(screen.getByTestId("user-stopped-badge")).toHaveTextContent("stoppedByUser");
+  });
+});

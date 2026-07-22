@@ -26,6 +26,7 @@ type Row = {
   workspaceId: string;
   chatId: string;
   channel: "web" | "telegram";
+  sourceUserMessageId: string | null;
 };
 
 const owned = {
@@ -39,10 +40,16 @@ const owned = {
 
 function fixture(
   overrides: Partial<Row> = {},
-  canonical: { status: string; lastErrorCode: string | null } = {
+  canonical: {
+    status: string;
+    lastErrorCode: string | null;
+    deliveredAt?: Date | null;
+  } = {
     status: "queued",
-    lastErrorCode: null
-  }
+    lastErrorCode: null,
+    deliveredAt: null
+  },
+  options: { openSiblingCount?: number } = {}
 ) {
   const row: Row = {
     id: "00000000-0000-4000-8000-000000000005",
@@ -65,6 +72,7 @@ function fixture(
     workspaceId: owned.workspaceId,
     chatId: owned.chatId,
     channel: "web",
+    sourceUserMessageId: null,
     ...overrides
   };
   const updates: Array<Record<string, unknown>> = [];
@@ -110,7 +118,12 @@ function fixture(
     assistantDocumentRenderJob: { findUnique: async () => canonical }
   };
   Object.assign(delegate, {
-    count: async () => (row.narrationOwner === "current_turn" ? 1 : 0),
+    count: async (args?: { where?: { state?: { in?: string[] }; id?: { not?: string } } }) => {
+      if (args?.where?.state?.in !== undefined) {
+        return options.openSiblingCount ?? 0;
+      }
+      return row.narrationOwner === "current_turn" ? 1 : 0;
+    },
     findMany: async ({
       where
     }: {
@@ -423,6 +436,50 @@ describe("AssistantAsyncJobHandleStateService", () => {
     assert.equal(second.applied, true);
     assert.equal(second.observation?.assistantMessageId, "failure-message-1");
     assert.equal(subject.createdMessages.length, 1);
+  });
+
+  test("failClaim stays quiet when canonical media is already delivered", async () => {
+    const subject = fixture(
+      {
+        state: "claimed",
+        claimToken: "claim-1",
+        continuationClientTurnId: "async-cont:fail-delivered"
+      },
+      { status: "delivered", lastErrorCode: null, deliveredAt: new Date() }
+    );
+    const result = await subject.service.failClaim({
+      id: subject.row.id,
+      claimToken: "claim-1",
+      errorCode: "continuation_dispatch_ambiguous",
+      errorMessage: "ambiguous"
+    });
+    assert.equal(result.applied, true);
+    assert.equal(result.observation, null);
+    assert.equal(subject.row.state, "failed");
+    assert.equal(subject.row.continuationAssistantMessageId, null);
+    assert.equal(subject.createdMessages.length, 0);
+  });
+
+  test("failClaim stays quiet while source-turn sibling handles are still open", async () => {
+    const subject = fixture(
+      {
+        state: "claimed",
+        claimToken: "claim-1",
+        sourceUserMessageId: "00000000-0000-4000-8000-000000000099",
+        continuationClientTurnId: "async-cont:fail-sibling"
+      },
+      { status: "running", lastErrorCode: null, deliveredAt: null },
+      { openSiblingCount: 1 }
+    );
+    const result = await subject.service.failClaim({
+      id: subject.row.id,
+      claimToken: "claim-1",
+      errorCode: "continuation_dispatch_ambiguous",
+      errorMessage: "ambiguous"
+    });
+    assert.equal(result.applied, true);
+    assert.equal(result.observation, null);
+    assert.equal(subject.createdMessages.length, 0);
   });
 
   test("retry exhaustion persists opaque failure observation", async () => {

@@ -19,7 +19,11 @@ describe("AssistantDocumentJobDeliveryService", () => {
 
     const service = new AssistantDocumentJobDeliveryService(
       {
+        assistantAsyncJobHandle: {
+          findUnique: async () => null
+        },
         assistantDocumentRenderJob: {
+          count: async () => 1,
           updateMany: async (input: Record<string, unknown>) => {
             renderJobUpdates.push(input);
             return { count: 0 };
@@ -28,6 +32,7 @@ describe("AssistantDocumentJobDeliveryService", () => {
         $transaction: async <T>(callback: (tx: Record<string, unknown>) => Promise<T>) =>
           callback({
             assistantDocumentRenderJob: {
+              count: async () => 1,
               updateMany: async (input: Record<string, unknown>) => {
                 renderJobUpdates.push(input);
                 return { count: 0 };
@@ -150,12 +155,17 @@ describe("AssistantDocumentJobDeliveryService", () => {
 
     const service = new AssistantDocumentJobDeliveryService(
       {
+        assistantAsyncJobHandle: {
+          findUnique: async () => null
+        },
         assistantDocumentRenderJob: {
+          count: async () => 1,
           updateMany: async () => ({ count: 1 })
         },
         $transaction: async <T>(callback: (tx: Record<string, unknown>) => Promise<T>) =>
           callback({
             assistantDocumentRenderJob: {
+              count: async () => 1,
               updateMany: async () => ({ count: 1 })
             },
             assistantChatMessageAttachment: {
@@ -307,12 +317,17 @@ describe("AssistantDocumentJobDeliveryService", () => {
 
     const service = new AssistantDocumentJobDeliveryService(
       {
+        assistantAsyncJobHandle: {
+          findUnique: async () => null
+        },
         assistantDocumentRenderJob: {
+          count: async () => 1,
           updateMany: async () => ({ count: 1 })
         },
         $transaction: async <T>(callback: (tx: Record<string, unknown>) => Promise<T>) =>
           callback({
             assistantDocumentRenderJob: {
+              count: async () => 1,
               updateMany: async () => ({ count: 1 })
             },
             assistantChatMessageAttachment: {
@@ -458,7 +473,11 @@ describe("AssistantDocumentJobDeliveryService", () => {
 
     const service = new AssistantDocumentJobDeliveryService(
       {
+        assistantAsyncJobHandle: {
+          findUnique: async () => null
+        },
         assistantDocumentRenderJob: {
+          count: async () => 1,
           updateMany: async (input: Record<string, unknown>) => {
             renderJobUpdates.push(input);
             return { count: 1 };
@@ -467,6 +486,7 @@ describe("AssistantDocumentJobDeliveryService", () => {
         $transaction: async <T>(callback: (tx: Record<string, unknown>) => Promise<T>) =>
           callback({
             assistantDocumentRenderJob: {
+              count: async () => 1,
               updateMany: async (input: Record<string, unknown>) => {
                 renderJobUpdates.push(input);
                 return { count: 1 };
@@ -604,7 +624,11 @@ describe("AssistantDocumentJobDeliveryService", () => {
 
     const service = new AssistantDocumentJobDeliveryService(
       {
+        assistantAsyncJobHandle: {
+          findUnique: async () => null
+        },
         assistantDocumentRenderJob: {
+          count: async () => 1,
           updateMany: async (input: Record<string, unknown>) => {
             renderJobUpdates.push(input);
             return { count: 1 };
@@ -613,6 +637,7 @@ describe("AssistantDocumentJobDeliveryService", () => {
         $transaction: async <T>(callback: (tx: Record<string, unknown>) => Promise<T>) =>
           callback({
             assistantDocumentRenderJob: {
+              count: async () => 1,
               updateMany: async (input: Record<string, unknown>) => {
                 renderJobUpdates.push(input);
                 return { count: 1 };
@@ -779,9 +804,13 @@ describe("AssistantDocumentJobDeliveryService", () => {
 
     const service = new AssistantDocumentJobDeliveryService(
       {
+        assistantAsyncJobHandle: {
+          findUnique: async () => null
+        },
         $transaction: async <T>(callback: (tx: Record<string, unknown>) => Promise<T>) =>
           callback({
             assistantDocumentRenderJob: {
+              count: async () => 1,
               updateMany: async (input: Record<string, unknown>) => {
                 renderJobUpdates.push(input);
                 return { count: 1 };
@@ -891,7 +920,11 @@ describe("AssistantDocumentJobDeliveryService", () => {
 
     const service = new AssistantDocumentJobDeliveryService(
       {
+        assistantAsyncJobHandle: {
+          findUnique: async () => null
+        },
         assistantDocumentRenderJob: {
+          count: async () => 1,
           updateMany: async (input: Record<string, unknown>) => {
             renderJobUpdates.push(input);
             return { count: 1 };
@@ -900,6 +933,7 @@ describe("AssistantDocumentJobDeliveryService", () => {
         $transaction: async <T>(callback: (tx: Record<string, unknown>) => Promise<T>) =>
           callback({
             assistantDocumentRenderJob: {
+              count: async () => 1,
               updateMany: async (input: Record<string, unknown>) => {
                 renderJobUpdates.push(input);
                 return { count: 1 };
@@ -1027,7 +1061,11 @@ describe("AssistantDocumentJobDeliveryService", () => {
 
     const service = new AssistantDocumentJobDeliveryService(
       {
+        assistantAsyncJobHandle: {
+          findUnique: async () => null
+        },
         assistantDocumentRenderJob: {
+          count: async () => 1,
           updateMany: async (input: Record<string, unknown>) => {
             renderJobUpdates.push(input);
             return { count: 1 };
@@ -1036,6 +1074,7 @@ describe("AssistantDocumentJobDeliveryService", () => {
         $transaction: async <T>(callback: (tx: Record<string, unknown>) => Promise<T>) =>
           callback({
             assistantDocumentRenderJob: {
+              count: async () => 1,
               updateMany: async (input: Record<string, unknown>) => {
                 renderJobUpdates.push(input);
                 return { count: 1 };
@@ -1160,7 +1199,11 @@ describe("AssistantDocumentJobDeliveryService", () => {
 
     const service = new AssistantDocumentJobDeliveryService(
       {
+        assistantAsyncJobHandle: {
+          findUnique: async () => null
+        },
         assistantDocumentRenderJob: {
+          count: async () => 1,
           updateMany: async (input: Record<string, unknown>) => {
             renderJobUpdates.push(input);
             return { count: 1 };
@@ -1169,6 +1212,7 @@ describe("AssistantDocumentJobDeliveryService", () => {
         $transaction: async <T>(callback: (tx: Record<string, unknown>) => Promise<T>) =>
           callback({
             assistantDocumentRenderJob: {
+              count: async () => 1,
               updateMany: async (input: Record<string, unknown>) => {
                 renderJobUpdates.push(input);
                 return { count: 1 };
@@ -1298,7 +1342,11 @@ describe("AssistantDocumentJobDeliveryService", () => {
 
     const service = new AssistantDocumentJobDeliveryService(
       {
+        assistantAsyncJobHandle: {
+          findUnique: async () => null
+        },
         assistantDocumentRenderJob: {
+          count: async () => 1,
           updateMany: async (input: Record<string, unknown>) => {
             renderJobUpdates.push(input);
             return { count: 1 };
@@ -1307,6 +1355,7 @@ describe("AssistantDocumentJobDeliveryService", () => {
         $transaction: async <T>(callback: (tx: Record<string, unknown>) => Promise<T>) =>
           callback({
             assistantDocumentRenderJob: {
+              count: async () => 1,
               updateMany: async (input: Record<string, unknown>) => {
                 renderJobUpdates.push(input);
                 return { count: 1 };
@@ -1440,10 +1489,14 @@ describe("AssistantDocumentJobDeliveryService", () => {
 
     const service = new AssistantDocumentJobDeliveryService(
       {
+        assistantAsyncJobHandle: {
+          findUnique: async () => null
+        },
         assistantChatMessage: {
           findFirst: async () => null
         },
         assistantDocumentRenderJob: {
+          count: async () => 1,
           updateMany: async (input: Record<string, unknown>) => {
             renderJobUpdates.push(input);
             return { count: 1 };
@@ -1452,6 +1505,7 @@ describe("AssistantDocumentJobDeliveryService", () => {
         $transaction: async <T>(callback: (tx: Record<string, unknown>) => Promise<T>) =>
           callback({
             assistantDocumentRenderJob: {
+              count: async () => 1,
               updateMany: async (input: Record<string, unknown>) => {
                 renderJobUpdates.push(input);
                 return { count: 1 };
@@ -1624,10 +1678,14 @@ describe("AssistantDocumentJobDeliveryService", () => {
 
     const service = new AssistantDocumentJobDeliveryService(
       {
+        assistantAsyncJobHandle: {
+          findUnique: async () => null
+        },
         assistantChatMessage: {
           findFirst: async () => null
         },
         assistantDocumentRenderJob: {
+          count: async () => 1,
           updateMany: async (input: Record<string, unknown>) => {
             renderJobUpdates.push(input);
             return { count: 1 };
@@ -1636,6 +1694,7 @@ describe("AssistantDocumentJobDeliveryService", () => {
         $transaction: async <T>(callback: (tx: Record<string, unknown>) => Promise<T>) =>
           callback({
             assistantDocumentRenderJob: {
+              count: async () => 1,
               updateMany: async (input: Record<string, unknown>) => {
                 renderJobUpdates.push(input);
                 return { count: 1 };
@@ -1774,10 +1833,14 @@ describe("AssistantDocumentJobDeliveryService", () => {
 
     const service = new AssistantDocumentJobDeliveryService(
       {
+        assistantAsyncJobHandle: {
+          findUnique: async () => null
+        },
         assistantChatMessage: {
           findFirst: async () => null
         },
         assistantDocumentRenderJob: {
+          count: async () => 1,
           updateMany: async (input: Record<string, unknown>) => {
             renderJobUpdates.push(input);
             return { count: 1 };
@@ -1786,6 +1849,7 @@ describe("AssistantDocumentJobDeliveryService", () => {
         $transaction: async <T>(callback: (tx: Record<string, unknown>) => Promise<T>) =>
           callback({
             assistantDocumentRenderJob: {
+              count: async () => 1,
               updateMany: async (input: Record<string, unknown>) => {
                 renderJobUpdates.push(input);
                 return { count: 1 };
@@ -1929,6 +1993,7 @@ describe("AssistantDocumentJobDeliveryService", () => {
     const attachmentCurrentnessUpdates: unknown[][] = [];
     const transaction = {
       assistantDocumentRenderJob: {
+        count: async () => 1,
         updateMany: async (input: {
           where: { id: string; status: string };
           data: { status: string };

@@ -5,6 +5,22 @@
 
 ## 2026-07-22
 
+- **ADR-161 OpenAI sealed-prefix breakpoint growth (local):** sealed exchange
+  ordinals are now global across `priorToolExchanges` + in-turn `toolHistory`,
+  and plain chat attaches an explicit breakpoint to the latest sealed user
+  message so cross-turn cache reads can advance past the system-only anchor.
+
+- **Chat delivery / Stop / browser-assist UX repair (local):** each async media/
+  document job gets its own assistant bubble with that job’s reply + artifacts
+  together; a sole source-turn job (or await-wait `current_turn_inline`) pins
+  into the turn narration message; multiple ordinary jobs never coalesce;
+  continuation permanent-fail copy is
+  suppressed when the canonical job is already delivered or source-turn sibling
+  handles are still open; Stop keeps partial assistant text with a localized
+  «остановлено пользователем» / “Stopped by user” badge and no longer persists a
+  system row that rendered as a Luma avatar; browser assist banner adds Cancel
+  (dismiss handoff only — not Stop, not scenario resume).
+
 - **ADR-161 append-full + two-tier pressure cutover:** A1 sends full sanitized
   in-turn `toolHistory` and drops compact-at-insert spine plus
   `<persai_recent_tool_observation>` overlays; A2 hydrate-time micro-clear

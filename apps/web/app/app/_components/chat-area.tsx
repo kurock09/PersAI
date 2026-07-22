@@ -543,7 +543,9 @@ export function ChatArea({
 
   const pendingBrowserAssist =
     chat.pendingBrowserLogin?.completionMode === "assist" ? chat.pendingBrowserLogin : null;
-  const [browserAssistAction, setBrowserAssistAction] = useState<"open" | "done" | null>(null);
+  const [browserAssistAction, setBrowserAssistAction] = useState<"open" | "done" | "cancel" | null>(
+    null
+  );
   const [browserAssistError, setBrowserAssistError] = useState<string | null>(null);
   const handleOpenBrowserAssist = useCallback(async () => {
     if (!assistantId || pendingBrowserAssist === null || browserAssistAction !== null) {
@@ -592,6 +594,29 @@ export function ChatArea({
       await dismissAssistantBrowserProfileView(token, assistantId, pendingBrowserAssist.profileId);
       chat.clearPendingBrowserLogin();
       await chat.send(t("browserAssistResumeMessage"));
+    } catch {
+      setBrowserAssistError(t("browserAssistActionFailed"));
+    } finally {
+      setBrowserAssistAction(null);
+    }
+  }, [assistantId, browserAssistAction, chat, getToken, pendingBrowserAssist, t]);
+  const handleCancelBrowserAssist = useCallback(async () => {
+    if (!assistantId || pendingBrowserAssist === null || browserAssistAction !== null) {
+      return;
+    }
+    setBrowserAssistAction("cancel");
+    setBrowserAssistError(null);
+    try {
+      const token = await getToken();
+      if (token) {
+        await dismissAssistantBrowserProfileView(
+          token,
+          assistantId,
+          pendingBrowserAssist.profileId
+        );
+      }
+      // Cancel closes the handoff only — it must not Stop the turn or resume the scenario.
+      chat.clearPendingBrowserLogin();
     } catch {
       setBrowserAssistError(t("browserAssistActionFailed"));
     } finally {
@@ -1169,6 +1194,17 @@ export function ChatArea({
                         <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
                       ) : null}
                       {t("browserLoginAssistDone")}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleCancelBrowserAssist()}
+                      disabled={browserAssistAction !== null}
+                      className="inline-flex min-h-9 cursor-pointer items-center justify-center rounded-lg border border-border/70 px-3 text-xs font-medium text-text-muted transition hover:bg-surface-hover hover:text-text disabled:cursor-wait disabled:opacity-60"
+                    >
+                      {browserAssistAction === "cancel" ? (
+                        <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                      ) : null}
+                      {t("browserAssistCancel")}
                     </button>
                   </div>
                 </div>

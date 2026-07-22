@@ -278,8 +278,46 @@ export class AssistantDocumentJobDeliveryService {
         completionAssistantMessageId === null
       ) {
         const sourceUserMessageId = this.readSourceUserMessageId(currentPayload);
-        const reusedTurnMessage =
+        const inlineHandle = await this.prisma.assistantAsyncJobHandle.findUnique({
+          where: {
+            kind_canonicalJobId: {
+              kind: "document",
+              canonicalJobId: job.id
+            }
+          },
+          select: {
+            narrationOwner: true,
+            narrationDecision: true
+          }
+        });
+        const inlineAwait =
+          inlineHandle?.narrationOwner === "current_turn" &&
+          inlineHandle.narrationDecision === "current_turn_inline";
+        const sourceDocumentJobCount =
           sourceUserMessageId === "unknown"
+            ? 0
+            : await this.prisma.assistantDocumentRenderJob.count({
+                where: {
+                  assistantId: job.assistantId,
+                  chatId: job.chatId,
+                  sourceUserMessageId,
+                  status: {
+                    in: [
+                      "queued",
+                      "running",
+                      "provider_processing",
+                      "fetching_output",
+                      "ready_for_delivery",
+                      "delivered"
+                    ]
+                  }
+                }
+              });
+        const soleSourceJob = sourceDocumentJobCount === 1;
+        // Keep document reply + file in one bubble for a sole source-turn job
+        // or await-wait. Multiple async document jobs never share one bubble.
+        const reusedTurnMessage =
+          (!inlineAwait && !soleSourceJob) || sourceUserMessageId === "unknown"
             ? null
             : await this.prisma.assistantChatMessage.findFirst({
                 where: {

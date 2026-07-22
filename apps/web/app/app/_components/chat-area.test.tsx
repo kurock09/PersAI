@@ -492,6 +492,48 @@ describe("ChatArea", () => {
     });
   });
 
+  it("cancels browser assist without resuming the scenario or calling Stop", async () => {
+    getTokenMock.mockResolvedValue("token-1");
+    dismissAssistantBrowserProfileViewMock.mockResolvedValue(undefined);
+    const clearPendingBrowserLogin = vi.fn();
+    const send = vi.fn().mockResolvedValue(undefined);
+    const stop = vi.fn();
+    render(
+      <ChatArea
+        assistantId="assistant-1"
+        chat={{
+          ...createChat("Hello", { isStreaming: false }),
+          pendingBrowserLogin: {
+            profileId: "profile-1",
+            profileKey: "lavka",
+            displayName: "Lavka",
+            loginUrl: "https://lavka.yandex.ru/",
+            workspaceId: "workspace-1",
+            bridgeClientKind: "extension",
+            completionMode: "assist",
+            userActionPrompt: "Enter the SMS code and submit the form."
+          },
+          browserLoginModalOpen: true,
+          clearPendingBrowserLogin,
+          send,
+          stop
+        }}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "browserAssistCancel" }));
+    await waitFor(() => {
+      expect(dismissAssistantBrowserProfileViewMock).toHaveBeenCalledWith(
+        "token-1",
+        "assistant-1",
+        "profile-1"
+      );
+      expect(clearPendingBrowserLogin).toHaveBeenCalledTimes(1);
+    });
+    expect(send).not.toHaveBeenCalled();
+    expect(stop).not.toHaveBeenCalled();
+  });
+
   it("shows localized provider failure guidance", () => {
     render(
       <ChatArea

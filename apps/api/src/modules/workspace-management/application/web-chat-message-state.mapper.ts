@@ -23,6 +23,24 @@ export function extractAssistantWebChatPlatformNotice(
   return { kind, reasonCode };
 }
 
+export function extractMessageLifecycleFromMetadata(
+  metadata: Record<string, unknown> | null | undefined
+): {
+  status?: "partial" | "truncated";
+  stopReason?: "user_stopped";
+} {
+  if (metadata === null || metadata === undefined) {
+    return {};
+  }
+  const status =
+    metadata.status === "partial" || metadata.status === "truncated" ? metadata.status : undefined;
+  const stopReason = metadata.stopReason === "user_stopped" ? "user_stopped" : undefined;
+  return {
+    ...(status !== undefined ? { status } : {}),
+    ...(stopReason !== undefined ? { stopReason } : {})
+  };
+}
+
 export function mapAssistantChatMessageToWebState(input: {
   message: Pick<
     AssistantChatMessage,
@@ -33,6 +51,7 @@ export function mapAssistantChatMessageToWebState(input: {
   const platformNotice = extractAssistantWebChatPlatformNotice(input.message.metadata);
   const workingNotes = extractWorkingNotesFromMetadata(input.message.metadata);
   const toolInvocations = extractToolInvocationsFromMetadata(input.message.metadata);
+  const lifecycle = extractMessageLifecycleFromMetadata(input.message.metadata);
   return {
     id: input.message.id,
     chatId: input.message.chatId,
@@ -41,6 +60,7 @@ export function mapAssistantChatMessageToWebState(input: {
     content: input.message.content,
     attachments: input.attachments,
     createdAt: input.message.createdAt.toISOString(),
+    ...lifecycle,
     ...(platformNotice !== null ? { platformNotice } : {}),
     ...(workingNotes.length > 0 ? { workingNotes } : {}),
     ...(toolInvocations.length > 0 ? { toolInvocations } : {})

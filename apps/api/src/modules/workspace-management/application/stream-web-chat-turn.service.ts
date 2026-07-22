@@ -2071,14 +2071,6 @@ export class StreamWebChatTurnService {
         ? { status: "partial", stopReason: "user_stopped" }
         : { status: "partial" }
     });
-    const systemMessage = await this.assistantChatRepository.createMessage({
-      chatId: prepared.chat.id,
-      assistantId: prepared.assistantId,
-      author: "system",
-      content: userStopped
-        ? "The user explicitly stopped the previous assistant turn before it finished."
-        : "Streaming ended before completion. Assistant partial output above is preserved as-is."
-    });
     const refreshedChat = await this.assistantChatRepository.findChatById(prepared.chat.id);
     if (refreshedChat === null) {
       throw new NotFoundException("Chat does not exist for this assistant.");
@@ -2117,10 +2109,13 @@ export class StreamWebChatTurnService {
           author: partialAssistantMessage.author,
           content: partialAssistantMessage.content,
           attachments: [],
-          createdAt: partialAssistantMessage.createdAt.toISOString()
+          createdAt: partialAssistantMessage.createdAt.toISOString(),
+          ...(userStopped
+            ? { status: "partial" as const, stopReason: "user_stopped" as const }
+            : { status: "partial" as const })
         },
         runtime: {
-          respondedAt: respondedAt ?? systemMessage.createdAt.toISOString(),
+          respondedAt: respondedAt ?? partialAssistantMessage.createdAt.toISOString(),
           degradedByQuotaFallback: prepared.quotaDegradeModelOverride !== null,
           quotaFallbackReason: prepared.quotaDegradeReason,
           quotaFallbackModel: prepared.quotaDegradeModelOverride?.model ?? null,

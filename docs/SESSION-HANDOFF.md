@@ -1,5 +1,40 @@
 # SESSION-HANDOFF
 
+## 2026-07-22 — Chat UX repair + OpenAI sealed breakpoint (local → push)
+
+Baseline before this slice: `afec7983`.
+
+Also includes founder OpenAI ADR-161 sealed-prefix growth: global sealed
+exchange ordinals across prior + in-turn tool exchanges, plus plain-chat
+explicit breakpoint on the latest sealed user message.
+
+Product fixes (Telega/long-scenario CSV out of scope — founder owns that):
+
+1. **Per-job bubbles (media+reply together)** — one async job → one bubble that
+   holds that job’s artifacts **and** the reply about them. A sole source-turn
+   job (or await-wait `current_turn_inline`) pins into the turn narration
+   message so text and media stay together. Multiple ordinary async jobs never
+   sibling-pin onto one shared bubble (no more “8 images in the ack”). Series /
+   video / presentation inside one job stay one bubble.
+2. **False follow-up fail** — `failClaim` / retry exhaustion skip the opaque
+   “I couldn't complete the follow-up…” assistant row when the canonical media/
+   document job is already delivered or same-source siblings are still
+   subscribed/ready/claimed/dispatched.
+3. **Stop** — `persistInterruptedOutcome` keeps partial assistant metadata
+   (`status=partial`, `stopReason=user_stopped`) and does not create a system
+   message. Web projects lifecycle fields, hides `author=system` history rows,
+   and shows a compact localized badge on partial stopped bubbles (empty stop
+   markers stay hydratable server-side but are not drawn as empty Luma bubbles).
+4. **Browser assist** — banner actions: Open / Done / Cancel. Cancel dismisses
+   the handoff view and clears pending state without `chat.send` resume and
+   without Stop.
+
+Local gates before push: lint+format, typecheck, full `pnpm test`, build,
+ADR-146 slice5 PASS. Local `prisma:migrate:check` blocked by a stale failed
+migration on the developer DB (not introduced by this slice); CI uses clean
+Postgres. Next after push: deploy + live smoke on multi-image async, mid-stream
+Stop, and OpenAI sealed-frontier cache reads.
+
 ## 2026-07-22 — ADR-161 A1–A4 append-full + micro-clear cutover (local)
 
 Parent-orchestrated with Grok-only subs. Local commits (not pushed):

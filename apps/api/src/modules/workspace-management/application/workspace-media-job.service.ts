@@ -446,50 +446,106 @@ export class AssistantMediaJobService {
         assistantAcknowledgementMessageId: input.assistantAcknowledgementMessageId
       }
     });
-    // Pin delivery target so mid-turn completion attaches into the same
-    // assistant bubble that holds (or will hold) chat-model narration.
-    await this.prisma.assistantMediaJob.updateMany({
+    // Pin completion into the turn narration bubble only when that bubble is
+    // the right home for this job's media+reply:
+    // - await-wait (`current_turn_inline`), or
+    // - exactly one media job for this source turn (text and artifacts stay together).
+    // Multiple async jobs must not pile into one bubble.
+    const sourceJobs = await this.prisma.assistantMediaJob.findMany({
       where: {
         assistantId: input.assistantId,
         sourceUserMessageId: input.sourceUserMessageId,
-        completionAssistantMessageId: null,
         status: {
           in: ["queued", "running", "completion_pending", "delivered"]
         }
       },
-      data: {
-        completionAssistantMessageId: input.assistantAcknowledgementMessageId
-      }
+      select: { id: true, completionAssistantMessageId: true }
     });
+    const unpinnedJobs = sourceJobs.filter((job) => job.completionAssistantMessageId === null);
+    if (unpinnedJobs.length === 0) {
+      return updated.count;
+    }
+    const inlineHandles = await this.prisma.assistantAsyncJobHandle.findMany({
+      where: {
+        kind: "media",
+        canonicalJobId: { in: unpinnedJobs.map((job) => job.id) },
+        narrationOwner: "current_turn",
+        narrationDecision: "current_turn_inline"
+      },
+      select: { canonicalJobId: true }
+    });
+    const inlineJobIds = new Set(inlineHandles.map((handle) => handle.canonicalJobId));
+    const soleSourceJob = sourceJobs.length === 1;
+    const pinJobIds = unpinnedJobs
+      .filter((job) => soleSourceJob || inlineJobIds.has(job.id))
+      .map((job) => job.id);
+    if (pinJobIds.length > 0) {
+      await this.prisma.assistantMediaJob.updateMany({
+        where: {
+          id: { in: pinJobIds },
+          completionAssistantMessageId: null
+        },
+        data: {
+          completionAssistantMessageId: input.assistantAcknowledgementMessageId
+        }
+      });
+    }
     return updated.count;
   }
 
   /**
-   * ADR-157: prefer an already-pinned delivery/acknowledgement message so
-   * persist and completion delivery converge on one assistant bubble.
+   * Reuse a delivery/narration bubble so reply text and that job's artifacts
+   * stay together. Allowed when:
+   * - await-wait (`current_turn_inline`), or
+   * - exactly one media job owns this source turn.
+   * Never coalesce multiple ordinary async jobs onto one message.
    */
   async findPinnedDeliveryMessageId(input: {
     assistantId: string;
     sourceUserMessageId: string;
   }): Promise<string | null> {
-    const row = await this.prisma.assistantMediaJob.findFirst({
+    const sourceJobs = await this.prisma.assistantMediaJob.findMany({
       where: {
         assistantId: input.assistantId,
         sourceUserMessageId: input.sourceUserMessageId,
-        OR: [
-          { completionAssistantMessageId: { not: null } },
-          { assistantAcknowledgementMessageId: { not: null } }
-        ]
+        status: {
+          in: ["queued", "running", "completion_pending", "delivered"]
+        }
       },
       orderBy: { updatedAt: "desc" },
       select: {
+        id: true,
         completionAssistantMessageId: true,
         assistantAcknowledgementMessageId: true
-      }
+      },
+      take: 16
     });
-    if (row === null) {
+    if (sourceJobs.length === 0) {
       return null;
     }
-    return row.completionAssistantMessageId ?? row.assistantAcknowledgementMessageId ?? null;
+    if (sourceJobs.length === 1) {
+      const sole = sourceJobs[0]!;
+      return sole.completionAssistantMessageId ?? sole.assistantAcknowledgementMessageId ?? null;
+    }
+    const inlineHandles = await this.prisma.assistantAsyncJobHandle.findMany({
+      where: {
+        kind: "media",
+        canonicalJobId: { in: sourceJobs.map((job) => job.id) },
+        narrationOwner: "current_turn",
+        narrationDecision: "current_turn_inline"
+      },
+      select: { canonicalJobId: true }
+    });
+    if (inlineHandles.length === 0) {
+      return null;
+    }
+    const inlineJobIds = new Set(inlineHandles.map((handle) => handle.canonicalJobId));
+    const inlineJob = sourceJobs.find((job) => inlineJobIds.has(job.id));
+    if (inlineJob === undefined) {
+      return null;
+    }
+    return (
+      inlineJob.completionAssistantMessageId ?? inlineJob.assistantAcknowledgementMessageId ?? null
+    );
   }
 }

@@ -2865,6 +2865,8 @@ export type ChatHistoryMessage = {
   content: string;
   attachments: ChatHistoryAttachment[];
   createdAt: string;
+  status?: "partial" | "truncated";
+  stopReason?: "user_stopped";
   platformNotice?: {
     kind: "safety_inbound_warn" | "safety_inbound_restricted";
     reasonCode: string;

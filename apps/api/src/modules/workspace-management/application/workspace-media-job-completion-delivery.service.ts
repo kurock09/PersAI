@@ -786,32 +786,79 @@ export class AssistantMediaJobCompletionDeliveryService {
     }
   }
 
+  private async isCurrentTurnInlineAwait(jobId: string): Promise<boolean> {
+    const handle = await this.prisma.assistantAsyncJobHandle.findUnique({
+      where: {
+        kind_canonicalJobId: {
+          kind: "media",
+          canonicalJobId: jobId
+        }
+      },
+      select: {
+        narrationOwner: true,
+        narrationDecision: true
+      }
+    });
+    return (
+      handle?.narrationOwner === "current_turn" &&
+      handle.narrationDecision === "current_turn_inline"
+    );
+  }
+
+  private async countSourceTurnMediaJobs(job: ClaimedCompletionPendingMediaJob): Promise<number> {
+    return this.prisma.assistantMediaJob.count({
+      where: {
+        assistantId: job.assistantId,
+        sourceUserMessageId: job.sourceUserMessageId,
+        status: {
+          in: ["queued", "running", "completion_pending", "delivered"]
+        }
+      }
+    });
+  }
+
   private async ensureCompletionMessage(
     job: ClaimedCompletionPendingMediaJob,
     assistantText: CompletionAssistantTextResolution
   ): Promise<string> {
-    let pinnedId =
-      job.completionAssistantMessageId ?? job.assistantAcknowledgementMessageId ?? null;
-    if (pinnedId === null) {
-      const siblingPin = await this.prisma.assistantMediaJob.findFirst({
+    const inlineAwait = await this.isCurrentTurnInlineAwait(job.id);
+    const soleSourceJob = (await this.countSourceTurnMediaJobs(job)) === 1;
+    // Keep reply text + this job's artifacts in one bubble:
+    // sole source-turn job, or await-wait ownership of the turn message.
+    let pinnedId = job.completionAssistantMessageId ?? null;
+    if (pinnedId === null && (inlineAwait || soleSourceJob)) {
+      pinnedId = job.assistantAcknowledgementMessageId ?? null;
+    }
+    // Await-wait only: coalesce with another inline job from the same source turn.
+    if (pinnedId === null && inlineAwait) {
+      const candidates = await this.prisma.assistantMediaJob.findMany({
         where: {
           assistantId: job.assistantId,
           sourceUserMessageId: job.sourceUserMessageId,
-          OR: [
-            { completionAssistantMessageId: { not: null } },
-            { assistantAcknowledgementMessageId: { not: null } }
-          ]
+          id: { not: job.id },
+          completionAssistantMessageId: { not: null }
         },
         orderBy: { updatedAt: "desc" },
         select: {
-          completionAssistantMessageId: true,
-          assistantAcknowledgementMessageId: true
-        }
+          id: true,
+          completionAssistantMessageId: true
+        },
+        take: 8
       });
-      pinnedId =
-        siblingPin?.completionAssistantMessageId ??
-        siblingPin?.assistantAcknowledgementMessageId ??
-        null;
+      if (candidates.length > 0) {
+        const inlineSiblings = await this.prisma.assistantAsyncJobHandle.findMany({
+          where: {
+            kind: "media",
+            canonicalJobId: { in: candidates.map((candidate) => candidate.id) },
+            narrationOwner: "current_turn",
+            narrationDecision: "current_turn_inline"
+          },
+          select: { canonicalJobId: true }
+        });
+        const inlineIds = new Set(inlineSiblings.map((sibling) => sibling.canonicalJobId));
+        const match = candidates.find((candidate) => inlineIds.has(candidate.id));
+        pinnedId = match?.completionAssistantMessageId ?? null;
+      }
     }
 
     if (pinnedId !== null) {
@@ -825,6 +872,8 @@ export class AssistantMediaJobCompletionDeliveryService {
       return pinnedId;
     }
 
+    // Multiple ordinary async jobs: each job owns a fresh bubble for its
+    // reply + artifacts (never sibling-pin onto another job's message).
     const message = await this.assistantChatRepository.createMessage({
       chatId: job.chatId,
       assistantId: job.assistantId,

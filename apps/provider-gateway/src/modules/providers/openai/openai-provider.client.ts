@@ -1514,6 +1514,10 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
     // ADR-119 Slice 2: system prompt is prepended as developer-role items so OpenAI Responses API
     // prefix-match caching sees the large stable system content at index 0 of input[].
     const items: OpenAIBuiltInputItem[] = this.buildOpenAISystemDeveloperItems(input);
+    // ADR-161: sealed exchange ordinals are global across priorToolExchanges +
+    // in-turn toolHistory so a completed exchange keeps the same boundary text
+    // when it moves from toolHistory into next-turn prior replay.
+    let sealedExchangeOrdinal = 0;
     for (const message of input.messages) {
       if (this.isOpenAIVolatileContextMessage(message)) {
         volatileContextMessages.push(message);
@@ -1521,6 +1525,8 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
       }
       for (const exchange of message.priorToolExchanges ?? []) {
         this.pushOpenAIExchangeItems(items, exchange);
+        sealedExchangeOrdinal += 1;
+        this.pushOpenAISealedSpineBoundary(items, sealedExchangeOrdinal, input);
       }
       items.push({
         role: message.role,
@@ -1529,8 +1535,14 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
     }
     for (const exchange of input.toolHistory ?? []) {
       this.pushOpenAIExchangeItems(items, exchange);
-      this.pushOpenAISealedSpineBoundary(items, exchange, input);
+      sealedExchangeOrdinal += 1;
+      this.pushOpenAISealedSpineBoundary(items, sealedExchangeOrdinal, input);
     }
+    // Growing explicit frontier must sit at the end of sealed content and
+    // before toolFollowUp / volatile / developer. Tool-loop turns already end
+    // with a sealed exchange boundary; plain chat needs the latest history
+    // message marked so cross-turn reads can advance past system-only 12k.
+    this.ensureOpenAISealedPrefixBreakpoint(items, input);
     const toolFollowUpUserContent = input.toolFollowUpUserContent;
     if (toolFollowUpUserContent !== undefined) {
       items.push({
@@ -1597,28 +1609,101 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
 
   private pushOpenAISealedSpineBoundary(
     target: OpenAIBuiltInputItem[],
-    exchange: NonNullable<ProviderGatewayTextGenerateRequest["toolHistory"]>[number],
+    sealedExchangeOrdinal: number,
     input: ProviderGatewayTextGenerateRequest
   ): void {
     if (!this.usesExplicitOpenAIPromptCache(input)) {
       return;
     }
-    const ordinal = (input.toolHistory ?? []).findIndex(
-      (candidate) => candidate.toolCall.id === exchange.toolCall.id
-    );
-    if (ordinal < 0) {
-      throw new Error("OpenAI sealed spine boundary requires an exchange in toolHistory.");
+    if (!Number.isInteger(sealedExchangeOrdinal) || sealedExchangeOrdinal < 1) {
+      throw new Error("OpenAI sealed spine boundary requires a positive sealed exchange ordinal.");
     }
     target.push({
       role: "developer",
       content: [
         {
           type: "input_text",
-          text: `<persai_tool_exchange_boundary ordinal="${String(ordinal + 1).padStart(6, "0")}"/>`,
+          text: `<persai_tool_exchange_boundary ordinal="${String(sealedExchangeOrdinal).padStart(6, "0")}"/>`,
           prompt_cache_breakpoint: { mode: "explicit" }
         }
       ]
     });
+  }
+
+  /**
+   * ADR-161: ensure the latest explicit breakpoint is at the end of the sealed
+   * prefix — immediately before toolFollowUp / volatile / developer.
+   *
+   * Tool-loop and prior-tool replay already emit per-exchange boundaries. For
+   * plain chat (no sealed exchange yet) attach the breakpoint to the latest
+   * user message so sequential turns can grow cache reads past the stable
+   * system anchor.
+   */
+  private ensureOpenAISealedPrefixBreakpoint(
+    items: OpenAIBuiltInputItem[],
+    input: ProviderGatewayTextGenerateRequest
+  ): void {
+    if (!this.usesExplicitOpenAIPromptCache(input)) {
+      return;
+    }
+    if (this.openAIItemHasExplicitBreakpoint(items[items.length - 1])) {
+      return;
+    }
+    for (let index = items.length - 1; index >= 1; index -= 1) {
+      const item = items[index];
+      if (item === undefined || !("role" in item) || item.role !== "user") {
+        continue;
+      }
+      const withBreakpoint = this.attachOpenAIExplicitBreakpointToContent(item.content);
+      if (withBreakpoint !== null) {
+        items[index] = { role: "user", content: withBreakpoint };
+      }
+      return;
+    }
+  }
+
+  private openAIItemHasExplicitBreakpoint(item: OpenAIBuiltInputItem | undefined): boolean {
+    if (item === undefined || !("role" in item) || !Array.isArray(item.content)) {
+      return false;
+    }
+    return item.content.some(
+      (block) =>
+        block !== null &&
+        typeof block === "object" &&
+        "prompt_cache_breakpoint" in block &&
+        (block as { prompt_cache_breakpoint?: { mode?: unknown } }).prompt_cache_breakpoint
+          ?.mode === "explicit"
+    );
+  }
+
+  private attachOpenAIExplicitBreakpointToContent(
+    content: OpenAIInputContent
+  ): OpenAIInputContent | null {
+    if (typeof content === "string") {
+      if (content.length === 0) {
+        return null;
+      }
+      return [
+        {
+          type: "input_text",
+          text: content,
+          prompt_cache_breakpoint: { mode: "explicit" }
+        }
+      ];
+    }
+    for (let index = content.length - 1; index >= 0; index -= 1) {
+      const block = content[index];
+      if (block === undefined || block.type !== "input_text") {
+        continue;
+      }
+      const updated = [...content];
+      updated[index] = {
+        ...block,
+        prompt_cache_breakpoint: { mode: "explicit" }
+      };
+      return updated;
+    }
+    return null;
   }
 
   private isOpenAIVolatileContextMessage(
@@ -1772,6 +1857,30 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
     return input.promptCache?.openaiPolicy?.mode === "explicit";
   }
 
+  private countOpenAIExplicitBreakpoints(items: unknown[]): number {
+    let count = 0;
+    for (const item of items) {
+      if (item === null || typeof item !== "object") {
+        continue;
+      }
+      const content = (item as { content?: unknown }).content;
+      if (!Array.isArray(content)) {
+        continue;
+      }
+      for (const block of content) {
+        if (
+          block !== null &&
+          typeof block === "object" &&
+          (block as { prompt_cache_breakpoint?: { mode?: unknown } }).prompt_cache_breakpoint
+            ?.mode === "explicit"
+        ) {
+          count += 1;
+        }
+      }
+    }
+    return count;
+  }
+
   private logCacheZoneTelemetry(
     input: ProviderGatewayTextGenerateRequest,
     payload: { input?: unknown; tools?: unknown }
@@ -1815,9 +1924,7 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
           (message) => message.cacheRole === "volatile_context"
         ),
         developerTail: input.developerInstructions ?? null,
-        cacheBreakpointCount: this.usesExplicitOpenAIPromptCache(input)
-          ? 1 + (input.toolHistory?.length ?? 0)
-          : 0
+        cacheBreakpointCount: this.countOpenAIExplicitBreakpoints(items)
       }
     });
   }

@@ -2615,6 +2615,11 @@ describe("StreamWebChatTurnService", () => {
       "partial",
       "expected metadata.status === 'partial'"
     );
+    assert.equal(
+      createdMessages.filter((m) => m.author === "system").length,
+      0,
+      "interrupted turns must not persist a system Luma/status row"
+    );
   });
 });
 

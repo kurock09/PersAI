@@ -110,6 +110,10 @@ export interface AssistantWebChatMessageState {
   content: string;
   attachments: AssistantWebChatMessageAttachmentState[];
   createdAt: string;
+  /** Partial / truncated lifecycle projected from message metadata. */
+  status?: "partial" | "truncated";
+  /** Present when the user explicitly stopped mid-turn. */
+  stopReason?: "user_stopped";
   platformNotice?: AssistantWebChatPlatformNoticeState;
   /** The texts the model wrote before each tool call across the tool loop. Absent/empty when no tools ran. */
   workingNotes?: string[];

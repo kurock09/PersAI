@@ -907,6 +907,8 @@ export class AssistantAsyncJobHandleStateService {
       const rows = await tx.$queryRaw<
         Array<{
           id: string;
+          kind: "media" | "document" | "sandbox";
+          canonicalJobId: string;
           state: string;
           claimToken: string | null;
           retryCount: number;
@@ -915,17 +917,21 @@ export class AssistantAsyncJobHandleStateService {
           workspaceId: string;
           chatId: string;
           channel: "web" | "telegram";
+          sourceUserMessageId: string | null;
           continuationClientTurnId: string | null;
           continuationAssistantMessageId: string | null;
         }>
       >(Prisma.sql`
-        SELECT "id", "state"::text AS "state",
+        SELECT "id", "kind"::text AS "kind",
+          "canonical_job_id" AS "canonicalJobId",
+          "state"::text AS "state",
           "claim_token" AS "claimToken", "retry_count" AS "retryCount",
           "max_retries" AS "maxRetries",
           "assistant_id" AS "assistantId",
           "workspace_id" AS "workspaceId",
           "chat_id" AS "chatId",
           "channel"::text AS "channel",
+          "source_user_message_id" AS "sourceUserMessageId",
           "continuation_client_turn_id" AS "continuationClientTurnId",
           "continuation_assistant_message_id" AS "continuationAssistantMessageId"
         FROM "assistant_async_job_handles"
@@ -1016,22 +1022,28 @@ export class AssistantAsyncJobHandleStateService {
       const rows = await tx.$queryRaw<
         Array<{
           id: string;
+          kind: "media" | "document" | "sandbox";
+          canonicalJobId: string;
           state: string;
           claimToken: string | null;
           assistantId: string;
           workspaceId: string;
           chatId: string;
           channel: "web" | "telegram";
+          sourceUserMessageId: string | null;
           continuationClientTurnId: string | null;
           continuationAssistantMessageId: string | null;
         }>
       >(Prisma.sql`
-        SELECT "id", "state"::text AS "state",
+        SELECT "id", "kind"::text AS "kind",
+          "canonical_job_id" AS "canonicalJobId",
+          "state"::text AS "state",
           "claim_token" AS "claimToken",
           "assistant_id" AS "assistantId",
           "workspace_id" AS "workspaceId",
           "chat_id" AS "chatId",
           "channel"::text AS "channel",
+          "source_user_message_id" AS "sourceUserMessageId",
           "continuation_client_turn_id" AS "continuationClientTurnId",
           "continuation_assistant_message_id" AS "continuationAssistantMessageId"
         FROM "assistant_async_job_handles"
@@ -1042,23 +1054,26 @@ export class AssistantAsyncJobHandleStateService {
       if (row === undefined) {
         return { applied: false, observation: null };
       }
-      if (
-        row.state === "failed" &&
-        row.continuationAssistantMessageId !== null &&
-        (row.channel === "web" || row.channel === "telegram")
-      ) {
-        // Idempotent: observation already persisted; callers may still deliver Telegram once.
-        return {
-          applied: true,
-          observation: {
-            handleId: row.id,
-            assistantMessageId: row.continuationAssistantMessageId,
-            channel: row.channel,
-            assistantId: row.assistantId,
-            workspaceId: row.workspaceId,
-            chatId: row.chatId
-          }
-        };
+      if (row.state === "failed") {
+        if (
+          row.continuationAssistantMessageId !== null &&
+          (row.channel === "web" || row.channel === "telegram")
+        ) {
+          // Idempotent: observation already persisted; callers may still deliver Telegram once.
+          return {
+            applied: true,
+            observation: {
+              handleId: row.id,
+              assistantMessageId: row.continuationAssistantMessageId,
+              channel: row.channel,
+              assistantId: row.assistantId,
+              workspaceId: row.workspaceId,
+              chatId: row.chatId
+            }
+          };
+        }
+        // Quiet terminal failure (artifacts already visible / siblings still live).
+        return { applied: true, observation: null };
       }
       if (
         row.claimToken !== input.claimToken ||
@@ -1081,6 +1096,9 @@ export class AssistantAsyncJobHandleStateService {
           continuationAssistantMessageId: messageId
         }
       });
+      if (messageId === null) {
+        return { applied: true, observation: null };
+      }
       return {
         applied: true,
         observation: {
@@ -1164,17 +1182,71 @@ export class AssistantAsyncJobHandleStateService {
     return result.count === 1;
   }
 
+  private async shouldSuppressPermanentFailureMessage(
+    tx: Prisma.TransactionClient,
+    row: {
+      id: string;
+      kind: "media" | "document" | "sandbox";
+      canonicalJobId: string;
+      chatId: string;
+      sourceUserMessageId: string | null;
+    }
+  ): Promise<boolean> {
+    if (row.kind === "media") {
+      const mediaJob = await tx.assistantMediaJob.findUnique({
+        where: { id: row.canonicalJobId },
+        select: { status: true, deliveredAt: true }
+      });
+      if (mediaJob !== null && (mediaJob.status === "delivered" || mediaJob.deliveredAt != null)) {
+        return true;
+      }
+    }
+    if (row.kind === "document") {
+      const documentJob = await tx.assistantDocumentRenderJob.findUnique({
+        where: { id: row.canonicalJobId },
+        select: { status: true, deliveredAt: true }
+      });
+      if (
+        documentJob !== null &&
+        (documentJob.status === "delivered" || documentJob.deliveredAt != null)
+      ) {
+        return true;
+      }
+    }
+    if (row.sourceUserMessageId !== null) {
+      const openSiblings = await tx.assistantAsyncJobHandle.count({
+        where: {
+          chatId: row.chatId,
+          id: { not: row.id },
+          sourceUserMessageId: row.sourceUserMessageId,
+          state: { in: ["subscribed", "ready", "claimed", "dispatched"] }
+        }
+      });
+      if (openSiblings > 0) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   private async persistPermanentFailureMessage(
     tx: Prisma.TransactionClient,
     row: {
+      id: string;
+      kind: "media" | "document" | "sandbox";
+      canonicalJobId: string;
       chatId: string;
       assistantId: string;
+      sourceUserMessageId: string | null;
       continuationClientTurnId: string | null;
       continuationAssistantMessageId: string | null;
     }
-  ): Promise<string> {
+  ): Promise<string | null> {
     if (row.continuationAssistantMessageId !== null) {
       return row.continuationAssistantMessageId;
+    }
+    if (await this.shouldSuppressPermanentFailureMessage(tx, row)) {
+      return null;
     }
     const message = await tx.assistantChatMessage.create({
       data: {

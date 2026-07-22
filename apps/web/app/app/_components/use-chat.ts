@@ -97,6 +97,8 @@ export interface ChatMessage {
   role: ChatMessageRole;
   content: string;
   status: ChatMessageStatus;
+  /** Present when the user explicitly stopped mid-turn. */
+  stopReason?: "user_stopped";
   /** Server/optimistic chronology; required for stable merge order without F5. */
   createdAt?: string;
   attachments?: ChatAttachment[] | undefined;
@@ -764,11 +766,31 @@ function toCommittedChatMessage(message: ChatHistoryMessage): ChatMessage | null
   if (message.content === WELCOME_TURN_SENTINEL) {
     return null;
   }
+  // System rows are hydration/audit facts — never render as Luma avatar replies.
+  if (message.author === "system") {
+    return null;
+  }
+  const stopReason = message.stopReason === "user_stopped" ? "user_stopped" : undefined;
+  const status: ChatMessageStatus =
+    message.status === "partial" || stopReason !== undefined
+      ? "partial"
+      : message.status === "truncated"
+        ? "committed"
+        : "committed";
+  // Empty stop marker: keep for hydration on the wire, but hide the empty avatar bubble.
+  if (
+    stopReason === "user_stopped" &&
+    message.content.trim().length === 0 &&
+    message.attachments.length === 0
+  ) {
+    return null;
+  }
   return {
     id: message.id,
-    role: message.author === "system" ? "assistant" : message.author,
+    role: message.author,
     content: message.content,
-    status: "committed",
+    status,
+    ...(stopReason !== undefined ? { stopReason } : {}),
     createdAt: message.createdAt,
     ...(message.platformNotice ? { platformNotice: message.platformNotice } : {}),
     ...(Array.isArray(message.workingNotes) && message.workingNotes.length > 0
@@ -4691,10 +4713,19 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
           clearThreadLiveActivity(sendThreadKey, assistantMsgId);
           const interruptedAt = new Date().toISOString();
           const t = transport as {
-            assistantMessage?: { id?: string; content?: string };
+            assistantMessage?: {
+              id?: string;
+              content?: string;
+              stopReason?: string;
+              status?: string;
+            };
           } | null;
           const newAssistantId =
             typeof t?.assistantMessage?.id === "string" ? t.assistantMessage.id : null;
+          const interruptedStopReason =
+            t?.assistantMessage?.stopReason === "user_stopped"
+              ? ("user_stopped" as const)
+              : undefined;
           applyThreadMessages(sendThreadKey, (prev) =>
             prev.flatMap((m) => {
               if (
@@ -4714,6 +4745,14 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                   ? reconcileAuthoritativeAssistantContent(m.content, t.assistantMessage.content)
                   : null;
               const nextContent = authoritativeAssistantContent ?? m.content;
+              // Empty stop with no text: drop the optimistic Luma placeholder.
+              if (
+                interruptedStopReason === "user_stopped" &&
+                nextContent.trim().length === 0 &&
+                (m.attachments?.length ?? 0) === 0
+              ) {
+                return [];
+              }
               return [
                 {
                   ...m,
@@ -4721,7 +4760,13 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                   ...(authoritativeAssistantContent !== null
                     ? { content: authoritativeAssistantContent }
                     : {}),
-                  status: nextContent.trim().length > 0 ? "partial" : "committed",
+                  status:
+                    nextContent.trim().length > 0 || interruptedStopReason !== undefined
+                      ? "partial"
+                      : "committed",
+                  ...(interruptedStopReason !== undefined
+                    ? { stopReason: interruptedStopReason }
+                    : {}),
                   thoughtFinishedAt:
                     m.thought && !m.thoughtFinishedAt
                       ? interruptedAt
@@ -5185,14 +5230,22 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
             onInterrupted: ({ transport }) => {
               flushBufferedAssistantState();
               const t = transport as {
-                assistantMessage?: { id?: string; content?: string };
+                assistantMessage?: {
+                  id?: string;
+                  content?: string;
+                  stopReason?: string;
+                };
               } | null;
               const newAssistantId =
                 typeof t?.assistantMessage?.id === "string" ? t.assistantMessage.id : null;
+              const interruptedStopReason =
+                t?.assistantMessage?.stopReason === "user_stopped"
+                  ? ("user_stopped" as const)
+                  : undefined;
               setMessages((prev) =>
-                prev.map((m) => {
+                prev.flatMap((m) => {
                   if (m.id !== assistantMsgId) {
-                    return m;
+                    return [m];
                   }
                   const authoritativeAssistantContent =
                     typeof t?.assistantMessage?.content === "string"
@@ -5202,14 +5255,29 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                         )
                       : null;
                   const nextContent = authoritativeAssistantContent ?? m.content;
-                  return {
-                    ...m,
-                    ...(newAssistantId ? { id: newAssistantId } : {}),
-                    ...(authoritativeAssistantContent !== null
-                      ? { content: authoritativeAssistantContent }
-                      : {}),
-                    status: nextContent.trim().length > 0 ? "partial" : "streaming"
-                  };
+                  if (
+                    interruptedStopReason === "user_stopped" &&
+                    nextContent.trim().length === 0 &&
+                    (m.attachments?.length ?? 0) === 0
+                  ) {
+                    return [];
+                  }
+                  return [
+                    {
+                      ...m,
+                      ...(newAssistantId ? { id: newAssistantId } : {}),
+                      ...(authoritativeAssistantContent !== null
+                        ? { content: authoritativeAssistantContent }
+                        : {}),
+                      status:
+                        nextContent.trim().length > 0 || interruptedStopReason !== undefined
+                          ? "partial"
+                          : "streaming",
+                      ...(interruptedStopReason !== undefined
+                        ? { stopReason: interruptedStopReason }
+                        : {})
+                    }
+                  ];
                 })
               );
             },

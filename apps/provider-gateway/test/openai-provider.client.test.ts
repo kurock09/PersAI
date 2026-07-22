@@ -846,6 +846,198 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
   );
   assert.notEqual(JSON.stringify(secondOpenAiItems), JSON.stringify(firstOpenAiItems));
 
+  // ADR-161: priorToolExchanges share the global sealed ordinal space with
+  // in-turn toolHistory, and the latest explicit breakpoint stays before
+  // volatile/developer so cross-turn reads can advance past system-only cache.
+  const openAiPriorAndInTurnRequest: ProviderGatewayTextGenerateRequest = {
+    ...request,
+    promptCache: {
+      key: "adr161-openai-prior-frontier",
+      openaiPolicy: {
+        mode: "explicit",
+        ttl: "30m",
+        stableAnchor: "explicit",
+        sealedSpineBreakpoint: "explicit"
+      }
+    },
+    developerInstructions: "frontier developer",
+    messages: [
+      {
+        role: "user",
+        content: "earlier question"
+      },
+      {
+        role: "assistant",
+        content: "earlier answer",
+        priorToolExchanges: [
+          {
+            toolCall: {
+              id: "call-prior-frontier",
+              name: "skill",
+              arguments: { action: "list" }
+            },
+            toolResult: {
+              toolCallId: "call-prior-frontier",
+              name: "skill",
+              content: '{"action":"list","count":6}',
+              isError: false
+            }
+          }
+        ]
+      },
+      {
+        role: "user",
+        content: "follow-up question"
+      },
+      {
+        role: "assistant",
+        content: "scenario frontier",
+        cacheRole: "volatile_context",
+        volatileKind: "active_scenario"
+      }
+    ],
+    toolHistory: [
+      {
+        toolCall: {
+          id: "call-current-frontier",
+          name: "skill",
+          arguments: { action: "list" }
+        },
+        toolResult: {
+          toolCallId: "call-current-frontier",
+          name: "skill",
+          content: '{"action":"list","count":6}',
+          isError: false
+        }
+      }
+    ],
+    requestMetadata: {
+      classification: "tool_loop_followup",
+      runtimeRequestId: "adr161-openai-prior",
+      runtimeSessionId: "adr161-session",
+      toolLoopIteration: 1,
+      compactionToolCode: null
+    }
+  };
+  await client.generateText(openAiPriorAndInTurnRequest);
+  const priorFrontierItems = capturedGeneratePayload!.input as Array<Record<string, unknown>>;
+  const boundaryOrdinals = priorFrontierItems.flatMap((item) => {
+    if (item.role !== "developer" || !Array.isArray(item.content)) {
+      return [];
+    }
+    return item.content
+      .filter(
+        (block): block is { text: string; prompt_cache_breakpoint?: { mode?: string } } =>
+          block !== null &&
+          typeof block === "object" &&
+          typeof (block as { text?: unknown }).text === "string" &&
+          (block as { text: string }).text.startsWith("<persai_tool_exchange_boundary ")
+      )
+      .map((block) => ({
+        text: block.text,
+        explicit: block.prompt_cache_breakpoint?.mode === "explicit"
+      }));
+  });
+  assert.deepEqual(boundaryOrdinals, [
+    { text: '<persai_tool_exchange_boundary ordinal="000001"/>', explicit: true },
+    { text: '<persai_tool_exchange_boundary ordinal="000002"/>', explicit: true }
+  ]);
+  const priorCallIndex = priorFrontierItems.findIndex(
+    (item) => item.type === "function_call" && item.call_id === "call-prior-frontier"
+  );
+  const currentCallIndex = priorFrontierItems.findIndex(
+    (item) => item.type === "function_call" && item.call_id === "call-current-frontier"
+  );
+  const volatileIndex = priorFrontierItems.findIndex((item) =>
+    JSON.stringify(item.content ?? "").includes("<persai_active_scenario>")
+  );
+  const developerIndex = priorFrontierItems.findIndex(
+    (item) =>
+      item.role === "developer" &&
+      Array.isArray(item.content) &&
+      item.content.some(
+        (block) =>
+          block !== null &&
+          typeof block === "object" &&
+          (block as { text?: unknown }).text === "frontier developer"
+      )
+  );
+  assert.ok(priorCallIndex >= 0);
+  assert.ok(currentCallIndex > priorCallIndex);
+  assert.ok(volatileIndex > currentCallIndex);
+  assert.ok(developerIndex > volatileIndex);
+  const lastBoundaryIndex = priorFrontierItems.findIndex(
+    (item, index) =>
+      index > currentCallIndex &&
+      item.role === "developer" &&
+      Array.isArray(item.content) &&
+      item.content.some(
+        (block) =>
+          block !== null &&
+          typeof block === "object" &&
+          (block as { text?: unknown }).text === '<persai_tool_exchange_boundary ordinal="000002"/>'
+      )
+  );
+  assert.ok(lastBoundaryIndex >= 0);
+  assert.ok(
+    lastBoundaryIndex < volatileIndex,
+    "latest sealed breakpoint must remain before volatile"
+  );
+
+  // Same prior exchange keeps ordinal 000001 when it is the only sealed
+  // exchange on the next main turn (cross-turn frontier continuity).
+  const { toolHistory: _unusedToolHistory, ...openAiPriorMainRequest } =
+    openAiPriorAndInTurnRequest;
+  void _unusedToolHistory;
+  await client.generateText({
+    ...openAiPriorMainRequest,
+    requestMetadata: {
+      classification: "main_turn",
+      runtimeRequestId: "adr161-openai-prior-main",
+      runtimeSessionId: "adr161-session",
+      toolLoopIteration: 0,
+      compactionToolCode: null
+    }
+  });
+  const crossTurnItems = capturedGeneratePayload!.input as Array<Record<string, unknown>>;
+  const crossTurnBoundaries = crossTurnItems.flatMap((item) => {
+    if (item.role !== "developer" || !Array.isArray(item.content)) {
+      return [];
+    }
+    return item.content
+      .filter(
+        (block): block is { text: string } =>
+          block !== null &&
+          typeof block === "object" &&
+          typeof (block as { text?: unknown }).text === "string" &&
+          (block as { text: string }).text.startsWith("<persai_tool_exchange_boundary ")
+      )
+      .map((block) => block.text);
+  });
+  assert.deepEqual(crossTurnBoundaries, ['<persai_tool_exchange_boundary ordinal="000001"/>']);
+  const crossTurnUser = crossTurnItems.find(
+    (item) =>
+      item.role === "user" &&
+      Array.isArray(item.content) &&
+      item.content.some(
+        (block) =>
+          block !== null &&
+          typeof block === "object" &&
+          (block as { text?: unknown }).text === "follow-up question" &&
+          (block as { prompt_cache_breakpoint?: { mode?: unknown } }).prompt_cache_breakpoint
+            ?.mode === "explicit"
+      )
+  );
+  assert.ok(
+    crossTurnUser,
+    "plain/main turn without new toolHistory must mark the latest user message before volatile"
+  );
+  const crossTurnVolatileIndex = crossTurnItems.findIndex((item) =>
+    JSON.stringify(item.content ?? "").includes("<persai_active_scenario>")
+  );
+  const crossTurnUserIndex = crossTurnItems.indexOf(crossTurnUser!);
+  assert.ok(crossTurnUserIndex < crossTurnVolatileIndex);
+
   const structuredRequest: ProviderGatewayTextGenerateRequest = {
     ...request,
     outputSchema: {
