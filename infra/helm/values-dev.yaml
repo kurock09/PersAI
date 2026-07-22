@@ -148,7 +148,7 @@ api:
     gcpServiceAccountEmail: api-runtime@project-44786b14-b7d7-4554-a8a.iam.gserviceaccount.com
   image:
     name: api
-    tag: d417b1af9c932bac246da0bdb7b987e2c4c19da4
+    tag: 7dff656193977998135dc1517586903b5fef215e
     pullPolicy: IfNotPresent
   cloudSqlProxy:
     enabled: true
@@ -324,7 +324,7 @@ web:
       maxSurge: 1
   image:
     name: web
-    tag: d417b1af9c932bac246da0bdb7b987e2c4c19da4
+    tag: 7dff656193977998135dc1517586903b5fef215e
     pullPolicy: IfNotPresent
   env:
     NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_live_Y2xlcmsucGVyc2FpLmRldiQ
@@ -398,7 +398,7 @@ providerGateway:
       maxSurge: 1
   image:
     name: provider-gateway
-    tag: d417b1af9c932bac246da0bdb7b987e2c4c19da4
+    tag: 7dff656193977998135dc1517586903b5fef215e
     pullPolicy: IfNotPresent
   env:
     APP_ENV: dev
@@ -472,7 +472,7 @@ runtime:
     name: api-sa
   image:
     name: runtime
-    tag: d417b1af9c932bac246da0bdb7b987e2c4c19da4
+    tag: 7dff656193977998135dc1517586903b5fef215e
     pullPolicy: IfNotPresent
   cloudSqlProxy:
     enabled: true
@@ -560,7 +560,7 @@ sandbox:
       name: sandbox-exec-egress-mode-contract
   image:
     name: sandbox
-    tag: d417b1af9c932bac246da0bdb7b987e2c4c19da4
+    tag: 7dff656193977998135dc1517586903b5fef215e
     pullPolicy: IfNotPresent
   cloudSqlProxy:
     enabled: true
