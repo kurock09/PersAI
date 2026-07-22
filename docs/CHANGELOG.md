@@ -5,6 +5,12 @@
 
 ## 2026-07-22
 
+- **ADR-161 DeepSeek tool-loop developer freeze (local):** Runtime-only DeepSeek
+  path freezes `developerInstructions` for the turn’s tool loop and appends
+  mid-loop live guidance (deferred jobs, tool follow-up, source progression,
+  later working-files/open-loop) as volatile `system_reminder` messages after
+  `toolHistory`. OpenAI/Anthropic rebuild path unchanged. No D2a.
+
 - **Async media bubble ownership repair:** ordinary async jobs no longer pin
   completion into the turn acknowledgement (“request accepted”). Delivery and
   catch-up narration now converge on the job’s completion bubble so the ready

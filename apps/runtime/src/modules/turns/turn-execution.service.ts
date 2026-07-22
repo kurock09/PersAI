@@ -328,6 +328,19 @@ type TurnExecutionState = {
   /** ADR-135 S6 — per-turn catalog projection observability counters. */
   catalogToolMetrics: CatalogToolTurnMetrics;
   admittedWaitToolCallIds: Set<string>;
+  /**
+   * ADR-161 DeepSeek-only: freeze the developer suffix for the whole tool loop
+   * and append mid-loop live guidance (jobs, follow-up, progression, later
+   * working-files/open-loop updates) as volatile messages after toolHistory.
+   * Other providers keep rebuilding developerInstructions each iteration.
+   */
+  deepseekToolLoopDeveloperFreeze: DeepSeekToolLoopDeveloperFreezeState;
+};
+
+type DeepSeekToolLoopDeveloperFreezeState = {
+  frozenDeveloperInstructions: string | null;
+  lastLiveFingerprint: string | null;
+  liveAppendMessages: ProviderGatewayTextMessage[];
 };
 
 type ToolExecutionOutcome = {
@@ -1310,7 +1323,8 @@ export class TurnExecutionService {
             workingFilesContext: this.createWorkingFilesContext(
               turnState,
               this.resolveCurrentSessionRoot(execution.bundle, acceptedTurn.session.sessionId)
-            )
+            ),
+            deepseekToolLoopDeveloperFreeze: turnState.deepseekToolLoopDeveloperFreeze
           });
           this.recordToolLoopToolsJsonCharCount(turnState, iteration, providerRequest.tools);
           let advancedToNextIteration = false;
@@ -3202,7 +3216,8 @@ export class TurnExecutionService {
           workingFilesContext: this.createWorkingFilesContext(
             turnState,
             this.resolveCurrentSessionRoot(execution.bundle, acceptedTurn.session.sessionId)
-          )
+          ),
+          deepseekToolLoopDeveloperFreeze: turnState.deepseekToolLoopDeveloperFreeze
         });
         this.recordToolLoopToolsJsonCharCount(turnState, iteration, request.tools);
         providerResult = await this.generateTextWithRuntimeFallback({
@@ -4723,8 +4738,16 @@ export class TurnExecutionService {
         producedPaths: ReadonlySet<string>;
         currentSessionRoot?: string | null;
       };
+      /** DeepSeek-only freeze state; omit for other providers. */
+      deepseekToolLoopDeveloperFreeze?: DeepSeekToolLoopDeveloperFreezeState;
     }
   ): ProviderGatewayTextGenerateRequest {
+    if (
+      baseRequest.provider === "deepseek" &&
+      input.deepseekToolLoopDeveloperFreeze !== undefined
+    ) {
+      return this.buildDeepSeekFrozenToolLoopProviderRequest(baseRequest, input);
+    }
     const developerInstructions = this.buildToolLoopDeveloperInstructions(
       input.baseDeveloperInstructionSections,
       input.availableWorkingFileHandles,
@@ -4753,6 +4776,213 @@ export class TurnExecutionService {
       ...(input.forceFinalTextOnly === true ? { tools: [], toolChoice: "none" as const } : {}),
       requestMetadata: input.requestMetadata
     };
+  }
+
+  /**
+   * ADR-161 DeepSeek-only: keep `developerInstructions` byte-frozen for the
+   * whole tool loop. Mid-loop mutations (deferred jobs, tool follow-up,
+   * source progression, later working-files / open-loop updates) append as
+   * volatile `system_reminder` messages after toolHistory instead of rewriting
+   * the developer suffix. OpenAI/Anthropic keep the ordinary rebuild path.
+   */
+  private buildDeepSeekFrozenToolLoopProviderRequest(
+    baseRequest: ProviderGatewayTextGenerateRequest,
+    input: {
+      baseDeveloperInstructionSections: DeveloperInstructionSection[];
+      toolHistory: ProviderGatewayToolExchange[];
+      availableToolNames: string[];
+      availableWorkingFileHandles: RuntimeFileHandle[];
+      closedOpenLoopRefs: string[];
+      forceFinalTextOnly?: boolean;
+      deferredMediaJobs?: RuntimeDeferredMediaJobSummary[];
+      deferredDocumentJobs?: TurnExecutionState["deferredDocumentJobs"];
+      pendingFilePreviewBlocks?: ProviderGatewayMessageContentBlock[];
+      requestMetadata: ProviderGatewayRequestMetadata;
+      workingFilesContext?: {
+        currentChatId: string | null;
+        producedPaths: ReadonlySet<string>;
+        currentSessionRoot?: string | null;
+      };
+      deepseekToolLoopDeveloperFreeze?: DeepSeekToolLoopDeveloperFreezeState;
+    }
+  ): ProviderGatewayTextGenerateRequest {
+    const freeze = input.deepseekToolLoopDeveloperFreeze;
+    if (freeze === undefined) {
+      throw new Error("DeepSeek tool-loop freeze state is required.");
+    }
+    const forceFinalTextOnly = input.forceFinalTextOnly === true;
+    const deferredMediaJobs = input.deferredMediaJobs ?? [];
+    const deferredDocumentJobs = input.deferredDocumentJobs ?? [];
+    const hasToolHistory = input.toolHistory.length > 0;
+    const freezeAlreadySet = freeze.frozenDeveloperInstructions !== null;
+
+    if (!freezeAlreadySet) {
+      freeze.frozenDeveloperInstructions = this.buildDeepSeekFrozenDeveloperInstructions(
+        input.baseDeveloperInstructionSections,
+        input.availableWorkingFileHandles,
+        input.closedOpenLoopRefs,
+        input.workingFilesContext
+      );
+    }
+
+    const liveInstructions = this.buildDeepSeekLoopLiveDeveloperInstructions({
+      baseSections: input.baseDeveloperInstructionSections,
+      availableWorkingFileHandles: input.availableWorkingFileHandles,
+      closedOpenLoopRefs: input.closedOpenLoopRefs,
+      hasToolHistory,
+      toolHistory: input.toolHistory,
+      availableToolNames: input.availableToolNames,
+      forceFinalTextOnly,
+      deferredMediaJobs,
+      deferredDocumentJobs,
+      ...(input.workingFilesContext === undefined
+        ? {}
+        : { workingFilesContext: input.workingFilesContext }),
+      // After the frozen snapshot exists, later working-files / open-loop
+      // mutations append as live blocks instead of rewriting developer.
+      includeWorkingFilesAndOpenLoop: freezeAlreadySet
+    });
+    if (liveInstructions !== null) {
+      const liveFingerprint = liveInstructions;
+      if (liveFingerprint !== freeze.lastLiveFingerprint) {
+        freeze.liveAppendMessages.push({
+          role: "assistant",
+          content: liveInstructions,
+          cacheRole: "volatile_context",
+          volatileKind: "system_reminder"
+        });
+        freeze.lastLiveFingerprint = liveFingerprint;
+      }
+    }
+
+    const pendingFilePreviewBlocks = input.pendingFilePreviewBlocks ?? [];
+    const sealedToolExchangeBoundary = buildSealedToolExchangeBoundary(input.toolHistory);
+    const messages =
+      freeze.liveAppendMessages.length === 0
+        ? baseRequest.messages
+        : [...baseRequest.messages, ...freeze.liveAppendMessages];
+    return {
+      ...baseRequest,
+      ...(freeze.frozenDeveloperInstructions === null
+        ? {}
+        : { developerInstructions: freeze.frozenDeveloperInstructions }),
+      messages,
+      ...(input.toolHistory.length === 0 ? {} : { toolHistory: [...input.toolHistory] }),
+      ...(sealedToolExchangeBoundary === null ? {} : { sealedToolExchangeBoundary }),
+      ...(pendingFilePreviewBlocks.length === 0
+        ? {}
+        : { toolFollowUpUserContent: pendingFilePreviewBlocks }),
+      ...(forceFinalTextOnly ? { tools: [], toolChoice: "none" as const } : {}),
+      requestMetadata: input.requestMetadata
+    };
+  }
+
+  private buildDeepSeekFrozenDeveloperInstructions(
+    baseSections: DeveloperInstructionSection[],
+    availableWorkingFileHandles: RuntimeFileHandle[],
+    closedOpenLoopRefs: string[],
+    workingFilesContext?: {
+      currentChatId: string | null;
+      producedPaths: ReadonlySet<string>;
+      currentSessionRoot?: string | null;
+    }
+  ): string | null {
+    let sections = this.replaceDeveloperInstructionSection(
+      baseSections,
+      "working_files",
+      this.buildWorkingFilesDeveloperSection(availableWorkingFileHandles, workingFilesContext)
+    );
+    sections = this.replaceDeveloperInstructionSection(
+      sections,
+      "open_loop_refs",
+      this.turnContextHydrationService.pruneClosedOpenLoopRefsDeveloperBlock(
+        this.resolveDeveloperInstructionSectionContent(baseSections, "open_loop_refs"),
+        closedOpenLoopRefs
+      )
+    );
+    // Loop-only sections stay out of the frozen suffix; they append live.
+    sections = this.replaceDeveloperInstructionSection(sections, "source_progression", null);
+    sections = this.replaceDeveloperInstructionSection(sections, "tool_follow_up", null);
+    sections = this.replaceDeveloperInstructionSection(sections, "deferred_media_follow_up", null);
+    sections = this.replaceDeveloperInstructionSection(
+      sections,
+      "deferred_document_follow_up",
+      null
+    );
+    return this.renderDeveloperInstructionSections(sections);
+  }
+
+  private buildDeepSeekLoopLiveDeveloperInstructions(input: {
+    baseSections: DeveloperInstructionSection[];
+    availableWorkingFileHandles: RuntimeFileHandle[];
+    closedOpenLoopRefs: string[];
+    hasToolHistory: boolean;
+    toolHistory: ProviderGatewayToolExchange[];
+    availableToolNames: string[];
+    forceFinalTextOnly: boolean;
+    deferredMediaJobs: RuntimeDeferredMediaJobSummary[];
+    deferredDocumentJobs: TurnExecutionState["deferredDocumentJobs"];
+    workingFilesContext?: {
+      currentChatId: string | null;
+      producedPaths: ReadonlySet<string>;
+      currentSessionRoot?: string | null;
+    };
+    includeWorkingFilesAndOpenLoop: boolean;
+  }): string | null {
+    let sections: DeveloperInstructionSection[] = [];
+    if (input.includeWorkingFilesAndOpenLoop) {
+      sections = this.replaceDeveloperInstructionSection(
+        sections,
+        "working_files",
+        this.buildWorkingFilesDeveloperSection(
+          input.availableWorkingFileHandles,
+          input.workingFilesContext
+        )
+      );
+      sections = this.replaceDeveloperInstructionSection(
+        sections,
+        "open_loop_refs",
+        this.turnContextHydrationService.pruneClosedOpenLoopRefsDeveloperBlock(
+          this.resolveDeveloperInstructionSectionContent(input.baseSections, "open_loop_refs"),
+          input.closedOpenLoopRefs
+        )
+      );
+    }
+    if (input.hasToolHistory) {
+      sections = this.replaceDeveloperInstructionSection(
+        sections,
+        "source_progression",
+        this.buildSourceProgressionDeveloperSection(input.toolHistory, input.availableToolNames)
+      );
+      sections = this.replaceDeveloperInstructionSection(
+        sections,
+        "tool_follow_up",
+        input.forceFinalTextOnly
+          ? "A previous tool follow-up returned no visible answer. Do not call any more tools. Return a concise final user-visible answer now, based only on the tool results already provided."
+          : "After using tools, always return a concise final user-visible answer. Do not finish the turn with empty output."
+      );
+    } else if (input.forceFinalTextOnly) {
+      sections = this.replaceDeveloperInstructionSection(
+        sections,
+        "tool_follow_up",
+        "A previous tool follow-up returned no visible answer. Do not call any more tools. Return a concise final user-visible answer now, based only on the tool results already provided."
+      );
+    }
+    sections = this.replaceDeveloperInstructionSection(
+      sections,
+      "deferred_media_follow_up",
+      input.deferredMediaJobs.length > 0
+        ? this.buildDeferredMediaFollowUpInstruction(input.deferredMediaJobs)
+        : null
+    );
+    sections = this.replaceDeveloperInstructionSection(
+      sections,
+      "deferred_document_follow_up",
+      input.deferredDocumentJobs.length > 0
+        ? this.buildDeferredDocumentFollowUpInstruction(input.deferredDocumentJobs)
+        : null
+    );
+    return this.renderDeveloperInstructionSections(sections);
   }
 
   private buildContextOverflowRecoveryProviderRequest(
@@ -5704,7 +5934,12 @@ export class TurnExecutionService {
       workspaceId: "",
       loadedCatalogToolCodes: new Set<string>(),
       catalogToolMetrics: createEmptyCatalogToolTurnMetrics(),
-      admittedWaitToolCallIds: new Set<string>()
+      admittedWaitToolCallIds: new Set<string>(),
+      deepseekToolLoopDeveloperFreeze: {
+        frozenDeveloperInstructions: null,
+        lastLiveFingerprint: null,
+        liveAppendMessages: []
+      }
     };
   }
 
@@ -6330,7 +6565,8 @@ export class TurnExecutionService {
             input.execution.bundle,
             input.acceptedTurn.session.sessionId
           )
-        )
+        ),
+        deepseekToolLoopDeveloperFreeze: input.turnState.deepseekToolLoopDeveloperFreeze
       });
       const finalResult = await this.callPostFinalSelfCheckProvider({
         acceptedTurn: input.acceptedTurn,

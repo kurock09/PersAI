@@ -90,6 +90,24 @@ Implementation order for this amendment only:
 A0–A4 landed and pushed (`418d7fce`). A3 was confirm-only. Remaining:
 **A5** live evidence.
 
+### 2026-07-22 DeepSeek-only tool-loop developer freeze (local)
+
+Founder-directed Runtime experiment (no D2a, OpenAI/Anthropic unchanged):
+
+- On DeepSeek tool-loop requests, `developerInstructions` is snapshotted once
+  per turn (stable base sections; loop-only sections excluded from the freeze).
+- Mid-loop mutations (deferred media/document follow-up, tool follow-up,
+  source progression, later working-files / open-loop updates) append as
+  volatile `system_reminder` messages after `toolHistory` instead of rewriting
+  the developer suffix.
+- Identical live guidance does not append a duplicate block.
+- Gateway DeepSeek wire order stays
+  `system → history → toolHistory → volatile(+live appends) → frozen developer`.
+
+This does **not** claim DeepSeek cache acceptance; it is a measured attempt to
+keep the developer suffix byte-stable while the loop grows. Live 20-step
+`skill.list` evidence remains required under A5.
+
 Out of scope for the amendment: billing/usage v2 changes, UI, new synopsis
 product, permanent dual serializers, feature flags, and any redesign of the
 existing 100% `SessionCompactionService` path.

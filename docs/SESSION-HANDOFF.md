@@ -1,5 +1,16 @@
 # SESSION-HANDOFF
 
+## 2026-07-22 — ADR-161 DeepSeek tool-loop developer freeze (local)
+
+Founder ask: DeepSeek-only, do not touch other providers. Runtime freezes
+`developerInstructions` for the tool loop and appends mid-loop live guidance
+(jobs / follow-up / progression / later working-files) as volatile
+`system_reminder` messages after `toolHistory`. OpenAI path unchanged (still
+rebuilds developer). Focused test registered in `run-suite-isolated.ts`
+(`runDeepseekToolLoopDeveloperFreezeTest`). Independent Grok audit CLEAN
+(no P0/P1; suite wiring P2 fixed). Lint/format/typecheck/full `pnpm test` PASS.
+Next after push: deploy runtime then DeepSeek 20× `skill.list` cache compare.
+
 ## 2026-07-22 — Async media bubble ownership repair (follow-up)
 
 Founder live smoke after `6f3b627f`: cat image still landed on the

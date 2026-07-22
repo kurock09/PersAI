@@ -166,6 +166,10 @@ const TESTS: Array<{ modulePath: string; exportName: string }> = [
     modulePath: "./prior-tool-exchange-replay.test.ts",
     exportName: "runPriorToolExchangeReplayTest"
   },
+  {
+    modulePath: "./deepseek-tool-loop-developer-freeze.test.ts",
+    exportName: "runDeepseekToolLoopDeveloperFreezeTest"
+  },
   { modulePath: "./turn-execution.service.test.ts", exportName: "runTurnExecutionServiceTest" },
   {
     modulePath: "./turn-execution.service.test.ts",
