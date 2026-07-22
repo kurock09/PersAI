@@ -51,6 +51,7 @@ import { dispatchProjectFilesChanged } from "./project-files-events";
 import { scopeThreadKey, useStreamingThreadsRegistry } from "./streaming-threads";
 /** * Pre-headers timeout (ms) for `streamAssistantWebChatTurn`. If the server * does not return 2xx headers within this window, the request is aborted * and the user bubble flips to "send_failed". 10s is well above normal * server response time but short enough to feel responsive on flaky * mobile networks. (ADR-075 T� "Single-slot pending send".) */ const HEADERS_TIMEOUT_MS = 10_000;
 /** Avoid duplicate focus/visibility refresh bursts from the same browser resume. */ const RESUME_REFRESH_DEBOUNCE_MS = 1_500;
+/** Skip resume refresh right after history hydrate (F5 fires pageshow immediately). */ const HISTORY_HYDRATION_QUIET_MS = 4_000;
 const SOFT_DETACH_RECONCILE_INTERVAL_MS = 2_000;
 const SOFT_DETACH_RECONCILE_MAX_ATTEMPTS = 60;
 const SOFT_DETACH_RECONCILE_LONG_INTERVAL_MS = 10_000;
@@ -1078,23 +1079,24 @@ function isPassiveStreamDisconnect(error: unknown): boolean {
   return false;
 }
 function sortChatMessagesChronologically(messages: ChatMessage[]): ChatMessage[] {
-  return messages
-    .map((message, index) => ({ message, index }))
-    .sort((left, right) => {
-      const leftMs = Date.parse(left.message.createdAt ?? "");
-      const rightMs = Date.parse(right.message.createdAt ?? "");
-      const leftFinite = Number.isFinite(leftMs);
-      const rightFinite = Number.isFinite(rightMs);
-      if (leftFinite && rightFinite && leftMs !== rightMs) {
-        return leftMs - rightMs;
-      }
-      if (leftFinite !== rightFinite) {
-        return leftFinite ? -1 : 1;
-      }
-      // Stable fallback: keep prior merge order (never lexicographic id order).
-      return left.index - right.index;
-    })
-    .map(({ message }) => message);
+  return [...messages].sort((left, right) => {
+    const leftMs = Date.parse(left.createdAt ?? "");
+    const rightMs = Date.parse(right.createdAt ?? "");
+    const leftFinite = Number.isFinite(leftMs);
+    const rightFinite = Number.isFinite(rightMs);
+    if (leftFinite && rightFinite && leftMs !== rightMs) {
+      return leftMs - rightMs;
+    }
+    if (leftFinite !== rightFinite) {
+      return leftFinite ? -1 : 1;
+    }
+    // Stable fallback: user before assistant at equal/missing timestamp, then id.
+    if (left.role !== right.role) {
+      if (left.role === "user") return -1;
+      if (right.role === "user") return 1;
+    }
+    return left.id.localeCompare(right.id);
+  });
 }
 
 function mergeChatMessagesById(...groups: ChatMessage[][]): ChatMessage[] {
@@ -1559,6 +1561,8 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
   >(new Map());
   const resumeRefreshInFlightRef = useRef(false);
   const historyLoadedRef = useRef<Set<string>>(new Set());
+  const historyLoadInFlightByChatIdRef = useRef<Map<string, Promise<void>>>(new Map());
+  const lastHistoryCommitAtRef = useRef(0);
   const olderCursorRef = useRef<string | null>(null);
   const activeChatIdRef = useRef<string | null>(null);
   const activeMediaJobsRef = useRef<WebChatActiveMediaJobState[]>([]);
@@ -3885,7 +3889,16 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
         return;
       }
       const now = Date.now();
+      if (
+        lastHistoryCommitAtRef.current > 0 &&
+        now - lastHistoryCommitAtRef.current < HISTORY_HYDRATION_QUIET_MS
+      ) {
+        return;
+      }
       if (now - lastResumeRefreshAtRef.current < RESUME_REFRESH_DEBOUNCE_MS) {
+        return;
+      }
+      if (historyLoadInFlightByChatIdRef.current.size > 0) {
         return;
       }
       if (resumeRefreshInFlightRef.current) {
@@ -5765,289 +5778,310 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
   }, [replaceActiveDocumentJobs, replaceActiveMediaJobs, replaceActiveSandboxJobs]);
   const loadHistory = useCallback(
     async (targetChatId: string) => {
-      const cachedThreadKey = cachedThreadKeyByChatIdRef.current.get(targetChatId);
-      const cachedHistory =
-        cachedThreadKey === undefined
-          ? undefined
-          : cachedThreadHistorySnapshotsRef.current.get(cachedThreadKey);
-      const targetThreadKey = currentThreadKeyRef.current;
-      const activeSnapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
-      if (cachedHistory !== undefined) {
-        const cachedControllerEntry = abortControllersByThreadRef.current.get(targetThreadKey);
-        const cachedLocalStreamDead =
-          activeSnapshot === undefined ||
-          cachedControllerEntry === undefined ||
-          cachedControllerEntry.clientTurnId !== activeSnapshot.clientTurnId;
-        const merged = mergeCommittedHistoryWithActiveTurn({
-          loaded: cachedHistory.messages,
-          activeSnapshot,
-          localStreamDead: cachedLocalStreamDead
-        });
-        if (merged.replacedActiveTurn && activeSnapshot !== undefined) {
-          clearStoredActiveTurnClientTurnId(targetThreadKey, activeSnapshot.clientTurnId);
-          activeTurnSnapshotsRef.current.delete(targetThreadKey);
-          abortControllersByThreadRef.current.get(targetThreadKey)?.controller.abort();
-          abortControllersByThreadRef.current.delete(targetThreadKey);
-          markStreaming(targetThreadKey, false);
-          setLiveActivitiesByMessageId({});
-          setThreadPendingSend(targetThreadKey, null);
-        } else if (activeSnapshot !== undefined) {
-          const nextSnapshot = {
-            ...activeSnapshot,
-            messages: merged.messages,
-            chatId: targetChatId
-          };
-          activeTurnSnapshotsRef.current.set(targetThreadKey, nextSnapshot);
-          auditActiveTurnSnapshotMessages(
-            "loadHistory:cached-merge",
-            targetThreadKey,
-            nextSnapshot
-          );
-        }
-        setMessages(merged.messages);
-        olderCursorRef.current = cachedHistory.olderCursor;
-        activeChatIdRef.current = targetChatId;
-        setHasOlderMessages(cachedHistory.hasOlderMessages);
-        replaceActiveMediaJobs(cachedHistory.activeMediaJobs);
-        replaceActiveDocumentJobs(cachedHistory.activeDocumentJobs);
-        replaceActiveSandboxJobs(cachedHistory.activeSandboxJobs ?? []);
-        setChatId(targetChatId);
-        setHistoryLoading(false);
+      const inFlight = historyLoadInFlightByChatIdRef.current.get(targetChatId);
+      if (inFlight !== undefined) {
+        return inFlight;
       }
-      const token = await getToken();
-      if (!token) return;
-      setHistoryLoading(cachedHistory === undefined);
-      try {
-        const page = await getChatMessages(token, targetChatId, undefined, 20);
-        const nextActiveMediaJobs = page.activeMediaJobs ?? [];
-        const nextActiveDocumentJobs = page.activeDocumentJobs ?? [];
-        const nextActiveSandboxJobs = page.activeSandboxJobs ?? [];
-        const loaded: ChatMessage[] = page.messages
-          .map(toCommittedChatMessage)
-          .filter((message): message is ChatMessage => message !== null);
-        const hasAuthoritativeActiveTurn = Object.prototype.hasOwnProperty.call(page, "activeTurn");
-        const rawActiveTurn = hasAuthoritativeActiveTurn ? (page.activeTurn ?? null) : null;
-        const localActiveSnapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
-        const loadHistoryControllerEntry = abortControllersByThreadRef.current.get(targetThreadKey);
-        const localStreamDeadForHistory =
-          localActiveSnapshot === undefined ||
-          loadHistoryControllerEntry === undefined ||
-          loadHistoryControllerEntry.clientTurnId !== localActiveSnapshot.clientTurnId;
-        const serverActiveTurnAlreadyCommitted =
-          rawActiveTurn !== null &&
-          committedHistoryHasActiveTurnResult(loaded, rawActiveTurn, {
-            localStreamDead: localStreamDeadForHistory
+      const loadPromise = (async (): Promise<void> => {
+        const cachedThreadKey = cachedThreadKeyByChatIdRef.current.get(targetChatId);
+        const cachedHistory =
+          cachedThreadKey === undefined
+            ? undefined
+            : cachedThreadHistorySnapshotsRef.current.get(cachedThreadKey);
+        const targetThreadKey = currentThreadKeyRef.current;
+        const activeSnapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
+        const alreadyLoadedForChat = historyLoadedRef.current.has(targetChatId);
+        if (cachedHistory !== undefined && !alreadyLoadedForChat) {
+          const cachedControllerEntry = abortControllersByThreadRef.current.get(targetThreadKey);
+          const cachedLocalStreamDead =
+            activeSnapshot === undefined ||
+            cachedControllerEntry === undefined ||
+            cachedControllerEntry.clientTurnId !== activeSnapshot.clientTurnId;
+          const merged = mergeCommittedHistoryWithActiveTurn({
+            loaded: cachedHistory.messages,
+            activeSnapshot,
+            localStreamDead: cachedLocalStreamDead
           });
-        const localActiveSnapshotAlreadyCommitted = committedHistoryHasActiveSnapshotResult(
-          loaded,
-          localActiveSnapshot,
-          { localStreamDead: localStreamDeadForHistory }
-        );
-        const shouldClearAuthoritativeActiveTurn =
-          hasAuthoritativeActiveTurn &&
-          (serverActiveTurnAlreadyCommitted ||
-            (rawActiveTurn === null && localActiveSnapshotAlreadyCommitted));
-        const projectedActiveTurn =
-          rawActiveTurn !== null &&
-          !serverActiveTurnAlreadyCommitted &&
-          localActiveSnapshot === undefined
-            ? rawActiveTurn
-            : null;
-        const activeOverlay = projectedActiveTurn
-          ? toActiveTurnOverlayMessages(projectedActiveTurn)
-          : {
-              messages: [],
-              liveActivitiesByMessageId: {},
-              liveUserMessageId: null,
-              liveAssistantMessageId: null
+          if (merged.replacedActiveTurn && activeSnapshot !== undefined) {
+            clearStoredActiveTurnClientTurnId(targetThreadKey, activeSnapshot.clientTurnId);
+            activeTurnSnapshotsRef.current.delete(targetThreadKey);
+            abortControllersByThreadRef.current.get(targetThreadKey)?.controller.abort();
+            abortControllersByThreadRef.current.delete(targetThreadKey);
+            markStreaming(targetThreadKey, false);
+            setLiveActivitiesByMessageId({});
+            setThreadPendingSend(targetThreadKey, null);
+          } else if (activeSnapshot !== undefined) {
+            const nextSnapshot = {
+              ...activeSnapshot,
+              messages: merged.messages,
+              chatId: targetChatId
             };
-        let messagesForCache = mergeChatMessagesById(loaded, activeOverlay.messages);
-        // ADR-162 P4: overlay wins id merge but must not wipe publish attachments.
-        if (activeOverlay.liveAssistantMessageId !== null) {
-          const loadedPublish = loaded.find(
-            (message) => message.id === activeOverlay.liveAssistantMessageId
-          );
-          if (loadedPublish?.attachments !== undefined && loadedPublish.attachments.length > 0) {
-            messagesForCache = messagesForCache.map((message) =>
-              message.id === activeOverlay.liveAssistantMessageId &&
-              (message.attachments === undefined || message.attachments.length === 0)
-                ? { ...message, attachments: loadedPublish.attachments }
-                : message
+            activeTurnSnapshotsRef.current.set(targetThreadKey, nextSnapshot);
+            auditActiveTurnSnapshotMessages(
+              "loadHistory:cached-merge",
+              targetThreadKey,
+              nextSnapshot
             );
           }
+          setMessages(merged.messages);
+          olderCursorRef.current = cachedHistory.olderCursor;
+          activeChatIdRef.current = targetChatId;
+          setHasOlderMessages(cachedHistory.hasOlderMessages);
+          replaceActiveMediaJobs(cachedHistory.activeMediaJobs);
+          replaceActiveDocumentJobs(cachedHistory.activeDocumentJobs);
+          replaceActiveSandboxJobs(cachedHistory.activeSandboxJobs ?? []);
+          setChatId(targetChatId);
+          setHistoryLoading(false);
         }
-        if (
-          loaded.length === 0 &&
-          localActiveSnapshot !== undefined &&
-          projectedActiveTurn === null
-        ) {
-          messagesForCache = localActiveSnapshot.messages;
-        }
-        if (loaded.length > 0) {
-          const currentActiveSnapshot =
-            projectedActiveTurn !== null ? undefined : localActiveSnapshot;
-          if (currentActiveSnapshot !== undefined) {
-            const authoritativeControllerEntry =
-              abortControllersByThreadRef.current.get(targetThreadKey);
-            const authoritativeLocalStreamDead =
-              authoritativeControllerEntry === undefined ||
-              authoritativeControllerEntry.clientTurnId !== currentActiveSnapshot.clientTurnId;
-            const merged = mergeCommittedHistoryWithActiveTurn({
-              loaded,
-              activeSnapshot: currentActiveSnapshot,
-              baseMessages: currentThreadKeyRef.current === targetThreadKey ? messages : undefined,
-              localStreamDead: authoritativeLocalStreamDead
-            });
-            messagesForCache = merged.messages;
-            if (merged.replacedActiveTurn) {
-              clearStoredActiveTurnClientTurnId(
-                targetThreadKey,
-                currentActiveSnapshot.clientTurnId
-              );
-              activeTurnSnapshotsRef.current.delete(targetThreadKey);
-              abortControllersByThreadRef.current.get(targetThreadKey)?.controller.abort();
-              abortControllersByThreadRef.current.delete(targetThreadKey);
-              markStreaming(targetThreadKey, false);
-              setLiveActivitiesByMessageId({});
-              setThreadPendingSend(targetThreadKey, null);
-            } else {
-              const nextSnapshot = {
-                ...currentActiveSnapshot,
-                messages: merged.messages,
-                chatId: targetChatId
-              };
-              activeTurnSnapshotsRef.current.set(targetThreadKey, nextSnapshot);
-              auditActiveTurnSnapshotMessages(
-                "loadHistory:authoritative-merge",
-                targetThreadKey,
-                nextSnapshot
-              );
-            }
-            setMessages(merged.messages);
-          } else if (currentThreadKeyRef.current === targetThreadKey) {
-            if (hasAuthoritativeActiveTurn) {
-              setMessages(messagesForCache);
-            } else {
-              setMessages((prev) => {
-                const loadedIds = new Set(loaded.map((message) => message.id));
-                const existingIds = new Set(prev.map((m) => m.id));
-                const newHistory = loaded.filter((m) => !existingIds.has(m.id));
-                const sanitizedPrev = prev.filter((message) => {
-                  if (loadedIds.has(message.id)) return false;
-                  return (
-                    !isOptimisticLocalMessage(message) &&
-                    !isTransientActiveAssistantMessage(message)
-                  );
-                });
-                const nextMessages = [...newHistory, ...sanitizedPrev];
-                messagesForCache = nextMessages;
-                return nextMessages;
-              });
-            }
-          }
-        } else if (currentThreadKeyRef.current === targetThreadKey) {
-          setMessages(messagesForCache);
-        }
-        if (shouldClearAuthoritativeActiveTurn) {
-          messagesForCache = messagesForCache.filter(
-            (message) => !isTransientActiveAssistantMessage(message)
+        const token = await getToken();
+        if (!token) return;
+        setHistoryLoading(cachedHistory === undefined);
+        try {
+          const page = await getChatMessages(token, targetChatId, undefined, 20);
+          const nextActiveMediaJobs = page.activeMediaJobs ?? [];
+          const nextActiveDocumentJobs = page.activeDocumentJobs ?? [];
+          const nextActiveSandboxJobs = page.activeSandboxJobs ?? [];
+          const loaded: ChatMessage[] = page.messages
+            .map(toCommittedChatMessage)
+            .filter((message): message is ChatMessage => message !== null);
+          const hasAuthoritativeActiveTurn = Object.prototype.hasOwnProperty.call(
+            page,
+            "activeTurn"
           );
-          const activeClientTurnId =
-            localActiveSnapshot?.clientTurnId ?? rawActiveTurn?.clientTurnId;
-          if (activeClientTurnId !== undefined) {
-            softDetachedClientTurnIdsRef.current.delete(activeClientTurnId);
-            clearStoredActiveTurnClientTurnId(targetThreadKey, activeClientTurnId);
+          const rawActiveTurn = hasAuthoritativeActiveTurn ? (page.activeTurn ?? null) : null;
+          const localActiveSnapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
+          const loadHistoryControllerEntry =
+            abortControllersByThreadRef.current.get(targetThreadKey);
+          const localStreamDeadForHistory =
+            localActiveSnapshot === undefined ||
+            loadHistoryControllerEntry === undefined ||
+            loadHistoryControllerEntry.clientTurnId !== localActiveSnapshot.clientTurnId;
+          const serverActiveTurnAlreadyCommitted =
+            rawActiveTurn !== null &&
+            committedHistoryHasActiveTurnResult(loaded, rawActiveTurn, {
+              localStreamDead: localStreamDeadForHistory
+            });
+          const localActiveSnapshotAlreadyCommitted = committedHistoryHasActiveSnapshotResult(
+            loaded,
+            localActiveSnapshot,
+            { localStreamDead: localStreamDeadForHistory }
+          );
+          const shouldClearAuthoritativeActiveTurn =
+            hasAuthoritativeActiveTurn &&
+            (serverActiveTurnAlreadyCommitted ||
+              (rawActiveTurn === null && localActiveSnapshotAlreadyCommitted));
+          const projectedActiveTurn =
+            rawActiveTurn !== null &&
+            !serverActiveTurnAlreadyCommitted &&
+            localActiveSnapshot === undefined
+              ? rawActiveTurn
+              : null;
+          const activeOverlay = projectedActiveTurn
+            ? toActiveTurnOverlayMessages(projectedActiveTurn)
+            : {
+                messages: [],
+                liveActivitiesByMessageId: {},
+                liveUserMessageId: null,
+                liveAssistantMessageId: null
+              };
+          let messagesForCache = mergeChatMessagesById(loaded, activeOverlay.messages);
+          // ADR-162 P4: overlay wins id merge but must not wipe publish attachments.
+          if (activeOverlay.liveAssistantMessageId !== null) {
+            const loadedPublish = loaded.find(
+              (message) => message.id === activeOverlay.liveAssistantMessageId
+            );
+            if (loadedPublish?.attachments !== undefined && loadedPublish.attachments.length > 0) {
+              messagesForCache = messagesForCache.map((message) =>
+                message.id === activeOverlay.liveAssistantMessageId &&
+                (message.attachments === undefined || message.attachments.length === 0)
+                  ? { ...message, attachments: loadedPublish.attachments }
+                  : message
+              );
+            }
           }
-          activeTurnSnapshotsRef.current.delete(targetThreadKey);
-          abortControllersByThreadRef.current.get(targetThreadKey)?.controller.abort();
-          abortControllersByThreadRef.current.delete(targetThreadKey);
-          setLiveActivitiesByMessageId({});
-          markStreaming(targetThreadKey, false);
-          setThreadPendingSend(targetThreadKey, null);
-          if (currentThreadKeyRef.current === targetThreadKey) {
+          if (
+            loaded.length === 0 &&
+            localActiveSnapshot !== undefined &&
+            projectedActiveTurn === null
+          ) {
+            messagesForCache = localActiveSnapshot.messages;
+          }
+          if (loaded.length > 0) {
+            const currentActiveSnapshot =
+              projectedActiveTurn !== null ? undefined : localActiveSnapshot;
+            if (currentActiveSnapshot !== undefined) {
+              const authoritativeControllerEntry =
+                abortControllersByThreadRef.current.get(targetThreadKey);
+              const authoritativeLocalStreamDead =
+                authoritativeControllerEntry === undefined ||
+                authoritativeControllerEntry.clientTurnId !== currentActiveSnapshot.clientTurnId;
+              const merged = mergeCommittedHistoryWithActiveTurn({
+                loaded,
+                activeSnapshot: currentActiveSnapshot,
+                baseMessages:
+                  currentThreadKeyRef.current === targetThreadKey ? messages : undefined,
+                localStreamDead: authoritativeLocalStreamDead
+              });
+              messagesForCache = merged.messages;
+              if (merged.replacedActiveTurn) {
+                clearStoredActiveTurnClientTurnId(
+                  targetThreadKey,
+                  currentActiveSnapshot.clientTurnId
+                );
+                activeTurnSnapshotsRef.current.delete(targetThreadKey);
+                abortControllersByThreadRef.current.get(targetThreadKey)?.controller.abort();
+                abortControllersByThreadRef.current.delete(targetThreadKey);
+                markStreaming(targetThreadKey, false);
+                setLiveActivitiesByMessageId({});
+                setThreadPendingSend(targetThreadKey, null);
+              } else {
+                const nextSnapshot = {
+                  ...currentActiveSnapshot,
+                  messages: merged.messages,
+                  chatId: targetChatId
+                };
+                activeTurnSnapshotsRef.current.set(targetThreadKey, nextSnapshot);
+                auditActiveTurnSnapshotMessages(
+                  "loadHistory:authoritative-merge",
+                  targetThreadKey,
+                  nextSnapshot
+                );
+              }
+              setMessages(merged.messages);
+            } else if (currentThreadKeyRef.current === targetThreadKey) {
+              if (hasAuthoritativeActiveTurn) {
+                setMessages(messagesForCache);
+              } else {
+                setMessages((prev) => {
+                  const loadedIds = new Set(loaded.map((message) => message.id));
+                  const existingIds = new Set(prev.map((m) => m.id));
+                  const newHistory = loaded.filter((m) => !existingIds.has(m.id));
+                  const sanitizedPrev = prev.filter((message) => {
+                    if (loadedIds.has(message.id)) return false;
+                    return (
+                      !isOptimisticLocalMessage(message) &&
+                      !isTransientActiveAssistantMessage(message)
+                    );
+                  });
+                  const nextMessages = [...newHistory, ...sanitizedPrev];
+                  messagesForCache = nextMessages;
+                  return nextMessages;
+                });
+              }
+            }
+          } else if (currentThreadKeyRef.current === targetThreadKey) {
             setMessages(messagesForCache);
           }
-        }
-        if (projectedActiveTurn) {
-          const nextSnapshot = {
-            clientTurnId: projectedActiveTurn.clientTurnId,
+          if (shouldClearAuthoritativeActiveTurn) {
+            messagesForCache = messagesForCache.filter(
+              (message) => !isTransientActiveAssistantMessage(message)
+            );
+            const activeClientTurnId =
+              localActiveSnapshot?.clientTurnId ?? rawActiveTurn?.clientTurnId;
+            if (activeClientTurnId !== undefined) {
+              softDetachedClientTurnIdsRef.current.delete(activeClientTurnId);
+              clearStoredActiveTurnClientTurnId(targetThreadKey, activeClientTurnId);
+            }
+            activeTurnSnapshotsRef.current.delete(targetThreadKey);
+            abortControllersByThreadRef.current.get(targetThreadKey)?.controller.abort();
+            abortControllersByThreadRef.current.delete(targetThreadKey);
+            setLiveActivitiesByMessageId({});
+            markStreaming(targetThreadKey, false);
+            setThreadPendingSend(targetThreadKey, null);
+            if (currentThreadKeyRef.current === targetThreadKey) {
+              setMessages(messagesForCache);
+            }
+          }
+          if (projectedActiveTurn) {
+            const nextSnapshot = {
+              clientTurnId: projectedActiveTurn.clientTurnId,
+              messages: messagesForCache,
+              liveUserMessageId: activeOverlay.liveUserMessageId,
+              liveAssistantMessageId:
+                activeOverlay.liveAssistantMessageId ??
+                `active-assistant-${projectedActiveTurn.clientTurnId}`,
+              liveActivitiesByMessageId: activeOverlay.liveActivitiesByMessageId,
+              shadowRoutingLabelsByMessageId: {},
+              chatId: targetChatId,
+              compactionRunning: false
+            };
+            activeTurnSnapshotsRef.current.set(targetThreadKey, nextSnapshot);
+            auditActiveTurnSnapshotMessages(
+              "loadHistory:projected-active-turn",
+              targetThreadKey,
+              nextSnapshot
+            );
+            writeStoredActiveTurnClientTurnId(targetThreadKey, projectedActiveTurn.clientTurnId);
+            setLiveActivitiesByMessageId(activeOverlay.liveActivitiesByMessageId);
+            markStreaming(targetThreadKey, true);
+          } else if (
+            rawActiveTurn !== null &&
+            hasAuthoritativeActiveTurn &&
+            !activeThreads.has(targetThreadKey) &&
+            !abortControllersByThreadRef.current.has(targetThreadKey)
+          ) {
+            softDetachedClientTurnIdsRef.current.delete(rawActiveTurn.clientTurnId);
+            clearStoredActiveTurnClientTurnId(targetThreadKey, rawActiveTurn.clientTurnId);
+            activeTurnSnapshotsRef.current.delete(targetThreadKey);
+            setLiveActivitiesByMessageId({});
+            markStreaming(targetThreadKey, false);
+          }
+          olderCursorRef.current = page.nextCursor;
+          activeChatIdRef.current = targetChatId;
+          setHasOlderMessages(page.nextCursor !== null);
+          replaceActiveMediaJobs(nextActiveMediaJobs);
+          replaceActiveDocumentJobs(nextActiveDocumentJobs);
+          replaceActiveSandboxJobs(nextActiveSandboxJobs);
+          if (currentThreadKeyRef.current === targetThreadKey) {
+            setCurrentEngagement(page.currentEngagement ?? null);
+            applyPendingBrowserLoginForThread(targetThreadKey, page.pendingBrowserLogin ?? null);
+          }
+          setChatId(targetChatId);
+          cachedThreadHistorySnapshotsRef.current.set(targetThreadKey, {
+            clientTurnId:
+              projectedActiveTurn?.clientTurnId ?? localActiveSnapshot?.clientTurnId ?? "",
             messages: messagesForCache,
-            liveUserMessageId: activeOverlay.liveUserMessageId,
+            liveUserMessageId:
+              projectedActiveTurn !== null
+                ? activeOverlay.liveUserMessageId
+                : (localActiveSnapshot?.liveUserMessageId ?? null),
             liveAssistantMessageId:
-              activeOverlay.liveAssistantMessageId ??
-              `active-assistant-${projectedActiveTurn.clientTurnId}`,
-            liveActivitiesByMessageId: activeOverlay.liveActivitiesByMessageId,
+              projectedActiveTurn !== null
+                ? (activeOverlay.liveAssistantMessageId ??
+                  `active-assistant-${projectedActiveTurn.clientTurnId}`)
+                : (localActiveSnapshot?.liveAssistantMessageId ??
+                  `local-assistant-${localActiveSnapshot?.clientTurnId ?? ""}`),
+            liveActivitiesByMessageId:
+              projectedActiveTurn !== null
+                ? activeOverlay.liveActivitiesByMessageId
+                : (localActiveSnapshot?.liveActivitiesByMessageId ?? {}),
             shadowRoutingLabelsByMessageId: {},
             chatId: targetChatId,
-            compactionRunning: false
-          };
-          activeTurnSnapshotsRef.current.set(targetThreadKey, nextSnapshot);
-          auditActiveTurnSnapshotMessages(
-            "loadHistory:projected-active-turn",
-            targetThreadKey,
-            nextSnapshot
-          );
-          writeStoredActiveTurnClientTurnId(targetThreadKey, projectedActiveTurn.clientTurnId);
-          setLiveActivitiesByMessageId(activeOverlay.liveActivitiesByMessageId);
-          markStreaming(targetThreadKey, true);
-        } else if (
-          rawActiveTurn !== null &&
-          hasAuthoritativeActiveTurn &&
-          !activeThreads.has(targetThreadKey) &&
-          !abortControllersByThreadRef.current.has(targetThreadKey)
-        ) {
-          softDetachedClientTurnIdsRef.current.delete(rawActiveTurn.clientTurnId);
-          clearStoredActiveTurnClientTurnId(targetThreadKey, rawActiveTurn.clientTurnId);
-          activeTurnSnapshotsRef.current.delete(targetThreadKey);
-          setLiveActivitiesByMessageId({});
-          markStreaming(targetThreadKey, false);
+            compactionRunning: false,
+            olderCursor: page.nextCursor,
+            hasOlderMessages: page.nextCursor !== null,
+            activeMediaJobs: nextActiveMediaJobs,
+            activeDocumentJobs: nextActiveDocumentJobs,
+            activeSandboxJobs: nextActiveSandboxJobs
+          });
+          cachedThreadKeyByChatIdRef.current.set(targetChatId, targetThreadKey);
+          void refreshCompactionState(targetChatId);
+          void refreshChatPlan();
+          historyLoadedRef.current.add(targetChatId);
+          lastHistoryCommitAtRef.current = Date.now();
+        } catch {
+          /* non-critical */
         }
-        olderCursorRef.current = page.nextCursor;
-        activeChatIdRef.current = targetChatId;
-        setHasOlderMessages(page.nextCursor !== null);
-        replaceActiveMediaJobs(nextActiveMediaJobs);
-        replaceActiveDocumentJobs(nextActiveDocumentJobs);
-        replaceActiveSandboxJobs(nextActiveSandboxJobs);
-        if (currentThreadKeyRef.current === targetThreadKey) {
-          setCurrentEngagement(page.currentEngagement ?? null);
-          applyPendingBrowserLoginForThread(targetThreadKey, page.pendingBrowserLogin ?? null);
+        setHistoryLoading(false);
+      })();
+      historyLoadInFlightByChatIdRef.current.set(targetChatId, loadPromise);
+      try {
+        await loadPromise;
+      } finally {
+        if (historyLoadInFlightByChatIdRef.current.get(targetChatId) === loadPromise) {
+          historyLoadInFlightByChatIdRef.current.delete(targetChatId);
         }
-        setChatId(targetChatId);
-        cachedThreadHistorySnapshotsRef.current.set(targetThreadKey, {
-          clientTurnId:
-            projectedActiveTurn?.clientTurnId ?? localActiveSnapshot?.clientTurnId ?? "",
-          messages: messagesForCache,
-          liveUserMessageId:
-            projectedActiveTurn !== null
-              ? activeOverlay.liveUserMessageId
-              : (localActiveSnapshot?.liveUserMessageId ?? null),
-          liveAssistantMessageId:
-            projectedActiveTurn !== null
-              ? (activeOverlay.liveAssistantMessageId ??
-                `active-assistant-${projectedActiveTurn.clientTurnId}`)
-              : (localActiveSnapshot?.liveAssistantMessageId ??
-                `local-assistant-${localActiveSnapshot?.clientTurnId ?? ""}`),
-          liveActivitiesByMessageId:
-            projectedActiveTurn !== null
-              ? activeOverlay.liveActivitiesByMessageId
-              : (localActiveSnapshot?.liveActivitiesByMessageId ?? {}),
-          shadowRoutingLabelsByMessageId: {},
-          chatId: targetChatId,
-          compactionRunning: false,
-          olderCursor: page.nextCursor,
-          hasOlderMessages: page.nextCursor !== null,
-          activeMediaJobs: nextActiveMediaJobs,
-          activeDocumentJobs: nextActiveDocumentJobs,
-          activeSandboxJobs: nextActiveSandboxJobs
-        });
-        cachedThreadKeyByChatIdRef.current.set(targetChatId, targetThreadKey);
-        void refreshCompactionState(targetChatId);
-        void refreshChatPlan();
-        historyLoadedRef.current.add(targetChatId);
-      } catch {
-        /* non-critical */
       }
-      setHistoryLoading(false);
     },
     [
       activeThreads,

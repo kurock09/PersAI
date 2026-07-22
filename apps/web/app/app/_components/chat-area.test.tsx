@@ -316,17 +316,24 @@ describe("ChatArea", () => {
   it("keeps auto-scrolling while the last assistant message streams new content", () => {
     const { container, rerender } = render(<ChatArea chat={createChat("Hello")} />);
     const scrollContainer = container.querySelector(".overflow-y-auto") as HTMLDivElement;
-    const scrollTo = vi.fn();
-    Object.defineProperty(scrollContainer, "scrollTo", {
+    let scrollTopValue = 0;
+    Object.defineProperty(scrollContainer, "scrollHeight", {
       configurable: true,
-      value: scrollTo
+      get: () => 800
+    });
+    Object.defineProperty(scrollContainer, "scrollTop", {
+      configurable: true,
+      get: () => scrollTopValue,
+      set: (value: number) => {
+        scrollTopValue = value;
+      }
     });
 
-    scrollTo.mockClear();
+    scrollTopValue = 0;
 
     rerender(<ChatArea chat={createChat("Hello world")} />);
 
-    expect(scrollTo).toHaveBeenCalled();
+    expect(scrollTopValue).toBe(800);
   });
 
   it("preserves scroll position when older messages are prepended", () => {
@@ -1010,12 +1017,8 @@ describe("ChatArea", () => {
         <ChatArea chat={createChat(["Older", "Latest"], { isStreaming: true })} />
       );
       const scrollContainer = container.querySelector(".overflow-y-auto") as HTMLDivElement;
-      const scrollTo = vi.fn();
+      let scrollTopValue = 800;
       let scrollHeight = 800;
-      Object.defineProperty(scrollContainer, "scrollTo", {
-        configurable: true,
-        value: scrollTo
-      });
       Object.defineProperty(scrollContainer, "scrollHeight", {
         configurable: true,
         get: () => scrollHeight
@@ -1024,20 +1027,27 @@ describe("ChatArea", () => {
         configurable: true,
         get: () => 500
       });
-      scrollContainer.scrollTop = 800;
-      scrollTo.mockClear();
+      Object.defineProperty(scrollContainer, "scrollTop", {
+        configurable: true,
+        get: () => scrollTopValue,
+        set: (value: number) => {
+          scrollTopValue = value;
+        }
+      });
+      scrollTopValue = 800;
 
       // Layout grew (Working pill / auth image) without a user wheel/touch away.
       scrollHeight = 1400;
-      scrollContainer.scrollTop = 800;
+      scrollTopValue = 800;
       fireEvent.scroll(scrollContainer);
 
       await act(async () => {
         resizeCallback?.([], {} as ResizeObserver);
+        await new Promise((resolve) => requestAnimationFrame(resolve));
       });
-      expect(scrollTo).toHaveBeenCalledWith({ top: 1400, behavior: "auto" });
+      expect(scrollTopValue).toBe(1400);
 
-      scrollTo.mockClear();
+      scrollTopValue = 800;
       rerender(
         <ChatArea
           chat={createChat(["Older", "Latest streaming"], {
@@ -1046,7 +1056,7 @@ describe("ChatArea", () => {
         />
       );
       await waitFor(() => {
-        expect(scrollTo).toHaveBeenCalled();
+        expect(scrollTopValue).toBe(1400);
       });
     } finally {
       Object.defineProperty(globalThis, "ResizeObserver", {
@@ -1062,17 +1072,20 @@ describe("ChatArea", () => {
       <ChatArea chat={createChat(["Old", "Current"], { chatId: "chat-1", isStreaming: false })} />
     );
     const scrollContainer = container.querySelector(".overflow-y-auto") as HTMLDivElement;
-    const scrollTo = vi.fn();
+    let scrollTopValue = 0;
     Object.defineProperty(scrollContainer, "scrollHeight", {
       configurable: true,
       get: () => 1400
     });
-    Object.defineProperty(scrollContainer, "scrollTo", {
+    Object.defineProperty(scrollContainer, "scrollTop", {
       configurable: true,
-      value: scrollTo
+      get: () => scrollTopValue,
+      set: (value: number) => {
+        scrollTopValue = value;
+      }
     });
 
-    scrollTo.mockClear();
+    scrollTopValue = 0;
     rerender(
       <ChatArea
         chat={createChat(["Other old", "Other current"], {
@@ -1083,7 +1096,7 @@ describe("ChatArea", () => {
     );
 
     await waitFor(() => {
-      expect(scrollTo).toHaveBeenCalledWith({ top: 1400, behavior: "auto" });
+      expect(scrollTopValue).toBe(1400);
     });
   });
 

@@ -229,6 +229,11 @@ function ChatPageInner() {
     welcomeFromUrl
   ]);
 
+  const loadHistoryRef = useRef(chat.loadHistory);
+  loadHistoryRef.current = chat.loadHistory;
+  const markHistoryEmptyRef = useRef(chat.markHistoryEmpty);
+  markHistoryEmptyRef.current = chat.markHistoryEmpty;
+
   useEffect(() => {
     if (!existingChat?.chat.id) {
       // No existing chat row matches this threadKey — this is a fresh
@@ -236,11 +241,11 @@ function ChatPageInner() {
       // historyLoading flag set by useChat's threadKey-change reset, so the
       // EmptyState can render immediately instead of waiting for a fetch
       // that will never happen.
-      chat.markHistoryEmpty();
+      markHistoryEmptyRef.current();
       return;
     }
-    void chat.loadHistory(existingChat.chat.id);
-  }, [existingChat?.chat.id, chat.chatId]); // eslint-disable-line
+    void loadHistoryRef.current(existingChat.chat.id);
+  }, [existingChat?.chat.id]);
 
   // When a new chat is created during streaming, refresh the sidebar list and
   // mirror the generated threadKey into the URL so a hard refresh keeps the
