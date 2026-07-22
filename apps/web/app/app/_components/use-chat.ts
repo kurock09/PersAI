@@ -51,7 +51,7 @@ import { dispatchProjectFilesChanged } from "./project-files-events";
 import { scopeThreadKey, useStreamingThreadsRegistry } from "./streaming-threads";
 /** * Pre-headers timeout (ms) for `streamAssistantWebChatTurn`. If the server * does not return 2xx headers within this window, the request is aborted * and the user bubble flips to "send_failed". 10s is well above normal * server response time but short enough to feel responsive on flaky * mobile networks. (ADR-075 T� "Single-slot pending send".) */ const HEADERS_TIMEOUT_MS = 10_000;
 /** Avoid duplicate focus/visibility refresh bursts from the same browser resume. */ const RESUME_REFRESH_DEBOUNCE_MS = 1_500;
-/** Skip resume refresh right after history hydrate (F5 fires pageshow immediately). */ const HISTORY_HYDRATION_QUIET_MS = 4_000;
+/** Skip resume refresh right after history hydrate (F5 fires pageshow immediately). */ const HISTORY_HYDRATION_QUIET_MS = 12_000;
 const SOFT_DETACH_RECONCILE_INTERVAL_MS = 2_000;
 const SOFT_DETACH_RECONCILE_MAX_ATTEMPTS = 60;
 const SOFT_DETACH_RECONCILE_LONG_INTERVAL_MS = 10_000;
@@ -1097,6 +1097,32 @@ function sortChatMessagesChronologically(messages: ChatMessage[]): ChatMessage[]
     }
     return left.id.localeCompare(right.id);
   });
+}
+
+/** Keep older pagination as-is; tail window follows API page order (no client re-sort shuffle). */
+function mergeCommittedTailFromServerPage(
+  prev: ChatMessage[],
+  next: ChatMessage[],
+  loaded: ChatMessage[]
+): ChatMessage[] {
+  const loadedIds = new Set(loaded.map((message) => message.id));
+  const nextById = new Map(next.map((message) => [message.id, message]));
+  const older = prev.filter(
+    (message) =>
+      !loadedIds.has(message.id) &&
+      !isOptimisticLocalMessage(message) &&
+      !isTransientActiveAssistantMessage(message)
+  );
+  const tail = loaded.map((serverRow) => nextById.get(serverRow.id) ?? serverRow);
+  const localOnly = next.filter(
+    (message) =>
+      !loadedIds.has(message.id) &&
+      (isOptimisticLocalMessage(message) ||
+        isTransientActiveAssistantMessage(message) ||
+        isActiveAssistantLifecycleStatus(message.status))
+  );
+  const combined = [...older, ...tail, ...localOnly];
+  return localOnly.length > 0 ? sortChatMessagesChronologically(combined) : combined;
 }
 
 function mergeChatMessagesById(...groups: ChatMessage[][]): ChatMessage[] {
@@ -2293,6 +2319,24 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
         return existingRefresh;
       }
       const refreshPromise = (async (): Promise<boolean> => {
+        const hydrationInFlight = historyLoadInFlightByChatIdRef.current.get(targetChatId);
+        if (hydrationInFlight !== undefined) {
+          await hydrationInFlight;
+        }
+        const quietAfterHydrate =
+          lastHistoryCommitAtRef.current > 0 &&
+          Date.now() - lastHistoryCommitAtRef.current < HISTORY_HYDRATION_QUIET_MS;
+        const hasLiveTurn =
+          activeTurnSnapshotsRef.current.has(targetThreadKey) ||
+          activeThreadsRef.current.has(targetThreadKey) ||
+          abortControllersByThreadRef.current.has(targetThreadKey);
+        const hasBackgroundJobs =
+          activeMediaJobsRef.current.length > 0 ||
+          activeDocumentJobsRef.current.length > 0 ||
+          activeSandboxJobsRef.current.length > 0;
+        if (quietAfterHydrate && !hasLiveTurn && !hasBackgroundJobs) {
+          return false;
+        }
         const token = await getToken({ skipCache: true });
         if (!token) return false;
         let reconciledOptimisticTurn = false;
@@ -2548,7 +2592,13 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                 );
               }
             }
-            let merged = sortChatMessagesChronologically([...next, ...missingToAbsorb]);
+            let merged: ChatMessage[];
+            if (activeSnapshot === undefined && !shouldReplaceActiveTurn) {
+              // Idle refresh (e.g. F5): keep API tail order — never client re-sort shuffle.
+              merged = mergeCommittedTailFromServerPage(prev, next, loaded);
+            } else {
+              merged = sortChatMessagesChronologically([...next, ...missingToAbsorb]);
+            }
             const absorbedServerAssistant = missingToAbsorb.some(
               (message) => message.role === "assistant" && !isLocalScopedAssistantId(message.id)
             );
@@ -3995,12 +4045,19 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
     };
   }, []);
   useEffect(() => {
+    if (historyLoading) {
+      return;
+    }
+    const targetChatId = activeChatIdRef.current;
+    if (targetChatId !== null && !historyLoadedRef.current.has(targetChatId)) {
+      return;
+    }
     const clientTurnId = readStoredActiveTurnClientTurnId(assistantScopedThreadKey);
     if (clientTurnId === null || activeTurnSnapshotsRef.current.has(assistantScopedThreadKey)) {
       return;
     }
     startStoredActiveTurnRestore(assistantScopedThreadKey, clientTurnId);
-  }, [assistantScopedThreadKey, startStoredActiveTurnRestore]);
+  }, [assistantScopedThreadKey, historyLoading, startStoredActiveTurnRestore]);
   const send = useCallback(
     async (text: string, files?: File[], options?: ChatSendOptions) => {
       const trimmed = text.trim();
@@ -5884,7 +5941,10 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                 liveUserMessageId: null,
                 liveAssistantMessageId: null
               };
-          let messagesForCache = mergeChatMessagesById(loaded, activeOverlay.messages);
+          let messagesForCache =
+            activeOverlay.messages.length > 0
+              ? mergeChatMessagesById(loaded, activeOverlay.messages)
+              : loaded;
           // ADR-162 P4: overlay wins id merge but must not wipe publish attachments.
           if (activeOverlay.liveAssistantMessageId !== null) {
             const loadedPublish = loaded.find(
@@ -6025,6 +6085,14 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
             activeTurnSnapshotsRef.current.delete(targetThreadKey);
             setLiveActivitiesByMessageId({});
             markStreaming(targetThreadKey, false);
+          } else if (
+            hasAuthoritativeActiveTurn &&
+            rawActiveTurn === null &&
+            projectedActiveTurn === null &&
+            !activeThreads.has(targetThreadKey) &&
+            !abortControllersByThreadRef.current.has(targetThreadKey)
+          ) {
+            clearStoredActiveTurnClientTurnId(targetThreadKey);
           }
           olderCursorRef.current = page.nextCursor;
           activeChatIdRef.current = targetChatId;
@@ -6140,6 +6208,18 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
     const pollMs = hasNotifyWait ? 2_000 : 10_000;
     const timer = window.setInterval(() => {
       if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+        return;
+      }
+      const quietAfterHydrate =
+        lastHistoryCommitAtRef.current > 0 &&
+        Date.now() - lastHistoryCommitAtRef.current < HISTORY_HYDRATION_QUIET_MS;
+      const hasLiveTurn =
+        activeTurnSnapshotsRef.current.has(currentThreadKeyRef.current) ||
+        activeThreadsRef.current.has(currentThreadKeyRef.current) ||
+        abortControllersByThreadRef.current.has(currentThreadKeyRef.current);
+      const hasBackgroundJobs =
+        activeMediaJobs.length > 0 || activeDocumentJobs.length > 0 || activeSandboxJobs.length > 0;
+      if (quietAfterHydrate && !hasLiveTurn && !hasBackgroundJobs) {
         return;
       }
       void refreshLatestHistory(chatId, { targetThreadKey: currentThreadKeyRef.current });

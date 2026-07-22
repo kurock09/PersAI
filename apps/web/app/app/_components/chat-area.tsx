@@ -737,7 +737,11 @@ export function ChatArea({
             "[-webkit-mask-image:linear-gradient(to_bottom,transparent_0,black_3.75rem,black_calc(100%-5rem),transparent_100%)]"
           )}
         >
-          {isEmpty ? (
+          {chat.historyLoading ? (
+            <div className="flex min-h-[50vh] items-center justify-center">
+              <Loader2 className="h-6 w-6 animate-spin text-text-subtle" />
+            </div>
+          ) : isEmpty ? (
             <EmptyState
               name={assistantName}
               avatarUrl={assistantAvatarUrl}
