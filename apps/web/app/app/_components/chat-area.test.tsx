@@ -988,6 +988,75 @@ describe("ChatArea", () => {
     expect(scrollTo).toHaveBeenCalledWith({ top: 1200, behavior: "smooth" });
   });
 
+  it("keeps following the live turn after a non-user layout race leaves distanceFromBottom large", async () => {
+    let resizeCallback: ResizeObserverCallback | null = null;
+    const OriginalResizeObserver = globalThis.ResizeObserver;
+    class CaptureResizeObserver {
+      constructor(callback: ResizeObserverCallback) {
+        resizeCallback = callback;
+      }
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    }
+    Object.defineProperty(globalThis, "ResizeObserver", {
+      configurable: true,
+      writable: true,
+      value: CaptureResizeObserver
+    });
+
+    try {
+      const { container, rerender } = render(
+        <ChatArea chat={createChat(["Older", "Latest"], { isStreaming: true })} />
+      );
+      const scrollContainer = container.querySelector(".overflow-y-auto") as HTMLDivElement;
+      const scrollTo = vi.fn();
+      let scrollHeight = 800;
+      Object.defineProperty(scrollContainer, "scrollTo", {
+        configurable: true,
+        value: scrollTo
+      });
+      Object.defineProperty(scrollContainer, "scrollHeight", {
+        configurable: true,
+        get: () => scrollHeight
+      });
+      Object.defineProperty(scrollContainer, "clientHeight", {
+        configurable: true,
+        get: () => 500
+      });
+      scrollContainer.scrollTop = 800;
+      scrollTo.mockClear();
+
+      // Layout grew (Working pill / auth image) without a user wheel/touch away.
+      scrollHeight = 1400;
+      scrollContainer.scrollTop = 800;
+      fireEvent.scroll(scrollContainer);
+
+      await act(async () => {
+        resizeCallback?.([], {} as ResizeObserver);
+      });
+      expect(scrollTo).toHaveBeenCalledWith({ top: 1400, behavior: "auto" });
+
+      scrollTo.mockClear();
+      rerender(
+        <ChatArea
+          chat={createChat(["Older", "Latest streaming"], {
+            isStreaming: true
+          })}
+        />
+      );
+      await waitFor(() => {
+        expect(scrollTo).toHaveBeenCalled();
+      });
+    } finally {
+      Object.defineProperty(globalThis, "ResizeObserver", {
+        configurable: true,
+        writable: true,
+        value: OriginalResizeObserver
+      });
+    }
+  });
+
   it("jumps to the bottom again when switching to another loaded chat", async () => {
     const { container, rerender } = render(
       <ChatArea chat={createChat(["Old", "Current"], { chatId: "chat-1", isStreaming: false })} />

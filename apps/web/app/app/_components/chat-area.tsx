@@ -221,12 +221,23 @@ export function ChatArea({
   const preserveScrollOnOlderLoadRef = useRef(false);
   const skipAutoScrollOnHistoryPrependRef = useRef(false);
   const shouldStickToBottomRef = useRef(true);
-  /** Hold bottom through late image/layout growth right after history open. */
+  /**
+   * Hold bottom through late image/layout growth after history open and while
+   * the live turn is still pinning the viewport.
+   */
   const holdBottomAfterOpenRef = useRef(false);
+  /** Ignore stick samples caused by our own scrollToBottom (stale scrollHeight). */
+  const programmaticScrollRef = useRef(false);
+  /** Only clear stick after intentional user scroll-away (wheel/touch/keys). */
+  const userPinnedAwayRef = useRef(false);
+  const isStreamingRef = useRef(chat.isStreaming);
+  isStreamingRef.current = chat.isStreaming;
   const scrollStateChatIdRef = useRef(chat.chatId);
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior | "instant") => {
     shouldStickToBottomRef.current = true;
+    userPinnedAwayRef.current = false;
+    programmaticScrollRef.current = true;
     const container = scrollRef.current;
     if (container) {
       const top = container.scrollHeight;
@@ -239,6 +250,11 @@ export function ChatArea({
     } else {
       bottomRef.current?.scrollIntoView({ behavior });
     }
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        programmaticScrollRef.current = false;
+      });
+    });
   }, []);
 
   const updateShouldStickToBottom = useCallback(() => {
@@ -248,10 +264,26 @@ export function ChatArea({
     }
     const distanceFromBottom =
       container.scrollHeight - container.scrollTop - container.clientHeight;
+    // Programmatic pin / layout growth can leave scrollTop on the previous
+    // scrollHeight for a frame. That looks "away" but is not user intent —
+    // clearing stick here is what teleports the viewport onto mid-thread media
+    // when Working/plan/stream layout grows or auth images decode above.
+    if (programmaticScrollRef.current || holdBottomAfterOpenRef.current) {
+      shouldStickToBottomRef.current = true;
+      setShowScrollToBottom(distanceFromBottom > 280);
+      return;
+    }
     const nearBottom = distanceFromBottom <= 96;
-    shouldStickToBottomRef.current = nearBottom;
-    if (!nearBottom) {
+    if (nearBottom) {
+      shouldStickToBottomRef.current = true;
+      userPinnedAwayRef.current = false;
+    } else if (userPinnedAwayRef.current) {
+      shouldStickToBottomRef.current = false;
       holdBottomAfterOpenRef.current = false;
+    } else {
+      // Keep stick through non-user layout races (Working pill, plan steps,
+      // late image decode). ResizeObserver will re-pin.
+      shouldStickToBottomRef.current = true;
     }
     setShowScrollToBottom(distanceFromBottom > 280);
   }, []);
@@ -281,19 +313,45 @@ export function ChatArea({
     return () => observer.disconnect();
   }, []);
 
-  // Keep streaming replies pinned only while the user remains near the bottom.
+  // Stick follows the bottom until the user intentionally scrolls away.
   useEffect(() => {
     const container = scrollRef.current;
     if (!container) {
       return;
     }
     updateShouldStickToBottom();
+    const markUserPinnedAway = () => {
+      userPinnedAwayRef.current = true;
+    };
     const handleScroll = () => {
       updateShouldStickToBottom();
     };
+    const handleWheel = (event: WheelEvent) => {
+      if (event.deltaY < 0) {
+        markUserPinnedAway();
+      }
+    };
+    const handleTouchMove = () => {
+      markUserPinnedAway();
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (
+        event.key === "PageUp" ||
+        event.key === "Home" ||
+        (event.key === "ArrowUp" && !event.altKey)
+      ) {
+        markUserPinnedAway();
+      }
+    };
     container.addEventListener("scroll", handleScroll, { passive: true });
+    container.addEventListener("wheel", handleWheel, { passive: true });
+    container.addEventListener("touchmove", handleTouchMove, { passive: true });
+    container.addEventListener("keydown", handleKeyDown);
     return () => {
       container.removeEventListener("scroll", handleScroll);
+      container.removeEventListener("wheel", handleWheel);
+      container.removeEventListener("touchmove", handleTouchMove);
+      container.removeEventListener("keydown", handleKeyDown);
     };
   }, [chat.chatId, updateShouldStickToBottom]);
 
@@ -323,15 +381,38 @@ export function ChatArea({
       isInitialLoad.current = false;
       holdBottomAfterOpenRef.current = true;
       scrollToBottom("instant");
+      // Keep hold through auth-image decode; release only after a quiet period
+      // or when the user scrolls away (updateShouldStickToBottom).
       const releaseHold = window.setTimeout(() => {
-        holdBottomAfterOpenRef.current = false;
-      }, 2500);
+        if (!isStreamingRef.current && !userPinnedAwayRef.current) {
+          holdBottomAfterOpenRef.current = false;
+        }
+      }, 8000);
       return () => window.clearTimeout(releaseHold);
     }
   }, [chat.chatId, chat.historyLoading, chat.messages.length, scrollToBottom]);
 
+  // Keep hold armed for the live turn so Working/plan/layout growth cannot
+  // drop stick before auth images finish decoding — unless the user scrolled away.
+  useEffect(() => {
+    if (chat.isStreaming) {
+      if (!userPinnedAwayRef.current) {
+        holdBottomAfterOpenRef.current = true;
+      }
+      return;
+    }
+    if (!userPinnedAwayRef.current) {
+      const release = window.setTimeout(() => {
+        holdBottomAfterOpenRef.current = false;
+      }, 1500);
+      return () => window.clearTimeout(release);
+    }
+    holdBottomAfterOpenRef.current = false;
+    return undefined;
+  }, [chat.isStreaming]);
+
   // Authenticated image/video loads grow layout after the first bottom jump.
-  // Keep the open position pinned until hold expires or the user scrolls away.
+  // Re-pin while stick/hold — never rely on a short open timer alone.
   useEffect(() => {
     const container = scrollRef.current;
     if (!container || typeof ResizeObserver === "undefined") {
@@ -342,11 +423,13 @@ export function ChatArea({
       return;
     }
     const observer = new ResizeObserver(() => {
-      if (
-        preserveScrollOnOlderLoadRef.current ||
-        skipAutoScrollOnHistoryPrependRef.current ||
-        (!shouldStickToBottomRef.current && !holdBottomAfterOpenRef.current)
-      ) {
+      if (preserveScrollOnOlderLoadRef.current || skipAutoScrollOnHistoryPrependRef.current) {
+        return;
+      }
+      if (userPinnedAwayRef.current) {
+        return;
+      }
+      if (!shouldStickToBottomRef.current && !holdBottomAfterOpenRef.current) {
         return;
       }
       scrollToBottom("auto");
@@ -539,6 +622,8 @@ export function ChatArea({
     skipAutoScrollOnHistoryPrependRef.current = false;
     shouldStickToBottomRef.current = true;
     holdBottomAfterOpenRef.current = false;
+    programmaticScrollRef.current = false;
+    userPinnedAwayRef.current = false;
     setShowScrollToBottom(false);
   }, [chat.chatId]);
 

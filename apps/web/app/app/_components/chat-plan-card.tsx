@@ -330,8 +330,11 @@ function ChatPlanCardBody({
     const anchor = planBodyRef.current?.querySelector(
       `[data-plan-first-active="${firstActiveRowId}"]`
     );
-    if (anchor instanceof HTMLElement && typeof anchor.scrollIntoView === "function") {
-      anchor.scrollIntoView({ block: "start" });
+    // Scroll only inside the plan body. scrollIntoView can move ancestor
+    // scrollers (chat transcript) and teleport the thread to mid-history.
+    const body = planBodyRef.current;
+    if (anchor instanceof HTMLElement && body instanceof HTMLElement) {
+      body.scrollTop = Math.max(0, anchor.offsetTop - body.offsetTop);
     }
   }, [expanded, firstActiveRowId, showAllActive]);
 
