@@ -3039,6 +3039,28 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
       ) {
         const terminalKind: "committed" | "partial" =
           status.status === "completed" ? "committed" : "partial";
+        // Discovery replay / post-hydrate restore of a settled turn must not
+        // rebuild the transcript — that was the F5 image-swap dance. Cold
+        // restore with an empty transcript (sessionStorage, no history yet)
+        // still materializes the committed pair below.
+        const ownsThisTurn = existingSnapshot?.clientTurnId === clientTurnId;
+        if (!ownsThisTurn) {
+          const chatKey =
+            status.chat?.id ??
+            existingSnapshot?.chatId ??
+            cachedSnapshot?.chatId ??
+            activeChatIdRef.current;
+          const historyAlreadyHydrated = chatKey !== null && historyLoadedRef.current.has(chatKey);
+          const assistantAlreadyPresent =
+            assistantMessage !== null &&
+            (messages.some((message) => message.id === assistantMessage.id) ||
+              (cachedSnapshot?.messages.some((message) => message.id === assistantMessage.id) ??
+                false));
+          if (historyAlreadyHydrated || assistantAlreadyPresent) {
+            clearStoredActiveTurnClientTurnId(targetThreadKey, clientTurnId);
+            return "terminal_status";
+          }
+        }
         // Async-cont often completes with userMessage=null and sometimes without
         // assistantMessage yet. If we demote local-assistant-* to committed and
         // delete the snapshot here, the follow-up history refresh appends the
@@ -6299,7 +6321,30 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
         continue;
       }
       continuationReattachStartedRef.current.add(clientTurnId);
-      void startTurnReattachRef.current(targetThreadKey, clientTurnId).then((result) => {
+      void (async () => {
+        // Stale claimed/dispatched rows after F5 must not open terminal streams
+        // that rebuild the transcript.
+        try {
+          const token = await getToken({ skipCache: true });
+          if (!token) {
+            continuationReattachStartedRef.current.delete(clientTurnId);
+            return;
+          }
+          const status = await getAssistantWebChatTurnStatus(token, clientTurnId);
+          if (
+            status.status === "completed" ||
+            status.status === "failed" ||
+            status.status === "interrupted"
+          ) {
+            continuationReattachStartedRef.current.delete(clientTurnId);
+            clearStoredActiveTurnClientTurnId(targetThreadKey, clientTurnId);
+            return;
+          }
+        } catch {
+          continuationReattachStartedRef.current.delete(clientTurnId);
+          return;
+        }
+        const result = await startTurnReattachRef.current(targetThreadKey, clientTurnId);
         // Promise settled ⇒ stream is gone. Never keep sticky for a dead SSE —
         // the next notify history poll / activeThreads change re-runs this effect.
         continuationReattachStartedRef.current.delete(clientTurnId);
@@ -6319,7 +6364,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
         ) {
           markStreamingRef.current(targetThreadKey, false);
         }
-      });
+      })();
     }
     // Intentionally omit activeThreads from deps: markStreaming flips would
     // immediately re-enter and storm reattach. Notify history poll (2s while
@@ -6329,8 +6374,10 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
   // Chat-level discovery is independent of the source turn and Working rows.
   // It carries only the exact synthetic turn id; the existing ADR-158
   // per-turn stream remains the full replay/live event transport.
+  // Wait until history hydrate finishes — F5 discovery replay of settled
+  // async-cont turns must not race the first authoritative transcript paint.
   useEffect(() => {
-    if (chatId === null) return;
+    if (chatId === null || historyLoading) return;
     const discoveryChatId = chatId;
     const targetThreadKey = currentThreadKeyRef.current;
     const controller = new AbortController();
@@ -6349,16 +6396,55 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
         if (oldest === undefined) break;
         discoveredContinuationIdsRef.current.delete(oldest);
       }
-      void startTurnReattachRef.current(targetThreadKey, clientTurnId).then((result) => {
+      void (async () => {
+        // Discovery store replays every continuation_ready from seq 0 on F5.
+        // Peek status without applying — only live turns may open a stream.
+        try {
+          const token = await getToken({ skipCache: true });
+          if (!token || stopped) return;
+          const status = await getAssistantWebChatTurnStatus(token, clientTurnId);
+          if (
+            status.status === "completed" ||
+            status.status === "failed" ||
+            status.status === "interrupted"
+          ) {
+            clearStoredActiveTurnClientTurnId(targetThreadKey, clientTurnId);
+            return;
+          }
+          if (status.status !== "accepted" && status.status !== "running") {
+            if (attempt < 30) {
+              const timer = window.setTimeout(() => {
+                attachRetryTimers.delete(timer);
+                discoveredContinuationIdsRef.current.delete(clientTurnId);
+                attachDiscoveredTurn(clientTurnId, attempt + 1);
+              }, 1_000);
+              attachRetryTimers.add(timer);
+            }
+            return;
+          }
+        } catch {
+          if (attempt < 30) {
+            const timer = window.setTimeout(() => {
+              attachRetryTimers.delete(timer);
+              discoveredContinuationIdsRef.current.delete(clientTurnId);
+              attachDiscoveredTurn(clientTurnId, attempt + 1);
+            }, 1_000);
+            attachRetryTimers.add(timer);
+          }
+          return;
+        }
+        if (stopped) return;
+        const result = await startTurnReattachRef.current(targetThreadKey, clientTurnId);
         if (stopped || result === "terminal" || result === "terminal_status") return;
         if (result === "unknown" && attempt < 30) {
           const timer = window.setTimeout(() => {
             attachRetryTimers.delete(timer);
+            discoveredContinuationIdsRef.current.delete(clientTurnId);
             attachDiscoveredTurn(clientTurnId, attempt + 1);
           }, 1_000);
           attachRetryTimers.add(timer);
         }
-      });
+      })();
     };
 
     const connect = async (): Promise<void> => {
@@ -6393,12 +6479,12 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
     return () => {
       stopped = true;
       controller.abort();
-      continuationDiscoveryCursorByChatRef.current.delete(discoveryChatId);
+      // Keep cursor across effect remounts in-session; F5 clears memory anyway.
       if (reconnectTimer !== null) window.clearTimeout(reconnectTimer);
       for (const timer of attachRetryTimers) window.clearTimeout(timer);
       attachRetryTimers.clear();
     };
-  }, [chatId, getToken]);
+  }, [chatId, getToken, historyLoading]);
   // Drop phantom "thinking" / blinking-cursor placeholders (ADR-158).
   const activeLiveTurnIdsForVisibility = (() => {
     const snapshot = activeTurnSnapshotsRef.current.get(assistantScopedThreadKey);

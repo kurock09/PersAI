@@ -1,5 +1,17 @@
 # SESSION-HANDOFF
 
+## 2026-07-23 — F5 message reorder from continuation discovery replay
+
+Live repro on new chat `web-1784758880793` after web pin `0acfd093`: F5 showed
+last images OK, then older bubbles appeared below and flew up. Perf evidence:
+`messages?limit=20` then a burst of `async-cont:*/stream` + second messages
+fetch. Root: discovery attach replays every `continuation_ready` from seq 0;
+client reattached settled turns and `applyTurnStatusState(terminal)` rebuilt
+the transcript. Fix: peek turn status before discovery/job reattach (live only);
+skip terminal apply when history already hydrated / assistant already present;
+defer discovery until `!historyLoading`. Next: push/deploy web and F5-smoke the
+new chat.
+
 ## 2026-07-22 — Chat scroll teleport on Working/layout (`e73bd3df`)
 
 Live repro on thread `web-1783958664799`: after “В работе” / layout growth,

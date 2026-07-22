@@ -1262,6 +1262,28 @@ describe("useChat", () => {
         await new Promise<void>((resolve) => signal.addEventListener("abort", () => resolve()));
       }
     );
+    assistantApiMocks.getAssistantWebChatTurnStatus.mockResolvedValue({
+      status: "running",
+      chat: {
+        id: "chat-1",
+        assistantId: "assistant-1",
+        surface: "web",
+        surfaceThreadKey: "thread-1",
+        title: null,
+        chatMode: "normal",
+        deepModeEnabled: false,
+        skillDecisionState: null,
+        archivedAt: null,
+        lastMessageAt: null,
+        createdAt: "2026-07-19T01:00:00.000Z",
+        updatedAt: "2026-07-19T01:00:00.000Z"
+      },
+      userMessage: null,
+      assistantMessage: null,
+      currentActivity: null,
+      runtime: null,
+      error: null
+    });
     let releaseTerminal!: () => void;
     const terminalHold = new Promise<void>((resolve) => {
       releaseTerminal = resolve;
