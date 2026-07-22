@@ -446,22 +446,21 @@ export class AssistantMediaJobService {
         assistantAcknowledgementMessageId: input.assistantAcknowledgementMessageId
       }
     });
-    // Pin completion into the turn narration bubble only when that bubble is
-    // the right home for this job's media+reply:
-    // - await-wait (`current_turn_inline`), or
-    // - exactly one media job for this source turn (text and artifacts stay together).
-    // Multiple async jobs must not pile into one bubble.
-    const sourceJobs = await this.prisma.assistantMediaJob.findMany({
+    // Only await-wait (`current_turn_inline`) may share the turn acknowledgement
+    // bubble. Ordinary async jobs must keep a separate completion bubble so the
+    // later catch-up reply ("image is ready") lands with the artifacts — not on
+    // the early "request accepted" ack.
+    const unpinnedJobs = await this.prisma.assistantMediaJob.findMany({
       where: {
         assistantId: input.assistantId,
         sourceUserMessageId: input.sourceUserMessageId,
+        completionAssistantMessageId: null,
         status: {
           in: ["queued", "running", "completion_pending", "delivered"]
         }
       },
-      select: { id: true, completionAssistantMessageId: true }
+      select: { id: true }
     });
-    const unpinnedJobs = sourceJobs.filter((job) => job.completionAssistantMessageId === null);
     if (unpinnedJobs.length === 0) {
       return updated.count;
     }
@@ -474,11 +473,7 @@ export class AssistantMediaJobService {
       },
       select: { canonicalJobId: true }
     });
-    const inlineJobIds = new Set(inlineHandles.map((handle) => handle.canonicalJobId));
-    const soleSourceJob = sourceJobs.length === 1;
-    const pinJobIds = unpinnedJobs
-      .filter((job) => soleSourceJob || inlineJobIds.has(job.id))
-      .map((job) => job.id);
+    const pinJobIds = inlineHandles.map((handle) => handle.canonicalJobId);
     if (pinJobIds.length > 0) {
       await this.prisma.assistantMediaJob.updateMany({
         where: {
@@ -494,11 +489,9 @@ export class AssistantMediaJobService {
   }
 
   /**
-   * Reuse a delivery/narration bubble so reply text and that job's artifacts
-   * stay together. Allowed when:
-   * - await-wait (`current_turn_inline`), or
-   * - exactly one media job owns this source turn.
-   * Never coalesce multiple ordinary async jobs onto one message.
+   * Only await-wait (`current_turn_inline`) reuses the turn narration bubble.
+   * Ordinary async delivery/catch-up owns a dedicated completion message so
+   * ack text never absorbs later artifacts.
    */
   async findPinnedDeliveryMessageId(input: {
     assistantId: string;
@@ -522,10 +515,6 @@ export class AssistantMediaJobService {
     });
     if (sourceJobs.length === 0) {
       return null;
-    }
-    if (sourceJobs.length === 1) {
-      const sole = sourceJobs[0]!;
-      return sole.completionAssistantMessageId ?? sole.assistantAcknowledgementMessageId ?? null;
     }
     const inlineHandles = await this.prisma.assistantAsyncJobHandle.findMany({
       where: {

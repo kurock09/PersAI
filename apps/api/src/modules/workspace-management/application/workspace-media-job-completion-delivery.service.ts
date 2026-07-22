@@ -805,29 +805,31 @@ export class AssistantMediaJobCompletionDeliveryService {
     );
   }
 
-  private async countSourceTurnMediaJobs(job: ClaimedCompletionPendingMediaJob): Promise<number> {
-    return this.prisma.assistantMediaJob.count({
-      where: {
-        assistantId: job.assistantId,
-        sourceUserMessageId: job.sourceUserMessageId,
-        status: {
-          in: ["queued", "running", "completion_pending", "delivered"]
-        }
-      }
-    });
-  }
-
   private async ensureCompletionMessage(
     job: ClaimedCompletionPendingMediaJob,
     assistantText: CompletionAssistantTextResolution
   ): Promise<string> {
     const inlineAwait = await this.isCurrentTurnInlineAwait(job.id);
-    const soleSourceJob = (await this.countSourceTurnMediaJobs(job)) === 1;
-    // Keep reply text + this job's artifacts in one bubble:
-    // sole source-turn job, or await-wait ownership of the turn message.
+    // Ordinary async jobs never reuse the acknowledgement bubble — that left
+    // artifacts on "request accepted" while catch-up reply stayed empty below.
+    // Await-wait may still share the turn narration message.
     let pinnedId = job.completionAssistantMessageId ?? null;
-    if (pinnedId === null && (inlineAwait || soleSourceJob)) {
+    if (pinnedId === null && inlineAwait) {
       pinnedId = job.assistantAcknowledgementMessageId ?? null;
+    }
+    // If catch-up already wrote into a continuation message for this job,
+    // deliver artifacts into that same bubble.
+    if (pinnedId === null && !inlineAwait) {
+      const handle = await this.prisma.assistantAsyncJobHandle.findUnique({
+        where: {
+          kind_canonicalJobId: {
+            kind: "media",
+            canonicalJobId: job.id
+          }
+        },
+        select: { continuationAssistantMessageId: true }
+      });
+      pinnedId = handle?.continuationAssistantMessageId ?? null;
     }
     // Await-wait only: coalesce with another inline job from the same source turn.
     if (pinnedId === null && inlineAwait) {

@@ -5,6 +5,11 @@
 
 ## 2026-07-22
 
+- **Async media bubble ownership repair:** ordinary async jobs no longer pin
+  completion into the turn acknowledgement (“request accepted”). Delivery and
+  catch-up narration now converge on the job’s completion bubble so the ready
+  reply and artifacts stay together instead of leaving an empty follow-up.
+
 - **ADR-161 OpenAI sealed-prefix breakpoint growth (local):** sealed exchange
   ordinals are now global across `priorToolExchanges` + in-turn `toolHistory`,
   and plain chat attaches an explicit breakpoint to the latest sealed user

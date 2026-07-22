@@ -1,5 +1,14 @@
 # SESSION-HANDOFF
 
+## 2026-07-22 — Async media bubble ownership repair (follow-up)
+
+Founder live smoke after `6f3b627f`: cat image still landed on the
+acknowledgement bubble while catch-up “Кот готов” stayed text-only below.
+Root cause: sole-job pin into acknowledgement + continuation always creating a
+new message. Repair: only `current_turn_inline` shares the ack bubble;
+`persistOutputOnce` reuses/claims `completionAssistantMessageId` so narration
+and artifacts converge. Next: push + redeploy + re-smoke one deferred image.
+
 ## 2026-07-22 — Chat UX repair + OpenAI sealed breakpoint (local → push)
 
 Baseline before this slice: `afec7983`.

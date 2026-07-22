@@ -836,32 +836,97 @@ export class AssistantAsyncJobContinuationSchedulerService
       if (rows[0] === undefined) return { outcome: "lost" as const };
       const existing = rows[0]?.messageId;
       if (existing) return { outcome: "existing" as const, messageId: existing };
-      const message = await tx.assistantChatMessage.create({
-        data: {
-          chatId: context.handle.chatId,
-          assistantId: context.handle.assistantId,
-          author: "assistant",
-          content: result.answerText ?? result.assistantText,
-          // Quiet ADR-159 S3 catch-up markers for web clients (no UX redesign).
-          metadata: {
-            asyncContinuationClientTurnId: context.handle.continuationClientTurnId,
-            ...this.catchUpMessageMetadataFromFacts(context.facts)
-          } as Prisma.InputJsonValue,
-          ...(result.toolExchanges && result.toolExchanges.length > 0
-            ? {
-                toolExchanges: result.toolExchanges as unknown as Prisma.InputJsonValue
-              }
-            : {})
+
+      const content = result.answerText ?? result.assistantText;
+      const metadata = {
+        asyncContinuationClientTurnId: context.handle.continuationClientTurnId,
+        ...this.catchUpMessageMetadataFromFacts(context.facts)
+      } as Prisma.InputJsonValue;
+      const toolExchanges =
+        result.toolExchanges && result.toolExchanges.length > 0
+          ? (result.toolExchanges as unknown as Prisma.InputJsonValue)
+          : undefined;
+
+      // Prefer the canonical job's delivery bubble so catch-up narration and
+      // already-delivered artifacts stay in one assistant message.
+      let deliveryMessageId: string | null = null;
+      if (context.handle.kind === "media") {
+        const mediaJob = await tx.assistantMediaJob.findUnique({
+          where: { id: context.handle.canonicalJobId },
+          select: { completionAssistantMessageId: true }
+        });
+        deliveryMessageId = mediaJob?.completionAssistantMessageId ?? null;
+      } else if (context.handle.kind === "document") {
+        const documentJob = await tx.assistantDocumentRenderJob.findUnique({
+          where: { id: context.handle.canonicalJobId },
+          select: { providerStatusJson: true }
+        });
+        const payload =
+          documentJob?.providerStatusJson !== null &&
+          documentJob?.providerStatusJson !== undefined &&
+          typeof documentJob.providerStatusJson === "object" &&
+          !Array.isArray(documentJob.providerStatusJson)
+            ? (documentJob.providerStatusJson as Record<string, unknown>)
+            : null;
+        deliveryMessageId =
+          typeof payload?.completionAssistantMessageId === "string"
+            ? payload.completionAssistantMessageId
+            : null;
+      }
+
+      let messageId: string | null = null;
+      if (deliveryMessageId !== null) {
+        const updatedContent = await tx.assistantChatMessage.updateMany({
+          where: {
+            id: deliveryMessageId,
+            assistantId: context.handle.assistantId,
+            chatId: context.handle.chatId,
+            author: "assistant"
+          },
+          data: {
+            content,
+            metadata,
+            ...(toolExchanges === undefined ? {} : { toolExchanges })
+          }
+        });
+        if (updatedContent.count === 1) {
+          messageId = deliveryMessageId;
         }
-      });
+      }
+      if (messageId === null) {
+        const message = await tx.assistantChatMessage.create({
+          data: {
+            chatId: context.handle.chatId,
+            assistantId: context.handle.assistantId,
+            author: "assistant",
+            content,
+            // Quiet ADR-159 S3 catch-up markers for web clients (no UX redesign).
+            metadata,
+            ...(toolExchanges === undefined ? {} : { toolExchanges })
+          }
+        });
+        messageId = message.id;
+        // Claim this bubble as the job completion target so a later delivery
+        // attaches artifacts here instead of inventing a second orphan bubble.
+        if (context.handle.kind === "media") {
+          await tx.assistantMediaJob.updateMany({
+            where: {
+              id: context.handle.canonicalJobId,
+              completionAssistantMessageId: null
+            },
+            data: { completionAssistantMessageId: messageId }
+          });
+        }
+      }
+
       const updated = await tx.assistantAsyncJobHandle.updateMany({
         where: { id: claim.id, claimToken: claim.claimToken, state: "dispatched" },
-        data: { continuationAssistantMessageId: message.id }
+        data: { continuationAssistantMessageId: messageId }
       });
       if (updated.count !== 1) {
         throw new Error("Continuation claim was lost while persisting output.");
       }
-      return { outcome: "persisted" as const, messageId: message.id };
+      return { outcome: "persisted" as const, messageId };
     });
   }
 

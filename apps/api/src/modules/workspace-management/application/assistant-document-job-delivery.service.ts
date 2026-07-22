@@ -293,45 +293,40 @@ export class AssistantDocumentJobDeliveryService {
         const inlineAwait =
           inlineHandle?.narrationOwner === "current_turn" &&
           inlineHandle.narrationDecision === "current_turn_inline";
-        const sourceDocumentJobCount =
-          sourceUserMessageId === "unknown"
-            ? 0
-            : await this.prisma.assistantDocumentRenderJob.count({
-                where: {
-                  assistantId: job.assistantId,
-                  chatId: job.chatId,
-                  sourceUserMessageId,
-                  status: {
-                    in: [
-                      "queued",
-                      "running",
-                      "provider_processing",
-                      "fetching_output",
-                      "ready_for_delivery",
-                      "delivered"
-                    ]
-                  }
-                }
-              });
-        const soleSourceJob = sourceDocumentJobCount === 1;
-        // Keep document reply + file in one bubble for a sole source-turn job
-        // or await-wait. Multiple async document jobs never share one bubble.
+        // Ordinary async document jobs own a dedicated bubble. Only await-wait
+        // reuses the source-turn acknowledgement/narration message.
+        const continuationMessageId =
+          !inlineAwait && sourceUserMessageId !== "unknown"
+            ? ((
+                await this.prisma.assistantAsyncJobHandle.findUnique({
+                  where: {
+                    kind_canonicalJobId: {
+                      kind: "document",
+                      canonicalJobId: job.id
+                    }
+                  },
+                  select: { continuationAssistantMessageId: true }
+                })
+              )?.continuationAssistantMessageId ?? null)
+            : null;
         const reusedTurnMessage =
-          (!inlineAwait && !soleSourceJob) || sourceUserMessageId === "unknown"
-            ? null
-            : await this.prisma.assistantChatMessage.findFirst({
-                where: {
-                  chatId: job.chatId,
-                  assistantId: job.assistantId,
-                  author: "assistant",
-                  metadata: {
-                    path: ["sourceUserMessageId"],
-                    equals: sourceUserMessageId
-                  }
-                },
-                orderBy: { createdAt: "desc" },
-                select: { id: true }
-              });
+          continuationMessageId !== null
+            ? { id: continuationMessageId }
+            : !inlineAwait || sourceUserMessageId === "unknown"
+              ? null
+              : await this.prisma.assistantChatMessage.findFirst({
+                  where: {
+                    chatId: job.chatId,
+                    assistantId: job.assistantId,
+                    author: "assistant",
+                    metadata: {
+                      path: ["sourceUserMessageId"],
+                      equals: sourceUserMessageId
+                    }
+                  },
+                  orderBy: { createdAt: "desc" },
+                  select: { id: true }
+                });
         if (reusedTurnMessage !== null) {
           completionAssistantMessageId = reusedTurnMessage.id;
         } else {
