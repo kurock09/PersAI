@@ -1700,6 +1700,29 @@ describe("reattachAssistantWebChatTurnStream", () => {
     expect(handlers.onCompleted).toHaveBeenCalledOnce();
   });
 
+  it("forwards assistantMessageId on started for async-cont ConversationalPublish bind", async () => {
+    const handlers = {
+      onStarted: vi.fn()
+    };
+    global.fetch = vi.fn().mockResolvedValue(
+      createSseResponse([
+        `event: started\ndata: ${JSON.stringify({
+          chat: { id: "chat-1" },
+          userMessage: null,
+          assistantMessageId: "assistant-msg-publish"
+        })}\n\n`,
+        `event: completed\ndata: ${JSON.stringify({ transport: null })}\n\n`
+      ])
+    ) as typeof fetch;
+
+    await reattachAssistantWebChatTurnStream("token-1", "async-cont:publish-bind", handlers);
+    expect(handlers.onStarted).toHaveBeenCalledWith({
+      chat: { id: "chat-1" },
+      userMessage: null,
+      assistantMessageId: "assistant-msg-publish"
+    });
+  });
+
   it("flushes the trailing SSE block when the connection closes without a final blank line", async () => {
     // Pre-fix the reattach reader exited the read loop on `done=true`
     // without flushing the in-buffer last block, so a server-sent

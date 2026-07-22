@@ -314,6 +314,7 @@ import { AssistantAsyncJobContinuationSchedulerService } from "./application/ass
 import { ChatWakeCoordinator } from "./application/chat-wake-coordinator.service";
 import { InternalRuntimeAsyncContinuationClientService } from "./application/internal-runtime-async-continuation.client.service";
 import { StreamWebAsyncContinuationService } from "./application/stream-web-async-continuation.service";
+import { ConversationalPublishService } from "./application/conversational-publish.service";
 import { CheckpointMediaJobAcceptedProviderTaskService } from "./application/checkpoint-media-job-accepted-provider-task.service";
 import { InternalRuntimeDocumentJobClientService } from "./application/internal-runtime-document-job.client.service";
 import { InternalRuntimeMediaJobClientService } from "./application/internal-runtime-media-job.client.service";
@@ -686,6 +687,7 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     AssistantAsyncJobHandleStateService,
     ChatWakeCoordinator,
     InternalRuntimeAsyncContinuationClientService,
+    ConversationalPublishService,
     StreamWebAsyncContinuationService,
     AssistantAsyncJobContinuationSchedulerService,
     CheckpointMediaJobAcceptedProviderTaskService,

@@ -8,6 +8,7 @@ import {
   InternalRuntimeAsyncContinuationClientService
 } from "./internal-runtime-async-continuation.client.service";
 import { ChatWakeCoordinator } from "./chat-wake-coordinator.service";
+import { ConversationalPublishService } from "./conversational-publish.service";
 import { WebChatTurnAttemptService } from "./web-chat-turn-attempt.service";
 import { WebChatContinuationDiscoveryService } from "./web-chat-continuation-discovery.service";
 import { WebChatTurnStopDispatchService } from "./web-chat-turn-stop-dispatch.service";
@@ -18,6 +19,8 @@ const WEB_CONTINUATION_CLAIM_STALE_MS = 120_000;
 type WebContinuationContext = {
   handle: {
     id: string;
+    kind: "media" | "document" | "sandbox";
+    canonicalJobId: string;
     assistantId: string;
     workspaceId: string;
     userId: string;
@@ -98,6 +101,7 @@ export class StreamWebAsyncContinuationService {
     private readonly webChatTurnAttemptService: WebChatTurnAttemptService,
     private readonly webChatTurnStreamRegistry: WebChatTurnStreamRegistry,
     private readonly webChatTurnStopDispatchService: WebChatTurnStopDispatchService,
+    private readonly conversationalPublish: ConversationalPublishService,
     @Optional() private readonly chatWakeCoordinator?: ChatWakeCoordinator,
     @Optional()
     private readonly continuationDiscovery?: WebChatContinuationDiscoveryService
@@ -430,6 +434,34 @@ export class StreamWebAsyncContinuationService {
         }
       }
 
+      // ADR-162 Phase 1 — ConversationalPublish before narration stream (required).
+      let publishedAssistantMessageId: string | null = null;
+      try {
+        publishedAssistantMessageId = await this.conversationalPublish.publishForCatchUp({
+          handleId: context.handle.id,
+          kind: context.handle.kind,
+          canonicalJobId: context.handle.canonicalJobId,
+          assistantId: context.handle.assistantId,
+          workspaceId: context.handle.workspaceId,
+          chatId: context.handle.chatId,
+          channel: context.handle.channel
+        });
+      } catch (error) {
+        this.logger.warn(
+          `web_async_continuation_conversational_publish_failed id=${claim.id}: ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
+        await releaseBusyPreDispatch();
+        return;
+      }
+      if (publishedAssistantMessageId !== null) {
+        await this.webChatTurnAttemptService.bindAssistantMessageId({
+          ...attemptIdentity,
+          assistantMessageId: publishedAssistantMessageId
+        });
+      }
+
       let started;
       try {
         started = await this.runtimeClient.stream(request, {
@@ -515,7 +547,10 @@ export class StreamWebAsyncContinuationService {
               publish("started", {
                 requestId: event.requestId,
                 chat: { id: context.handle.chatId },
-                userMessage: { id: context.sourceUserMessage.id }
+                userMessage: { id: context.sourceUserMessage.id },
+                ...(publishedAssistantMessageId === null
+                  ? {}
+                  : { assistantMessageId: publishedAssistantMessageId })
               });
               break;
             case "text_delta":

@@ -2580,6 +2580,466 @@ describe("useChat", () => {
     ).toBe(false);
   });
 
+  it("async-cont with assistantMessageId binds live stream to the ConversationalPublish bubble", async () => {
+    const continuationClientTurnId = "async-cont:handle-publish-bind-1";
+    const publishAttachment = {
+      id: "att-publish-1",
+      path: `${CHAT_SESSION_ROOT}/cat.png`,
+      thumbnailStoragePath: `${CHAT_SESSION_ROOT}/cat.thumb.png`,
+      posterStoragePath: null,
+      attachmentType: "image" as const,
+      originalFilename: "cat.png",
+      mimeType: "image/png",
+      sizeBytes: 1200,
+      processingStatus: "ready" as const,
+      createdAt: "2026-07-19T11:00:02.000Z"
+    };
+    const publishMessage = {
+      id: "assistant-msg-publish",
+      chatId: "chat-1",
+      assistantId: "assistant-1",
+      author: "assistant" as const,
+      content: "",
+      attachments: [publishAttachment],
+      createdAt: "2026-07-19T11:00:02.000Z"
+    };
+    const historyPage = {
+      nextCursor: null,
+      activeTurn: null,
+      activeSandboxJobs: [
+        {
+          jobRef: "jr1.sandbox.PUBLISHBIND0000000000000000000001",
+          toolCode: "shell" as const,
+          status: "detached" as const,
+          notifyState: "claimed" as const,
+          continuationClientTurnId,
+          createdAt: "2026-07-19T11:00:01.000Z",
+          startedAt: "2026-07-19T11:00:01.000Z",
+          updatedAt: "2026-07-19T11:00:01.000Z"
+        }
+      ],
+      messages: [
+        {
+          id: "user-msg-source",
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          author: "user" as const,
+          content: "draw a cat",
+          attachments: [],
+          createdAt: "2026-07-19T11:00:00.000Z"
+        },
+        {
+          id: "assistant-msg-prior",
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          author: "assistant" as const,
+          content: "Working on it.",
+          attachments: [],
+          createdAt: "2026-07-19T11:00:00.500Z"
+        },
+        publishMessage
+      ]
+    };
+    assistantApiMocks.getChatMessages.mockResolvedValue(historyPage);
+    const runningTurn = {
+      status: "running" as const,
+      chat: {
+        id: "chat-1",
+        assistantId: "assistant-1",
+        surface: "web",
+        surfaceThreadKey: "thread-1",
+        title: null,
+        chatMode: "normal",
+        deepModeEnabled: false,
+        skillDecisionState: null,
+        archivedAt: null,
+        lastMessageAt: null,
+        createdAt: "2026-07-19T00:00:00.000Z",
+        updatedAt: "2026-07-19T00:00:00.000Z"
+      },
+      userMessage: null,
+      assistantMessage: publishMessage,
+      currentActivity: null,
+      runtime: null,
+      error: null
+    };
+    assistantApiMocks.getAssistantWebChatTurnStatus.mockResolvedValue(runningTurn);
+
+    let resolveReattachHold: (() => void) | undefined;
+    const reattachHold = new Promise<void>((resolve) => {
+      resolveReattachHold = resolve;
+    });
+    assistantApiMocks.reattachAssistantWebChatTurnStream.mockImplementation(
+      async (
+        _token: string,
+        _clientTurnId: string,
+        handlers: {
+          onHeadersOk?: () => void;
+          onTurnStatus?: (payload: { turn: unknown }) => void;
+          onStarted?: (payload: {
+            chat: unknown;
+            userMessage: unknown;
+            assistantMessageId?: string;
+          }) => void;
+          onDelta?: (payload: { delta: string }) => void;
+        }
+      ) => {
+        handlers.onHeadersOk?.();
+        handlers.onTurnStatus?.({ turn: runningTurn });
+        handlers.onStarted?.({
+          chat: { id: "chat-1" },
+          userMessage: null,
+          assistantMessageId: publishMessage.id
+        });
+        handlers.onDelta?.({ delta: "Here is your cat." });
+        await reattachHold;
+      }
+    );
+
+    const { result } = renderHook(() => useChat("thread-1"), {
+      wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+    });
+
+    await act(async () => {
+      await result.current.loadHistory("chat-1");
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(
+        result.current.messages.some(
+          (message) =>
+            message.id === publishMessage.id &&
+            message.status === "streaming" &&
+            message.content.includes("Here is your cat.")
+        )
+      ).toBe(true);
+    });
+    expect(
+      result.current.messages.filter((message) => message.role === "assistant").map((m) => m.id)
+    ).toEqual(["assistant-msg-prior", publishMessage.id]);
+    expect(
+      result.current.messages.some(
+        (message) =>
+          message.role === "assistant" && message.id.startsWith("local-assistant-async-cont:")
+      )
+    ).toBe(false);
+    const livePublish = result.current.messages.find((message) => message.id === publishMessage.id);
+    expect(livePublish?.attachments?.map((attachment) => attachment.id)).toEqual([
+      publishAttachment.id
+    ]);
+
+    resolveReattachHold?.();
+  });
+
+  it("async-cont publish-id overlay clears when completed is missed and history has final content", async () => {
+    const continuationClientTurnId = "async-cont:handle-publish-missed-completed-1";
+    const publishAttachment = {
+      id: "att-publish-missed-1",
+      path: `${CHAT_SESSION_ROOT}/bird.png`,
+      thumbnailStoragePath: `${CHAT_SESSION_ROOT}/bird.thumb.png`,
+      posterStoragePath: null,
+      attachmentType: "image" as const,
+      originalFilename: "bird.png",
+      mimeType: "image/png",
+      sizeBytes: 1800,
+      processingStatus: "ready" as const,
+      createdAt: "2026-07-19T13:00:02.000Z"
+    };
+    const publishMessageEmpty = {
+      id: "assistant-msg-publish-missed",
+      chatId: "chat-1",
+      assistantId: "assistant-1",
+      author: "assistant" as const,
+      content: "",
+      attachments: [publishAttachment],
+      createdAt: "2026-07-19T13:00:02.000Z"
+    };
+    const publishMessageFinal = {
+      ...publishMessageEmpty,
+      content: "Here is your bird."
+    };
+    const baseHistory = {
+      nextCursor: null,
+      activeTurn: null,
+      activeSandboxJobs: [
+        {
+          jobRef: "jr1.sandbox.PUBLISHMISSED00000000000000000001",
+          toolCode: "shell" as const,
+          status: "detached" as const,
+          notifyState: "claimed" as const,
+          continuationClientTurnId,
+          createdAt: "2026-07-19T13:00:01.000Z",
+          startedAt: "2026-07-19T13:00:01.000Z",
+          updatedAt: "2026-07-19T13:00:01.000Z"
+        }
+      ],
+      messages: [
+        {
+          id: "user-msg-source",
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          author: "user" as const,
+          content: "draw a bird",
+          attachments: [],
+          createdAt: "2026-07-19T13:00:00.000Z"
+        },
+        publishMessageEmpty
+      ]
+    };
+    assistantApiMocks.getChatMessages.mockResolvedValue(baseHistory);
+    const runningTurn = {
+      status: "running" as const,
+      chat: {
+        id: "chat-1",
+        assistantId: "assistant-1",
+        surface: "web",
+        surfaceThreadKey: "thread-1",
+        title: null,
+        chatMode: "normal",
+        deepModeEnabled: false,
+        skillDecisionState: null,
+        archivedAt: null,
+        lastMessageAt: null,
+        createdAt: "2026-07-19T00:00:00.000Z",
+        updatedAt: "2026-07-19T00:00:00.000Z"
+      },
+      userMessage: null,
+      assistantMessage: publishMessageEmpty,
+      currentActivity: null,
+      runtime: null,
+      error: null
+    };
+    assistantApiMocks.getAssistantWebChatTurnStatus.mockResolvedValue(runningTurn);
+
+    let resolveReattachHold: (() => void) | undefined;
+    const reattachHold = new Promise<void>((resolve) => {
+      resolveReattachHold = resolve;
+    });
+    assistantApiMocks.reattachAssistantWebChatTurnStream.mockImplementation(
+      async (
+        _token: string,
+        _clientTurnId: string,
+        handlers: {
+          onHeadersOk?: () => void;
+          onTurnStatus?: (payload: { turn: unknown }) => void;
+          onStarted?: (payload: {
+            chat: unknown;
+            userMessage: unknown;
+            assistantMessageId?: string;
+          }) => void;
+          onDelta?: (payload: { delta: string }) => void;
+          onCompleted?: () => void | Promise<void>;
+        }
+      ) => {
+        handlers.onHeadersOk?.();
+        handlers.onTurnStatus?.({ turn: runningTurn });
+        handlers.onStarted?.({
+          chat: { id: "chat-1" },
+          userMessage: null,
+          assistantMessageId: publishMessageEmpty.id
+        });
+        handlers.onDelta?.({ delta: "Here is your bird." });
+        // Miss SSE completed — stream ends without terminal event.
+        await reattachHold;
+      }
+    );
+
+    const { result } = renderHook(() => useChat("thread-1"), {
+      wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+    });
+
+    await act(async () => {
+      await result.current.loadHistory("chat-1");
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(
+        result.current.messages.some(
+          (message) =>
+            message.id === publishMessageEmpty.id &&
+            message.status === "streaming" &&
+            message.content.includes("Here is your bird.")
+        )
+      ).toBe(true);
+    });
+
+    assistantApiMocks.getChatMessages.mockResolvedValue({
+      ...baseHistory,
+      activeSandboxJobs: [],
+      messages: [baseHistory.messages[0], publishMessageFinal]
+    });
+
+    await act(async () => {
+      resolveReattachHold?.();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      await result.current.loadHistory("chat-1");
+    });
+
+    await waitFor(() => {
+      expect(result.current.isStreaming).toBe(false);
+      const settled = result.current.messages.find(
+        (message) => message.id === publishMessageFinal.id
+      );
+      expect(settled?.content).toBe("Here is your bird.");
+      expect(settled?.status === "streaming" || settled?.status === "reconciling").toBe(false);
+      expect(settled?.attachments?.map((attachment) => attachment.id)).toEqual([
+        publishAttachment.id
+      ]);
+    });
+    expect(
+      result.current.messages.some(
+        (message) =>
+          message.role === "assistant" && message.id.startsWith("local-assistant-async-cont:")
+      )
+    ).toBe(false);
+  });
+
+  it("async-cont thinking overlay preserves attachments on the publish bubble", async () => {
+    const continuationClientTurnId = "async-cont:handle-publish-thinking-1";
+    const publishAttachment = {
+      id: "att-publish-think-1",
+      path: `${CHAT_SESSION_ROOT}/dog.png`,
+      thumbnailStoragePath: `${CHAT_SESSION_ROOT}/dog.thumb.png`,
+      posterStoragePath: null,
+      attachmentType: "image" as const,
+      originalFilename: "dog.png",
+      mimeType: "image/png",
+      sizeBytes: 2200,
+      processingStatus: "ready" as const,
+      createdAt: "2026-07-19T12:00:02.000Z"
+    };
+    const publishMessage = {
+      id: "assistant-msg-publish-think",
+      chatId: "chat-1",
+      assistantId: "assistant-1",
+      author: "assistant" as const,
+      content: "",
+      attachments: [publishAttachment],
+      createdAt: "2026-07-19T12:00:02.000Z"
+    };
+    assistantApiMocks.getChatMessages.mockResolvedValue({
+      nextCursor: null,
+      activeTurn: null,
+      activeSandboxJobs: [
+        {
+          jobRef: "jr1.sandbox.PUBLISHTHINK000000000000000000001",
+          toolCode: "shell" as const,
+          status: "detached" as const,
+          notifyState: "claimed" as const,
+          continuationClientTurnId,
+          createdAt: "2026-07-19T12:00:01.000Z",
+          startedAt: "2026-07-19T12:00:01.000Z",
+          updatedAt: "2026-07-19T12:00:01.000Z"
+        }
+      ],
+      messages: [
+        {
+          id: "user-msg-source",
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          author: "user" as const,
+          content: "draw a dog",
+          attachments: [],
+          createdAt: "2026-07-19T12:00:00.000Z"
+        },
+        publishMessage
+      ]
+    });
+    const runningTurn = {
+      status: "running" as const,
+      chat: {
+        id: "chat-1",
+        assistantId: "assistant-1",
+        surface: "web",
+        surfaceThreadKey: "thread-1",
+        title: null,
+        chatMode: "normal",
+        deepModeEnabled: false,
+        skillDecisionState: null,
+        archivedAt: null,
+        lastMessageAt: null,
+        createdAt: "2026-07-19T00:00:00.000Z",
+        updatedAt: "2026-07-19T00:00:00.000Z"
+      },
+      userMessage: null,
+      assistantMessage: publishMessage,
+      currentActivity: null,
+      runtime: null,
+      error: null
+    };
+    assistantApiMocks.getAssistantWebChatTurnStatus.mockResolvedValue(runningTurn);
+
+    let resolveReattachHold: (() => void) | undefined;
+    const reattachHold = new Promise<void>((resolve) => {
+      resolveReattachHold = resolve;
+    });
+    assistantApiMocks.reattachAssistantWebChatTurnStream.mockImplementation(
+      async (
+        _token: string,
+        _clientTurnId: string,
+        handlers: {
+          onHeadersOk?: () => void;
+          onTurnStatus?: (payload: { turn: unknown }) => void;
+          onStarted?: (payload: {
+            chat: unknown;
+            userMessage: unknown;
+            assistantMessageId?: string;
+          }) => void;
+          onThinking?: (payload: { accumulated: string }) => void;
+        }
+      ) => {
+        handlers.onHeadersOk?.();
+        handlers.onTurnStatus?.({ turn: runningTurn });
+        handlers.onStarted?.({
+          chat: { id: "chat-1" },
+          userMessage: null,
+          assistantMessageId: publishMessage.id
+        });
+        handlers.onThinking?.({ accumulated: "composing a short ack" });
+        await reattachHold;
+      }
+    );
+
+    const { result } = renderHook(() => useChat("thread-1"), {
+      wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+    });
+
+    await act(async () => {
+      await result.current.loadHistory("chat-1");
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      const live = result.current.messages.find((message) => message.id === publishMessage.id);
+      expect(live?.thought).toBe("composing a short ack");
+      expect(live?.status).toBe("streaming");
+      expect(live?.attachments?.map((attachment) => attachment.id)).toEqual([publishAttachment.id]);
+    });
+    expect(
+      result.current.messages.some(
+        (message) =>
+          message.role === "assistant" && message.id.startsWith("local-assistant-async-cont:")
+      )
+    ).toBe(false);
+
+    resolveReattachHold?.();
+  });
+
   it("clears the local streaming bubble when focus history already contains the completed turn", async () => {
     Object.defineProperty(document, "visibilityState", {
       configurable: true,

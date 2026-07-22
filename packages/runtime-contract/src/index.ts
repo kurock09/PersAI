@@ -3911,6 +3911,18 @@ export interface RuntimeTurnRequest {
        * `originatingUserMessageId` (interleave / follow-up anchor).
        */
       latestUserMessageId?: string;
+      /**
+       * ADR-162 Phase 2 — true only when every source-wave sibling handle is
+       * terminal (completed/failed/cancelled), excluding the handle being
+       * presented. Ready-queue empty is not sufficient while siblings still run.
+       */
+      waveClosed?: boolean;
+      /**
+       * ADR-162 Phase 2 — count of non-terminal sibling handles in the source
+       * wave (excludes the current handle). Includes subscribed/running jobs
+       * that are not yet ready.
+       */
+      openSiblingCount?: number;
     };
   };
 }

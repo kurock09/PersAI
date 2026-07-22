@@ -11,6 +11,8 @@ function baseContext(overrides?: { continuationClientTurnId?: string }) {
   return {
     handle: {
       id: "handle-1",
+      kind: "media" as const,
+      canonicalJobId: "media-job-1",
       assistantId: "assistant-1",
       workspaceId: "workspace-1",
       userId: "user-1",
@@ -80,6 +82,15 @@ function streamRegistryMock(options?: {
   } as never;
 }
 
+function noopConversationalPublish(calls?: string[]) {
+  return {
+    publishForCatchUp: async () => {
+      calls?.push("publish");
+      return null;
+    }
+  } as never;
+}
+
 function stopDispatchMock(options?: {
   onRegister?: () => void;
   onRelease?: () => void;
@@ -127,6 +138,9 @@ function attemptMock(attemptCalls: string[], extras?: Record<string, unknown>) {
     abandonPreAcceptanceAttempt: async () => {
       attemptCalls.push("abandonPreAcceptanceAttempt");
     },
+    bindAssistantMessageId: async () => {
+      attemptCalls.push("bindAssistantMessageId");
+    },
     ...extras
   } as never;
 }
@@ -168,6 +182,7 @@ describe("StreamWebAsyncContinuationService", () => {
         onPublish: (event) => published.push(event.event)
       }),
       stopDispatchMock(),
+      noopConversationalPublish(),
       undefined
     );
     const run = service.processWebClaim({
@@ -283,6 +298,7 @@ describe("StreamWebAsyncContinuationService", () => {
           stopReleased = true;
         }
       }),
+      noopConversationalPublish(),
       undefined,
       {
         publishReady: async (input: { clientTurnId: string }) => {
@@ -336,7 +352,8 @@ describe("StreamWebAsyncContinuationService", () => {
         }
       } as never,
       streamRegistryMock(),
-      stopDispatchMock()
+      stopDispatchMock(),
+      noopConversationalPublish()
     );
 
     await service.processWebClaim({
@@ -371,7 +388,8 @@ describe("StreamWebAsyncContinuationService", () => {
           published.push(input.event);
         }
       }),
-      stopDispatchMock()
+      stopDispatchMock(),
+      noopConversationalPublish()
     );
 
     await service.processWebClaim({
@@ -416,7 +434,8 @@ describe("StreamWebAsyncContinuationService", () => {
           published.push(input.event);
         }
       }),
-      stopDispatchMock()
+      stopDispatchMock(),
+      noopConversationalPublish()
     );
 
     await service.processWebClaim({
@@ -456,7 +475,8 @@ describe("StreamWebAsyncContinuationService", () => {
           published.push(input.event);
         }
       }),
-      stopDispatchMock({ wasUserStopped: () => true })
+      stopDispatchMock({ wasUserStopped: () => true }),
+      noopConversationalPublish()
     );
 
     await service.processWebClaim({
@@ -498,7 +518,8 @@ describe("StreamWebAsyncContinuationService", () => {
           published.push(input.event);
         }
       }),
-      stopDispatchMock()
+      stopDispatchMock(),
+      noopConversationalPublish()
     );
 
     await assert.rejects(
@@ -543,7 +564,8 @@ describe("StreamWebAsyncContinuationService", () => {
           published.push(input.event);
         }
       }),
-      stopDispatchMock()
+      stopDispatchMock(),
+      noopConversationalPublish()
     );
 
     const callbacks = {
@@ -611,7 +633,8 @@ describe("StreamWebAsyncContinuationService", () => {
       } as never,
       attemptMock([]),
       streamRegistryMock(),
-      stopDispatchMock()
+      stopDispatchMock(),
+      noopConversationalPublish()
     );
 
     await service.processWebClaim({
@@ -649,7 +672,8 @@ describe("StreamWebAsyncContinuationService", () => {
           published.push(input.event);
         }
       }),
-      stopDispatchMock()
+      stopDispatchMock(),
+      noopConversationalPublish()
     );
 
     await assert.rejects(
@@ -697,7 +721,8 @@ describe("StreamWebAsyncContinuationService", () => {
           published.push(input.event);
         }
       }),
-      stopDispatchMock()
+      stopDispatchMock(),
+      noopConversationalPublish()
     );
 
     await service.processWebClaim({
@@ -740,7 +765,8 @@ describe("StreamWebAsyncContinuationService", () => {
           published.push(input.event);
         }
       }),
-      stopDispatchMock()
+      stopDispatchMock(),
+      noopConversationalPublish()
     );
 
     const callbacks = {
@@ -798,7 +824,8 @@ describe("StreamWebAsyncContinuationService", () => {
           published.push(input.event);
         }
       }),
-      stopDispatchMock()
+      stopDispatchMock(),
+      noopConversationalPublish()
     );
 
     await service.processWebClaim({
@@ -842,7 +869,8 @@ describe("StreamWebAsyncContinuationService", () => {
       } as never,
       attemptMock(attemptCalls),
       streamRegistryMock(),
-      stopDispatchMock()
+      stopDispatchMock(),
+      noopConversationalPublish()
     );
 
     await service.processWebClaim({
@@ -882,7 +910,8 @@ describe("StreamWebAsyncContinuationService", () => {
       } as never,
       attemptMock(attemptCalls),
       streamRegistryMock(),
-      stopDispatchMock()
+      stopDispatchMock(),
+      noopConversationalPublish()
     );
 
     await service.processWebClaim({
@@ -916,6 +945,7 @@ describe("StreamWebAsyncContinuationService", () => {
       attemptMock(attemptCalls),
       streamRegistryMock(),
       stopDispatchMock(),
+      noopConversationalPublish(),
       {
         admitCatchUpAtBoundary: async () => ({ allowed: false, reason: "idle_pause" })
       } as never

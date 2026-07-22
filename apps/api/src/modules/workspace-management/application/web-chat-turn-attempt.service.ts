@@ -286,6 +286,40 @@ export class WebChatTurnAttemptService {
   }
 
   /**
+   * ADR-162 — bind the ConversationalPublish bubble to the running web attempt
+   * before the first stream delta so the client can attach without a dual slot.
+   */
+  async bindAssistantMessageId(input: {
+    assistantId: string;
+    userId: string;
+    surfaceThreadKey: string;
+    clientTurnId: string;
+    assistantMessageId: string;
+  }): Promise<void> {
+    const updated = await this.prisma.assistantWebChatTurnAttempt.updateMany({
+      where: {
+        assistantId: input.assistantId,
+        userId: input.userId,
+        surfaceThreadKey: input.surfaceThreadKey,
+        clientTurnId: input.clientTurnId,
+        status: { in: ["accepted", "running"] }
+      },
+      data: {
+        assistantMessageId: input.assistantMessageId
+      }
+    });
+    if (updated.count === 0) {
+      this.logger.warn(
+        `web_turn_attempt_bind_assistant_message_ignored assistantId=${input.assistantId} clientTurnId=${input.clientTurnId} assistantMessageId=${input.assistantMessageId}`
+      );
+      return;
+    }
+    this.logger.log(
+      `web_turn_attempt_bound_assistant_message assistantId=${input.assistantId} clientTurnId=${input.clientTurnId} assistantMessageId=${input.assistantMessageId}`
+    );
+  }
+
+  /**
    * ADR-159 — pre-acceptance busy cleanup: delete the async-continuation
    * attempt so the next catch-up claim can create a fresh row.
    * (`resetToAccepted` deleted.)

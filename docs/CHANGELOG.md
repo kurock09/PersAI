@@ -5,6 +5,47 @@
 
 ## 2026-07-22
 
+- **ADR-162 Phases 0–4 CLEAN (local, pre-push):** ConversationalPublish at
+  catch-up present; wave-closed server tool strip; web publish-id bind.
+  Parallel-logic audits CLEAN. Awaiting founder push/deploy + live T1–T4.
+
+- **ADR-162 Phase 3 web transcript bind (local):** `async-cont:*` binds live
+  stream to ConversationalPublish `assistantMessageId` (SSE `started` /
+  turn_status / reattach); no permanent dual `local-assistant-async-cont:*`;
+  thinking/stream overlay preserves attachments; history absorb is id
+  reconcile only. Focused web tests + typecheck.
+
+- **ADR-162 Phase 2 wave-closed continue (local):** JOB_CATCHUP stamps
+  `waveClosed` / `openSiblingCount` from non-terminal source-wave siblings;
+  runtime fail-closed strips tools while open and allows continue when closed;
+  instructions match (no continue-on-ready-empty). Focused API/runtime tests.
+
+- **ADR-162 Phase 1 document failDelivery defer (local):** owned deferred
+  document failDelivery skips ensureFailureMessage invent (mirrors media).
+  Focused tests + typecheck green; re-audit pending.
+
+- **ADR-162 Phase 1 re-audit P0 empty-fail present (local):** publish empty
+  artifacts without throw (bubble + no attach); ordinary media failDelivery
+  skips worker chat invent for owned deferred handles.
+
+- **ADR-162 Phase 1 audit P1/P2 repair (local):** pin publish message id before
+  attach (crash-idempotent retry); required ConversationalPublish DI (no
+  Optional soft-skip); remove dead ordinary ensureCompletionMessage dual-path
+  residue.
+
+- **ADR-162 Phase 1 ConversationalPublish (local):** ordinary deferred
+  media/document completion no longer invents chat or attaches at
+  artifact-ready; `ConversationalPublishService` create→attach under catch-up
+  eligibility before runtime; narration UPDATEs the same publish id; web early
+  `assistantMessageId` bind on SSE `started`. Await inline unchanged.
+
+- **ADR-162 conversational async present (docs IKR lock):** ordinary deferred
+  jobs must not invent chat rows at artifact-ready time; FIFO
+  ConversationalPublish appends at bottom after idle-pause; one bubble per job;
+  heavy continue only when the open-sibling wave is closed (staggered
+  completions). Rejects early-delivery patch, client absorb, and
+  continue-on-already-ready.
+
 - **ADR-161 A2 micro-clear hysteresis (local):** keep-N projection stays on
   after arm (no meter re-expand). Arm schedule 50%→75%→exhausted with 5%
   hysteresis; S3 resets state. Fixes ~48k↔29k prompt ping-pong.

@@ -500,6 +500,19 @@ type DeveloperInstructionSection = {
 };
 
 /**
+ * ADR-162 Phase 2 — JOB_CATCHUP must stay light (file + short ack, no tool
+ * loop / shell campaign) unless facts.waveClosed is explicitly true.
+ * Fail-closed when the marker is missing or false.
+ */
+export function isJobCatchUpLightPresentOnly(
+  continuation: RuntimeTurnRequest["continuation"] | undefined
+): boolean {
+  if (continuation === undefined) return false;
+  if (continuation.facts.wakeKind !== "job_catchup") return false;
+  return continuation.facts.waveClosed !== true;
+}
+
+/**
  * Replaces the transport-only continuation placeholder with the terminal event
  * that is the only active request for this model turn. Keeping the historical
  * conversation intact while dropping the placeholder made an old user request
@@ -511,6 +524,10 @@ export function projectAsyncContinuationTerminalEvent(
 ): ProviderGatewayTextMessage[] {
   if (continuation === undefined) return messages;
   const terminalFacts = JSON.stringify(continuation.facts);
+  const lightPresentOnly = isJobCatchUpLightPresentOnly(continuation);
+  const toolPolicyLine = lightPresentOnly
+    ? "Wave is still open (open siblings remain). Narrate a short acknowledgement only. Do not call tools, start shell work, or continue a longer campaign."
+    : "Wave is closed (no open siblings). You may use tools for genuinely new forward progress required by this terminal event.";
   const event: ProviderGatewayTextMessage = {
     role: "user",
     content: [
@@ -518,7 +535,7 @@ export function projectAsyncContinuationTerminalEvent(
       "Handle only this terminal event and its exact structured facts.",
       "Do not repeat, restart, or otherwise re-execute the completed job.",
       "Do not re-answer, summarize, or act on an earlier or interleaved user message.",
-      "Use a tool only for genuinely new forward progress required by this terminal event.",
+      toolPolicyLine,
       `terminal_facts=${terminalFacts}`
     ].join("\n")
   };
@@ -691,8 +708,10 @@ export class TurnExecutionService {
     }
     const turnState = this.createTurnExecutionState();
     try {
+      // ADR-162 Phase 2 — while wave open, strip tools at projection (not prompt-only).
+      const lightPresentOnly = isJobCatchUpLightPresentOnly(input.continuation);
       const execution = await this.prepareTurnExecution(input, {
-        allowModelToolExposure: true
+        allowModelToolExposure: !lightPresentOnly
       });
       await this.initializeTurnDeliveryContext(turnState, input, execution.bundle);
       const result = await this.runtimeExecutionAdmissionService.runWithAdmission(
@@ -746,8 +765,10 @@ export class TurnExecutionService {
     }
     const trace = this.createRuntimeStreamTraceCollector();
     trace.stage("accepted");
+    // ADR-162 Phase 2 — while wave open, strip tools at projection (not prompt-only).
+    const lightPresentOnly = isJobCatchUpLightPresentOnly(input.continuation);
     const execution = await this.prepareTurnExecution(input, {
-      allowModelToolExposure: true,
+      allowModelToolExposure: !lightPresentOnly,
       trace
     });
     const executionClass = this.classifyInteractiveExecutionClass(input, execution);
@@ -1231,7 +1252,9 @@ export class TurnExecutionService {
     let deliveredText = "";
     const toolHistory: ProviderGatewayToolExchange[] = [];
     let completionFinalizationAttempted = false;
-    let forceFinalTextOnly = false;
+    // ADR-162 Phase 2 — wave-open catch-up stays single-shot narration (tools:none).
+    const catchUpLightPresentOnly = isJobCatchUpLightPresentOnly(input.continuation);
+    let forceFinalTextOnly = catchUpLightPresentOnly;
     let contextOverflowRetryAttempted = false;
     let projectSynthesisEventsEmitted = false;
     // Working notes: the text the model produced before EACH tool call across
@@ -1450,7 +1473,9 @@ export class TurnExecutionService {
                   assembledText,
                   event.result.text
                 );
-                forceFinalTextOnly = false;
+                if (!catchUpLightPresentOnly) {
+                  forceFinalTextOnly = false;
+                }
                 if (event.result.toolCalls.length === 0) {
                   throw new TurnExecutionError(
                     "native_tool_result_invalid",
@@ -2506,8 +2531,11 @@ export class TurnExecutionService {
             "## Async completion continuation",
             "This is a same-chat JOB_CATCHUP wake after an asynchronous job reached a terminal state.",
             "The final model-facing message is an explicit synthetic JOB_CATCHUP event containing the exact bounded terminal facts. It is the active request; historical user messages are context only.",
-            "Structured facts.wakeKind is job_catchup (with jobRef, queueOrdinal/queueTotal, interleaved, and originating vs latest user message ids when they differ). Treat that object as the product signal.",
+            "Structured facts.wakeKind is job_catchup (with jobRef, queueOrdinal/queueTotal, interleaved, waveClosed/openSiblingCount, and originating vs latest user message ids when they differ). Treat that object as the product signal.",
             "Narrate only the exact completed, failed, or cancelled job facts in the structured object. Use queueOrdinal/queueTotal as the stable catch-up wave position. Never repeat, restart, or re-execute that completed job.",
+            isJobCatchUpLightPresentOnly(input.request.continuation)
+              ? "facts.waveClosed is false (or missing): the source sibling wave is still open. Light present only — short acknowledgement for this job's facts. Do not call tools, start shell, or continue a longer campaign. Ready-queue empty is not wave-closed while siblings still run."
+              : "facts.waveClosed is true: this present closes the wave (no open non-terminal siblings). You may continue with tools for genuinely new forward progress required by this terminal event.",
             "If interleaved is true, later user messages already have priority: do not re-answer, summarize, act on, or contradict them. Do not claim delivery again; canonical attachment delivery is separate and may already be complete.",
             "Keep the update concise and grounded in this job's facts. Do not broaden it into a fresh answer to the original request.",
             "If facts.sandboxResult is present, treat exitCode/stdout/stderr/paths as the job result (same payload await wait would have returned) — summarize or quote them; do not invent numbers or claim the job is still running.",
@@ -3206,7 +3234,9 @@ export class TurnExecutionService {
   ): Promise<ProviderGatewayTextGenerateResult> {
     const toolHistory: ProviderGatewayToolExchange[] = [];
     let accumulatedText = "";
-    let forceFinalTextOnly = false;
+    // ADR-162 Phase 2 — wave-open catch-up stays single-shot narration (tools:none).
+    const catchUpLightPresentOnly = isJobCatchUpLightPresentOnly(input.continuation);
+    let forceFinalTextOnly = catchUpLightPresentOnly;
     let contextOverflowRetryAttempted = false;
     const toolBudgetPolicy = this.createToolBudgetPolicy(execution);
     const maxToolLoopIterations =
@@ -3326,7 +3356,9 @@ export class TurnExecutionService {
           )
         );
       }
-      forceFinalTextOnly = false;
+      if (!catchUpLightPresentOnly) {
+        forceFinalTextOnly = false;
+      }
 
       let durableCompactionExecuted = false;
       let volatileRefreshNeeded = false;

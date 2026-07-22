@@ -334,7 +334,10 @@ function isSuccessStatus(status: number): status is 200 | 201 {
 }
 
 type WebChatStreamEvent =
-  | { event: "started"; data: { chat: unknown; userMessage: unknown } }
+  | {
+      event: "started";
+      data: { chat: unknown; userMessage: unknown; assistantMessageId?: string };
+    }
   | { event: "thinking"; data: { delta: string; accumulated: string } }
   | { event: "delta"; data: { delta: string } }
   | {
@@ -443,7 +446,11 @@ export interface AssistantWebChatStreamHandlers {
    * fully accepted in-flight request. See ADR-075 "Single-slot pending send".
    */
   onHeadersOk?: () => void;
-  onStarted?: (payload: { chat: unknown; userMessage: unknown }) => void;
+  onStarted?: (payload: {
+    chat: unknown;
+    userMessage: unknown;
+    assistantMessageId?: string;
+  }) => void;
   onThinking?: (payload: { delta: string; accumulated: string }) => void;
   onDelta?: (payload: { delta: string }) => void;
   onTool?: (payload: {
@@ -1106,7 +1113,18 @@ function toStreamEvent(eventName: string, payload: unknown): WebChatStreamEvent 
 
   const body = payload as Record<string, unknown>;
   if (eventName === "started") {
-    return { event: "started", data: { chat: body.chat, userMessage: body.userMessage } };
+    const assistantMessageId =
+      typeof body.assistantMessageId === "string" && body.assistantMessageId.trim().length > 0
+        ? body.assistantMessageId.trim()
+        : undefined;
+    return {
+      event: "started",
+      data: {
+        chat: body.chat,
+        userMessage: body.userMessage,
+        ...(assistantMessageId === undefined ? {} : { assistantMessageId })
+      }
+    };
   }
   if (eventName === "delta") {
     if (typeof body.delta !== "string") {

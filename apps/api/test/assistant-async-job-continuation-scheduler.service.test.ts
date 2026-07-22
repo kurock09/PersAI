@@ -9,6 +9,12 @@ import {
 
 const ORIGINAL_ENV = process.env;
 
+function noopConversationalPublish() {
+  return {
+    publishForCatchUp: async () => null
+  } as never;
+}
+
 const wakeCoordinatorStub = {
   claimReadyCatchUps: async () => [],
   releaseCatchUp: async () => undefined,
@@ -45,7 +51,8 @@ function dispatchHarness(input: {
     {} as never,
     {} as never,
     {} as never,
-    {} as never
+    {} as never,
+    noopConversationalPublish()
   );
   const internal = service as unknown as {
     loadAndValidateContext: () => Promise<Record<string, unknown>>;
@@ -100,7 +107,8 @@ describe("AssistantAsyncJobContinuationSchedulerService", () => {
               runtimeBundle: {},
               runtimeBundleDocument: "{}"
             })
-          } as never
+          } as never,
+          noopConversationalPublish()
         );
         const built = await (
           service as unknown as {
@@ -171,7 +179,8 @@ describe("AssistantAsyncJobContinuationSchedulerService", () => {
             runtimeBundle: {},
             runtimeBundleDocument: "{}"
           })
-        } as never
+        } as never,
+        noopConversationalPublish()
       );
       const built = await (
         service as unknown as {
@@ -287,7 +296,8 @@ describe("AssistantAsyncJobContinuationSchedulerService", () => {
       {} as never,
       {} as never,
       {} as never,
-      {} as never
+      {} as never,
+      noopConversationalPublish()
     );
     const markers = await (
       service as unknown as {
@@ -354,7 +364,8 @@ describe("AssistantAsyncJobContinuationSchedulerService", () => {
       {} as never,
       {} as never,
       {} as never,
-      {} as never
+      {} as never,
+      noopConversationalPublish()
     );
     const resolve = (
       service as unknown as {
@@ -401,6 +412,142 @@ describe("AssistantAsyncJobContinuationSchedulerService", () => {
     );
   });
 
+  test("ADR-162 Phase 2: resolveWaveClosedState — 2 terminal + 1 running → waveClosed=false", async () => {
+    const sourceUserMessageId = "00000000-0000-4000-8000-0000000000aa";
+    const waveId = "00000000-0000-4000-8000-0000000000w1";
+    let lastWhere: Record<string, unknown> | null = null;
+    const service = new AssistantAsyncJobContinuationSchedulerService(
+      {
+        assistantAsyncJobHandle: {
+          count: async (args: { where: Record<string, unknown> }) => {
+            lastWhere = args.where;
+            // job1 completed, job2 is current (excluded), job3 still subscribed/running
+            return 1;
+          }
+        }
+      } as never,
+      {} as never,
+      wakeCoordinatorStub as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      noopConversationalPublish()
+    );
+    const resolve = (
+      service as unknown as {
+        resolveWaveClosedState: (input: Record<string, unknown>) => Promise<{
+          waveClosed: boolean;
+          openSiblingCount: number;
+        }>;
+      }
+    ).resolveWaveClosedState.bind(service);
+    const midWave = await resolve({
+      handleId: "handle-job2",
+      chatId: "chat-1",
+      sourceUserMessageId,
+      catchUpWaveId: waveId
+    });
+    assert.deepEqual(midWave, { waveClosed: false, openSiblingCount: 1 });
+    assert.ok(lastWhere !== null);
+    assert.equal(
+      (lastWhere as { sourceUserMessageId?: string }).sourceUserMessageId,
+      sourceUserMessageId
+    );
+    assert.deepEqual((lastWhere as { id?: { not?: string } }).id, { not: "handle-job2" });
+    assert.deepEqual((lastWhere as { state?: { notIn?: string[] } }).state, {
+      notIn: ["completed", "failed", "cancelled"]
+    });
+  });
+
+  test("ADR-162 Phase 2: resolveWaveClosedState — all 3 terminal → waveClosed=true on last", async () => {
+    const service = new AssistantAsyncJobContinuationSchedulerService(
+      {
+        assistantAsyncJobHandle: {
+          count: async () => 0
+        }
+      } as never,
+      {} as never,
+      wakeCoordinatorStub as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      noopConversationalPublish()
+    );
+    const closed = await (
+      service as unknown as {
+        resolveWaveClosedState: (input: Record<string, unknown>) => Promise<{
+          waveClosed: boolean;
+          openSiblingCount: number;
+        }>;
+      }
+    ).resolveWaveClosedState({
+      handleId: "handle-job3",
+      chatId: "chat-1",
+      sourceUserMessageId: "00000000-0000-4000-8000-0000000000aa",
+      catchUpWaveId: "wave-1"
+    });
+    assert.deepEqual(closed, { waveClosed: true, openSiblingCount: 0 });
+  });
+
+  test("ADR-162 Phase 2: ready-queue empty but sibling still running → waveClosed=false", async () => {
+    // job1+job2 already completed (not in ready); job3 still subscribed (running).
+    // Ready backlog looks empty — must still count the non-terminal sibling.
+    let countedStates: unknown = null;
+    const service = new AssistantAsyncJobContinuationSchedulerService(
+      {
+        assistantAsyncJobHandle: {
+          count: async (args: { where: Record<string, unknown> }) => {
+            countedStates = args.where.state;
+            // Must NOT filter only ready|claimed|dispatched — subscribed counts.
+            return 1;
+          },
+          findMany: async () => {
+            throw new Error("wave-closed must not use ready-sibling findMany");
+          }
+        }
+      } as never,
+      {} as never,
+      wakeCoordinatorStub as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      noopConversationalPublish()
+    );
+    const open = await (
+      service as unknown as {
+        resolveWaveClosedState: (input: Record<string, unknown>) => Promise<{
+          waveClosed: boolean;
+          openSiblingCount: number;
+        }>;
+      }
+    ).resolveWaveClosedState({
+      handleId: "handle-job2",
+      chatId: "chat-1",
+      sourceUserMessageId: "00000000-0000-4000-8000-0000000000aa",
+      catchUpWaveId: "wave-1"
+    });
+    assert.deepEqual(open, { waveClosed: false, openSiblingCount: 1 });
+    assert.deepEqual(countedStates, { notIn: ["completed", "failed", "cancelled"] });
+  });
+
   test("loadAndValidateContext rejects a handle at the shared MAX_ASYNC_CONTINUATION_DEPTH constant, not a private hardcoded literal", async () => {
     const prisma = {
       assistantAsyncJobHandle: {
@@ -442,7 +589,8 @@ describe("AssistantAsyncJobContinuationSchedulerService", () => {
       {} as never,
       {} as never,
       {} as never,
-      {} as never
+      {} as never,
+      noopConversationalPublish()
     );
     const result = await (
       service as unknown as { loadAndValidateContext: (id: string) => Promise<unknown> }
@@ -594,7 +742,8 @@ describe("AssistantAsyncJobContinuationSchedulerService", () => {
               readyAt: handle.readyAt,
               updatedAt: handle.updatedAt
             }
-          ]
+          ],
+          count: async () => 0
         },
         assistantChannelSurfaceBinding: {
           findUnique: async () => {
@@ -637,7 +786,8 @@ describe("AssistantAsyncJobContinuationSchedulerService", () => {
         {} as never,
         {} as never,
         { findById: async () => handle.assistant } as never,
-        {} as never
+        {} as never,
+        noopConversationalPublish()
       );
       const result = await (
         service as unknown as { loadAndValidateContext: (id: string) => Promise<unknown> }
@@ -702,7 +852,8 @@ describe("AssistantAsyncJobContinuationSchedulerService", () => {
               readyAt: handle.readyAt,
               updatedAt: handle.updatedAt
             }
-          ]
+          ],
+          count: async () => 0
         },
         runtimeSession: {
           findFirst: async () => ({
@@ -745,7 +896,8 @@ describe("AssistantAsyncJobContinuationSchedulerService", () => {
       {} as never,
       {} as never,
       { findById: async () => handle.assistant } as never,
-      {} as never
+      {} as never,
+      noopConversationalPublish()
     );
     const context = await (
       service as unknown as {
@@ -758,6 +910,8 @@ describe("AssistantAsyncJobContinuationSchedulerService", () => {
             queueOrdinal?: number;
             queueTotal?: number;
             interleaved?: boolean;
+            waveClosed?: boolean;
+            openSiblingCount?: number;
             originatingUserMessageId?: string;
             latestUserMessageId?: string;
           };
@@ -772,8 +926,111 @@ describe("AssistantAsyncJobContinuationSchedulerService", () => {
     assert.equal(context.facts.queueOrdinal, 1);
     assert.equal(context.facts.queueTotal, 1);
     assert.equal(context.facts.interleaved, false);
+    assert.equal(context.facts.waveClosed, true);
+    assert.equal(context.facts.openSiblingCount, 0);
     assert.equal(context.facts.originatingUserMessageId, "00000000-0000-4000-8000-000000000001");
     assert.equal(context.facts.latestUserMessageId, undefined);
+  });
+
+  test("ADR-162 Phase 2: loadAndValidateContext stamps waveClosed=false while sibling still open", async () => {
+    const handle = {
+      id: "handle-job2",
+      state: "claimed",
+      threadKey: "thread-1",
+      continuationClientTurnId: "async-cont:job2",
+      sourceUserMessageId: "00000000-0000-4000-8000-0000000000aa",
+      continuationDepth: 0,
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      userId: "user-1",
+      chatId: "chat-1",
+      channel: "web" as const,
+      kind: "media" as const,
+      jobRef: "jr1.media.job2",
+      canonicalJobId: "media-job-2",
+      runtimeSessionId: null,
+      readyAt: new Date("2026-07-22T12:00:00.000Z"),
+      updatedAt: new Date("2026-07-22T12:00:00.000Z"),
+      sourceFinalizedAt: new Date("2026-07-22T11:59:00.000Z"),
+      catchUpOrdinal: 2,
+      catchUpWaveTotal: 3,
+      catchUpWaveId: "wave-3",
+      chat: {
+        archivedAt: null,
+        assistantId: "assistant-1",
+        workspaceId: "workspace-1",
+        userId: "user-1",
+        surface: "web",
+        surfaceThreadKey: "thread-1"
+      },
+      assistant: {
+        workspaceId: "workspace-1",
+        userId: "user-1",
+        applyAppliedVersionId: "version-1"
+      }
+    };
+    const service = new AssistantAsyncJobContinuationSchedulerService(
+      {
+        assistantAsyncJobHandle: {
+          findUnique: async () => handle,
+          findMany: async () => [],
+          count: async () => 1
+        },
+        runtimeSession: {
+          findFirst: async () => ({
+            id: "session-1",
+            assistantId: "assistant-1",
+            workspaceId: "workspace-1",
+            externalUserKey: "user-1",
+            mode: "direct"
+          })
+        },
+        assistantChatMessage: {
+          findFirst: async (args: {
+            where?: { createdAt?: { gt?: Date } };
+            orderBy?: { createdAt?: "asc" | "desc" };
+          }) => {
+            if (args.where?.createdAt?.gt !== undefined || args.orderBy?.createdAt === "desc") {
+              return null;
+            }
+            return {
+              id: handle.sourceUserMessageId,
+              createdAt: new Date("2026-07-22T11:58:00.000Z")
+            };
+          }
+        }
+      } as never,
+      {
+        readCanonicalTerminal: async () => ({
+          status: "completed",
+          errorCode: null,
+          message: "Job completed and was delivered.",
+          sandboxResult: null
+        })
+      } as never,
+      wakeCoordinatorStub as never,
+      {} as never,
+      {} as never,
+      { enforceInboundTurn: async () => undefined } as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      { findById: async () => handle.assistant } as never,
+      {} as never,
+      noopConversationalPublish()
+    );
+    const context = await (
+      service as unknown as {
+        loadAndValidateContext: (id: string) => Promise<{
+          facts: { waveClosed?: boolean; openSiblingCount?: number; queueOrdinal?: number };
+        } | null>;
+      }
+    ).loadAndValidateContext(handle.id);
+    assert.ok(context !== null);
+    assert.equal(context.facts.waveClosed, false);
+    assert.equal(context.facts.openSiblingCount, 1);
+    assert.equal(context.facts.queueOrdinal, 2);
   });
 
   test("delivery-visible reconciler promotes subscribed media when attachment is visible", async () => {
@@ -820,7 +1077,8 @@ describe("AssistantAsyncJobContinuationSchedulerService", () => {
       {} as never,
       {} as never,
       {} as never,
-      {} as never
+      {} as never,
+      noopConversationalPublish()
     );
     await (
       service as unknown as { processDueBatch: (limit?: number) => Promise<number> }
@@ -851,7 +1109,8 @@ describe("AssistantAsyncJobContinuationSchedulerService", () => {
       {} as never,
       {} as never,
       {} as never,
-      {} as never
+      {} as never,
+      noopConversationalPublish()
     );
     await service.processDueBatch(4);
     assert.ok(sourceWhere !== null);
@@ -897,7 +1156,8 @@ describe("AssistantAsyncJobContinuationSchedulerService", () => {
       {} as never,
       {} as never,
       {} as never,
-      {} as never
+      {} as never,
+      noopConversationalPublish()
     );
     await service.processDueBatch(4);
     assert.equal(queryValues.includes("asyncContinuationClientTurnId"), true);
@@ -963,7 +1223,8 @@ describe("AssistantAsyncJobContinuationSchedulerService", () => {
       {} as never,
       {} as never,
       {} as never,
-      {} as never
+      {} as never,
+      noopConversationalPublish()
     );
 
     assert.equal(await service.processDueBatch(4), 0);
@@ -1017,7 +1278,8 @@ describe("AssistantAsyncJobContinuationSchedulerService", () => {
       {} as never,
       {} as never,
       {} as never,
-      {} as never
+      {} as never,
+      noopConversationalPublish()
     );
 
     await service.processDueBatch(4);
@@ -1068,7 +1330,8 @@ describe("AssistantAsyncJobContinuationSchedulerService", () => {
       {} as never,
       {} as never,
       {} as never,
-      {} as never
+      {} as never,
+      noopConversationalPublish()
     );
     const internal = service as unknown as {
       loadAndValidateContext: () => Promise<Record<string, unknown>>;
@@ -1120,7 +1383,8 @@ describe("AssistantAsyncJobContinuationSchedulerService", () => {
       {} as never,
       {} as never,
       {} as never,
-      {} as never
+      {} as never,
+      noopConversationalPublish()
     );
     const internal = service as unknown as {
       loadAndValidateContext: () => Promise<Record<string, unknown>>;
@@ -1416,7 +1680,8 @@ describe("AssistantAsyncJobContinuationSchedulerService", () => {
       {} as never,
       {} as never,
       {} as never,
-      {} as never
+      {} as never,
+      noopConversationalPublish()
     );
     (
       service as unknown as {
@@ -1517,7 +1782,8 @@ describe("AssistantAsyncJobContinuationSchedulerService", () => {
       {} as never,
       {} as never,
       {} as never,
-      {} as never
+      {} as never,
+      noopConversationalPublish()
     );
     (
       service as unknown as {

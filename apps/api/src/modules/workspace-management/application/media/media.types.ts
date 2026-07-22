@@ -73,6 +73,11 @@ export interface OutboundMediaDeliverParams {
   workspaceId: string;
   runtimeSessionId?: string | null;
   channelTarget?: ChannelTarget;
+  /**
+   * ADR-162 — when false, persist/attach only. Quota/VC was already settled
+   * at ordinary deferred artifact-ready time before ConversationalPublish.
+   */
+  settleQuota?: boolean;
 }
 
 export function inferAttachmentTypeFromMime(mime: string): AttachmentType {

@@ -2,6 +2,12 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { AssistantAsyncJobContinuationSchedulerService } from "../src/modules/workspace-management/application/assistant-async-job-continuation-scheduler.service";
 
+function noopConversationalPublish() {
+  return {
+    publishForCatchUp: async () => null
+  } as never;
+}
+
 describe("persistOutputOnce delivery-bubble reuse", () => {
   test("writes catch-up narration into the media job completion bubble", async () => {
     const messageUpdates: Array<Record<string, unknown>> = [];
@@ -52,7 +58,8 @@ describe("persistOutputOnce delivery-bubble reuse", () => {
       {} as never,
       {} as never,
       {} as never,
-      {} as never
+      {} as never,
+      noopConversationalPublish()
     );
 
     const result = await (
@@ -98,25 +105,23 @@ describe("persistOutputOnce delivery-bubble reuse", () => {
     );
   });
 
-  test("claims a new bubble as media completion when delivery has not pinned yet", async () => {
-    const mediaPins: Array<Record<string, unknown>> = [];
+  test("fails closed for media when ConversationalPublish id is missing", async () => {
     const prisma = {
       $transaction: async <T>(callback: (tx: Record<string, unknown>) => Promise<T>) =>
         callback({
           $queryRaw: async () => [{ messageId: null }],
           assistantMediaJob: {
             findUnique: async () => ({ completionAssistantMessageId: null }),
-            updateMany: async (input: Record<string, unknown>) => {
-              mediaPins.push(input);
-              return { count: 1 };
-            }
+            updateMany: async () => ({ count: 0 })
           },
           assistantDocumentRenderJob: {
             findUnique: async () => null
           },
           assistantChatMessage: {
             updateMany: async () => ({ count: 0 }),
-            create: async () => ({ id: "continuation-message-1" })
+            create: async () => {
+              throw new Error("must not invent a second media bubble");
+            }
           },
           assistantAsyncJobHandle: {
             updateMany: async () => ({ count: 1 })
@@ -136,47 +141,44 @@ describe("persistOutputOnce delivery-bubble reuse", () => {
       {} as never,
       {} as never,
       {} as never,
-      {} as never
+      {} as never,
+      noopConversationalPublish()
     );
 
-    const result = await (
-      service as unknown as {
-        persistOutputOnce: (
-          claim: { id: string; claimToken: string },
-          context: {
+    await assert.rejects(
+      () =>
+        (
+          service as unknown as {
+            persistOutputOnce: (
+              claim: { id: string; claimToken: string },
+              context: {
+                handle: {
+                  kind: "media";
+                  canonicalJobId: string;
+                  chatId: string;
+                  assistantId: string;
+                  continuationClientTurnId: string;
+                };
+                facts: Record<string, unknown>;
+              },
+              turnResult: { answerText: string }
+            ) => Promise<{ outcome: string; messageId: string }>;
+          }
+        ).persistOutputOnce(
+          { id: "handle-2", claimToken: "claim-2" },
+          {
             handle: {
-              kind: "media";
-              canonicalJobId: string;
-              chatId: string;
-              assistantId: string;
-              continuationClientTurnId: string;
-            };
-            facts: Record<string, unknown>;
+              kind: "media",
+              canonicalJobId: "media-job-2",
+              chatId: "chat-1",
+              assistantId: "assistant-1",
+              continuationClientTurnId: "async-cont:2"
+            },
+            facts: {}
           },
-          turnResult: { answerText: string }
-        ) => Promise<{ outcome: string; messageId: string }>;
-      }
-    ).persistOutputOnce(
-      { id: "handle-2", claimToken: "claim-2" },
-      {
-        handle: {
-          kind: "media",
-          canonicalJobId: "media-job-2",
-          chatId: "chat-1",
-          assistantId: "assistant-1",
-          continuationClientTurnId: "async-cont:2"
-        },
-        facts: {}
-      },
-      { answerText: "Картинка готова." }
-    );
-
-    assert.deepEqual(result, { outcome: "persisted", messageId: "continuation-message-1" });
-    assert.equal(mediaPins.length, 1);
-    assert.equal(
-      (mediaPins[0]?.data as { completionAssistantMessageId?: string })
-        ?.completionAssistantMessageId,
-      "continuation-message-1"
+          { answerText: "Картинка готова." }
+        ),
+      /missing ConversationalPublish id/
     );
   });
 });

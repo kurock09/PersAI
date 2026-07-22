@@ -3,6 +3,12 @@
 ## Status
 
 **Open 2026-07-20 — web end-to-end passed; Telegram remains pending.**
+**Chat-present / wave-closed continue:** superseded for ordinary deferred job
+**visibility** by **ADR-162** (2026-07-22). This ADR still owns USER_TURN >
+JOB_CATCHUP, idle-pause, per-chat FIFO, and exclusive catch-up lock; ADR-162
+requires the same eligibility to gate **ConversationalPublish** (chat row +
+attach), and forbids heavy continue until the open-sibling wave is closed
+(staggered completions — not “last already-ready”).
 The scheduler SQL, exact `JOB_CATCHUP` projection, logical-receipt ambiguity
 fence, and live web continuation discovery repairs are deployed. Current
 accepted releases are runtime continuation repair `ca0780dc`, web discovery
@@ -272,9 +278,19 @@ Durable catch-up ordinal columns (stamped at ready-promotion; S4 CLEAN):
 
 | Field              | Role                                                         |
 | ------------------ | ------------------------------------------------------------ |
-| `catchUpOrdinal`   | 1-based FIFO ordinal in the open catch-up wave               |
-| `catchUpWaveTotal` | stable N for the wave (bumped as siblings join)              |
-| `catchUpWaveId`    | shared id while any ready/claimed/dispatched sibling remains |
+| `catchUpOrdinal`   | 1-based FIFO ordinal among jobs that have entered present/catch-up for the wave |
+| `catchUpWaveTotal` | expected sibling count for the wave (bumped as siblings are known / join) |
+| `catchUpWaveId`    | shared id for the source-turn sibling set while the wave is open |
+
+**Wave-closed (ADR-162 — binding for heavy continue):** a wave is **open**
+while any sibling job from that source set is still **non-terminal**
+(running / pending / subscribed and not completed|failed|cancelled). A wave
+is **closed** only when every sibling is terminal. Heavy continue / shell
+campaigns are allowed only on the present that closes the wave (or after).
+**Rejected:** treating “no sibling currently in ready|claimed|dispatched” as
+wave-closed — that fires continue after staggered job 2 while job 3 is still
+running. FIFO present of already-terminal jobs continues one-at-a-time; light
+ack while the wave remains open.
 
 Interleave remains derived at dispatch (`wakeInterleaved` not stored).
 
@@ -284,9 +300,11 @@ Interleave remains derived at dispatch (`wakeInterleaved` not stored).
 2. **`USER_TURN` priority over `JOB_CATCHUP`.**
 3. **User chats while jobs finish:** answer the user first; after idle pause,
    sequential докаты (catch-up bubbles) with markers — never parallel wakes
-   for the same chat.
+   for the same chat. Ordinary deferred chat visibility is
+   **ConversationalPublish** (ADR-162), gated by the same eligibility.
 4. **Assistant sees WHAT arrived and HOW:** structured wake facts include at
-   least `wakeKind=job_catchup`, ordinal, interleaved flag, `jobRef`, and
+   least `wakeKind=job_catchup`, ordinal, interleaved flag, `jobRef`,
+   wave-open / wave-closed (or equivalent open-sibling) signal, and
    existing bounded terminal/sandbox facts. No fake-user-only cue as the
    product signal.
 5. **Sync in-turn `await` / current_turn unchanged** — same open assistant
@@ -297,6 +315,7 @@ Interleave remains derived at dispatch (`wakeInterleaved` not stored).
    - never `markDispatched` before runtime lease acquired + (web) attempt
      running;
    - at most one catch-up active per chat;
+   - no heavy continue while the source sibling wave is still open (ADR-162);
    - no parked `accepted` busy strategy;
    - no reconcile timers as wake architecture (missed-completion recovery for
      canonical/detached jobs may remain operational; it must not own session

@@ -79,6 +79,7 @@ import { BuildActiveScenarioBlockService } from "../src/modules/turns/build-acti
 import { BuildSystemReminderBlocksService } from "../src/modules/turns/build-system-reminder-blocks.service";
 import { ToolBudgetPolicy } from "../src/modules/turns/tool-budget-policy";
 import {
+  isJobCatchUpLightPresentOnly,
   projectAsyncContinuationTerminalEvent,
   resolveAsyncJobSourceContext,
   TurnExecutionService
@@ -9650,11 +9651,14 @@ export async function runAsyncContinuationAcceptanceTest(): Promise<void> {
         queueOrdinal: 1,
         queueTotal: 2,
         interleaved: true,
+        waveClosed: false,
+        openSiblingCount: 1,
         originatingUserMessageId: "00000000-0000-4000-8000-000000000123",
         latestUserMessageId: "00000000-0000-4000-8000-000000000124"
       }
     }
   };
+  assert.equal(isJobCatchUpLightPresentOnly(request.continuation), true);
   const service = buildMinimalTurnExecutionService();
   const sections = (
     service as unknown as {
@@ -9681,13 +9685,21 @@ export async function runAsyncContinuationAcceptanceTest(): Promise<void> {
   assert.ok(completionBlock?.content.includes('"queueOrdinal":1'));
   assert.ok(completionBlock?.content.includes('"queueTotal":2'));
   assert.ok(completionBlock?.content.includes('"interleaved":true'));
+  assert.ok(completionBlock?.content.includes('"waveClosed":false'));
+  assert.ok(completionBlock?.content.includes('"openSiblingCount":1'));
   assert.ok(
     completionBlock?.content.includes("Narrate only the exact completed, failed, or cancelled")
   );
+  assert.ok(completionBlock?.content.includes("Light present only"));
   assert.ok(completionBlock?.content.includes("later user messages already have priority"));
   assert.ok(completionBlock?.content.includes("Do not claim delivery again"));
   assert.ok(completionBlock?.content.includes("Do not call await wait or await notify again"));
   assert.equal(completionBlock?.content.includes("Continue the prior task now"), false);
+  assert.equal(
+    completionBlock?.content.includes("facts.waveClosed is true"),
+    false,
+    "open-wave catch-up must not invite continue"
+  );
   assert.ok(
     completionBlock?.content.includes("facts.sandboxResult"),
     "notify wake must tell the model to use sandboxResult like await wait"
@@ -9706,6 +9718,48 @@ export async function runAsyncContinuationAcceptanceTest(): Promise<void> {
   assert.ok(
     completionBlock?.content.includes("00000000-0000-4000-8000-000000000124"),
     "interleaved catch-up facts expose the later-user marker needed to preserve ordering"
+  );
+  const closedWaveSections = (
+    service as unknown as {
+      buildBaseDeveloperInstructionSections(input: Record<string, unknown>): Array<{
+        key: string;
+        content: string;
+      }>;
+    }
+  ).buildBaseDeveloperInstructionSections({
+    request: {
+      ...request,
+      continuation: {
+        ...request.continuation,
+        facts: {
+          ...request.continuation.facts,
+          queueOrdinal: 2,
+          waveClosed: true,
+          openSiblingCount: 0
+        }
+      }
+    },
+    currentChatId: "chat-1",
+    projectedTools: { tools: [] },
+    availableWorkingFileHandles: [],
+    deepModeEnabled: false,
+    routeDecision: undefined,
+    openLoopRefsBlock: null,
+    presenceBlock: null,
+    openMediaJobs: undefined,
+    openDocumentJobs: undefined,
+    jobDeliveryUpdates: undefined
+  });
+  const closedBlock = closedWaveSections.find((section) => section.key === "async_completion");
+  assert.ok(closedBlock?.content.includes("facts.waveClosed is true"));
+  assert.ok(closedBlock?.content.includes("You may continue with tools"));
+  assert.equal(closedBlock?.content.includes("Light present only"), false);
+  assert.equal(
+    isJobCatchUpLightPresentOnly({
+      ...request.continuation,
+      facts: { ...request.continuation.facts, waveClosed: true, openSiblingCount: 0 }
+    }),
+    false
   );
   const projectedMessages = projectAsyncContinuationTerminalEvent(
     [
@@ -9726,6 +9780,8 @@ export async function runAsyncContinuationAcceptanceTest(): Promise<void> {
         queueOrdinal: 1,
         queueTotal: 2,
         interleaved: true,
+        waveClosed: false,
+        openSiblingCount: 1,
         originatingUserMessageId: "00000000-0000-4000-8000-000000000123",
         latestUserMessageId: "00000000-0000-4000-8000-000000000124",
         sandboxResult: {
@@ -9748,6 +9804,14 @@ export async function runAsyncContinuationAcceptanceTest(): Promise<void> {
   assert.ok(activeRequestContent.includes('"queueOrdinal":1'));
   assert.ok(activeRequestContent.includes('"queueTotal":2'));
   assert.ok(activeRequestContent.includes('"interleaved":true'));
+  assert.ok(activeRequestContent.includes('"waveClosed":false'));
+  assert.ok(activeRequestContent.includes("Wave is still open"));
+  assert.ok(activeRequestContent.includes("Do not call tools"));
+  assert.equal(
+    activeRequestContent.includes("You may use tools for genuinely new forward progress"),
+    false,
+    "open-wave JOB_CATCHUP event must not invite tools"
+  );
   assert.ok(activeRequestContent.includes("ADR159_JOB_A_OK\\n"));
   assert.ok(activeRequestContent.includes("Do not re-answer, summarize, or act on an earlier"));
   assert.equal(
@@ -9755,6 +9819,24 @@ export async function runAsyncContinuationAcceptanceTest(): Promise<void> {
     false,
     "the old source instruction must not remain the active final request"
   );
+  const closedProjected = projectAsyncContinuationTerminalEvent(
+    [{ role: "user", content: "[internal async completion]" }],
+    {
+      ...request.continuation,
+      facts: {
+        ...request.continuation.facts,
+        waveClosed: true,
+        openSiblingCount: 0
+      }
+    }
+  );
+  const closedEventContent =
+    typeof closedProjected.at(-1)?.content === "string"
+      ? (closedProjected.at(-1)?.content as string)
+      : "";
+  assert.ok(closedEventContent.includes("Wave is closed"));
+  assert.ok(closedEventContent.includes("You may use tools"));
+  assert.equal(closedEventContent.includes("Do not call tools"), false);
   let acceptedInput: unknown;
   (service as unknown as { turnAcceptanceService: unknown }).turnAcceptanceService = {
     async acceptTurn(input: unknown) {
@@ -9802,6 +9884,58 @@ export async function runAsyncContinuationAcceptanceTest(): Promise<void> {
     }
   };
   assert.deepEqual(await service.streamAsyncContinuation(request), { outcome: "duplicate" });
+
+  // ADR-162 Phase 2 — server-side tool strip when wave open (not prompt-only).
+  const prepareOptions: Array<{ allowModelToolExposure?: boolean }> = [];
+  const toolConstraintService = buildMinimalTurnExecutionService();
+  (toolConstraintService as unknown as { turnAcceptanceService: unknown }).turnAcceptanceService = {
+    async acceptTurn() {
+      return {
+        outcome: "accepted",
+        receipt: { requestId: "req-wave", idempotencyKey: request.idempotencyKey },
+        session: { sessionId: "sess-wave", conversation: request.conversation }
+      };
+    }
+  };
+  (toolConstraintService as unknown as { prepareTurnExecution: unknown }).prepareTurnExecution =
+    async (_input: unknown, options?: { allowModelToolExposure?: boolean }) => {
+      prepareOptions.push(
+        options?.allowModelToolExposure === undefined
+          ? {}
+          : { allowModelToolExposure: options.allowModelToolExposure }
+      );
+      throw new Error("stop-after-prepare");
+    };
+  (
+    toolConstraintService as unknown as { createTurnExecutionState: unknown }
+  ).createTurnExecutionState = () => ({});
+  await toolConstraintService.createAsyncContinuation(request).catch(() => undefined);
+  assert.deepEqual(prepareOptions.at(-1), { allowModelToolExposure: false });
+  prepareOptions.length = 0;
+  await toolConstraintService
+    .createAsyncContinuation({
+      ...request,
+      continuation: {
+        ...request.continuation,
+        facts: {
+          ...request.continuation.facts,
+          waveClosed: true,
+          openSiblingCount: 0
+        }
+      }
+    })
+    .catch(() => undefined);
+  assert.deepEqual(prepareOptions.at(-1), { allowModelToolExposure: true });
+  const missingWaveClosedFacts = { ...request.continuation.facts };
+  delete (missingWaveClosedFacts as { waveClosed?: boolean }).waveClosed;
+  assert.equal(
+    isJobCatchUpLightPresentOnly({
+      ...request.continuation,
+      facts: missingWaveClosedFacts
+    }),
+    true,
+    "missing waveClosed must fail-closed to light present"
+  );
 }
 
 function buildMinimalTurnExecutionService(runtimeAwaitToolService?: unknown): TurnExecutionService {

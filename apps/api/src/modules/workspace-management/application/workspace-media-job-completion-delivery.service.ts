@@ -326,6 +326,7 @@ export class AssistantMediaJobCompletionDeliveryService {
     // N reserved units per-artifact (settle on delivered, reconcile on failed),
     // so a later exception (e.g. a post-delivery message update) must NOT
     // trigger another reconcile here — that would double-count.
+    // ADR-162 also sets this after settle-without-chat for ordinary deferred.
     const deliveryState = { loopResolved: false };
 
     try {
@@ -333,11 +334,32 @@ export class AssistantMediaJobCompletionDeliveryService {
         kind: "media",
         canonicalJobId: job.id
       });
+      // ADR-162 Phase 1 — ordinary deferred (owned handle, not await-inline):
+      // finalize + settle + handle ready; chat invent/attach waits for
+      // ConversationalPublish at catch-up present. No parallel early invent.
+      const deferChatPublish = await this.shouldDeferConversationalPublish(job.id);
+      if (deferChatPublish) {
+        await this.mediaDeliveryService.settleProducedArtifactsWithoutDelivery({
+          assistantId: job.assistantId,
+          workspaceId: job.workspaceId,
+          artifacts: runtimeOutputArtifactsToMediaArtifacts(artifacts)
+        });
+        deliveryState.loopResolved = true;
+        await this.releaseUnproducedRemainderBestEffort(job, artifacts.length);
+        await this.finalizeJob(job, {
+          status: "delivered",
+          code: null,
+          message: null
+        });
+        return;
+      }
+
       if (job.surface === "telegram") {
         // Canonical Telegram attachment delivery precedes narration. A
         // subscribed handle's continuation is the sole narrator, so its
         // source acknowledgement may be an attachment anchor but must never
         // be sent again with the delivered file.
+        // Await-inline / legacy missing-handle only — ordinary async is above.
         const messageId = await this.ensureCompletionMessage(job, {
           text: "",
           shouldUpdateExistingMessage: false
@@ -551,6 +573,38 @@ export class AssistantMediaJobCompletionDeliveryService {
     // reserved N as reconciliation-required exactly once.
     if (reconcileReservation) {
       await this.reconcileEnqueueReservationBestEffort(job);
+    }
+
+    // ADR-162 — ordinary owned non-inline failures: no worker chat invent.
+    // Catch-up ConversationalPublish + narration/settle owns failure visibility
+    // (aligns with document non-legacy createTerminalExecutionFailureMessage).
+    if (await this.shouldDeferConversationalPublish(job.id)) {
+      const terminal = await this.prisma.assistantMediaJob.updateMany({
+        where: { id: job.id, schedulerClaimToken: job.claimToken },
+        data: {
+          status: "failed",
+          failedAt: new Date(),
+          deliveredAt: null,
+          schedulerClaimToken: null,
+          schedulerClaimedAt: null,
+          schedulerClaimExpiresAt: null,
+          lastErrorCode: code,
+          lastErrorMessage: truncateLastError(message)
+        }
+      });
+      if (terminal.count > 0) {
+        await this.asyncJobHandleState.recordCanonicalCompletion({
+          kind: "media",
+          canonicalJobId: job.id,
+          terminalStatus: "failed",
+          terminalSnapshot: {
+            status: "failed",
+            errorCode: code,
+            message: "Job failed."
+          }
+        });
+      }
+      return;
     }
 
     const narrationDecision = await this.asyncJobHandleState.prepareDelivery({
@@ -805,6 +859,31 @@ export class AssistantMediaJobCompletionDeliveryService {
     );
   }
 
+  /**
+   * ADR-162 — owned handle that is not await same-bubble. Missing-handle
+   * legacy_frame keeps early invent (no catch-up present).
+   */
+  private async shouldDeferConversationalPublish(jobId: string): Promise<boolean> {
+    const handle = await this.prisma.assistantAsyncJobHandle.findUnique({
+      where: {
+        kind_canonicalJobId: {
+          kind: "media",
+          canonicalJobId: jobId
+        }
+      },
+      select: {
+        narrationOwner: true,
+        narrationDecision: true
+      }
+    });
+    if (handle === null) {
+      return false;
+    }
+    return !(
+      handle.narrationOwner === "current_turn" && handle.narrationDecision === "current_turn_inline"
+    );
+  }
+
   private async ensureCompletionMessage(
     job: ClaimedCompletionPendingMediaJob,
     assistantText: CompletionAssistantTextResolution
@@ -817,21 +896,8 @@ export class AssistantMediaJobCompletionDeliveryService {
     if (pinnedId === null && inlineAwait) {
       pinnedId = job.assistantAcknowledgementMessageId ?? null;
     }
-    // If catch-up already wrote into a continuation message for this job,
-    // deliver artifacts into that same bubble.
-    if (pinnedId === null && !inlineAwait) {
-      const handle = await this.prisma.assistantAsyncJobHandle.findUnique({
-        where: {
-          kind_canonicalJobId: {
-            kind: "media",
-            canonicalJobId: job.id
-          }
-        },
-        select: { continuationAssistantMessageId: true }
-      });
-      pinnedId = handle?.continuationAssistantMessageId ?? null;
-    }
     // Await-wait only: coalesce with another inline job from the same source turn.
+    // Ordinary deferred never invents/reuses here — ConversationalPublish owns that.
     if (pinnedId === null && inlineAwait) {
       const candidates = await this.prisma.assistantMediaJob.findMany({
         where: {
@@ -874,8 +940,15 @@ export class AssistantMediaJobCompletionDeliveryService {
       return pinnedId;
     }
 
-    // Multiple ordinary async jobs: each job owns a fresh bubble for its
-    // reply + artifacts (never sibling-pin onto another job's message).
+    // ADR-162 — ordinary owned-handle jobs must never invent here; only
+    // await-inline (pinned above) or missing-handle legacy may create.
+    if (await this.shouldDeferConversationalPublish(job.id)) {
+      throw new Error(
+        `ADR-162: ordinary media job ${job.id} must not invent a chat row at artifact-ready`
+      );
+    }
+
+    // Missing-handle legacy contour only: create the delivery bubble now.
     const message = await this.assistantChatRepository.createMessage({
       chatId: job.chatId,
       assistantId: job.assistantId,

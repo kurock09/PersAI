@@ -35,6 +35,7 @@ import { resolveMaterializedNativeRuntimeBundle } from "./native-runtime-bundle-
 import { resolveNativeRuntimeTurnTimeoutMs } from "./native-runtime-turn-timeout";
 import { ResolveAssistantRuntimeTierService } from "./resolve-assistant-runtime-tier.service";
 import { ChatWakeCoordinator, type CatchUpClaim } from "./chat-wake-coordinator.service";
+import { ConversationalPublishService } from "./conversational-publish.service";
 import { LEASE_HEARTBEAT_INTERVAL_MS } from "./scheduler-lease.constants";
 import { SchedulerLeaseService } from "./scheduler-lease.service";
 import { SandboxControlPlaneClientService } from "./sandbox-control-plane.client.service";
@@ -72,6 +73,7 @@ export class AssistantAsyncJobContinuationSchedulerService
     private readonly assistants: AssistantRepository,
     @Inject(ASSISTANT_MATERIALIZED_SPEC_REPOSITORY)
     private readonly materializedSpecs: AssistantMaterializedSpecRepository,
+    private readonly conversationalPublish: ConversationalPublishService,
     @Optional()
     private readonly sandboxControlPlane?: SandboxControlPlaneClientService,
     @Optional()
@@ -291,6 +293,8 @@ export class AssistantAsyncJobContinuationSchedulerService
           context: {
             handle: {
               id: context.handle.id,
+              kind: context.handle.kind,
+              canonicalJobId: context.handle.canonicalJobId,
               assistantId: context.handle.assistantId,
               workspaceId: context.handle.workspaceId,
               userId: context.handle.userId,
@@ -343,6 +347,36 @@ export class AssistantAsyncJobContinuationSchedulerService
       if (!preRuntimeGate.allowed) {
         this.logger.log(
           `async_continuation_pre_runtime_gate id=${claim.id} reason=${preRuntimeGate.reason}`
+        );
+        await this.handleState.releaseClaimToReady({
+          ...claim,
+          retryAt: this.retryAt(context.handle.retryCount)
+        });
+        return;
+      }
+      if (!isCatchUpLockHeld()) {
+        await this.handleState.releaseClaimToReady({
+          ...claim,
+          retryAt: this.retryAt(context.handle.retryCount)
+        });
+        return;
+      }
+      // ADR-162 Phase 1 — ConversationalPublish before blocking execute (required).
+      try {
+        await this.conversationalPublish.publishForCatchUp({
+          handleId: context.handle.id,
+          kind: context.handle.kind,
+          canonicalJobId: context.handle.canonicalJobId,
+          assistantId: context.handle.assistantId,
+          workspaceId: context.handle.workspaceId,
+          chatId: context.handle.chatId,
+          channel: context.handle.channel
+        });
+      } catch (error) {
+        this.logger.warn(
+          `async_continuation_conversational_publish_failed id=${claim.id}: ${
+            error instanceof Error ? error.message : String(error)
+          }`
         );
         await this.handleState.releaseClaimToReady({
           ...claim,
@@ -597,11 +631,18 @@ export class AssistantAsyncJobContinuationSchedulerService
       originatingUserMessageId: sourceUserMessage.id,
       sourceUserMessageCreatedAt: sourceUserMessage.createdAt
     });
+    const waveState = await this.resolveWaveClosedState({
+      handleId: handle.id,
+      chatId: handle.chatId,
+      sourceUserMessageId: sourceUserMessage.id,
+      catchUpWaveId: handle.catchUpWaveId
+    });
     // Include sandboxResult (stdout/stderr/exitCode/paths) so notify wake has the
     // same job outcome await wait would have returned inline. Without it the model
     // only sees "Sandbox job completed." and invents / stalls.
     // ADR-159 S3 — structured wake markers (wakeKind/ordinal/interleaved/…) so the
     // model does not rely on the synthetic "[internal async completion]" strip alone.
+    // ADR-162 Phase 2 — waveClosed / openSiblingCount gate heavy continue.
     const facts = {
       kind: handle.kind,
       status: terminal.status,
@@ -609,6 +650,7 @@ export class AssistantAsyncJobContinuationSchedulerService
       message: terminal.message,
       jobRef: handle.jobRef,
       ...catchUpMarkers,
+      ...waveState,
       ...(terminal.sandboxResult !== null ? { sandboxResult: terminal.sandboxResult } : {})
     };
     return { handle, session, sourceUserMessage, facts };
@@ -627,12 +669,67 @@ export class AssistantAsyncJobContinuationSchedulerService
       ...(typeof facts.queueOrdinal === "number" ? { queueOrdinal: facts.queueOrdinal } : {}),
       ...(typeof facts.queueTotal === "number" ? { queueTotal: facts.queueTotal } : {}),
       ...(typeof facts.interleaved === "boolean" ? { interleaved: facts.interleaved } : {}),
+      ...(typeof facts.waveClosed === "boolean" ? { waveClosed: facts.waveClosed } : {}),
+      ...(typeof facts.openSiblingCount === "number"
+        ? { openSiblingCount: facts.openSiblingCount }
+        : {}),
       ...(typeof facts.originatingUserMessageId === "string"
         ? { originatingUserMessageId: facts.originatingUserMessageId }
         : {}),
       ...(typeof facts.latestUserMessageId === "string"
         ? { latestUserMessageId: facts.latestUserMessageId }
         : {})
+    };
+  }
+
+  /**
+   * ADR-162 Phase 2 — wave-closed from durable handle state.
+   *
+   * Sibling set = same source user message (preferred) or catchUpWaveId
+   * fallback. Non-terminal = not completed/failed/cancelled (includes
+   * none/subscribed/ready/claimed/dispatched). Current handle excluded so the
+   * closing present may continue when it is the last open member.
+   *
+   * Forbidden: treating ready-queue empty as wave-closed while siblings still
+   * run.
+   */
+  private async resolveWaveClosedState(input: {
+    handleId: string;
+    chatId: string;
+    sourceUserMessageId: string;
+    catchUpWaveId?: string | null;
+  }): Promise<{ waveClosed: boolean; openSiblingCount: number }> {
+    if (typeof (this.prisma.assistantAsyncJobHandle as { count?: unknown }).count !== "function") {
+      // Fail-closed when durable sibling state cannot be queried.
+      return { waveClosed: false, openSiblingCount: 1 };
+    }
+    const siblingScope =
+      input.sourceUserMessageId.length > 0
+        ? {
+            chatId: input.chatId,
+            sourceUserMessageId: input.sourceUserMessageId,
+            id: { not: input.handleId }
+          }
+        : typeof input.catchUpWaveId === "string" && input.catchUpWaveId.length > 0
+          ? {
+              chatId: input.chatId,
+              catchUpWaveId: input.catchUpWaveId,
+              id: { not: input.handleId }
+            }
+          : null;
+    if (siblingScope === null) {
+      return { waveClosed: true, openSiblingCount: 0 };
+    }
+    const openSiblingCount = await this.prisma.assistantAsyncJobHandle.count({
+      where: {
+        ...siblingScope,
+        state: { notIn: ["completed", "failed", "cancelled"] }
+      }
+    });
+    const normalized = Math.max(0, openSiblingCount);
+    return {
+      waveClosed: normalized === 0,
+      openSiblingCount: normalized
     };
   }
 
@@ -835,8 +932,7 @@ export class AssistantAsyncJobContinuationSchedulerService
         FOR UPDATE
       `;
       if (rows[0] === undefined) return { outcome: "lost" as const };
-      const existing = rows[0]?.messageId;
-      if (existing) return { outcome: "existing" as const, messageId: existing };
+      const existingContinuationMessageId = rows[0]?.messageId;
 
       const content = result.answerText ?? result.assistantText;
       const metadata = {
@@ -848,16 +944,16 @@ export class AssistantAsyncJobContinuationSchedulerService
           ? (result.toolExchanges as unknown as Prisma.InputJsonValue)
           : undefined;
 
-      // Prefer the canonical job's delivery bubble so catch-up narration and
-      // already-delivered artifacts stay in one assistant message.
-      let deliveryMessageId: string | null = null;
-      if (context.handle.kind === "media") {
+      // ADR-162 — prefer ConversationalPublish id (handle stamp and/or job
+      // completionAssistantMessageId). Narration UPDATEs that same bubble.
+      let deliveryMessageId: string | null = existingContinuationMessageId;
+      if (deliveryMessageId === null && context.handle.kind === "media") {
         const mediaJob = await tx.assistantMediaJob.findUnique({
           where: { id: context.handle.canonicalJobId },
           select: { completionAssistantMessageId: true }
         });
         deliveryMessageId = mediaJob?.completionAssistantMessageId ?? null;
-      } else if (context.handle.kind === "document") {
+      } else if (deliveryMessageId === null && context.handle.kind === "document") {
         const documentJob = await tx.assistantDocumentRenderJob.findUnique({
           where: { id: context.handle.canonicalJobId },
           select: { providerStatusJson: true }
@@ -876,6 +972,7 @@ export class AssistantAsyncJobContinuationSchedulerService
       }
 
       let messageId: string | null = null;
+      let outcome: "persisted" | "existing" = "persisted";
       if (deliveryMessageId !== null) {
         const updatedContent = await tx.assistantChatMessage.updateMany({
           where: {
@@ -892,7 +989,18 @@ export class AssistantAsyncJobContinuationSchedulerService
         });
         if (updatedContent.count === 1) {
           messageId = deliveryMessageId;
+          outcome = existingContinuationMessageId === deliveryMessageId ? "existing" : "persisted";
         }
+      }
+      // ADR-162 — ordinary media/document narration must UPDATE the publish
+      // bubble only. Do not invent a second chat row on the happy path.
+      if (
+        messageId === null &&
+        (context.handle.kind === "media" || context.handle.kind === "document")
+      ) {
+        throw new Error(
+          `ADR-162: persistOutputOnce missing ConversationalPublish id for ${context.handle.kind} job ${context.handle.canonicalJobId}`
+        );
       }
       if (messageId === null) {
         const message = await tx.assistantChatMessage.create({
@@ -907,17 +1015,6 @@ export class AssistantAsyncJobContinuationSchedulerService
           }
         });
         messageId = message.id;
-        // Claim this bubble as the job completion target so a later delivery
-        // attaches artifacts here instead of inventing a second orphan bubble.
-        if (context.handle.kind === "media") {
-          await tx.assistantMediaJob.updateMany({
-            where: {
-              id: context.handle.canonicalJobId,
-              completionAssistantMessageId: null
-            },
-            data: { completionAssistantMessageId: messageId }
-          });
-        }
       }
 
       const updated = await tx.assistantAsyncJobHandle.updateMany({
@@ -927,7 +1024,7 @@ export class AssistantAsyncJobContinuationSchedulerService
       if (updated.count !== 1) {
         throw new Error("Continuation claim was lost while persisting output.");
       }
-      return { outcome: "persisted" as const, messageId };
+      return { outcome, messageId };
     });
   }
 

@@ -127,17 +127,19 @@ export class MediaDeliveryService {
         if ("externalDelivery" in persisted) {
           externalDeliveries.push(persisted.externalDelivery);
           results.push(persisted.state);
-          if (isVcoinPricedArtifact) {
-            await this.settleVideoGenerateWithVcoinDebit({
-              assistant,
-              artifact,
-              workspaceId: params.workspaceId
-            });
-          } else {
-            await this.settleMonthlyMediaQuotaBestEffort({
-              assistant,
-              toolCode: monthlyQuotaToolCode
-            });
+          if (params.settleQuota !== false) {
+            if (isVcoinPricedArtifact) {
+              await this.settleVideoGenerateWithVcoinDebit({
+                assistant,
+                artifact,
+                workspaceId: params.workspaceId
+              });
+            } else {
+              await this.settleMonthlyMediaQuotaBestEffort({
+                assistant,
+                toolCode: monthlyQuotaToolCode
+              });
+            }
           }
           outcome = "success";
           continue;
@@ -159,24 +161,30 @@ export class MediaDeliveryService {
         //     counter; the legacy unit-priced gate was retired).
         //   * image / image_edit (and other unit-priced monthly tools)
         //     → existing best-effort monthly-counter settle.
-        if (isVcoinPricedArtifact) {
-          await this.settleVideoGenerateWithVcoinDebit({
-            assistant,
-            artifact,
-            workspaceId: params.workspaceId
-          });
-        } else {
-          await this.settleMonthlyMediaQuotaBestEffort({
-            assistant,
-            toolCode: monthlyQuotaToolCode
-          });
+        // ADR-162 — ConversationalPublish may attach after artifact-ready
+        // already settled quota/VC; skip a second settle in that case.
+        if (params.settleQuota !== false) {
+          if (isVcoinPricedArtifact) {
+            await this.settleVideoGenerateWithVcoinDebit({
+              assistant,
+              artifact,
+              workspaceId: params.workspaceId
+            });
+          } else {
+            await this.settleMonthlyMediaQuotaBestEffort({
+              assistant,
+              toolCode: monthlyQuotaToolCode
+            });
+          }
         }
         outcome = "success";
       } catch (err) {
         // ADR-108 Slice 8 — only unit-priced tools have a reservation
         // to reconcile. Video failures only need to be logged because
         // no reservation was ever taken on enqueue.
-        if (!isVcoinPricedArtifact) {
+        // ADR-162 publish-only attach (settleQuota=false) must not mark
+        // reconciliation — reservations were already settled at ready.
+        if (!isVcoinPricedArtifact && params.settleQuota !== false) {
           await this.markMonthlyMediaQuotaReconciliationBestEffort({
             assistant,
             toolCode: monthlyQuotaToolCode
@@ -242,6 +250,49 @@ export class MediaDeliveryService {
             error
           )}`
         );
+      }
+    }
+  }
+
+  /**
+   * ADR-162 — settle monthly media / video VC at ordinary deferred
+   * artifact-ready without creating a chat row or attaching bytes.
+   */
+  async settleProducedArtifactsWithoutDelivery(params: {
+    assistantId: string;
+    workspaceId: string;
+    artifacts: MediaArtifact[];
+  }): Promise<void> {
+    if (params.artifacts.length === 0) {
+      return;
+    }
+    const assistant = await this.assistantRepository.findById(params.assistantId);
+    for (const artifact of params.artifacts) {
+      const isVcoinPricedArtifact = artifact.sourceToolCode === "video_generate";
+      const monthlyQuotaToolCode = this.resolveMonthlyMediaQuotaToolCode(artifact);
+      try {
+        if (isVcoinPricedArtifact) {
+          await this.settleVideoGenerateWithVcoinDebit({
+            assistant,
+            artifact,
+            workspaceId: params.workspaceId
+          });
+        } else {
+          await this.settleMonthlyMediaQuotaBestEffort({
+            assistant,
+            toolCode: monthlyQuotaToolCode
+          });
+        }
+      } catch (error) {
+        this.logger.warn(
+          `Failed to settle produced media artifact without chat delivery (${describeRuntimeMediaArtifact(artifact)}): ${String(error)}`
+        );
+        if (!isVcoinPricedArtifact) {
+          await this.markMonthlyMediaQuotaReconciliationBestEffort({
+            assistant,
+            toolCode: monthlyQuotaToolCode
+          });
+        }
       }
     }
   }

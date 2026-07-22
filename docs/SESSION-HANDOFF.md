@@ -1,5 +1,85 @@
 # SESSION-HANDOFF
 
+## 2026-07-22 — ADR-162 Phases 0–4 CLEAN (local; await push)
+
+Program local land complete vs ИКР in ADR-162. ConversationalPublish at
+catch-up present (no early ordinary chat invent); wave-closed server tool
+strip; web binds publish id (no dual local bubble). Lint/format/typecheck
+green; focused API/runtime/web suites green; parallel-logic audits CLEAN.
+**No push/deploy yet — founder authorization required.** Next after push:
+exact-image deploy + live T1–T4 (staggered 3 images, user interleave, hung
+sibling, F5). Keep ADR-161 commits separate.
+
+## 2026-07-22 — ADR-162 Phase 3 web transcript bind (local)
+
+Phase 3 landed locally. Web binds `async-cont:*` live stream to
+ConversationalPublish `assistantMessageId` from SSE `started` / turn_status /
+reattach; no permanent `local-assistant-async-cont:*` beside the publish row;
+thinking/stream overlay preserves attachments; history absorb does not treat
+publish-id presence as terminal. Ordinary user-turn optimistic local-assistant
+unchanged. Focused web tests + typecheck green. Independent Phase 2/3 audits
+pending. Keep ADR-161 commits separate. No push/deploy.
+
+## 2026-07-22 — ADR-162 Phase 2 wave-closed continue (local)
+
+Phase 2 landed locally. Catch-up facts now stamp `waveClosed` /
+`openSiblingCount` from durable non-terminal sibling handles (source-turn set;
+includes subscribed/running, not only ready). While open: runtime strips tools
+(`allowModelToolExposure: false`) + `forceFinalTextOnly` single-shot narration;
+model JOB_CATCHUP instructions say light ack only. When closed: normal continue
+tools. Forbidden ready-queue-empty-as-closed covered by tests. Focused API +
+runtime tests green. Independent Phase 2 audit pending. Phase 3 web bind landed
+above. Keep ADR-161 commits separate. No push/deploy.
+
+## 2026-07-22 — ADR-162 Phase 1 document failDelivery defer (local)
+
+Document `failDelivery` now mirrors media: owned deferred (non-inline) skips
+`ensureFailureMessage` invent; terminalize + `recordCanonicalCompletion` only.
+Focused document + conversational-publish tests + typecheck green. Next:
+re-audit Phase 1 CLEAN. No Phase 2. No push.
+
+## 2026-07-22 — ADR-162 Phase 1 re-audit P0 empty-fail present (local)
+
+Re-audit DIRTY P0 fixed: ConversationalPublish no longer throws on empty
+artifacts — create/reuse empty bubble, skip attach, return messageId so
+fail-present/narration can proceed (FIFO unstuck). Ordinary owned media
+`failDelivery` skips `ensureFailureMessage` invent (catch-up owns failure
+visibility). Focused API tests + typecheck green.
+
+## 2026-07-22 — ADR-162 Phase 1 audit P1/P2 repair (local)
+
+Independent Phase 1 audit DIRTY fixed: ConversationalPublish now pins
+`completionAssistantMessageId` (document payload equivalent) **before**
+`mediaDelivery.deliver` and reuses a pinned id with zero attachments on retry
+(no second createMessage). `ConversationalPublishService` is required DI on
+web stream + Telegram scheduler (no Optional soft-skip). Dead ordinary
+`continuationAssistantMessageId` reuse branch removed from
+`ensureCompletionMessage`. Focused API tests + typecheck green.
+
+## 2026-07-22 — ADR-162 Phase 1 ConversationalPublish (local)
+
+Phase 1 publish seam landed locally on baseline `d417b1af`. Ordinary deferred
+media/document completion workers finalize + settle + `recordCanonicalCompletion`
+without inventing chat rows or attaching bytes (`completionAssistantMessageId`
+stays null). `ConversationalPublishService` create→attach runs after
+`admitCatchUpAtBoundary` and before runtime stream/execute (web + Telegram).
+`persistOutputOnce` UPDATEs the publish id only (fail closed if missing). Web
+binds `assistantMessageId` early and emits it on SSE `started`. Await
+`current_turn_inline` unchanged. Focused API tests green. Audit P1/P2 repair
+above. Keep ADR-161 commits separate. No push/deploy in this slice.
+
+## 2026-07-22 — ADR-162 conversational async present (docs IKR lock)
+
+Founder rejected early-delivery + patch/absorb/scroll crutches. Locked
+**ИКР** in `docs/ADR/162-conversational-async-present-and-wave-closed-continue.md`
+(baseline `d417b1af`): ConversationalPublish at FIFO/idle-pause bottom-append;
+one bubble per job (file then ack); heavy continue only when sibling wave is
+**closed** (no open non-terminal siblings — not “last already-ready”); hung
+job waits native terminal; no fake wake-up. Parent orchestrates; impl subs
+`cursor-grok-4.5-high-fast` only. Partial `chat-area` scroll settle WIP
+reverted. Phase 0 DONE — operative ADR-157 D1 + ADR-159 wave-closed amended;
+independent docs audit **CLEAN**. Phase 1 code now in progress above.
+
 ## 2026-07-22 — ADR-161 micro-clear 5% hysteresis (local)
 
 Live `info@general-fly.com`: meter ~40%↔60% from re-expanding prior tools when
@@ -43,12 +123,11 @@ Next after push: deploy runtime then DeepSeek 20× `skill.list` cache compare.
 
 ## 2026-07-22 — Async media bubble ownership repair (follow-up)
 
-Founder live smoke after `6f3b627f`: cat image still landed on the
-acknowledgement bubble while catch-up “Кот готов” stayed text-only below.
-Root cause: sole-job pin into acknowledgement + continuation always creating a
-new message. Repair: only `current_turn_inline` shares the ack bubble;
-`persistOutputOnce` reuses/claims `completionAssistantMessageId` so narration
-and artifacts converge. Next: push + redeploy + re-smoke one deferred image.
+**Superseded for ordinary deferred chat-present by ADR-162** (early delivery +
+`persistOutputOnce` UPDATE is the wrong seam). Historical note only: founder
+live smoke after `6f3b627f` — cat image on acknowledgement vs catch-up text
+below; repair tried sole-job pin + reuse `completionAssistantMessageId`. Do
+not extend that pattern; follow ADR-162 ConversationalPublish + wave-closed.
 
 ## 2026-07-22 — Chat UX repair + OpenAI sealed breakpoint (local → push)
 

@@ -40,15 +40,26 @@ failures that share one root: contracts were half-Cursor and half-legacy.
 
 ### D1 — Delivery never waits on narration
 
-For media and document adapters, artifact delivery to chat (attachment /
-`deliveredAt` / equivalent Telegram outbound) proceeds as soon as artifacts are
-ready. `prepareDelivery` may still decide whether a **legacy framing text call**
-is allowed for non-image paths that remain in scope elsewhere; it **must not**
-block bytes. `async_narration_decision_pending` must not delay attachment.
+**Narration generation must never block artifact readiness.** Canonical job
+terminal, storage bytes, handle `ready`, and `await` delivery-visible tool
+truth proceed without waiting on a chat-model (or legacy framing) caption.
+`prepareDelivery` may still decide whether a **legacy framing text call** is
+allowed for non-image paths that remain in scope elsewhere; it **must not**
+block artifact durability. `async_narration_decision_pending` must not delay
+bytes on the job.
+
+**User-visible chat publish for ordinary deferred / post-finalize jobs is not
+“as soon as artifacts are ready.”** That invent is superseded by **ADR-162
+ConversationalPublish**: after USER_TURN priority + idle-pause + FIFO present
+eligibility, create the assistant bubble, attach file(s), then narrate into
+the same id. Within that present pipeline, attachment still must not wait on
+narration text. In-turn `await.wait` / `current_turn_inline` same-open-reply
+embed is unchanged.
 
 `await` terminal success for media/document remains **delivery-visible**
-authority (attachment and/or `deliveredAt` / delivered status). Failure/cancel
-still beats delivery-visible success.
+authority (job delivered / `deliveredAt` / attachment once published on the
+inline or ConversationalPublish path). Failure/cancel still beats
+delivery-visible success.
 
 ### D2 — Image narration is chat-model owned
 
@@ -102,6 +113,18 @@ Model-facing `shell` / `exec`:
 
 Plan Process-timeout remains a bound for synchronous execution and safety; it
 is not the only door into background.
+
+### D1 / D4.1 chat-present supersession (ADR-162)
+
+**Ordinary deferred / post-finalize job visibility in chat** is owned by
+**ADR-162** (ConversationalPublish + wave-closed continue). Artifact/await
+delivery-visible authority in this ADR still means tool/`await` truth must not
+lie about readiness; it does **not** require inventing an `AssistantChatMessage`
+at artifact-ready time while the user is mid-dialogue. Wake remains a **new**
+bottom-append bubble at publish time; “same bubble” means artifacts + narration
+share that publish id — not a late patch onto an early delivery row.
+In-turn `await.wait` / `current_turn_inline` same-open-reply behavior below is
+unchanged.
 
 ### D4.1 — Honest chat bubbles (same-turn vs wake)
 

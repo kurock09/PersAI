@@ -241,8 +241,10 @@ type ActiveTurnSnapshot = {
    *   server id by `onStarted` / status reattach / authoritative projection.
    *   `null` for sendWelcome (no user message).
    * - `liveAssistantMessageId` — starts as `local-assistant-...` or
-   *   `active-assistant-...`, replaced with the server id by `onCompleted` /
-   *   `onInterrupted` / `onFailed` / status reattach.
+   *   `active-assistant-...` for ordinary user sends; for `async-cont:*`
+   *   catch-up, bind early to ConversationalPublish `assistantMessageId`
+   *   from `started` / `turn_status` / reattach (ADR-162 P4). Terminal
+   *   events still remap when the primary stream used a local placeholder.
    */
   liveUserMessageId: string | null;
   liveAssistantMessageId: string;
@@ -870,13 +872,23 @@ function toActiveTurnOverlayMessages(activeTurn: WebChatActiveTurnState | null |
       liveAssistantMessageId: null
     };
   }
-  const userMessage = activeTurn.userMessage
-    ? toCommittedChatMessage(activeTurn.userMessage)
-    : null;
+  const isAsyncContinuation = isAsyncContinuationClientTurnId(activeTurn.clientTurnId);
+  const userMessage =
+    isAsyncContinuation || !activeTurn.userMessage
+      ? null
+      : toCommittedChatMessage(activeTurn.userMessage);
   const assistantMessage = activeTurn.assistantMessage
     ? toCommittedChatMessage(activeTurn.assistantMessage)
     : null;
-  if (!userMessage) {
+  const boundPublishAssistantId =
+    assistantMessage !== null && !isLocalScopedAssistantId(assistantMessage.id)
+      ? assistantMessage.id
+      : typeof activeTurn.assistantMessageId === "string" &&
+          activeTurn.assistantMessageId.trim().length > 0 &&
+          !isLocalScopedAssistantId(activeTurn.assistantMessageId)
+        ? activeTurn.assistantMessageId.trim()
+        : null;
+  if (!userMessage && !isAsyncContinuation) {
     return {
       messages: [],
       liveActivitiesByMessageId: {},
@@ -884,14 +896,24 @@ function toActiveTurnOverlayMessages(activeTurn: WebChatActiveTurnState | null |
       liveAssistantMessageId: null
     };
   }
+  // ADR-162 P4: async-cont binds to ConversationalPublish id when known —
+  // never invent a permanent active-assistant-* beside the publish row.
   const assistantOverlay: ChatMessage =
-    assistantMessage ??
-    ({
-      id: `active-assistant-${activeTurn.clientTurnId}`,
-      role: "assistant",
-      content: "",
-      status: "streaming"
-    } satisfies ChatMessage);
+    assistantMessage !== null
+      ? { ...assistantMessage, status: "streaming" }
+      : boundPublishAssistantId !== null
+        ? ({
+            id: boundPublishAssistantId,
+            role: "assistant",
+            content: "",
+            status: "streaming"
+          } satisfies ChatMessage)
+        : ({
+            id: `active-assistant-${activeTurn.clientTurnId}`,
+            role: "assistant",
+            content: "",
+            status: "streaming"
+          } satisfies ChatMessage);
   const liveActivitiesByMessageId =
     activeTurn.currentActivity && activeTurn.currentActivity.phase === "start"
       ? {
@@ -907,6 +929,14 @@ function toActiveTurnOverlayMessages(activeTurn: WebChatActiveTurnState | null |
           })
         }
       : {};
+  if (isAsyncContinuation || userMessage === null) {
+    return {
+      messages: [{ ...assistantOverlay, status: "streaming" }],
+      liveActivitiesByMessageId,
+      liveUserMessageId: null,
+      liveAssistantMessageId: assistantOverlay.id
+    };
+  }
   return {
     messages: [
       { ...userMessage, status: "committed" },
@@ -1104,10 +1134,48 @@ function jobNeedsContinuationReattach(job: {
 function isAsyncContinuationClientTurnId(clientTurnId: string): boolean {
   return clientTurnId.startsWith("async-cont:");
 }
+
+/**
+ * ADR-162 audit: early ConversationalPublish bind puts the publish id in
+ * history while catch-up is still live. That row is terminal for overlay
+ * teardown only when it already carries committed final narration content.
+ */
+function asyncContPublishHistoryHasFinalContent(
+  loaded: ChatMessage[],
+  publishAssistantMessageId: string
+): boolean {
+  if (isLocalScopedAssistantId(publishAssistantMessageId)) {
+    return false;
+  }
+  const committed = loaded.find(
+    (message) =>
+      message.role === "assistant" &&
+      message.id === publishAssistantMessageId &&
+      !isLocalScopedAssistantId(message.id)
+  );
+  return committed !== undefined && committed.content.trim().length > 0;
+}
+
 function committedHistoryHasActiveTurnResult(
   loaded: ChatMessage[],
-  activeTurn: WebChatActiveTurnState
+  activeTurn: WebChatActiveTurnState,
+  options?: { localStreamDead?: boolean }
 ): boolean {
+  // ADR-162 P4/audit: publish-id presence alone is not terminal while the
+  // catch-up stream/attempt is still live (attachments may still arrive).
+  // When the local stream is dead/missed and the same publish id already has
+  // committed final content, reconcile the overlay into that row.
+  if (isAsyncContinuationClientTurnId(activeTurn.clientTurnId)) {
+    if (options?.localStreamDead !== true) {
+      return false;
+    }
+    const publishId = activeTurn.assistantMessageId;
+    return (
+      typeof publishId === "string" &&
+      publishId.length > 0 &&
+      asyncContPublishHistoryHasFinalContent(loaded, publishId)
+    );
+  }
   if (
     activeTurn.assistantMessageId &&
     loaded.some((message) => message.id === activeTurn.assistantMessageId)
@@ -1139,19 +1207,21 @@ function isLocalScopedAssistantId(id: string): boolean {
  */
 function committedHistoryHasActiveSnapshotResult(
   loaded: ChatMessage[],
-  activeSnapshot: ActiveTurnSnapshot | undefined
+  activeSnapshot: ActiveTurnSnapshot | undefined,
+  options?: { localStreamDead?: boolean }
 ): boolean {
   if (activeSnapshot === undefined) {
     return false;
   }
   // Async continuations have no new user row; prior assistants after a source
   // user must not look like "this continuation already committed".
+  // ADR-162: early publish-id bind is overlay while live; same-id final
+  // content + dead/missed stream clears the stuck overlay.
   if (isAsyncContinuationClientTurnId(activeSnapshot.clientTurnId)) {
-    const liveAssistantId = activeSnapshot.liveAssistantMessageId;
-    return (
-      !isLocalScopedAssistantId(liveAssistantId) &&
-      loaded.some((message) => message.id === liveAssistantId)
-    );
+    if (options?.localStreamDead !== true) {
+      return false;
+    }
+    return asyncContPublishHistoryHasFinalContent(loaded, activeSnapshot.liveAssistantMessageId);
   }
   const liveAssistantId = activeSnapshot.liveAssistantMessageId;
   if (
@@ -1239,8 +1309,10 @@ function mergeCommittedHistoryWithActiveTurn(input: {
   loaded: ChatMessage[];
   activeSnapshot: ActiveTurnSnapshot | undefined;
   baseMessages?: ChatMessage[] | undefined;
+  /** True when this thread has no open local SSE/attempt for the snapshot turn. */
+  localStreamDead?: boolean;
 }): { messages: ChatMessage[]; replacedActiveTurn: boolean } {
-  const { loaded, activeSnapshot, baseMessages } = input;
+  const { loaded, activeSnapshot, baseMessages, localStreamDead = false } = input;
   if (activeSnapshot === undefined) {
     return {
       messages:
@@ -1317,10 +1389,17 @@ function mergeCommittedHistoryWithActiveTurn(input: {
         // Only a newly landed continuation row replaces the live slot.
         !knownMessageIds.has(message.id)
     );
-  // Continuations must not use user-tail "already committed" replace heuristics.
-  // They do replace when a new committed assistant (continuation) is present.
+  // Continuations must not use user-tail / "any new assistant" absorb as
+  // architecture. Early ConversationalPublish bind means
+  // loadedHasLiveAssistantId is true while the turn is still live — that is
+  // overlay state (ADR-162 P4). When the local stream is dead/missed and the
+  // same publish id already has committed final content, clear the overlay.
+  const asyncContSameIdTerminal =
+    isAsyncContinuation &&
+    localStreamDead &&
+    asyncContPublishHistoryHasFinalContent(loaded, liveAssistantId);
   const shouldReplaceActiveTurn = isAsyncContinuation
-    ? loadedHasContinuationAssistant || loadedHasLiveAssistantId
+    ? loadedHasContinuationAssistant || asyncContSameIdTerminal
     : loadedHasAssistantAfterActiveUser ||
       loadedHasLiveAssistantId ||
       loadedIntroducedCommittedTurnTail;
@@ -2235,6 +2314,15 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
           }
           const activeSnapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
           const cachedSnapshot = cachedThreadHistorySnapshotsRef.current.get(targetThreadKey);
+          // Local SSE/attempt is "live" while this thread still owns an abort
+          // controller for the snapshot's clientTurnId. Missed `completed` tears
+          // that controller down without clearing the overlay — history then
+          // reconciles same-id final content (ADR-162 audit).
+          const controllerEntry = abortControllersByThreadRef.current.get(targetThreadKey);
+          const localStreamDead =
+            activeSnapshot === undefined ||
+            controllerEntry === undefined ||
+            controllerEntry.clientTurnId !== activeSnapshot.clientTurnId;
           // SCOPE all live-turn id checks here to the snapshot's `liveUserMessageId` /
           // `liveAssistantMessageId` rather than to every id present in
           // `activeSnapshot.messages`. After a thread switch / loadHistory the
@@ -2322,17 +2410,75 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
             const isAsyncContinuation =
               activeSnapshot !== undefined &&
               isAsyncContinuationClientTurnId(activeSnapshot.clientTurnId);
+            const asyncContSameIdTerminal =
+              isAsyncContinuation &&
+              activeSnapshot !== undefined &&
+              localStreamDead &&
+              asyncContPublishHistoryHasFinalContent(loaded, activeSnapshot.liveAssistantMessageId);
             const shouldReplaceActiveTurn =
-              !isAsyncContinuation &&
-              ((loadedHasActiveUserMessage && loadedHasAssistantMessageAfterActiveUser) ||
-                loadedIntroducedCommittedTurnTail ||
-                loadedIntroducedCommittedTurnTailFromPrev);
+              asyncContSameIdTerminal ||
+              (!isAsyncContinuation &&
+                ((loadedHasActiveUserMessage && loadedHasAssistantMessageAfterActiveUser) ||
+                  loadedIntroducedCommittedTurnTail ||
+                  loadedIntroducedCommittedTurnTailFromPrev));
             if (shouldReplaceActiveTurn) {
               reconciledOptimisticTurn = true;
             }
-            const next = prev.flatMap((message) => {
+            const liveAssistantIdForOverlay =
+              isAsyncContinuation && activeSnapshot !== undefined && !asyncContSameIdTerminal
+                ? activeSnapshot.liveAssistantMessageId
+                : null;
+            const next: ChatMessage[] = prev.flatMap((message): ChatMessage[] => {
               const replacement = loadedById.get(message.id);
               if (replacement !== undefined) {
+                // ADR-162 P4: when live stream is bound to the publish id,
+                // history refresh must not demote that row out of streaming or
+                // wipe longer live thought/content. Merge attachments from the
+                // committed publish row onto the live overlay instead.
+                // When the stream is dead/missed and history already has final
+                // content on the same id, take the committed row (clear overlay).
+                if (
+                  liveAssistantIdForOverlay !== null &&
+                  message.id === liveAssistantIdForOverlay &&
+                  isActiveAssistantLifecycleStatus(message.status)
+                ) {
+                  const nextAttachments =
+                    message.attachments !== undefined && message.attachments.length > 0
+                      ? message.attachments
+                      : replacement.attachments;
+                  const nextCreatedAt = message.createdAt ?? replacement.createdAt;
+                  return [
+                    {
+                      ...message,
+                      ...(nextCreatedAt !== undefined ? { createdAt: nextCreatedAt } : {}),
+                      content:
+                        replacement.content.length > message.content.length
+                          ? replacement.content
+                          : message.content,
+                      ...(nextAttachments !== undefined && nextAttachments.length > 0
+                        ? { attachments: nextAttachments }
+                        : {})
+                    }
+                  ];
+                }
+                if (
+                  asyncContSameIdTerminal &&
+                  activeSnapshot !== undefined &&
+                  message.id === activeSnapshot.liveAssistantMessageId
+                ) {
+                  const nextAttachments =
+                    replacement.attachments !== undefined && replacement.attachments.length > 0
+                      ? replacement.attachments
+                      : message.attachments;
+                  return [
+                    {
+                      ...replacement,
+                      ...(nextAttachments !== undefined && nextAttachments.length > 0
+                        ? { attachments: nextAttachments }
+                        : {})
+                    }
+                  ];
+                }
                 return [replacement];
               }
               if (
@@ -2362,6 +2508,8 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
             if (activeSnapshot !== undefined && !shouldReplaceActiveTurn) {
               if (isAsyncContinuation) {
                 const liveAssistantId = activeSnapshot.liveAssistantMessageId;
+                // Early publish bind: the live id is already in history while
+                // streaming. Do not treat that row as a distinct absorb twin.
                 missingToAbsorb = missing.filter(
                   (message) =>
                     message.role === "assistant" &&
@@ -2605,15 +2753,41 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
         const primaryStreamStillOwnsTurn =
           abortControllersByThreadRef.current.get(targetThreadKey)?.clientTurnId === clientTurnId &&
           !softDetachedClientTurnIdsRef.current.has(clientTurnId);
-        const fallbackAssistantMessage = existingAssistant ?? {
-          id: `local-assistant-${clientTurnId}`,
-          role: "assistant" as const,
-          content: "",
-          status: "reconciling" as const,
-          thought: "",
-          thoughtStartedAt: null,
-          thoughtFinishedAt: null
-        };
+        // ADR-162 P4: async-cont binds to ConversationalPublish id from status
+        // when known — do not keep a permanent local-assistant-async-cont:* slot.
+        const publishAssistantId =
+          isAsyncContinuation &&
+          statusAssistantMessage !== null &&
+          !isLocalScopedAssistantId(statusAssistantMessage.id)
+            ? statusAssistantMessage.id
+            : null;
+        const committedPublishRow =
+          publishAssistantId !== null
+            ? localMessages.find(
+                (message) => message.role === "assistant" && message.id === publishAssistantId
+              )
+            : undefined;
+        const fallbackAssistantMessage: ChatMessage = (publishAssistantId !== null
+          ? (committedPublishRow ??
+            statusAssistantMessage ?? {
+              id: publishAssistantId,
+              role: "assistant" as const,
+              content: "",
+              status: "reconciling" as const,
+              thought: "",
+              thoughtStartedAt: null,
+              thoughtFinishedAt: null
+            })
+          : undefined) ??
+          existingAssistant ?? {
+            id: `local-assistant-${clientTurnId}`,
+            role: "assistant" as const,
+            content: "",
+            status: "reconciling" as const,
+            thought: "",
+            thoughtStartedAt: null,
+            thoughtFinishedAt: null
+          };
         const nextContent =
           statusAssistantMessage !== null &&
           statusAssistantMessage.content.length > fallbackAssistantMessage.content.length
@@ -2632,25 +2806,38 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                 fallbackAssistantMessage.status === "streaming"
               ? "streaming"
               : "reconciling";
+        const nextAssistantId =
+          publishAssistantId !== null
+            ? publishAssistantId
+            : statusAssistantMessage !== null && !primaryStreamStillOwnsTurn
+              ? statusAssistantMessage.id
+              : fallbackAssistantMessage.id;
+        // Ordinary user-turn status must not stick older media onto a new
+        // pending local bubble. Async-cont overlays the publish row and must
+        // preserve attachments already committed on that id (ADR-162 P4).
+        const preservedAttachments =
+          publishAssistantId !== null
+            ? (fallbackAssistantMessage.attachments ??
+              statusAssistantMessage?.attachments ??
+              committedPublishRow?.attachments)
+            : undefined;
         const liveAssistantMessage: ChatMessage = {
           ...fallbackAssistantMessage,
+          id: nextAssistantId,
           ...(statusAssistantMessage === null
             ? {}
             : {
-                id: primaryStreamStillOwnsTurn
-                  ? fallbackAssistantMessage.id
-                  : statusAssistantMessage.id,
                 thought: statusAssistantMessage.thought,
                 thoughtStartedAt: statusAssistantMessage.thoughtStartedAt,
                 thoughtFinishedAt: statusAssistantMessage.thoughtFinishedAt
               }),
           content: nextContent,
           status: assistantLifecycleStatus,
-          // Running/accepted turn-status is only live-progress truth.
-          // Never hydrate attachment blocks from it, or an older committed
-          // assistant message returned by reattach/status can visually stick
-          // its media onto the new pending bubble.
-          attachments: undefined
+          ...(preservedAttachments !== undefined && preservedAttachments.length > 0
+            ? { attachments: preservedAttachments }
+            : publishAssistantId !== null
+              ? {}
+              : { attachments: undefined })
         };
         const currentActivity = status.currentActivity;
         const previousLiveAssistantIdForActivities =
@@ -3044,10 +3231,115 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                 // status:"streaming" until live===true or the first delta.
                 markStreaming(targetThreadKey, true);
               },
-              onStarted: () => {
+              onStarted: (payload) => {
                 // Reattach replay includes the canonical started event. Status
                 // establishes identity; started establishes that this is now a
                 // live token/tool stream.
+                // ADR-162 P4: bind live slot to ConversationalPublish id before
+                // first delta — do not keep local-assistant-async-cont:* beside it.
+                const startedAssistantMessageId =
+                  typeof payload.assistantMessageId === "string" &&
+                  payload.assistantMessageId.trim().length > 0
+                    ? payload.assistantMessageId.trim()
+                    : null;
+                if (
+                  startedAssistantMessageId !== null &&
+                  isAsyncContinuationClientTurnId(clientTurnId)
+                ) {
+                  const existingSnapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
+                  const previousLiveAssistantId = existingSnapshot?.liveAssistantMessageId ?? null;
+                  const baseMessages =
+                    existingSnapshot?.messages ??
+                    (currentThreadKeyRef.current === targetThreadKey ? messages : []);
+                  const committedPublishRow = baseMessages.find(
+                    (message) =>
+                      message.role === "assistant" && message.id === startedAssistantMessageId
+                  );
+                  const previousLiveAssistant =
+                    previousLiveAssistantId !== null
+                      ? baseMessages.find((message) => message.id === previousLiveAssistantId)
+                      : undefined;
+                  const boundAssistant: ChatMessage = {
+                    id: startedAssistantMessageId,
+                    role: "assistant",
+                    content: previousLiveAssistant?.content ?? committedPublishRow?.content ?? "",
+                    status: "streaming",
+                    thought: previousLiveAssistant?.thought ?? "",
+                    thoughtStartedAt: previousLiveAssistant?.thoughtStartedAt ?? null,
+                    thoughtFinishedAt: previousLiveAssistant?.thoughtFinishedAt ?? null,
+                    ...(committedPublishRow?.attachments !== undefined &&
+                    committedPublishRow.attachments.length > 0
+                      ? { attachments: committedPublishRow.attachments }
+                      : previousLiveAssistant?.attachments !== undefined &&
+                          previousLiveAssistant.attachments.length > 0
+                        ? { attachments: previousLiveAssistant.attachments }
+                        : {}),
+                    ...(committedPublishRow?.createdAt !== undefined
+                      ? { createdAt: committedPublishRow.createdAt }
+                      : {})
+                  };
+                  const idsToReplace = new Set<string>(
+                    [previousLiveAssistantId, startedAssistantMessageId].filter(
+                      (value): value is string => typeof value === "string"
+                    )
+                  );
+                  const reconcileBound = (prev: ChatMessage[]): ChatMessage[] => {
+                    let injected = false;
+                    const next: ChatMessage[] = [];
+                    for (const message of prev) {
+                      if (idsToReplace.has(message.id)) {
+                        if (!injected) {
+                          next.push(boundAssistant);
+                          injected = true;
+                        }
+                        continue;
+                      }
+                      next.push(message);
+                    }
+                    if (!injected) {
+                      next.push(boundAssistant);
+                    }
+                    return next;
+                  };
+                  const nextMessages = reconcileBound(baseMessages);
+                  const previousActivities = existingSnapshot?.liveActivitiesByMessageId ?? {};
+                  const remappedActivities =
+                    previousLiveAssistantId !== null &&
+                    previousLiveAssistantId !== startedAssistantMessageId &&
+                    previousActivities[previousLiveAssistantId] !== undefined
+                      ? {
+                          [startedAssistantMessageId]: {
+                            ...previousActivities[previousLiveAssistantId]!,
+                            afterMessageId: startedAssistantMessageId
+                          }
+                        }
+                      : Object.fromEntries(
+                          Object.entries(previousActivities).filter(
+                            ([messageId]) => messageId === startedAssistantMessageId
+                          )
+                        );
+                  const nextSnapshot: ActiveTurnSnapshot = {
+                    clientTurnId,
+                    messages: nextMessages,
+                    liveUserMessageId: null,
+                    liveAssistantMessageId: startedAssistantMessageId,
+                    liveActivitiesByMessageId: remappedActivities,
+                    shadowRoutingLabelsByMessageId:
+                      existingSnapshot?.shadowRoutingLabelsByMessageId ?? {},
+                    chatId: existingSnapshot?.chatId ?? null,
+                    compactionRunning: existingSnapshot?.compactionRunning ?? false
+                  };
+                  activeTurnSnapshotsRef.current.set(targetThreadKey, nextSnapshot);
+                  auditActiveTurnSnapshotMessages(
+                    "startTurnReattach:onStarted-bind",
+                    targetThreadKey,
+                    nextSnapshot
+                  );
+                  if (currentThreadKeyRef.current === targetThreadKey) {
+                    setMessages(reconcileBound);
+                    setLiveActivitiesByMessageId(remappedActivities);
+                  }
+                }
                 promoteLiveAssistantStreaming((message) => message);
               },
               onTurnStatus: ({ turn }) => {
@@ -5481,9 +5773,15 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
       const targetThreadKey = currentThreadKeyRef.current;
       const activeSnapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
       if (cachedHistory !== undefined) {
+        const cachedControllerEntry = abortControllersByThreadRef.current.get(targetThreadKey);
+        const cachedLocalStreamDead =
+          activeSnapshot === undefined ||
+          cachedControllerEntry === undefined ||
+          cachedControllerEntry.clientTurnId !== activeSnapshot.clientTurnId;
         const merged = mergeCommittedHistoryWithActiveTurn({
           loaded: cachedHistory.messages,
-          activeSnapshot
+          activeSnapshot,
+          localStreamDead: cachedLocalStreamDead
         });
         if (merged.replacedActiveTurn && activeSnapshot !== undefined) {
           clearStoredActiveTurnClientTurnId(targetThreadKey, activeSnapshot.clientTurnId);
@@ -5530,11 +5828,20 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
         const hasAuthoritativeActiveTurn = Object.prototype.hasOwnProperty.call(page, "activeTurn");
         const rawActiveTurn = hasAuthoritativeActiveTurn ? (page.activeTurn ?? null) : null;
         const localActiveSnapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
+        const loadHistoryControllerEntry = abortControllersByThreadRef.current.get(targetThreadKey);
+        const localStreamDeadForHistory =
+          localActiveSnapshot === undefined ||
+          loadHistoryControllerEntry === undefined ||
+          loadHistoryControllerEntry.clientTurnId !== localActiveSnapshot.clientTurnId;
         const serverActiveTurnAlreadyCommitted =
-          rawActiveTurn !== null && committedHistoryHasActiveTurnResult(loaded, rawActiveTurn);
+          rawActiveTurn !== null &&
+          committedHistoryHasActiveTurnResult(loaded, rawActiveTurn, {
+            localStreamDead: localStreamDeadForHistory
+          });
         const localActiveSnapshotAlreadyCommitted = committedHistoryHasActiveSnapshotResult(
           loaded,
-          localActiveSnapshot
+          localActiveSnapshot,
+          { localStreamDead: localStreamDeadForHistory }
         );
         const shouldClearAuthoritativeActiveTurn =
           hasAuthoritativeActiveTurn &&
@@ -5555,6 +5862,20 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
               liveAssistantMessageId: null
             };
         let messagesForCache = mergeChatMessagesById(loaded, activeOverlay.messages);
+        // ADR-162 P4: overlay wins id merge but must not wipe publish attachments.
+        if (activeOverlay.liveAssistantMessageId !== null) {
+          const loadedPublish = loaded.find(
+            (message) => message.id === activeOverlay.liveAssistantMessageId
+          );
+          if (loadedPublish?.attachments !== undefined && loadedPublish.attachments.length > 0) {
+            messagesForCache = messagesForCache.map((message) =>
+              message.id === activeOverlay.liveAssistantMessageId &&
+              (message.attachments === undefined || message.attachments.length === 0)
+                ? { ...message, attachments: loadedPublish.attachments }
+                : message
+            );
+          }
+        }
         if (
           loaded.length === 0 &&
           localActiveSnapshot !== undefined &&
@@ -5566,10 +5887,16 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
           const currentActiveSnapshot =
             projectedActiveTurn !== null ? undefined : localActiveSnapshot;
           if (currentActiveSnapshot !== undefined) {
+            const authoritativeControllerEntry =
+              abortControllersByThreadRef.current.get(targetThreadKey);
+            const authoritativeLocalStreamDead =
+              authoritativeControllerEntry === undefined ||
+              authoritativeControllerEntry.clientTurnId !== currentActiveSnapshot.clientTurnId;
             const merged = mergeCommittedHistoryWithActiveTurn({
               loaded,
               activeSnapshot: currentActiveSnapshot,
-              baseMessages: currentThreadKeyRef.current === targetThreadKey ? messages : undefined
+              baseMessages: currentThreadKeyRef.current === targetThreadKey ? messages : undefined,
+              localStreamDead: authoritativeLocalStreamDead
             });
             messagesForCache = merged.messages;
             if (merged.replacedActiveTurn) {

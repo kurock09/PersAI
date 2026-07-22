@@ -272,6 +272,17 @@ export class AssistantDocumentJobDeliveryService {
         canonicalJobId: job.id
       });
 
+      // ADR-162 Phase 1 — ordinary deferred: settle + finalize without chat
+      // invent / attach. ConversationalPublish owns the bubble at present.
+      const deferChatPublish = await this.shouldDeferConversationalPublish(job.id);
+      if (deferChatPublish && currentPayload.externalDeliveryCommitted !== true) {
+        await this.finalizeOrdinaryDeferredWithoutChat({
+          job,
+          payload: currentPayload
+        });
+        return;
+      }
+
       let completionAssistantMessageId = currentPayload.completionAssistantMessageId ?? null;
       if (
         currentPayload.externalDeliveryCommitted !== true &&
@@ -293,43 +304,42 @@ export class AssistantDocumentJobDeliveryService {
         const inlineAwait =
           inlineHandle?.narrationOwner === "current_turn" &&
           inlineHandle.narrationDecision === "current_turn_inline";
-        // Ordinary async document jobs own a dedicated bubble. Only await-wait
-        // reuses the source-turn acknowledgement/narration message.
-        const continuationMessageId =
-          !inlineAwait && sourceUserMessageId !== "unknown"
-            ? ((
-                await this.prisma.assistantAsyncJobHandle.findUnique({
-                  where: {
-                    kind_canonicalJobId: {
-                      kind: "document",
-                      canonicalJobId: job.id
-                    }
-                  },
-                  select: { continuationAssistantMessageId: true }
-                })
-              )?.continuationAssistantMessageId ?? null)
-            : null;
+        // ADR-162 — only await-inline may invent/reuse a turn bubble here.
+        // Ordinary owned-handle jobs are deferred above.
+        if (!inlineAwait && inlineHandle !== null) {
+          throw new Error(
+            `ADR-162: ordinary document job ${job.id} must not invent a chat row at artifact-ready`
+          );
+        }
         const reusedTurnMessage =
-          continuationMessageId !== null
-            ? { id: continuationMessageId }
-            : !inlineAwait || sourceUserMessageId === "unknown"
-              ? null
-              : await this.prisma.assistantChatMessage.findFirst({
-                  where: {
-                    chatId: job.chatId,
-                    assistantId: job.assistantId,
-                    author: "assistant",
-                    metadata: {
-                      path: ["sourceUserMessageId"],
-                      equals: sourceUserMessageId
-                    }
-                  },
-                  orderBy: { createdAt: "desc" },
-                  select: { id: true }
-                });
+          !inlineAwait || sourceUserMessageId === "unknown"
+            ? null
+            : await this.prisma.assistantChatMessage.findFirst({
+                where: {
+                  chatId: job.chatId,
+                  assistantId: job.assistantId,
+                  author: "assistant",
+                  metadata: {
+                    path: ["sourceUserMessageId"],
+                    equals: sourceUserMessageId
+                  }
+                },
+                orderBy: { createdAt: "desc" },
+                select: { id: true }
+              });
         if (reusedTurnMessage !== null) {
           completionAssistantMessageId = reusedTurnMessage.id;
+        } else if (inlineAwait) {
+          // Await same-bubble: empty content (no "Preparing…" invent).
+          const completionMessage = await this.assistantChatRepository.createMessage({
+            chatId: job.chatId,
+            assistantId: job.assistantId,
+            author: "assistant",
+            content: ""
+          });
+          completionAssistantMessageId = completionMessage.id;
         } else {
+          // Missing-handle legacy only.
           const placeholderLocale = inferAssistantDocumentJobLocale({
             preferredLocale: null,
             sourceText: this.readSourceUserMessageText(currentPayload)
@@ -592,6 +602,96 @@ export class AssistantDocumentJobDeliveryService {
       payload.sourceUserMessageCreatedAt = row.sourceUserMessageCreatedAt;
     }
     return payload;
+  }
+
+  private async shouldDeferConversationalPublish(jobId: string): Promise<boolean> {
+    const handle = await this.prisma.assistantAsyncJobHandle.findUnique({
+      where: {
+        kind_canonicalJobId: {
+          kind: "document",
+          canonicalJobId: jobId
+        }
+      },
+      select: {
+        narrationOwner: true,
+        narrationDecision: true
+      }
+    });
+    if (handle === null) {
+      return false;
+    }
+    return !(
+      handle.narrationOwner === "current_turn" && handle.narrationDecision === "current_turn_inline"
+    );
+  }
+
+  /**
+   * ADR-162 — artifact durability + quota + handle ready without chat invent.
+   * Attachments wait for ConversationalPublish at catch-up present.
+   */
+  private async finalizeOrdinaryDeferredWithoutChat(input: {
+    job: ClaimedReadyDocumentJob;
+    payload: PersistedDeliveryPayload;
+  }): Promise<void> {
+    let finalPayload: PersistedDeliveryPayload = {
+      ...input.payload,
+      completionAssistantMessageId: null,
+      externalDeliveryCommitted: false
+    };
+
+    if (finalPayload.quotaConsumed !== true) {
+      if (finalPayload.quotaSettlementPending === true) {
+        await this.deferRetry(
+          input.job,
+          finalPayload,
+          "document_quota_settlement_ambiguous",
+          "Document output is ready, but quota settlement is in an ambiguous recovery state after a prior crash or retry."
+        );
+        return;
+      }
+      const assistant = await this.assistantRepository.findById(input.job.assistantId);
+      if (assistant === null) {
+        await this.deferRetry(
+          input.job,
+          finalPayload,
+          "document_delivery_recovery_pending",
+          "Document output is ready, but assistant quota context could not be resolved."
+        );
+        return;
+      }
+      try {
+        finalPayload = {
+          ...finalPayload,
+          quotaSettlementPending: true
+        };
+        const markedPending = await this.markQuotaSettlementPending(input.job, finalPayload);
+        if (!markedPending) {
+          return;
+        }
+        await this.trackWorkspaceQuotaUsageService.consumeAssistantMonthlyToolQuotaSuccessOnly({
+          assistant,
+          toolCode: "document",
+          units: 1
+        });
+      } catch (error) {
+        await this.deferRetry(
+          input.job,
+          finalPayload,
+          "document_quota_settlement_pending",
+          error instanceof Error
+            ? error.message
+            : "Document quota settlement is temporarily unavailable."
+        );
+        return;
+      }
+      finalPayload = {
+        ...finalPayload,
+        quotaConsumed: true,
+        quotaSettlementPending: false
+      };
+    }
+
+    await this.finalizeDelivery(input.job, finalPayload, []);
   }
 
   private async rememberCompletionMessage(
@@ -1296,6 +1396,14 @@ export class AssistantDocumentJobDeliveryService {
     payload: PersistedDeliveryPayload | null,
     completionAssistantMessageId: string | null
   ): Promise<void> {
+    // ADR-162 — ordinary owned non-inline failures: no worker chat invent.
+    // Catch-up ConversationalPublish + narration/settle owns failure visibility
+    // (mirrors media failDelivery defer pattern).
+    if (await this.shouldDeferConversationalPublish(job.id)) {
+      await this.failJob(job, code, message, payload);
+      return;
+    }
+
     const locale = inferAssistantDocumentJobLocale({
       preferredLocale: null,
       sourceText: payload?.sourceUserMessageText ?? null
