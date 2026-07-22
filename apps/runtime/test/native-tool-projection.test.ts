@@ -2093,9 +2093,20 @@ export async function runNativeToolProjectionTest(): Promise<void> {
     properties?: { prompt?: unknown; action?: { enum?: string[] } };
   };
   assert.ok(fullSchema.properties?.prompt, "full image_generate schema must include prompt");
-  assert.ok(
-    fullSchema.properties?.action?.enum?.includes("describe"),
-    "full image_generate schema must include describe action"
+  assert.deepEqual(
+    fullSchema.properties?.action?.enum,
+    ["describe"],
+    "full image_generate action enum must be describe-only (real generate omits action)"
+  );
+  assert.match(
+    (fullSchema.properties?.action as { description?: string } | undefined)?.description ?? "",
+    /omit action entirely|never pass "generate"/i,
+    "full image_generate must tell the model not to pass action:generate"
+  );
+  assert.doesNotMatch(
+    (fullSchema.properties?.action as { description?: string } | undefined)?.description ?? "",
+    /Omit or use "generate"/i,
+    "full image_generate must not invite action:generate"
   );
 
   const describeExecution = executeRuntimeToolContractDescribe({

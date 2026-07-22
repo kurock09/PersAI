@@ -1023,9 +1023,9 @@ function createImageGenerateToolDefinition(
       properties: {
         action: {
           type: "string",
-          enum: ["describe", "generate"],
+          enum: ["describe"],
           description:
-            'Use "describe" to load the full tool contract. Omit or use "generate" for real image generation.'
+            'Use "describe" only to load/reload the full tool contract. For real image generation omit action entirely — never pass "generate" or any other action value.'
         },
         prompt: {
           type: "string",
