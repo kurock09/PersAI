@@ -2,8 +2,8 @@
 
 ## Status
 
-**Open 2026-07-22 — Phases 0–3 landed locally; Phase 4 audits/gates CLEAN;
-awaiting founder push/deploy + Phase 5 live T1–T4.** Phase 0 docs IKR CLEAN.
+**Open 2026-07-22 — Phases 0–4 pushed at `7dff6561`; Phase 5 live T1–T4
+pending after exact-image deploy.** Phase 0 docs IKR CLEAN.
 Phase 1 ConversationalPublish CLEAN (pin-before-attach; path-identity partial
 resume; no worker invent for owned deferred; empty-artifact fail-present).
 Phase 2 wave-closed continue CLEAN (non-terminal siblings; server tool strip).

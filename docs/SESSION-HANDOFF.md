@@ -1,14 +1,12 @@
 # SESSION-HANDOFF
 
-## 2026-07-22 — ADR-162 Phases 0–4 CLEAN (local; await push)
+## 2026-07-22 — ADR-162 Phases 0–4 pushed (`7dff6561`)
 
-Program local land complete vs ИКР in ADR-162. ConversationalPublish at
-catch-up present (no early ordinary chat invent); wave-closed server tool
-strip; web binds publish id (no dual local bubble). Lint/format/typecheck
-green; focused API/runtime/web suites green; parallel-logic audits CLEAN.
-**No push/deploy yet — founder authorization required.** Next after push:
-exact-image deploy + live T1–T4 (staggered 3 images, user interleave, hung
-sibling, F5). Keep ADR-161 commits separate.
+Pushed `feat(adr-162): conversational publish and wave-closed continue`.
+ConversationalPublish at catch-up present; wave-closed server tool strip; web
+publish-id bind. Local audits/gates CLEAN. Next: wait CI/GitOps exact-image
+pin → deploy api+runtime+web → live T1–T4 (staggered 3 images, user
+interleave, hung sibling, F5). Keep ADR-161 commits separate.
 
 ## 2026-07-22 — ADR-162 Phase 3 web transcript bind (local)
 
