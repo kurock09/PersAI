@@ -1,5 +1,15 @@
 # SESSION-HANDOFF
 
+## 2026-07-22 — Chat scroll teleport on Working/layout (`e73bd3df`)
+
+Live repro on thread `web-1783958664799`: after “В работе” / layout growth,
+viewport sat near top (`scrollTop≈199`, ~4800px from bottom) while F5 landed
+at bottom. Root: stick cleared on programmatic/layout scroll samples; late
+image decode then left the view mid-thread. Fix: ignore programmatic stick
+samples; clear stick only on user wheel/touch/PageUp; hold pin for live turn;
+plan-card scrolls inside its body only (no `scrollIntoView` ancestor teleport).
+Pushed web `e73bd3df`. Next: redeploy web and re-smoke “В работе” without jump.
+
 ## 2026-07-22 — ADR-162 Phases 0–4 pushed (`7dff6561`)
 
 Pushed `feat(adr-162): conversational publish and wave-closed continue`.
