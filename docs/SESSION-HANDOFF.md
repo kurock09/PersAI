@@ -9,8 +9,8 @@ fetch. Root: discovery attach replays every `continuation_ready` from seq 0;
 client reattached settled turns and `applyTurnStatusState(terminal)` rebuilt
 the transcript. Fix: peek turn status before discovery/job reattach (live only);
 skip terminal apply when history already hydrated / assistant already present;
-defer discovery until `!historyLoading`. Next: push/deploy web and F5-smoke the
-new chat.
+defer discovery until `!historyLoading`. Pushed `6c953738`; founder live-accepted
+F5 on the new chat — reorder dance gone.
 
 ## 2026-07-22 — Chat scroll teleport on Working/layout (`e73bd3df`)
 
