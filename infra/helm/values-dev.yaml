@@ -472,7 +472,7 @@ runtime:
     name: api-sa
   image:
     name: runtime
-    tag: 418d7fcec7efa386c46c48efa51ad29482da5e06
+    tag: 17d3bcd15a1e6f9ed67a09a74634d3045c70eb7f
     pullPolicy: IfNotPresent
   cloudSqlProxy:
     enabled: true
