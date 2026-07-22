@@ -27,6 +27,12 @@ PersAI adopts that model for ordinary/deep chat:
    Micro clear runs **only after a user turn fully completes** (final
    assistant reply / terminal turn outcome) — never mid tool-loop, never
    between in-turn provider dispatches, so an active task is not disrupted.
+   Once applied, keep-N projection stays on (no meter re-expand). Arm schedule
+   uses **5% hysteresis**: clear at 50%; if post-clear pressure still >45%,
+   next arm = 75%; if clear at 75% still >70%, micro-clear is exhausted and
+   S3 auto-compaction handles further relief. If a clear drops to ≤(arm−5%),
+   next arm returns to 50% so growth can re-arm. S3 resets all micro-clear
+   session state.
 3. **Summary compact (S3)** at **100%** of `compactionTriggerThreshold` (and
    on existing manual `compact_context` / `summarize_context`): reuse the
    current `SessionCompactionService` / shared compaction path and rolling
@@ -47,8 +53,8 @@ Trigger split (one family, two levels — never the same threshold for both):
 
 | Pressure | Threshold | Action |
 | --- | --- | --- |
-| Micro clear | After user-turn completion, if `currentTokens >= 0.5 * compactionTriggerThreshold` | Placeholder old tool bodies; keep last **5** full. Never mid tool-loop. All providers. |
-| Full compact | `currentTokens >= compactionTriggerThreshold` (or manual tool) | Existing session compaction for all providers. |
+| Micro clear | After user-turn completion, arm at **50%** then **75%** of `compactionTriggerThreshold` with **5%** hysteresis (`>45%` / `>70%` escalate; ≤ band resets next arm to 50%; exhausted waits for S3). Keep-N projection stays active (no meter re-expand). | Placeholder old tool bodies; keep last **5** full. Never mid tool-loop. All providers. |
+| Full compact | `currentTokens >= compactionTriggerThreshold` (or manual tool) | Existing session compaction for all providers. Resets micro-clear session state. |
 
 Implementation order for this amendment only:
 

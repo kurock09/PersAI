@@ -29,6 +29,10 @@ function createSessionSummary(): RuntimeSessionSummary {
     totalTokensFresh: true,
     compactionCount: 0,
     compactionHintTokens: null,
+    priorToolMicroClearActive: false,
+    priorToolMicroClearNextArmPercent: 50,
+    priorToolMicroClearPendingEval: false,
+    priorToolMicroClearLastArmPercent: null,
     providerKey: null,
     modelKey: null,
     updatedAt: "2026-04-11T12:00:00.000Z"
@@ -111,6 +115,19 @@ class FakeRuntimeStatePostgresService {
   failedArgs: unknown[] = [];
   throwOnComplete = false;
   throwOnFailedPayload = false;
+  sessionById: {
+    id: string;
+    priorToolMicroClearPendingEval?: boolean;
+    priorToolMicroClearLastArmPercent?: number | null;
+    priorToolMicroClearNextArmPercent?: number;
+  } | null = null;
+
+  async findSessionById(sessionId: string) {
+    if (this.sessionById === null || this.sessionById.id !== sessionId) {
+      return null;
+    }
+    return this.sessionById;
+  }
 
   async markTurnReceiptCompleted(args: unknown): Promise<void> {
     this.completedArgs.push(args);
@@ -347,4 +364,181 @@ export async function runTurnFinalizationServiceTest(): Promise<void> {
     /complete failed/
   );
   assert.equal(sessionLease.releasedLeases.length, releasesBeforeReceiptFailure);
+
+  // ADR-161 A2 — pendingEval arm resolution + sticky-pending cleanup.
+  {
+    const armPostgres = new FakeRuntimeStatePostgresService();
+    const armStore = new FakeSessionStoreService();
+    const armLease = new FakeSessionLeaseService();
+    const armService = new TurnFinalizationService(
+      armPostgres as unknown as RuntimeStatePostgresService,
+      armStore as unknown as SessionStoreService,
+      armLease as unknown as SessionLeaseService
+    );
+    const threshold = 8_000;
+
+    armPostgres.sessionById = {
+      id: "session-1",
+      priorToolMicroClearPendingEval: true,
+      priorToolMicroClearLastArmPercent: 50,
+      priorToolMicroClearNextArmPercent: 50
+    };
+    await armService.completeAcceptedTurn(
+      createAcceptedTurn(),
+      createTurnResult({
+        providerKey: "deepseek",
+        modelKey: "deepseek-v4-pro",
+        inputTokens: 3_601,
+        outputTokens: 10,
+        totalTokens: 3_611
+      }),
+      { compactionTriggerThreshold: threshold }
+    );
+    assert.deepEqual(armStore.updateCalls.at(-1), {
+      sessionId: "session-1",
+      providerKey: "deepseek",
+      modelKey: "deepseek-v4-pro",
+      currentTokens: 3_601,
+      totalTokensFresh: true,
+      priorToolMicroClearPendingEval: false,
+      priorToolMicroClearNextArmPercent: 75,
+      lastTurnAt: new Date("2026-04-11T12:05:00.000Z")
+    });
+
+    armStore.updateCalls = [];
+    armPostgres.sessionById = {
+      id: "session-1",
+      priorToolMicroClearPendingEval: true,
+      priorToolMicroClearLastArmPercent: 50,
+      priorToolMicroClearNextArmPercent: 50
+    };
+    await armService.completeAcceptedTurn(
+      createAcceptedTurn(),
+      createTurnResult({
+        providerKey: "deepseek",
+        modelKey: "deepseek-v4-pro",
+        inputTokens: 1_600,
+        outputTokens: 10,
+        totalTokens: 1_610
+      }),
+      { compactionTriggerThreshold: threshold }
+    );
+    assert.equal(armStore.updateCalls.at(-1)?.priorToolMicroClearNextArmPercent, 50);
+    assert.equal(armStore.updateCalls.at(-1)?.priorToolMicroClearPendingEval, false);
+
+    armStore.updateCalls = [];
+    armPostgres.sessionById = {
+      id: "session-1",
+      priorToolMicroClearPendingEval: true,
+      priorToolMicroClearLastArmPercent: 75,
+      priorToolMicroClearNextArmPercent: 75
+    };
+    await armService.completeAcceptedTurn(
+      createAcceptedTurn(),
+      createTurnResult({
+        providerKey: "deepseek",
+        modelKey: "deepseek-v4-pro",
+        inputTokens: 5_601,
+        outputTokens: 10,
+        totalTokens: 5_611
+      }),
+      { compactionTriggerThreshold: threshold }
+    );
+    assert.equal(armStore.updateCalls.at(-1)?.priorToolMicroClearNextArmPercent, 0);
+    assert.equal(armStore.updateCalls.at(-1)?.priorToolMicroClearPendingEval, false);
+
+    armStore.updateCalls = [];
+    armPostgres.sessionById = {
+      id: "session-1",
+      priorToolMicroClearPendingEval: true,
+      priorToolMicroClearLastArmPercent: 50,
+      priorToolMicroClearNextArmPercent: 50
+    };
+    await armService.completeAcceptedTurn(
+      createAcceptedTurn(),
+      createTurnResult({
+        providerKey: "deepseek",
+        modelKey: "deepseek-v4-pro",
+        inputTokens: 3_601,
+        outputTokens: 10,
+        totalTokens: 3_611
+      })
+      // no threshold → clear pending only
+    );
+    assert.deepEqual(armStore.updateCalls.at(-1), {
+      sessionId: "session-1",
+      providerKey: "deepseek",
+      modelKey: "deepseek-v4-pro",
+      currentTokens: 3_601,
+      totalTokensFresh: true,
+      priorToolMicroClearPendingEval: false,
+      lastTurnAt: new Date("2026-04-11T12:05:00.000Z")
+    });
+    assert.equal(armStore.updateCalls.at(-1)?.priorToolMicroClearNextArmPercent, undefined);
+
+    armStore.updateCalls = [];
+    armPostgres.sessionById = {
+      id: "session-1",
+      priorToolMicroClearPendingEval: true,
+      priorToolMicroClearLastArmPercent: 50,
+      priorToolMicroClearNextArmPercent: 50
+    };
+    await armService.interruptAcceptedTurn({
+      acceptedTurn: createAcceptedTurn(),
+      event: createInterruptedEvent(),
+      usage: null
+    });
+    assert.equal(armStore.updateCalls.at(-1)?.priorToolMicroClearPendingEval, false);
+    assert.equal(armStore.updateCalls.at(-1)?.priorToolMicroClearNextArmPercent, undefined);
+
+    armStore.updateCalls = [];
+    armPostgres.sessionById = {
+      id: "session-1",
+      priorToolMicroClearPendingEval: true,
+      priorToolMicroClearLastArmPercent: 75,
+      priorToolMicroClearNextArmPercent: 75
+    };
+    await armService.completeAcceptedTurn(
+      createAcceptedTurn(),
+      createTurnResult({
+        providerKey: "deepseek",
+        modelKey: "deepseek-v4-pro",
+        inputTokens: 5_600,
+        outputTokens: 10,
+        totalTokens: 5_610
+      }),
+      { compactionTriggerThreshold: threshold }
+    );
+    assert.equal(
+      armStore.updateCalls.at(-1)?.priorToolMicroClearNextArmPercent,
+      50,
+      "75% clear to <=70% resets next arm to 50%"
+    );
+
+    armStore.updateCalls = [];
+    armPostgres.sessionById = {
+      id: "session-1",
+      priorToolMicroClearPendingEval: true,
+      priorToolMicroClearLastArmPercent: 50,
+      priorToolMicroClearNextArmPercent: 50
+    };
+    await armService.failAcceptedTurn(createAcceptedTurn(), createFailedEvent());
+    assert.deepEqual(armStore.updateCalls.at(-1), {
+      sessionId: "session-1",
+      priorToolMicroClearPendingEval: false
+    });
+
+    armStore.updateCalls = [];
+    armPostgres.sessionById = {
+      id: "session-1",
+      priorToolMicroClearPendingEval: true,
+      priorToolMicroClearLastArmPercent: 50,
+      priorToolMicroClearNextArmPercent: 50
+    };
+    await armService.failAcceptedTurnMinimal(createAcceptedTurn(), createFailedEvent());
+    assert.deepEqual(armStore.updateCalls.at(-1), {
+      sessionId: "session-1",
+      priorToolMicroClearPendingEval: false
+    });
+  }
 }

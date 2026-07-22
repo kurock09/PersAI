@@ -315,6 +315,7 @@ export class AssistantAsyncJobContinuationSchedulerService
             deliverContinuationArtifactsOnce: (c, ctx, assistantMessageId, result) =>
               this.deliverContinuationArtifactsOnce(c, ctx as never, assistantMessageId, result),
             failClaimVisibly: (c, error) => this.failClaimVisibly(c, error),
+            settleDeliveredCatchUpFailure: (c) => this.handleState.settleDeliveredCatchUpFailure(c),
             markDispatched: (value) => markDispatched(value.receiptRequestId),
             releasePreDispatchBusy: (value) => this.handleState.releaseClaimToReady(value),
             // A lost exclusive chat lock must never finalize this claim. Its

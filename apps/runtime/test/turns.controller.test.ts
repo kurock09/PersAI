@@ -122,6 +122,10 @@ describe("TurnsController", () => {
               totalTokensFresh: true,
               compactionCount: 1,
               compactionHintTokens: 18_250,
+              priorToolMicroClearActive: false,
+              priorToolMicroClearNextArmPercent: 50,
+              priorToolMicroClearPendingEval: false,
+              priorToolMicroClearLastArmPercent: null,
               providerKey: "openai",
               modelKey: "gpt-4.1",
               updatedAt: "2026-04-12T22:00:00.000Z"
@@ -155,6 +159,10 @@ describe("TurnsController", () => {
         totalTokensFresh: true,
         compactionCount: 1,
         compactionHintTokens: 18_250,
+        priorToolMicroClearActive: false,
+        priorToolMicroClearNextArmPercent: 50,
+        priorToolMicroClearPendingEval: false,
+        priorToolMicroClearLastArmPercent: null,
         providerKey: "openai",
         modelKey: "gpt-4.1",
         updatedAt: "2026-04-12T22:00:00.000Z"

@@ -24,6 +24,10 @@ export interface UpsertRuntimeSessionInput {
   totalTokensFresh?: boolean;
   compactionCount?: number;
   compactionHintTokens?: number | null;
+  priorToolMicroClearActive?: boolean;
+  priorToolMicroClearNextArmPercent?: number;
+  priorToolMicroClearPendingEval?: boolean;
+  priorToolMicroClearLastArmPercent?: number | null;
   memoryExtractionWatermark?: number;
   providerKey?: string | null;
   modelKey?: string | null;
@@ -63,6 +67,10 @@ export interface UpdateRuntimeSessionInput {
   totalTokensFresh?: boolean;
   compactionCount?: number;
   compactionHintTokens?: number | null;
+  priorToolMicroClearActive?: boolean;
+  priorToolMicroClearNextArmPercent?: number;
+  priorToolMicroClearPendingEval?: boolean;
+  priorToolMicroClearLastArmPercent?: number | null;
   memoryExtractionWatermark?: number;
   providerKey?: string | null;
   modelKey?: string | null;
@@ -156,6 +164,18 @@ export class RuntimeStatePostgresService {
       ...(input.compactionHintTokens !== undefined
         ? { compactionHintTokens: input.compactionHintTokens }
         : {}),
+      ...(input.priorToolMicroClearActive !== undefined
+        ? { priorToolMicroClearActive: input.priorToolMicroClearActive }
+        : {}),
+      ...(input.priorToolMicroClearNextArmPercent !== undefined
+        ? { priorToolMicroClearNextArmPercent: input.priorToolMicroClearNextArmPercent }
+        : {}),
+      ...(input.priorToolMicroClearPendingEval !== undefined
+        ? { priorToolMicroClearPendingEval: input.priorToolMicroClearPendingEval }
+        : {}),
+      ...(input.priorToolMicroClearLastArmPercent !== undefined
+        ? { priorToolMicroClearLastArmPercent: input.priorToolMicroClearLastArmPercent }
+        : {}),
       ...(input.memoryExtractionWatermark !== undefined
         ? {
             memoryExtractionWatermark: Math.max(0, Math.floor(input.memoryExtractionWatermark))
@@ -186,6 +206,10 @@ export class RuntimeStatePostgresService {
         totalTokensFresh: input.totalTokensFresh ?? true,
         compactionCount: input.compactionCount ?? 0,
         compactionHintTokens: input.compactionHintTokens ?? null,
+        priorToolMicroClearActive: input.priorToolMicroClearActive ?? false,
+        priorToolMicroClearNextArmPercent: input.priorToolMicroClearNextArmPercent ?? 50,
+        priorToolMicroClearPendingEval: input.priorToolMicroClearPendingEval ?? false,
+        priorToolMicroClearLastArmPercent: input.priorToolMicroClearLastArmPercent ?? null,
         memoryExtractionWatermark: Math.max(0, Math.floor(input.memoryExtractionWatermark ?? 0)),
         providerKey: input.providerKey ?? null,
         modelKey: input.modelKey ?? null,
@@ -235,6 +259,18 @@ export class RuntimeStatePostgresService {
       ...(input.compactionCount !== undefined ? { compactionCount: input.compactionCount } : {}),
       ...(input.compactionHintTokens !== undefined
         ? { compactionHintTokens: input.compactionHintTokens }
+        : {}),
+      ...(input.priorToolMicroClearActive !== undefined
+        ? { priorToolMicroClearActive: input.priorToolMicroClearActive }
+        : {}),
+      ...(input.priorToolMicroClearNextArmPercent !== undefined
+        ? { priorToolMicroClearNextArmPercent: input.priorToolMicroClearNextArmPercent }
+        : {}),
+      ...(input.priorToolMicroClearPendingEval !== undefined
+        ? { priorToolMicroClearPendingEval: input.priorToolMicroClearPendingEval }
+        : {}),
+      ...(input.priorToolMicroClearLastArmPercent !== undefined
+        ? { priorToolMicroClearLastArmPercent: input.priorToolMicroClearLastArmPercent }
         : {}),
       ...(input.memoryExtractionWatermark !== undefined
         ? {

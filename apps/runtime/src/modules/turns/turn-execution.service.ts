@@ -1976,7 +1976,23 @@ export class TurnExecutionService {
             }
 
             if (!restartProviderAttempt) {
-              break;
+              // Empty provider stream end (no completed/failed NDJSON) used to
+              // skip the same-provider retry that `provider_stream_ended` failed
+              // events already get. Retry once before failing the turn.
+              if (
+                !providerOutputSeen &&
+                !sameProviderStreamRetryAttempted &&
+                deliveredText.trim().length === 0 &&
+                activeAbortSignal?.aborted !== true
+              ) {
+                sameProviderStreamRetryAttempted = true;
+                this.logger.warn(
+                  `[runtime-text-same-provider-retry] surface=turn_stream requestId=${acceptedTurn.receipt.requestId} classification=${providerRequest.requestMetadata?.classification ?? "unknown"} attempt=tool_loop:${String(iteration)} role=${execution.selectedModelRole} provider=${providerRequest.provider} model=${providerRequest.model} errorCode=provider_stream_ended errorMessage=Provider stream ended before native turn completion.`
+                );
+                restartProviderAttempt = true;
+              } else {
+                break;
+              }
             }
           }
 
@@ -1985,6 +2001,25 @@ export class TurnExecutionService {
           }
 
           if (deliveredText.trim().length > 0) {
+            const interrupted = this.toInterruptedEvent(
+              acceptedTurn,
+              deliveredText,
+              null,
+              trace?.build("interrupted"),
+              turnState
+            );
+            await this.interruptAcceptedTurnQuietly({
+              acceptedTurn,
+              event: interrupted,
+              turnState
+            });
+            yield interrupted;
+            return;
+          }
+
+          // Aborted streams often end with zero provider events (gateway silent
+          // return). Prefer interrupt over a sticky provider_stream_ended fail.
+          if (activeAbortSignal?.aborted === true) {
             const interrupted = this.toInterruptedEvent(
               acceptedTurn,
               deliveredText,
@@ -2268,9 +2303,11 @@ export class TurnExecutionService {
     bundle: AssistantRuntimeBundle;
     turnState: TurnExecutionState;
   }): Promise<RuntimeTurnResult> {
+    const contextHydration = resolveRuntimeContextHydrationConfig(input.bundle);
     const finalizedTurn = await this.turnFinalizationService.completeAcceptedTurn(
       input.acceptedTurn,
-      input.result
+      input.result,
+      { compactionTriggerThreshold: contextHydration.compactionTriggerThreshold }
     );
     // ADR-074 Slice M2 — auto-compaction is off-band, but we only enqueue it
     // after the user turn is durably finalized and its lease is released.

@@ -41,6 +41,10 @@ function baseCallbacks(callbackCalls: string[]) {
     failClaimVisibly: async (_claim: unknown, error: { errorCode: string }) => {
       callbackCalls.push(`fail:${error.errorCode}`);
     },
+    settleDeliveredCatchUpFailure: async () => {
+      callbackCalls.push("settleDelivered");
+      return null;
+    },
     markDispatched: async () => {
       callbackCalls.push("markDispatched");
       return true;
@@ -713,6 +717,60 @@ describe("StreamWebAsyncContinuationService", () => {
     assert.ok(callbackCalls.includes("fail:continuation_stream_unterminated"));
   });
 
+  test("unterminated stream settles completed when artifacts already delivered", async () => {
+    const callbackCalls: string[] = [];
+    const attemptCalls: string[] = [];
+    const published: string[] = [];
+    const service = new StreamWebAsyncContinuationService(
+      {
+        stream: async () => ({
+          mode: "events",
+          events: (async function* () {
+            yield {
+              type: "started",
+              requestId: "req-settle",
+              sessionId: "session-1"
+            };
+          })()
+        })
+      } as never,
+      attemptMock(attemptCalls),
+      streamRegistryMock({
+        onPublish: (input) => {
+          published.push(input.event);
+        }
+      }),
+      stopDispatchMock()
+    );
+
+    const callbacks = {
+      ...baseCallbacks(callbackCalls),
+      settleDeliveredCatchUpFailure: async () => {
+        callbackCalls.push("settleDelivered");
+        return { assistantMessageId: "delivery-msg-1" };
+      }
+    };
+
+    await service.processWebClaim({
+      claim: { id: "handle-settle", claimToken: "claim-settle" },
+      context: baseContext({ continuationClientTurnId: "async-cont:settle" }),
+      request: {
+        requestId: "req-settle",
+        idempotencyKey: "async-cont:settle"
+      } as never,
+      timeoutMs: 30_000,
+      callbacks
+    });
+
+    assert.ok(callbackCalls.includes("settleDelivered"));
+    assert.ok(attemptCalls.includes("markCompleted"));
+    assert.ok(!attemptCalls.includes("markFailed"));
+    assert.ok(published.includes("completed"));
+    assert.ok(!published.includes("failed"));
+    assert.ok(!callbackCalls.some((call) => call.startsWith("fail:")));
+    assert.ok(callbackCalls.includes("finalize:persisted"));
+  });
+
   test("logical acceptance after ambiguity terminalizes visibly without redispatch", async () => {
     const callbackCalls: string[] = [];
     const attemptCalls: string[] = [];
@@ -755,7 +813,11 @@ describe("StreamWebAsyncContinuationService", () => {
     assert.ok(!attemptCalls.includes("markInterrupted"));
     assert.ok(published.includes("failed"));
     assert.ok(!callbackCalls.includes("markDispatched"));
-    assert.deepEqual(callbackCalls, ["finalize:failed", "fail:continuation_dispatch_ambiguous"]);
+    assert.deepEqual(callbackCalls, [
+      "settleDelivered",
+      "finalize:failed",
+      "fail:continuation_dispatch_ambiguous"
+    ]);
   });
 
   test("proven fresh pre-accept absence releases ready without marking dispatched", async () => {
@@ -832,7 +894,11 @@ describe("StreamWebAsyncContinuationService", () => {
     });
 
     assert.ok(attemptCalls.includes("markFailed"));
-    assert.deepEqual(callbackCalls, ["finalize:failed", "fail:continuation_dispatch_ambiguous"]);
+    assert.deepEqual(callbackCalls, [
+      "settleDelivered",
+      "finalize:failed",
+      "fail:continuation_dispatch_ambiguous"
+    ]);
     assert.ok(!callbackCalls.includes("markDispatched"));
   });
 

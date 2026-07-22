@@ -12,6 +12,8 @@ export interface PriorToolExchangeReplayMessage {
 }
 
 export type PriorToolExchangeReplayPressure = {
+  priorToolMicroClearActive?: boolean | null | undefined;
+  priorToolMicroClearNextArmPercent?: number | null | undefined;
   currentTokens: number | null | undefined;
   totalTokensFresh: boolean | null | undefined;
   compactionTriggerThreshold: number;
@@ -23,8 +25,9 @@ export type PriorToolExchangeReplayPressure = {
  * ADR-161 A1/A2: canonical storage stays full. Below 50% pressure (or when
  * tokens are not fresh), every retained exchange projects full. At/above 50%
  * of `compactionTriggerThreshold`, only the newest 5 full results remain;
- * older bodies become placeholders. Projection is hydrate-time / next-turn
- * facing — never applied to in-turn `toolHistory`.
+ * older bodies become placeholders. Once active, clear stays on (no meter
+ * re-expand); next arm uses 50%→75%→exhausted hysteresis. Projection is
+ * hydrate-time / next-turn facing — never applied to in-turn `toolHistory`.
  */
 export function buildPriorToolExchangeReplayMap(
   messages: readonly PriorToolExchangeReplayMessage[],
@@ -60,6 +63,8 @@ export function buildPriorToolExchangeReplayMap(
   const applyMicroClear =
     pressure != null &&
     shouldApplyToolObservationMicroClear({
+      priorToolMicroClearActive: pressure.priorToolMicroClearActive,
+      priorToolMicroClearNextArmPercent: pressure.priorToolMicroClearNextArmPercent,
       currentTokens: pressure.currentTokens,
       totalTokensFresh: pressure.totalTokensFresh,
       compactionTriggerThreshold: pressure.compactionTriggerThreshold

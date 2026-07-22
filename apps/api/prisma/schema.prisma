@@ -2016,6 +2016,13 @@ model RuntimeSession {
   totalTokensFresh          Boolean                    @default(true) @map("total_tokens_fresh")
   compactionCount           Int                        @default(0) @map("compaction_count")
   compactionHintTokens      Int?                       @map("compaction_hint_tokens")
+  /// ADR-161 A2 — keep-N micro-clear projection active (no meter re-expand).
+  priorToolMicroClearActive Boolean                    @default(false) @map("prior_tool_micro_clear_active")
+  /// Next micro-clear arm: 50 | 75 | 0 (exhausted → wait for S3).
+  priorToolMicroClearNextArmPercent Int                @default(50) @map("prior_tool_micro_clear_next_arm_percent")
+  /// Evaluate post-clear pressure once after an arm cross.
+  priorToolMicroClearPendingEval Boolean               @default(false) @map("prior_tool_micro_clear_pending_eval")
+  priorToolMicroClearLastArmPercent Int?               @map("prior_tool_micro_clear_last_arm_percent")
   memoryExtractionWatermark Int                        @default(0) @map("memory_extraction_watermark")
   providerKey               String?                    @map("provider_key") @db.VarChar(64)
   modelKey                  String?                    @map("model_key") @db.VarChar(256)

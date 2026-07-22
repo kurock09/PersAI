@@ -11,6 +11,7 @@ import { SessionStoreService } from "../sessions/session-store.service";
 import { RuntimeStatePostgresService } from "../runtime-state/infrastructure/persistence/runtime-state-postgres.service";
 import type { AcceptedRuntimeTurn } from "./turn-acceptance.service";
 import { resolveSessionContextPressureTokens } from "./session-context-pressure-tokens";
+import { resolveMicroClearNextArmAfterClear } from "./tool-observation-policy";
 
 export interface FinalizedRuntimeTurn {
   receiptStatus: "completed" | "interrupted" | "failed";
@@ -22,6 +23,10 @@ export interface InterruptAcceptedTurnInput {
   acceptedTurn: AcceptedRuntimeTurn;
   event: RuntimeInterruptedEvent;
   usage?: RuntimeUsageSnapshot | null;
+}
+
+export interface CompleteAcceptedTurnOptions {
+  compactionTriggerThreshold?: number;
 }
 
 @Injectable()
@@ -36,7 +41,8 @@ export class TurnFinalizationService {
 
   async completeAcceptedTurn(
     acceptedTurn: AcceptedRuntimeTurn,
-    result: RuntimeTurnResult
+    result: RuntimeTurnResult,
+    options?: CompleteAcceptedTurnOptions
   ): Promise<FinalizedRuntimeTurn> {
     this.assertMatchingTurnIdentity({
       expectedRequestId: acceptedTurn.receipt.requestId,
@@ -61,6 +67,11 @@ export class TurnFinalizationService {
         usage: result.usage,
         textUsageAccounting: result.textUsageAccounting ?? null
       });
+      const microClearPatch = await this.resolveMicroClearArmPatch({
+        sessionId: acceptedTurn.session.sessionId,
+        contextPressureTokens,
+        compactionTriggerThreshold: options?.compactionTriggerThreshold
+      });
       session = await this.sessionStoreService.updateSessionSummary({
         sessionId: acceptedTurn.session.sessionId,
         ...(result.usage !== null
@@ -71,6 +82,7 @@ export class TurnFinalizationService {
               totalTokensFresh: contextPressureTokens !== null
             }
           : { totalTokensFresh: false }),
+        ...microClearPatch,
         lastTurnAt: completedAt
       });
     } finally {
@@ -84,6 +96,53 @@ export class TurnFinalizationService {
       session,
       leaseReleased
     };
+  }
+
+  /**
+   * Resolve next arm after a completed clear, or drop a stuck pendingEval when
+   * threshold is unavailable. Never leaves pendingEval sticky across terminals.
+   */
+  private async resolveMicroClearArmPatch(input: {
+    sessionId: string;
+    contextPressureTokens: number | null;
+    compactionTriggerThreshold: number | undefined;
+  }): Promise<{
+    priorToolMicroClearPendingEval?: boolean;
+    priorToolMicroClearNextArmPercent?: number;
+  }> {
+    const persisted = await this.runtimeStatePostgresService.findSessionById(input.sessionId);
+    if (persisted === null || persisted.priorToolMicroClearPendingEval !== true) {
+      return {};
+    }
+    if (
+      typeof input.compactionTriggerThreshold !== "number" ||
+      !Number.isFinite(input.compactionTriggerThreshold)
+    ) {
+      // Keep current nextArm; only clear the pending flag so the next arm cross
+      // can queue a fresh eval.
+      return { priorToolMicroClearPendingEval: false };
+    }
+    const nextArm = resolveMicroClearNextArmAfterClear({
+      lastArmPercent: persisted.priorToolMicroClearLastArmPercent,
+      currentTokens: input.contextPressureTokens,
+      totalTokensFresh: input.contextPressureTokens !== null,
+      compactionTriggerThreshold: input.compactionTriggerThreshold
+    });
+    return {
+      priorToolMicroClearPendingEval: false,
+      priorToolMicroClearNextArmPercent: nextArm
+    };
+  }
+
+  /** Drop pendingEval without changing nextArm (interrupt / fail paths). */
+  private async clearPendingMicroClearEval(sessionId: string): Promise<{
+    priorToolMicroClearPendingEval?: boolean;
+  }> {
+    const persisted = await this.runtimeStatePostgresService.findSessionById(sessionId);
+    if (persisted === null || persisted.priorToolMicroClearPendingEval !== true) {
+      return {};
+    }
+    return { priorToolMicroClearPendingEval: false };
   }
 
   async interruptAcceptedTurn(input: InterruptAcceptedTurnInput): Promise<FinalizedRuntimeTurn> {
@@ -113,6 +172,9 @@ export class TurnFinalizationService {
         input.usage === undefined || input.usage === null
           ? null
           : resolveSessionContextPressureTokens({ usage: input.usage });
+      const microClearPatch = await this.clearPendingMicroClearEval(
+        input.acceptedTurn.session.sessionId
+      );
       session = await this.sessionStoreService.updateSessionSummary({
         sessionId: input.acceptedTurn.session.sessionId,
         ...(input.usage === undefined
@@ -125,6 +187,7 @@ export class TurnFinalizationService {
                 currentTokens: interruptPressureTokens,
                 totalTokensFresh: interruptPressureTokens !== null
               }),
+        ...microClearPatch,
         ...(completedAt === null ? {} : { lastTurnAt: completedAt })
       });
     } finally {
@@ -155,6 +218,7 @@ export class TurnFinalizationService {
     const completedAt = this.parseRequiredIsoTimestamp(completedAtIso, "completedAtIso");
     let leaseReleased = false;
     let terminalReceiptPersisted = false;
+    let session = acceptedTurn.session;
 
     try {
       await this.runtimeStatePostgresService.markTurnReceiptFailed({
@@ -165,6 +229,13 @@ export class TurnFinalizationService {
         completedAt
       });
       terminalReceiptPersisted = true;
+      const microClearPatch = await this.clearPendingMicroClearEval(acceptedTurn.session.sessionId);
+      if (Object.keys(microClearPatch).length > 0) {
+        session = await this.sessionStoreService.updateSessionSummary({
+          sessionId: acceptedTurn.session.sessionId,
+          ...microClearPatch
+        });
+      }
     } finally {
       if (terminalReceiptPersisted) {
         leaseReleased = await this.releaseLeaseQuietly(acceptedTurn);
@@ -178,7 +249,7 @@ export class TurnFinalizationService {
 
     return {
       receiptStatus: "failed",
-      session: acceptedTurn.session,
+      session,
       leaseReleased
     };
   }
@@ -193,6 +264,7 @@ export class TurnFinalizationService {
     const completedAt = this.parseRequiredIsoTimestamp(completedAtIso, "completedAtIso");
     let leaseReleased = false;
     let terminalReceiptPersisted = false;
+    let session = acceptedTurn.session;
 
     try {
       await this.runtimeStatePostgresService.markTurnReceiptFailed({
@@ -202,6 +274,13 @@ export class TurnFinalizationService {
         completedAt
       });
       terminalReceiptPersisted = true;
+      const microClearPatch = await this.clearPendingMicroClearEval(acceptedTurn.session.sessionId);
+      if (Object.keys(microClearPatch).length > 0) {
+        session = await this.sessionStoreService.updateSessionSummary({
+          sessionId: acceptedTurn.session.sessionId,
+          ...microClearPatch
+        });
+      }
     } finally {
       if (terminalReceiptPersisted) {
         leaseReleased = await this.releaseLeaseQuietly(acceptedTurn);
@@ -215,7 +294,7 @@ export class TurnFinalizationService {
 
     return {
       receiptStatus: "failed",
-      session: acceptedTurn.session,
+      session,
       leaseReleased
     };
   }

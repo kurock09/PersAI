@@ -620,7 +620,12 @@ export class SessionCompactionService {
           compactionCount: persistedSession.compactionCount + 1,
           compactionHintTokens: resolvedSession.session.currentTokens,
           currentTokens: null,
-          totalTokensFresh: false
+          totalTokensFresh: false,
+          // ADR-161 A2 — S3 resets micro-clear projection + arm schedule.
+          priorToolMicroClearActive: false,
+          priorToolMicroClearNextArmPercent: 50,
+          priorToolMicroClearPendingEval: false,
+          priorToolMicroClearLastArmPercent: null
         });
       }
 

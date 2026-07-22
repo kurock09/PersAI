@@ -437,6 +437,10 @@ class FakeRuntimeStatePostgresService {
     id: string;
     currentTokens?: number | null;
     totalTokensFresh?: boolean;
+    priorToolMicroClearActive?: boolean;
+    priorToolMicroClearNextArmPercent?: number;
+    priorToolMicroClearPendingEval?: boolean;
+    priorToolMicroClearLastArmPercent?: number | null;
   } | null = null;
   latestCompaction: { summaryPayload: unknown } | null = null;
 
@@ -446,6 +450,30 @@ class FakeRuntimeStatePostgresService {
 
   async findLatestSessionCompaction() {
     return this.latestCompaction;
+  }
+
+  async updateSession(input: {
+    sessionId: string;
+    priorToolMicroClearActive?: boolean;
+    priorToolMicroClearNextArmPercent?: number;
+    priorToolMicroClearPendingEval?: boolean;
+    priorToolMicroClearLastArmPercent?: number | null;
+  }) {
+    if (this.session !== null && this.session.id === input.sessionId) {
+      if (input.priorToolMicroClearActive !== undefined) {
+        this.session.priorToolMicroClearActive = input.priorToolMicroClearActive;
+      }
+      if (input.priorToolMicroClearNextArmPercent !== undefined) {
+        this.session.priorToolMicroClearNextArmPercent = input.priorToolMicroClearNextArmPercent;
+      }
+      if (input.priorToolMicroClearPendingEval !== undefined) {
+        this.session.priorToolMicroClearPendingEval = input.priorToolMicroClearPendingEval;
+      }
+      if (input.priorToolMicroClearLastArmPercent !== undefined) {
+        this.session.priorToolMicroClearLastArmPercent = input.priorToolMicroClearLastArmPercent;
+      }
+    }
+    return this.session;
   }
 }
 
@@ -673,10 +701,17 @@ export async function runTurnContextHydrationServiceTest(): Promise<void> {
   assert.equal(hydrated[1]?.content, "first user");
   assert.equal(hydrated[2]?.role, "assistant");
   assert.equal(hydrated[2]?.content, "first assistant");
-  assert.equal(hydrated[3]?.role, "assistant");
-  assert.equal(hydrated[3]?.content, "");
-  assert.equal(Array.isArray(hydrated[4]?.content), true);
-  const currentUserBlocks = hydrated[4]?.content as Array<{ type: string; text?: string }>;
+  // Empty assistant prose + attachment stays in chat UI (ADR-157) but is omitted
+  // from provider wire messages (gateway rejects ""). JOB_CATCHUP image sight is
+  // ADR-157 D2 pendingFilePreviewBlocks, not invented captions / history vision.
+  assert.equal(
+    hydrated.some(
+      (message) => typeof message.content === "string" && message.content.trim().length === 0
+    ),
+    false
+  );
+  assert.equal(Array.isArray(hydrated[3]?.content), true);
+  const currentUserBlocks = hydrated[3]?.content as Array<{ type: string; text?: string }>;
   assert.equal(currentUserBlocks[0]?.type, "text");
   assert.equal(currentUserBlocks[0]?.text, "current enriched user message");
   for (const message of hydrated) {
@@ -2350,11 +2385,52 @@ async function runCrossSessionCarryOverSnapshotAcceptance(): Promise<void> {
         ["masked", "masked", "full", "full", "full", "full", "full"],
         "replay test 7: at 50% pressure newest 5 stay full; older are placeholders"
       );
+      assert.equal(
+        runtimeStatePostgres.session?.priorToolMicroClearActive,
+        true,
+        "replay test 7: crossing 50% activates micro-clear"
+      );
+      assert.equal(
+        runtimeStatePostgres.session?.priorToolMicroClearPendingEval,
+        true,
+        "replay test 7: arm cross queues post-clear effectiveness eval"
+      );
 
+      // Same session after meter drops: active keeps bodies cleared (no ping-pong).
       runtimeStatePostgres.session = {
         id: "session-micro-clear",
         currentTokens: 3_999,
-        totalTokensFresh: true
+        totalTokensFresh: true,
+        priorToolMicroClearActive: true,
+        priorToolMicroClearNextArmPercent: 50
+      };
+      const belowHalfActive = await svc.buildMessages(
+        buildMinimalRequest("u-3"),
+        createRuntimeBundle({ compactionTriggerThreshold: 8_000 })
+      );
+      const belowActiveTiers = [
+        ...(findHydratedMessage(belowHalfActive, "assistant", "assistant a")?.priorToolExchanges ??
+          []),
+        ...(findHydratedMessage(belowHalfActive, "assistant", "assistant b")?.priorToolExchanges ??
+          [])
+      ].map((exchange) => {
+        const parsed = JSON.parse(exchange.toolResult.content) as {
+          _observationTier?: string;
+        };
+        return parsed._observationTier;
+      });
+      assert.deepEqual(
+        belowActiveTiers,
+        ["masked", "masked", "full", "full", "full", "full", "full"],
+        "replay test 7: active keep-N keeps micro-clear after meter drops"
+      );
+
+      runtimeStatePostgres.session = {
+        id: "session-micro-clear-inactive",
+        currentTokens: 3_999,
+        totalTokensFresh: true,
+        priorToolMicroClearActive: false,
+        priorToolMicroClearNextArmPercent: 50
       };
       const belowHalf = await svc.buildMessages(
         buildMinimalRequest("u-3"),

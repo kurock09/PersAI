@@ -6,7 +6,9 @@ import { buildPriorToolExchangeReplayMap } from "../src/modules/turns/prior-tool
 import {
   TOOL_OBSERVATION_MICRO_CLEAR_KEEP_FULL_COUNT,
   TOOL_OBSERVATION_MICRO_CLEAR_PRESSURE_RATIO,
-  shouldApplyToolObservationMicroClear
+  resolveMicroClearNextArmAfterClear,
+  shouldApplyToolObservationMicroClear,
+  shouldCrossToolObservationMicroClearArm
 } from "../src/modules/turns/tool-observation-policy";
 
 function createExchange(input: {
@@ -89,6 +91,74 @@ export async function runPriorToolExchangeReplayTest(): Promise<void> {
     false,
     "missing tokens must not micro-clear"
   );
+  assert.equal(
+    shouldApplyToolObservationMicroClear({
+      priorToolMicroClearActive: true,
+      currentTokens: 2_000,
+      totalTokensFresh: true,
+      compactionTriggerThreshold: 8_000
+    }),
+    true,
+    "active micro-clear stays on after meter drops"
+  );
+  assert.equal(
+    shouldCrossToolObservationMicroClearArm({
+      currentTokens: 2_000,
+      totalTokensFresh: true,
+      compactionTriggerThreshold: 8_000
+    }),
+    false,
+    "falling meter must not re-cross 50% arm"
+  );
+  assert.equal(
+    shouldCrossToolObservationMicroClearArm({
+      currentTokens: 4_000,
+      totalTokensFresh: true,
+      compactionTriggerThreshold: 8_000
+    }),
+    true,
+    "crossing 50% arms micro-clear"
+  );
+  assert.equal(
+    resolveMicroClearNextArmAfterClear({
+      lastArmPercent: 50,
+      currentTokens: 1_600,
+      totalTokensFresh: true,
+      compactionTriggerThreshold: 8_000
+    }),
+    50,
+    "clear to <=45% keeps next arm at 50%"
+  );
+  assert.equal(
+    resolveMicroClearNextArmAfterClear({
+      lastArmPercent: 50,
+      currentTokens: 3_601,
+      totalTokensFresh: true,
+      compactionTriggerThreshold: 8_000
+    }),
+    75,
+    "clear still >45% escalates next arm to 75%"
+  );
+  assert.equal(
+    resolveMicroClearNextArmAfterClear({
+      lastArmPercent: 75,
+      currentTokens: 5_601,
+      totalTokensFresh: true,
+      compactionTriggerThreshold: 8_000
+    }),
+    0,
+    "clear at 75% still >70% exhausts micro-clear (wait for S3)"
+  );
+  assert.equal(
+    shouldCrossToolObservationMicroClearArm({
+      priorToolMicroClearNextArmPercent: 0,
+      currentTokens: 9_000,
+      totalTokensFresh: true,
+      compactionTriggerThreshold: 8_000
+    }),
+    false,
+    "exhausted arm never re-crosses"
+  );
 
   const messages = [
     { id: "u-1", author: "user" as const },
@@ -115,7 +185,7 @@ export async function runPriorToolExchangeReplayTest(): Promise<void> {
     { id: "u-3", author: "user" as const }
   ];
 
-  // Below 50%: all prior full (A1 behavior).
+  // Below 50% and inactive: all prior full (A1 behavior).
   {
     const map = buildPriorToolExchangeReplayMap(messages, "u-3", {
       currentTokens: 3_999,
@@ -131,6 +201,23 @@ export async function runPriorToolExchangeReplayTest(): Promise<void> {
     );
     assert.equal(map.get("a-1")?.[0]?.toolCall.id, "call-1");
     assert.equal(map.get("a-2")?.[4]?.toolCall.id, "call-7");
+  }
+
+  // Active with low meter: keep micro-clear (no re-expand oscillation).
+  {
+    const map = buildPriorToolExchangeReplayMap(messages, "u-3", {
+      priorToolMicroClearActive: true,
+      priorToolMicroClearNextArmPercent: 50,
+      currentTokens: 2_000,
+      totalTokensFresh: true,
+      compactionTriggerThreshold: 8_000
+    });
+    const projected = flattenReplay(map);
+    assert.deepEqual(
+      projected.map(tierOf),
+      ["masked", "masked", "full", "full", "full", "full", "full"],
+      "active clear keeps oldest bodies masked after meter drops"
+    );
   }
 
   // No pressure input / null pressure: all full.

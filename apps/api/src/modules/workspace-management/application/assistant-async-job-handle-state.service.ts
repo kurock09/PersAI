@@ -41,6 +41,12 @@ export type FailClaimResult = {
   observation: PermanentFailureObservation | null;
 };
 
+export type SettleDeliveredCatchUpResult = {
+  assistantMessageId: string;
+  chatId: string;
+  sourceUserMessageId: string | null;
+};
+
 export type AsyncJobTerminalStatus = "completed" | "failed" | "cancelled";
 export type AsyncJobNarrationOwner = "current_turn" | "continuation" | "legacy";
 export type AsyncJobDeliveryDecision = "legacy_frame" | "skip_legacy_frame";
@@ -1055,6 +1061,13 @@ export class AssistantAsyncJobHandleStateService {
         return { applied: false, observation: null };
       }
       if (row.state === "failed") {
+        const healed = await this.settleDeliveredLocked(tx, row, {
+          requireClaimToken: null,
+          allowFailedHeal: true
+        });
+        if (healed !== null) {
+          return { applied: true, observation: null };
+        }
         if (
           row.continuationAssistantMessageId !== null &&
           (row.channel === "web" || row.channel === "telegram")
@@ -1072,7 +1085,7 @@ export class AssistantAsyncJobHandleStateService {
             }
           };
         }
-        // Quiet terminal failure (artifacts already visible / siblings still live).
+        // Quiet terminal failure (siblings still live / no delivery bubble).
         return { applied: true, observation: null };
       }
       if (
@@ -1081,6 +1094,15 @@ export class AssistantAsyncJobHandleStateService {
         (row.channel !== "web" && row.channel !== "telegram")
       ) {
         return { applied: false, observation: null };
+      }
+      // Artifacts already visible: complete on the delivery bubble instead of a
+      // quiet `failed` handle that leaves sticky web turn attempts behind.
+      const settled = await this.settleDeliveredLocked(tx, row, {
+        requireClaimToken: input.claimToken,
+        allowFailedHeal: false
+      });
+      if (settled !== null) {
+        return { applied: true, observation: null };
       }
       const messageId = await this.persistPermanentFailureMessage(tx, row);
       await tx.assistantAsyncJobHandle.update({
@@ -1146,6 +1168,108 @@ export class AssistantAsyncJobHandleStateService {
     };
   }
 
+  /**
+   * Catch-up LLM/stream failed, but the canonical job already delivered
+   * artifacts. Complete the handle on the existing delivery bubble without
+   * inventing system prose (ADR-157: image success text is model-owned; empty
+   * body + attachment is valid). Web turn attempts must not stick as `failed`.
+   *
+   * Also heals already-`failed` handles (claim token cleared) so a refresh of
+   * a stuck async-cont turn can converge without manual DB surgery.
+   */
+  async settleDeliveredCatchUpFailure(input: {
+    id: string;
+    claimToken: string;
+  }): Promise<SettleDeliveredCatchUpResult | null> {
+    return this.prisma.$transaction(async (tx) => {
+      const rows = await tx.$queryRaw<
+        Array<{
+          id: string;
+          kind: "media" | "document" | "sandbox";
+          canonicalJobId: string;
+          state: string;
+          claimToken: string | null;
+          assistantId: string;
+          chatId: string;
+          sourceUserMessageId: string | null;
+          continuationClientTurnId: string | null;
+          continuationAssistantMessageId: string | null;
+        }>
+      >(Prisma.sql`
+        SELECT "id", "kind"::text AS "kind",
+          "canonical_job_id" AS "canonicalJobId",
+          "state"::text AS "state",
+          "claim_token" AS "claimToken",
+          "assistant_id" AS "assistantId",
+          "chat_id" AS "chatId",
+          "source_user_message_id" AS "sourceUserMessageId",
+          "continuation_client_turn_id" AS "continuationClientTurnId",
+          "continuation_assistant_message_id" AS "continuationAssistantMessageId"
+        FROM "assistant_async_job_handles"
+        WHERE "id" = ${input.id}::uuid
+        FOR UPDATE
+      `);
+      const row = rows[0];
+      if (row === undefined) {
+        return null;
+      }
+      return this.settleDeliveredLocked(tx, row, {
+        requireClaimToken: input.claimToken,
+        allowFailedHeal: true
+      });
+    });
+  }
+
+  /**
+   * Status-restore heal: find the async-cont handle by clientTurnId and settle
+   * when artifacts are already visible.
+   */
+  async settleDeliveredCatchUpFailureByClientTurnId(
+    continuationClientTurnId: string
+  ): Promise<SettleDeliveredCatchUpResult | null> {
+    const trimmed = continuationClientTurnId.trim();
+    if (trimmed.length === 0 || !trimmed.startsWith("async-cont:")) {
+      return null;
+    }
+    return this.prisma.$transaction(async (tx) => {
+      const rows = await tx.$queryRaw<
+        Array<{
+          id: string;
+          kind: "media" | "document" | "sandbox";
+          canonicalJobId: string;
+          state: string;
+          claimToken: string | null;
+          assistantId: string;
+          chatId: string;
+          sourceUserMessageId: string | null;
+          continuationClientTurnId: string | null;
+          continuationAssistantMessageId: string | null;
+        }>
+      >(Prisma.sql`
+        SELECT "id", "kind"::text AS "kind",
+          "canonical_job_id" AS "canonicalJobId",
+          "state"::text AS "state",
+          "claim_token" AS "claimToken",
+          "assistant_id" AS "assistantId",
+          "chat_id" AS "chatId",
+          "source_user_message_id" AS "sourceUserMessageId",
+          "continuation_client_turn_id" AS "continuationClientTurnId",
+          "continuation_assistant_message_id" AS "continuationAssistantMessageId"
+        FROM "assistant_async_job_handles"
+        WHERE "continuation_client_turn_id" = ${trimmed}
+        FOR UPDATE
+      `);
+      const row = rows[0];
+      if (row === undefined) {
+        return null;
+      }
+      return this.settleDeliveredLocked(tx, row, {
+        requireClaimToken: null,
+        allowFailedHeal: true
+      });
+    });
+  }
+
   async claimFailedHandleExternalNotice(handleId: string): Promise<boolean> {
     const result = await this.prisma.assistantAsyncJobHandle.updateMany({
       where: {
@@ -1180,6 +1304,125 @@ export class AssistantAsyncJobHandleStateService {
       }
     });
     return result.count === 1;
+  }
+
+  private async settleDeliveredLocked(
+    tx: Prisma.TransactionClient,
+    row: {
+      id: string;
+      kind: "media" | "document" | "sandbox";
+      canonicalJobId: string;
+      state: string;
+      claimToken: string | null;
+      assistantId: string;
+      chatId: string;
+      sourceUserMessageId?: string | null;
+      continuationClientTurnId: string | null;
+      continuationAssistantMessageId: string | null;
+    },
+    options: {
+      requireClaimToken: string | null;
+      allowFailedHeal: boolean;
+    }
+  ): Promise<SettleDeliveredCatchUpResult | null> {
+    const sourceUserMessageId = row.sourceUserMessageId ?? null;
+    // Idempotent: a prior settle already completed the handle on the delivery bubble.
+    if (row.state === "completed" && row.continuationAssistantMessageId !== null) {
+      return {
+        assistantMessageId: row.continuationAssistantMessageId,
+        chatId: row.chatId,
+        sourceUserMessageId
+      };
+    }
+    const activeClaim =
+      (row.state === "claimed" || row.state === "dispatched") &&
+      (options.requireClaimToken === null || row.claimToken === options.requireClaimToken);
+    const failedHeal = options.allowFailedHeal && row.state === "failed";
+    if (!activeClaim && !failedHeal) {
+      return null;
+    }
+
+    let deliveryMessageId: string | null = row.continuationAssistantMessageId;
+    if (row.kind === "media") {
+      const mediaJob = await tx.assistantMediaJob.findUnique({
+        where: { id: row.canonicalJobId },
+        select: {
+          status: true,
+          deliveredAt: true,
+          completionAssistantMessageId: true
+        }
+      });
+      if (mediaJob === null || (mediaJob.status !== "delivered" && mediaJob.deliveredAt == null)) {
+        return null;
+      }
+      deliveryMessageId = mediaJob.completionAssistantMessageId ?? deliveryMessageId;
+    } else if (row.kind === "document") {
+      const documentJob = await tx.assistantDocumentRenderJob.findUnique({
+        where: { id: row.canonicalJobId },
+        select: {
+          status: true,
+          deliveredAt: true,
+          providerStatusJson: true
+        }
+      });
+      if (
+        documentJob === null ||
+        (documentJob.status !== "delivered" && documentJob.deliveredAt == null)
+      ) {
+        return null;
+      }
+      const payload =
+        documentJob.providerStatusJson !== null &&
+        documentJob.providerStatusJson !== undefined &&
+        typeof documentJob.providerStatusJson === "object" &&
+        !Array.isArray(documentJob.providerStatusJson)
+          ? (documentJob.providerStatusJson as Record<string, unknown>)
+          : null;
+      const fromPayload =
+        typeof payload?.completionAssistantMessageId === "string"
+          ? payload.completionAssistantMessageId
+          : null;
+      deliveryMessageId = fromPayload ?? deliveryMessageId;
+    } else {
+      return null;
+    }
+
+    if (deliveryMessageId === null) {
+      return null;
+    }
+
+    const existing = await tx.assistantChatMessage.findUnique({
+      where: { id: deliveryMessageId },
+      select: { id: true, chatId: true, assistantId: true }
+    });
+    if (
+      existing === null ||
+      existing.chatId !== row.chatId ||
+      existing.assistantId !== row.assistantId
+    ) {
+      return null;
+    }
+
+    await tx.assistantAsyncJobHandle.update({
+      where: { id: row.id },
+      data: {
+        state: "completed",
+        completedAt: new Date(),
+        failedAt: null,
+        claimToken: null,
+        claimExpiresAt: null,
+        nextRetryAt: null,
+        lastErrorCode: null,
+        lastErrorMessage: null,
+        continuationAssistantMessageId: existing.id
+      }
+    });
+
+    return {
+      assistantMessageId: existing.id,
+      chatId: row.chatId,
+      sourceUserMessageId
+    };
   }
 
   private async shouldSuppressPermanentFailureMessage(

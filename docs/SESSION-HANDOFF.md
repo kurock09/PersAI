@@ -1,5 +1,35 @@
 # SESSION-HANDOFF
 
+## 2026-07-22 — ADR-161 micro-clear 5% hysteresis (local)
+
+Live `info@general-fly.com`: meter ~40%↔60% from re-expanding prior tools when
+post-clear `currentTokens` fell below 50%. Fix: keep-N stays active (no
+re-expand); arm schedule 50%→75%→exhausted with 5% hysteresis; if clear drops
+under arm−5%, next arm returns to 50%; S3 resets. Migration
+`20260722140000_adr161_prior_tool_micro_clear_hysteresis`. P2 tails cleaned:
+pendingEval cleared on interrupt/fail/no-threshold complete; finalize arm-eval
+tests; dead alias removed; ADR/TEST-PLAN updated. Unrelated async catch-up WIP
+in tree — keep commits separate. Next: gates, commit/push api+runtime, migrate,
+redeploy, re-smoke jumping chat.
+
+## 2026-07-22 — Async catch-up root cause: empty assistant wire omit
+
+Live elephant `async-cont:d854` / gateway `10823e55` (OpenAI): only
+`stream-text-entry`, no `stream-text-dispatch` — died in gateway assert on
+`content:""` from empty assistant+image bubble (~0.7s). Fix aligned with
+ADR-157/116: keep empty+attachment in chat UI; omit from provider `messages`;
+JOB_CATCHUP still sees the image via existing Completion-vision /
+`pendingFilePreviewBlocks` (DeepSeek describe bridge; OpenAI/Anthropic native).
+No invented captions. Settle/sticky-banner remains secondary. Next: runtime
+tests, push, re-smoke catch-up model text.
+
+## 2026-07-22 — Async catch-up settle after delivered (durable)
+
+Secondary: quiet `failClaim` left web turn `failed` → sticky banner after
+artifacts already visible. Settle completes handle/turn on delivery bubble
+without inventing chat prose; status restore heals stuck `async-cont:`.
+Runtime empty-end retry is symptom-only vs hydrate root above.
+
 ## 2026-07-22 — ADR-161 DeepSeek tool-loop developer freeze (local)
 
 Founder ask: DeepSeek-only, do not touch other providers. Runtime freezes

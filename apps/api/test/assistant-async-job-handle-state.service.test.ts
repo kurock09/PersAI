@@ -77,6 +77,22 @@ function fixture(
   };
   const updates: Array<Record<string, unknown>> = [];
   const createdMessages: Array<Record<string, unknown>> = [];
+  const messageUpdates: Array<Record<string, unknown>> = [];
+  const deliveryMessage = {
+    id: "delivery-message-1",
+    content: "",
+    chatId: owned.chatId,
+    assistantId: owned.assistantId
+  };
+  const canonicalWithDelivery = {
+    ...canonical,
+    completionAssistantMessageId:
+      (canonical as { completionAssistantMessageId?: string | null })
+        .completionAssistantMessageId ??
+      (canonical.status === "delivered" || canonical.deliveredAt != null
+        ? deliveryMessage.id
+        : null)
+  };
   const delegate = {
     update: async ({ data }: { data: Record<string, unknown> }) => {
       Object.assign(row, data);
@@ -109,13 +125,25 @@ function fixture(
     assistantAsyncJobHandle: delegate,
     assistantChatMessage: {
       findFirst: async () => ({ id: "message-1" }),
+      findUnique: async ({ where }: { where: { id: string } }) =>
+        where.id === deliveryMessage.id ? deliveryMessage : null,
+      update: async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
+        if (where.id === deliveryMessage.id) {
+          Object.assign(deliveryMessage, data);
+          messageUpdates.push(data);
+        }
+        return deliveryMessage;
+      },
       create: async ({ data }: { data: Record<string, unknown> }) => {
         createdMessages.push(data);
         return { id: "failure-message-1" };
       }
     },
-    assistantMediaJob: { findUnique: async () => canonical },
-    assistantDocumentRenderJob: { findUnique: async () => canonical }
+    assistantChatMessageAttachment: {
+      findFirst: async () => null
+    },
+    assistantMediaJob: { findUnique: async () => canonicalWithDelivery },
+    assistantDocumentRenderJob: { findUnique: async () => canonicalWithDelivery }
   };
   Object.assign(delegate, {
     count: async (args?: { where?: { state?: { in?: string[] }; id?: { not?: string } } }) => {
@@ -159,6 +187,8 @@ function fixture(
     row,
     updates,
     createdMessages,
+    messageUpdates,
+    deliveryMessage,
     service: new AssistantAsyncJobHandleStateService(prisma as never)
   };
 }
@@ -438,7 +468,7 @@ describe("AssistantAsyncJobHandleStateService", () => {
     assert.equal(subject.createdMessages.length, 1);
   });
 
-  test("failClaim stays quiet when canonical media is already delivered", async () => {
+  test("failClaim settles completed when canonical media is already delivered", async () => {
     const subject = fixture(
       {
         state: "claimed",
@@ -455,9 +485,79 @@ describe("AssistantAsyncJobHandleStateService", () => {
     });
     assert.equal(result.applied, true);
     assert.equal(result.observation, null);
-    assert.equal(subject.row.state, "failed");
-    assert.equal(subject.row.continuationAssistantMessageId, null);
+    assert.equal(subject.row.state, "completed");
+    assert.equal(subject.row.continuationAssistantMessageId, "delivery-message-1");
+    assert.equal(subject.row.lastErrorCode, null);
     assert.equal(subject.createdMessages.length, 0);
+    // ADR-157: leave empty body + attachment; do not invent system prose.
+    assert.equal(subject.deliveryMessage.content, "");
+    assert.equal(subject.messageUpdates.length, 0);
+  });
+
+  test("settleDeliveredCatchUpFailure completes on delivery bubble without inventing text", async () => {
+    const subject = fixture(
+      {
+        state: "dispatched",
+        claimToken: "claim-settle",
+        continuationClientTurnId: "async-cont:settle-delivered"
+      },
+      { status: "delivered", lastErrorCode: null, deliveredAt: new Date() }
+    );
+    const settled = await subject.service.settleDeliveredCatchUpFailure({
+      id: subject.row.id,
+      claimToken: "claim-settle"
+    });
+    assert.deepEqual(settled, {
+      assistantMessageId: "delivery-message-1",
+      chatId: owned.chatId,
+      sourceUserMessageId: null
+    });
+    assert.equal(subject.row.state, "completed");
+    assert.equal(subject.row.continuationAssistantMessageId, "delivery-message-1");
+    assert.equal(subject.row.claimToken, null);
+    assert.equal(subject.row.lastErrorCode, null);
+    assert.equal(subject.deliveryMessage.content, "");
+    assert.equal(subject.messageUpdates.length, 0);
+  });
+
+  test("settleDeliveredCatchUpFailure is null when media is not delivered", async () => {
+    const subject = fixture(
+      {
+        state: "dispatched",
+        claimToken: "claim-settle",
+        continuationClientTurnId: "async-cont:settle-open"
+      },
+      { status: "running", lastErrorCode: null, deliveredAt: null }
+    );
+    const settled = await subject.service.settleDeliveredCatchUpFailure({
+      id: subject.row.id,
+      claimToken: "claim-settle"
+    });
+    assert.equal(settled, null);
+    assert.equal(subject.row.state, "dispatched");
+  });
+
+  test("settleDeliveredCatchUpFailure heals already-failed handles by clientTurnId", async () => {
+    const subject = fixture(
+      {
+        state: "failed",
+        claimToken: null,
+        continuationClientTurnId: "async-cont:heal-failed",
+        lastErrorCode: "provider_stream_ended"
+      },
+      { status: "delivered", lastErrorCode: null, deliveredAt: new Date() }
+    );
+    const settled =
+      await subject.service.settleDeliveredCatchUpFailureByClientTurnId("async-cont:heal-failed");
+    assert.deepEqual(settled, {
+      assistantMessageId: "delivery-message-1",
+      chatId: owned.chatId,
+      sourceUserMessageId: null
+    });
+    assert.equal(subject.row.state, "completed");
+    assert.equal(subject.row.lastErrorCode, null);
+    assert.equal(subject.deliveryMessage.content, "");
+    assert.equal(subject.messageUpdates.length, 0);
   });
 
   test("failClaim stays quiet while source-turn sibling handles are still open", async () => {

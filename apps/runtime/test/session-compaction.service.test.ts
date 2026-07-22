@@ -238,6 +238,10 @@ function createResolvedSession(currentTokens: number | null): RuntimeSessionSumm
     totalTokensFresh: true,
     compactionCount: 2,
     compactionHintTokens: null,
+    priorToolMicroClearActive: false,
+    priorToolMicroClearNextArmPercent: 50,
+    priorToolMicroClearPendingEval: false,
+    priorToolMicroClearLastArmPercent: null,
     providerKey: "openai",
     modelKey: "gpt-5.4",
     updatedAt: "2026-04-12T12:00:00.000Z"
@@ -502,6 +506,10 @@ class FakeSessionStoreService {
     ...createResolvedSession(null),
     compactionCount: 3,
     compactionHintTokens: 30_000,
+    priorToolMicroClearActive: false,
+    priorToolMicroClearNextArmPercent: 50,
+    priorToolMicroClearPendingEval: false,
+    priorToolMicroClearLastArmPercent: null,
     totalTokensFresh: false
   };
   updateCalls: Array<{
@@ -524,6 +532,7 @@ class FakeSessionStoreService {
     compactionHintTokens?: number | null;
     currentTokens?: number | null;
     totalTokensFresh?: boolean;
+    priorToolMicroClearActive?: boolean;
   }) {
     this.updateCalls.push(input);
     return this.updatedSession;
@@ -844,7 +853,11 @@ export async function runSessionCompactionServiceTest(): Promise<void> {
     compactionCount: 3,
     compactionHintTokens: 30000,
     currentTokens: null,
-    totalTokensFresh: false
+    totalTokensFresh: false,
+    priorToolMicroClearActive: false,
+    priorToolMicroClearNextArmPercent: 50,
+    priorToolMicroClearPendingEval: false,
+    priorToolMicroClearLastArmPercent: null
   });
   assert.deepEqual(postgres.appendCalls.at(-1), {
     runtimeSessionId: "session-1",

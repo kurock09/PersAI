@@ -53,6 +53,15 @@ export type StreamWebAsyncContinuationCallbacks = {
     claim: { id: string; claimToken: string },
     error: { errorCode: string; errorMessage: string }
   ) => Promise<void>;
+  /**
+   * When catch-up fails but the canonical job already delivered artifacts,
+   * complete the handle on that delivery bubble without inventing system prose.
+   * Returns null when settlement does not apply.
+   */
+  settleDeliveredCatchUpFailure: (claim: {
+    id: string;
+    claimToken: string;
+  }) => Promise<{ assistantMessageId: string } | null>;
   /** ADR-159 — markDispatched only after runtime lease acquired + attempt running. */
   markDispatched: (input: {
     id: string;
@@ -305,7 +314,42 @@ export class StreamWebAsyncContinuationService {
       );
     };
 
-    const terminalizeFailedAttempt = async (code: string, message: string): Promise<void> => {
+    const terminalizeFailedAttempt = async (code: string, message: string): Promise<boolean> => {
+      // Returns true when already-delivered artifacts let us complete quietly
+      // (caller must not requeue). False keeps the historical markFailed + throw
+      // requeue path for genuine dispatch failures.
+      const settled = await callbacks.settleDeliveredCatchUpFailure(claim);
+      if (settled !== null) {
+        const respondedAt = new Date().toISOString();
+        const terminalPayload: CompletedWebTurnReplayState = {
+          clientTurnId: continuationClientTurnId,
+          chatId: context.handle.chatId,
+          userMessageId: context.sourceUserMessage.id,
+          assistantMessageId: settled.assistantMessageId,
+          respondedAt,
+          degradedByQuotaFallback: false,
+          quotaFallbackReason: null,
+          quotaFallbackModel: null,
+          completedAt: new Date().toISOString()
+        };
+        await this.webChatTurnAttemptService.markCompleted({
+          ...attemptIdentity,
+          assistantMessageId: settled.assistantMessageId,
+          respondedAt,
+          terminalPayload,
+          healFailedAsyncContinuation: true
+        });
+        publish("completed", { transport: null });
+        await callbacks.finalizeContinuationChildren(
+          context,
+          "persisted",
+          settled.assistantMessageId
+        );
+        this.logger.log(
+          `web_async_continuation_settled_delivered id=${claim.id} assistantMessageId=${settled.assistantMessageId} priorError=${code}`
+        );
+        return true;
+      }
       await this.webChatTurnAttemptService.markFailed({
         ...attemptIdentity,
         code,
@@ -316,16 +360,21 @@ export class StreamWebAsyncContinuationService {
         message,
         transport: null
       });
+      return false;
     };
 
-    const terminalizeAmbiguousContinuation = async (message: string): Promise<void> => {
-      this.logger.warn(`web_async_continuation_dispatch_ambiguous id=${claim.id}: ${message}`);
-      await terminalizeFailedAttempt("continuation_dispatch_ambiguous", message);
-      await callbacks.finalizeContinuationChildren(context, "failed");
-      await callbacks.failClaimVisibly(claim, {
-        errorCode: "continuation_dispatch_ambiguous",
-        errorMessage:
-          "The continuation may have started but its result could not be recovered safely."
+    const terminalizeAmbiguousContinuation = async (detail: string): Promise<void> => {
+      this.logger.warn(`web_async_continuation_dispatch_ambiguous id=${claim.id}: ${detail}`);
+      await this.failOrSettleDelivered({
+        claim,
+        context,
+        threadKey,
+        continuationClientTurnId,
+        attemptIdentity,
+        callbacks,
+        publish,
+        code: "continuation_dispatch_ambiguous",
+        message: "The continuation may have started but its result could not be recovered safely."
       });
     };
 
@@ -346,16 +395,16 @@ export class StreamWebAsyncContinuationService {
       await terminalizeAmbiguousContinuation(message);
     };
 
-    const terminalizeAttemptBeforeRethrow = async (error: unknown): Promise<void> => {
+    const terminalizeAttemptBeforeRethrow = async (error: unknown): Promise<boolean> => {
       const message = error instanceof Error ? error.message : String(error);
       if (dispatched) {
-        // Post-accept / mid-stream: markFailed + publish. Never abandon the live attempt
-        // and never treat a redundant markDispatched false as pre-accept busy.
-        await terminalizeFailedAttempt("continuation_dispatch_failed", message);
-        return;
+        // Post-accept / mid-stream: markFailed + publish, or settle when delivered.
+        // Returns true when settled — caller must not requeue the handle.
+        return terminalizeFailedAttempt("continuation_dispatch_failed", message);
       }
       // Pre-accept clear error (e.g. runtime unconfigured): no markDispatched.
       await releaseBusyPreDispatch();
+      return false;
     };
 
     try {
@@ -400,7 +449,9 @@ export class StreamWebAsyncContinuationService {
           await leaveDispatchedAmbiguous(error.message);
           return;
         }
-        await terminalizeAttemptBeforeRethrow(error);
+        if (await terminalizeAttemptBeforeRethrow(error)) {
+          return;
+        }
         throw error;
       }
 
@@ -584,7 +635,9 @@ export class StreamWebAsyncContinuationService {
           await leaveDispatchedAmbiguous(error.message);
           return;
         }
-        await terminalizeAttemptBeforeRethrow(error);
+        if (await terminalizeAttemptBeforeRethrow(error)) {
+          return;
+        }
         throw error;
       }
 
@@ -620,20 +673,16 @@ export class StreamWebAsyncContinuationService {
       }
 
       if (failedCode !== null) {
-        await callbacks.finalizeContinuationChildren(context, "failed");
-        await this.webChatTurnAttemptService.markFailed({
-          ...attemptIdentity,
+        await this.failOrSettleDelivered({
+          claim,
+          context,
+          threadKey,
+          continuationClientTurnId,
+          attemptIdentity,
+          callbacks,
+          publish,
           code: failedCode,
           message: failedMessage ?? "Runtime continuation failed."
-        });
-        publish("failed", {
-          code: failedCode,
-          message: failedMessage ?? "Runtime continuation failed.",
-          transport: null
-        });
-        await callbacks.failClaimVisibly(claim, {
-          errorCode: failedCode,
-          errorMessage: failedMessage ?? "Runtime continuation failed."
         });
         return;
       }
@@ -641,19 +690,16 @@ export class StreamWebAsyncContinuationService {
       this.logger.warn(
         `web_async_continuation_stream_unterminated id=${claim.id}; failing claim visibly`
       );
-      await this.webChatTurnAttemptService.markFailed({
-        ...attemptIdentity,
+      await this.failOrSettleDelivered({
+        claim,
+        context,
+        threadKey,
+        continuationClientTurnId,
+        attemptIdentity,
+        callbacks,
+        publish,
         code: "continuation_stream_unterminated",
         message: "Runtime continuation stream ended without a terminal event."
-      });
-      publish("failed", {
-        code: "continuation_stream_unterminated",
-        message: "Runtime continuation stream ended without a terminal event.",
-        transport: null
-      });
-      await callbacks.failClaimVisibly(claim, {
-        errorCode: "continuation_stream_unterminated",
-        errorMessage: "Runtime continuation stream ended without a terminal event."
       });
     } catch (error) {
       if (coordinationLost() || error instanceof AsyncContinuationCoordinationLostError) {
@@ -740,45 +786,40 @@ export class StreamWebAsyncContinuationService {
         });
         return;
       }
-      await this.webChatTurnAttemptService.markFailed({
-        assistantId: context.handle.assistantId,
-        userId: context.handle.userId,
-        surfaceThreadKey: threadKey,
-        clientTurnId: continuationClientTurnId,
+      await this.failOrSettleDelivered({
+        claim,
+        context,
+        threadKey,
+        continuationClientTurnId,
+        attemptIdentity: {
+          assistantId: context.handle.assistantId,
+          userId: context.handle.userId,
+          surfaceThreadKey: threadKey,
+          clientTurnId: continuationClientTurnId
+        },
+        callbacks,
+        publish,
         code: "continuation_dispatch_ambiguous",
-        message: "Runtime reported an in-flight continuation for this logical key."
-      });
-      publish("failed", {
-        code: "continuation_dispatch_ambiguous",
-        message: "Runtime reported an in-flight continuation for this logical key.",
-        transport: null
-      });
-      await callbacks.finalizeContinuationChildren(context, "failed");
-      await callbacks.failClaimVisibly(claim, {
-        errorCode: "continuation_dispatch_ambiguous",
-        errorMessage:
-          "The continuation may have started but its result could not be recovered safely."
+        message: "The continuation may have started but its result could not be recovered safely."
       });
       return;
     }
     if (outcome.outcome === "failed") {
-      await callbacks.finalizeContinuationChildren(context, "failed");
-      await this.webChatTurnAttemptService.markFailed({
-        assistantId: context.handle.assistantId,
-        userId: context.handle.userId,
-        surfaceThreadKey: threadKey,
-        clientTurnId: continuationClientTurnId,
+      await this.failOrSettleDelivered({
+        claim,
+        context,
+        threadKey,
+        continuationClientTurnId,
+        attemptIdentity: {
+          assistantId: context.handle.assistantId,
+          userId: context.handle.userId,
+          surfaceThreadKey: threadKey,
+          clientTurnId: continuationClientTurnId
+        },
+        callbacks,
+        publish,
         code: outcome.code,
         message: "Runtime continuation failed."
-      });
-      publish("failed", {
-        code: outcome.code,
-        message: "Runtime continuation failed.",
-        transport: null
-      });
-      await callbacks.failClaimVisibly(claim, {
-        errorCode: outcome.code,
-        errorMessage: "Runtime continuation failed."
       });
       return;
     }
@@ -793,6 +834,75 @@ export class StreamWebAsyncContinuationService {
       result: outcome.result,
       callbacks,
       publish
+    });
+  }
+
+  /**
+   * Prefer completing on an already-delivered artifact bubble over leaving a
+   * sticky failed web turn + empty composer banner after catch-up LLM death.
+   */
+  private async failOrSettleDelivered(input: {
+    claim: { id: string; claimToken: string };
+    context: WebContinuationContext;
+    threadKey: string;
+    continuationClientTurnId: string;
+    attemptIdentity: {
+      assistantId: string;
+      userId: string;
+      surfaceThreadKey: string;
+      clientTurnId: string;
+    };
+    callbacks: StreamWebAsyncContinuationCallbacks;
+    publish: (event: string, payload: unknown) => void;
+    code: string;
+    message: string;
+  }): Promise<void> {
+    const settled = await input.callbacks.settleDeliveredCatchUpFailure(input.claim);
+    if (settled !== null) {
+      const respondedAt = new Date().toISOString();
+      const terminalPayload: CompletedWebTurnReplayState = {
+        clientTurnId: input.continuationClientTurnId,
+        chatId: input.context.handle.chatId,
+        userMessageId: input.context.sourceUserMessage.id,
+        assistantMessageId: settled.assistantMessageId,
+        respondedAt,
+        degradedByQuotaFallback: false,
+        quotaFallbackReason: null,
+        quotaFallbackModel: null,
+        completedAt: new Date().toISOString()
+      };
+      await this.webChatTurnAttemptService.markCompleted({
+        ...input.attemptIdentity,
+        assistantMessageId: settled.assistantMessageId,
+        respondedAt,
+        terminalPayload,
+        healFailedAsyncContinuation: true
+      });
+      input.publish("completed", { transport: null });
+      await input.callbacks.finalizeContinuationChildren(
+        input.context,
+        "persisted",
+        settled.assistantMessageId
+      );
+      this.logger.log(
+        `web_async_continuation_settled_delivered id=${input.claim.id} assistantMessageId=${settled.assistantMessageId} priorError=${input.code}`
+      );
+      return;
+    }
+    await input.callbacks.finalizeContinuationChildren(input.context, "failed");
+    await this.webChatTurnAttemptService.markFailed({
+      ...input.attemptIdentity,
+      code: input.code,
+      message: input.message
+    });
+    input.publish("failed", {
+      code: input.code,
+      message: input.message,
+      transport: null
+    });
+    await input.callbacks.failClaimVisibly(input.claim, {
+      errorCode: input.code,
+      errorMessage: input.message
     });
   }
 

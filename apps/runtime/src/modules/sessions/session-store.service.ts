@@ -22,6 +22,10 @@ export interface EnsureRuntimeSessionInput extends RuntimeSessionResolveInput {
   totalTokensFresh?: boolean;
   compactionCount?: number;
   compactionHintTokens?: number | null;
+  priorToolMicroClearActive?: boolean;
+  priorToolMicroClearNextArmPercent?: number;
+  priorToolMicroClearPendingEval?: boolean;
+  priorToolMicroClearLastArmPercent?: number | null;
   memoryExtractionWatermark?: number;
   providerKey?: string | null;
   modelKey?: string | null;
@@ -43,6 +47,10 @@ export interface UpdateRuntimeSessionSummaryInput {
   totalTokensFresh?: boolean;
   compactionCount?: number;
   compactionHintTokens?: number | null;
+  priorToolMicroClearActive?: boolean;
+  priorToolMicroClearNextArmPercent?: number;
+  priorToolMicroClearPendingEval?: boolean;
+  priorToolMicroClearLastArmPercent?: number | null;
   memoryExtractionWatermark?: number;
   providerKey?: string | null;
   modelKey?: string | null;
@@ -120,6 +128,18 @@ export class SessionStoreService {
       ...(input.compactionHintTokens !== undefined
         ? { compactionHintTokens: input.compactionHintTokens }
         : {}),
+      ...(input.priorToolMicroClearActive !== undefined
+        ? { priorToolMicroClearActive: input.priorToolMicroClearActive }
+        : {}),
+      ...(input.priorToolMicroClearNextArmPercent !== undefined
+        ? { priorToolMicroClearNextArmPercent: input.priorToolMicroClearNextArmPercent }
+        : {}),
+      ...(input.priorToolMicroClearPendingEval !== undefined
+        ? { priorToolMicroClearPendingEval: input.priorToolMicroClearPendingEval }
+        : {}),
+      ...(input.priorToolMicroClearLastArmPercent !== undefined
+        ? { priorToolMicroClearLastArmPercent: input.priorToolMicroClearLastArmPercent }
+        : {}),
       ...(input.memoryExtractionWatermark !== undefined
         ? { memoryExtractionWatermark: input.memoryExtractionWatermark }
         : {}),
@@ -154,6 +174,18 @@ export class SessionStoreService {
       ...(input.compactionCount !== undefined ? { compactionCount: input.compactionCount } : {}),
       ...(input.compactionHintTokens !== undefined
         ? { compactionHintTokens: input.compactionHintTokens }
+        : {}),
+      ...(input.priorToolMicroClearActive !== undefined
+        ? { priorToolMicroClearActive: input.priorToolMicroClearActive }
+        : {}),
+      ...(input.priorToolMicroClearNextArmPercent !== undefined
+        ? { priorToolMicroClearNextArmPercent: input.priorToolMicroClearNextArmPercent }
+        : {}),
+      ...(input.priorToolMicroClearPendingEval !== undefined
+        ? { priorToolMicroClearPendingEval: input.priorToolMicroClearPendingEval }
+        : {}),
+      ...(input.priorToolMicroClearLastArmPercent !== undefined
+        ? { priorToolMicroClearLastArmPercent: input.priorToolMicroClearLastArmPercent }
         : {}),
       ...(input.memoryExtractionWatermark !== undefined
         ? { memoryExtractionWatermark: input.memoryExtractionWatermark }
@@ -210,6 +242,10 @@ export class SessionStoreService {
       input.totalTokensFresh !== undefined ||
       input.compactionCount !== undefined ||
       input.compactionHintTokens !== undefined ||
+      input.priorToolMicroClearActive !== undefined ||
+      input.priorToolMicroClearNextArmPercent !== undefined ||
+      input.priorToolMicroClearPendingEval !== undefined ||
+      input.priorToolMicroClearLastArmPercent !== undefined ||
       input.memoryExtractionWatermark !== undefined ||
       input.providerKey !== undefined ||
       input.modelKey !== undefined ||
@@ -233,6 +269,16 @@ export class SessionStoreService {
       totalTokensFresh: session.totalTokensFresh,
       compactionCount: session.compactionCount,
       compactionHintTokens: session.compactionHintTokens,
+      priorToolMicroClearActive: session.priorToolMicroClearActive === true,
+      priorToolMicroClearNextArmPercent:
+        typeof session.priorToolMicroClearNextArmPercent === "number"
+          ? session.priorToolMicroClearNextArmPercent
+          : 50,
+      priorToolMicroClearPendingEval: session.priorToolMicroClearPendingEval === true,
+      priorToolMicroClearLastArmPercent:
+        typeof session.priorToolMicroClearLastArmPercent === "number"
+          ? session.priorToolMicroClearLastArmPercent
+          : null,
       providerKey: session.providerKey,
       modelKey: session.modelKey,
       updatedAt: session.updatedAt.toISOString()

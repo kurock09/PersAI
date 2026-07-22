@@ -5153,6 +5153,12 @@ export interface RuntimeSessionSummary {
   totalTokensFresh: boolean;
   compactionCount: number;
   compactionHintTokens: number | null;
+  /** ADR-161 A2 — keep-N micro-clear projection active (no meter re-expand). */
+  priorToolMicroClearActive: boolean;
+  /** Next arm percent: 50 | 75 | 0 (exhausted). */
+  priorToolMicroClearNextArmPercent: number;
+  priorToolMicroClearPendingEval: boolean;
+  priorToolMicroClearLastArmPercent: number | null;
   providerKey: string | null;
   modelKey: string | null;
   updatedAt: IsoTimestamp | null;

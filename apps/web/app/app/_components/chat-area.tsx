@@ -221,6 +221,8 @@ export function ChatArea({
   const preserveScrollOnOlderLoadRef = useRef(false);
   const skipAutoScrollOnHistoryPrependRef = useRef(false);
   const shouldStickToBottomRef = useRef(true);
+  /** Hold bottom through late image/layout growth right after history open. */
+  const holdBottomAfterOpenRef = useRef(false);
   const scrollStateChatIdRef = useRef(chat.chatId);
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior | "instant") => {
@@ -248,6 +250,9 @@ export function ChatArea({
       container.scrollHeight - container.scrollTop - container.clientHeight;
     const nearBottom = distanceFromBottom <= 96;
     shouldStickToBottomRef.current = nearBottom;
+    if (!nearBottom) {
+      holdBottomAfterOpenRef.current = false;
+    }
     setShowScrollToBottom(distanceFromBottom > 280);
   }, []);
 
@@ -316,8 +321,38 @@ export function ChatArea({
   useEffect(() => {
     if (!chat.historyLoading && chat.messages.length > 0 && isInitialLoad.current) {
       isInitialLoad.current = false;
+      holdBottomAfterOpenRef.current = true;
       scrollToBottom("instant");
+      const releaseHold = window.setTimeout(() => {
+        holdBottomAfterOpenRef.current = false;
+      }, 2500);
+      return () => window.clearTimeout(releaseHold);
     }
+  }, [chat.chatId, chat.historyLoading, chat.messages.length, scrollToBottom]);
+
+  // Authenticated image/video loads grow layout after the first bottom jump.
+  // Keep the open position pinned until hold expires or the user scrolls away.
+  useEffect(() => {
+    const container = scrollRef.current;
+    if (!container || typeof ResizeObserver === "undefined") {
+      return;
+    }
+    const content = container.firstElementChild;
+    if (!(content instanceof Element)) {
+      return;
+    }
+    const observer = new ResizeObserver(() => {
+      if (
+        preserveScrollOnOlderLoadRef.current ||
+        skipAutoScrollOnHistoryPrependRef.current ||
+        (!shouldStickToBottomRef.current && !holdBottomAfterOpenRef.current)
+      ) {
+        return;
+      }
+      scrollToBottom("auto");
+    });
+    observer.observe(content);
+    return () => observer.disconnect();
   }, [chat.chatId, chat.historyLoading, chat.messages.length, scrollToBottom]);
 
   // Preserve scroll position when older messages are prepended.
@@ -503,6 +538,7 @@ export function ChatArea({
     preserveScrollOnOlderLoadRef.current = false;
     skipAutoScrollOnHistoryPrependRef.current = false;
     shouldStickToBottomRef.current = true;
+    holdBottomAfterOpenRef.current = false;
     setShowScrollToBottom(false);
   }, [chat.chatId]);
 

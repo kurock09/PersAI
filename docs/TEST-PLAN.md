@@ -16,10 +16,12 @@ ADR-072 is closed as the historical native migration ADR. Current continuation w
 - Tool-history coverage (post A1/A2/A4 amendment): follow-up base messages remain
   byte-identical; assistant pre-tool text appears only on its sealed exchange;
   in-turn `toolHistory` is append-full with no observation overlays; hydrate-time
-  prior replay is full below 50% pressure and micro-clears older-than-newest-5
-  bodies at/above 50%; errors remain informative placeholders (never bare mask);
-  micro-clear / compact placeholder tokens still count toward ordinary hydration
-  budget. Do not require in-turn `[toolHistoryProjection]` log lines.
+  prior replay is full below the current micro-clear arm and keep-N micro-clears
+  older-than-newest-5 bodies once armed; armed projection stays active (no meter
+  re-expand) with 50%→75%→exhausted 5% hysteresis; errors remain informative
+  placeholders (never bare mask); micro-clear / compact placeholder tokens still
+  count toward ordinary hydration budget. Do not require in-turn
+  `[toolHistoryProjection]` log lines.
 - API coverage pins empty/non-empty snapshot resolve semantics, request bounds,
   missing chats, PostgreSQL numeric-string normalization, and malformed
   Business cache percentages.
@@ -609,10 +611,13 @@ additionally covers:
   `job.files` error, and produces no file handles, while ordinary sandbox-job
   file extraction remains unchanged. ADR-161 A1/A2/A4: in-turn `toolHistory`
   is append-full (no ADR-156 dual-window rewrite, no observation overlays);
-  hydrate-time micro-clear keeps newest 5 full at/above 50% pressure;
+  hydrate-time micro-clear keeps newest 5 full once the current arm is crossed
+  (sticky keep-N; 50%→75%→exhausted with 5% hysteresis; S3 resets);
   `projectOneToolExchange` compactors still cover browser/shell/files/generic/
   script placeholders and never bare-mask errors. Canonical stored exchanges
-  remain full/non-mutated.
+  remain full/non-mutated. Finalize arm-eval and pendingEval cleanup on
+  interrupt/no-threshold complete are covered in
+  `apps/runtime/test/turn-finalization.service.test.ts`.
 - **Sandbox admission/idempotency**
   (`apps/sandbox/test/script-execute-idempotency.test.ts`): atomic
   create-by-`(assistantId, scriptInvocationKey)` runs before ordinary
@@ -1199,7 +1204,7 @@ corepack pnpm --filter @persai/runtime run typecheck
 Regression / live (post-deploy):
 
 1. Long browser / tool loop: in-turn provider `toolHistory` stays append-full (no mid-loop dual-window rewrite; no `<persai_recent_tool_observation>` blocks).
-2. After a completed user turn at/above 50% of `compactionTriggerThreshold`, the next hydrate keeps the newest 5 prior tool bodies full and placeholders older ones; below 50% (or stale tokens) prior replay stays full. Canonical stored `toolExchanges` remain full.
+2. After a completed user turn crosses the current micro-clear arm (50%, then 75% with 5% hysteresis; exhausted waits for S3), the next hydrate keeps the newest 5 prior tool bodies full and placeholders older ones; once armed, keep-N stays active even if the meter drops (no re-expand). Inactive + below the current arm (or stale tokens) prior replay stays full. Canonical stored `toolExchanges` remain full.
 3. Do **not** expect in-turn `[toolHistoryProjection]` cluster log lines — that ADR-143/156 in-turn metrics emission path was removed by ADR-161 A4.
 
 ## ADR-140 local browser bridge + headless Browserless boundary (focused checks)

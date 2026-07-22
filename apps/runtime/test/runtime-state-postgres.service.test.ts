@@ -51,6 +51,10 @@ export async function runRuntimeStatePostgresServiceTest(): Promise<void> {
           totalTokensFresh: true,
           compactionCount: 2,
           compactionHintTokens: 400,
+          priorToolMicroClearActive: false,
+          priorToolMicroClearNextArmPercent: 50,
+          priorToolMicroClearPendingEval: false,
+          priorToolMicroClearLastArmPercent: null,
           providerKey: "openai",
           modelKey: "gpt-5.4",
           lastTurnAt: new Date("2026-04-11T12:05:00.000Z"),
@@ -124,6 +128,10 @@ export async function runRuntimeStatePostgresServiceTest(): Promise<void> {
     totalTokensFresh: false,
     compactionCount: 2,
     compactionHintTokens: 400,
+    priorToolMicroClearActive: false,
+    priorToolMicroClearNextArmPercent: 50,
+    priorToolMicroClearPendingEval: false,
+    priorToolMicroClearLastArmPercent: null,
     providerKey: "openai",
     modelKey: "gpt-5.4"
   });
@@ -147,6 +155,10 @@ export async function runRuntimeStatePostgresServiceTest(): Promise<void> {
       totalTokensFresh: false,
       compactionCount: 2,
       compactionHintTokens: 400,
+      priorToolMicroClearActive: false,
+      priorToolMicroClearNextArmPercent: 50,
+      priorToolMicroClearPendingEval: false,
+      priorToolMicroClearLastArmPercent: null,
       providerKey: "openai",
       modelKey: "gpt-5.4",
       memoryExtractionWatermark: 0,
@@ -165,6 +177,10 @@ export async function runRuntimeStatePostgresServiceTest(): Promise<void> {
       totalTokensFresh: false,
       compactionCount: 2,
       compactionHintTokens: 400,
+      priorToolMicroClearActive: false,
+      priorToolMicroClearNextArmPercent: 50,
+      priorToolMicroClearPendingEval: false,
+      priorToolMicroClearLastArmPercent: null,
       providerKey: "openai",
       modelKey: "gpt-5.4"
     }

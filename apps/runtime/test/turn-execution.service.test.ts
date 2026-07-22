@@ -714,6 +714,10 @@ function createAcceptedTurn(): AcceptedRuntimeTurn {
       totalTokensFresh: true,
       compactionCount: 0,
       compactionHintTokens: null,
+      priorToolMicroClearActive: false,
+      priorToolMicroClearNextArmPercent: 50,
+      priorToolMicroClearPendingEval: false,
+      priorToolMicroClearLastArmPercent: null,
       providerKey: null,
       modelKey: null,
       updatedAt: "2026-04-11T12:00:00.000Z"

@@ -5,6 +5,23 @@
 
 ## 2026-07-22
 
+- **ADR-161 A2 micro-clear hysteresis (local):** keep-N projection stays on
+  after arm (no meter re-expand). Arm schedule 50%→75%→exhausted with 5%
+  hysteresis; S3 resets state. Fixes ~48k↔29k prompt ping-pong.
+
+- **Async catch-up empty-assistant wire omit (ADR-157/116):** empty assistant
+  bubbles with delivered attachments stay in chat UI, but are omitted from
+  provider `messages` (gateway rejects `content:""`). JOB_CATCHUP image
+  perception remains the existing plan-gated ADR-157 D2 path
+  (`pendingFilePreviewBlocks` / Completion vision) — no invented captions and
+  no every-turn history vision re-send.
+
+- **Async catch-up settle after delivered (secondary):** when catch-up still
+  fails but artifacts are already visible, API completes the handle + web turn
+  on the delivery bubble (no invented chat prose) instead of sticky `failed`
+  refresh banners; status restore heals stuck `async-cont:` attempts. Chat open
+  keeps scroll pinned through late image layout growth.
+
 - **ADR-161 DeepSeek tool-loop developer freeze (local):** Runtime-only DeepSeek
   path freezes `developerInstructions` for the turn’s tool loop and appends
   mid-loop live guidance (deferred jobs, tool follow-up, source progression,

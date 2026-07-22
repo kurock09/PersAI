@@ -15,6 +15,7 @@ import type { AssistantChatSkillDecisionState } from "../domain/assistant-chat.e
 import { ResolveActiveAssistantService } from "./resolve-active-assistant.service";
 import { toAssistantWebChatMessageAttachmentState } from "./media/media.types";
 import { ChatWakeCoordinator } from "./chat-wake-coordinator.service";
+import { AssistantAsyncJobHandleStateService } from "./assistant-async-job-handle-state.service";
 
 export type WebChatTurnAttemptStatus =
   | "unknown"
@@ -173,7 +174,9 @@ export class WebChatTurnAttemptService {
   constructor(
     private readonly prisma: WorkspaceManagementPrismaService,
     private readonly resolveActiveAssistantService: ResolveActiveAssistantService,
-    @Optional() private readonly chatWakeCoordinator?: ChatWakeCoordinator
+    @Optional() private readonly chatWakeCoordinator?: ChatWakeCoordinator,
+    @Optional()
+    private readonly asyncJobHandleState?: AssistantAsyncJobHandleStateService
   ) {}
 
   async claim(input: {
@@ -322,15 +325,23 @@ export class WebChatTurnAttemptService {
     assistantMessageId: string;
     respondedAt: string;
     terminalPayload: CompletedWebTurnReplayState;
+    /**
+     * When catch-up settles after artifacts already delivered, heal a turn that
+     * was incorrectly left `failed` so refresh does not re-surface a banner.
+     */
+    healFailedAsyncContinuation?: boolean;
   }): Promise<void> {
     const prior = await this.findActiveAttemptIdentity(input);
+    const allowedStatuses = input.healFailedAsyncContinuation
+      ? (["accepted", "running", "failed"] as const)
+      : (["accepted", "running"] as const);
     const updated = await this.prisma.assistantWebChatTurnAttempt.updateMany({
       where: {
         assistantId: input.assistantId,
         userId: input.userId,
         surfaceThreadKey: input.surfaceThreadKey,
         clientTurnId: input.clientTurnId,
-        status: { in: ["accepted", "running"] }
+        status: { in: [...allowedStatuses] }
       },
       data: {
         status: "completed",
@@ -339,6 +350,7 @@ export class WebChatTurnAttemptService {
         currentActivity: Prisma.DbNull,
         terminalPayload: input.terminalPayload as unknown as Prisma.InputJsonValue,
         completedAt: new Date(),
+        failedAt: null,
         errorCode: null,
         errorMessage: null
       }
@@ -482,10 +494,51 @@ export class WebChatTurnAttemptService {
         error: null
       };
     }
+    // Sticky failed async-cont after artifacts already landed: heal on status
+    // restore so refresh does not re-paint the composer banner forever.
+    if (
+      attempt.status === "failed" &&
+      clientTurnId.startsWith("async-cont:") &&
+      this.asyncJobHandleState !== undefined
+    ) {
+      const settled =
+        await this.asyncJobHandleState.settleDeliveredCatchUpFailureByClientTurnId(clientTurnId);
+      if (settled !== null) {
+        const chatId = attempt.chatId ?? settled.chatId;
+        const userMessageId = attempt.userMessageId ?? settled.sourceUserMessageId;
+        if (userMessageId !== null) {
+          const respondedAt = new Date().toISOString();
+          await this.markCompleted({
+            assistantId: attempt.assistantId,
+            userId: attempt.userId,
+            surfaceThreadKey: attempt.surfaceThreadKey,
+            clientTurnId: attempt.clientTurnId,
+            assistantMessageId: settled.assistantMessageId,
+            respondedAt,
+            terminalPayload: {
+              clientTurnId: attempt.clientTurnId,
+              chatId,
+              userMessageId,
+              assistantMessageId: settled.assistantMessageId,
+              respondedAt,
+              degradedByQuotaFallback: false,
+              quotaFallbackReason: null,
+              quotaFallbackModel: null,
+              completedAt: new Date().toISOString()
+            },
+            healFailedAsyncContinuation: true
+          });
+          this.logger.log(
+            `web_turn_status_healed_delivered_async_cont assistantId=${resolved.assistantId} clientTurnId=${clientTurnId} assistantMessageId=${settled.assistantMessageId}`
+          );
+        }
+      }
+    }
+    const status = await this.buildStatus(attempt.id);
     this.logger.log(
-      `web_turn_status_lookup assistantId=${resolved.assistantId} clientTurnId=${clientTurnId} status=${attempt.status}`
+      `web_turn_status_lookup assistantId=${resolved.assistantId} clientTurnId=${clientTurnId} status=${status.status}`
     );
-    return this.buildStatus(attempt.id);
+    return status;
   }
 
   async getActiveTurnForChat(input: {

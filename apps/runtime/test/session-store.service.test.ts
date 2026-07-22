@@ -70,6 +70,10 @@ function createSession(params: {
     totalTokensFresh: true,
     compactionCount: 0,
     compactionHintTokens: null,
+    priorToolMicroClearActive: false,
+    priorToolMicroClearNextArmPercent: 50,
+    priorToolMicroClearPendingEval: false,
+    priorToolMicroClearLastArmPercent: null,
     memoryExtractionWatermark: 0,
     providerKey: params.providerKey ?? null,
     modelKey: params.modelKey ?? null,
@@ -118,6 +122,18 @@ class FakeRuntimeStatePostgresService {
       totalTokensFresh: input.totalTokensFresh ?? existing?.totalTokensFresh ?? true,
       compactionCount: input.compactionCount ?? existing?.compactionCount ?? 0,
       compactionHintTokens: input.compactionHintTokens ?? existing?.compactionHintTokens ?? null,
+      priorToolMicroClearActive:
+        input.priorToolMicroClearActive ?? existing?.priorToolMicroClearActive ?? false,
+      priorToolMicroClearNextArmPercent:
+        input.priorToolMicroClearNextArmPercent ??
+        existing?.priorToolMicroClearNextArmPercent ??
+        50,
+      priorToolMicroClearPendingEval:
+        input.priorToolMicroClearPendingEval ?? existing?.priorToolMicroClearPendingEval ?? false,
+      priorToolMicroClearLastArmPercent:
+        input.priorToolMicroClearLastArmPercent ??
+        existing?.priorToolMicroClearLastArmPercent ??
+        null,
       memoryExtractionWatermark:
         input.memoryExtractionWatermark ?? existing?.memoryExtractionWatermark ?? 0,
       providerKey: input.providerKey ?? existing?.providerKey ?? null,
@@ -150,6 +166,14 @@ class FakeRuntimeStatePostgresService {
       totalTokensFresh: input.totalTokensFresh ?? existing.totalTokensFresh,
       compactionCount: input.compactionCount ?? existing.compactionCount,
       compactionHintTokens: input.compactionHintTokens ?? existing.compactionHintTokens,
+      priorToolMicroClearActive:
+        input.priorToolMicroClearActive ?? existing.priorToolMicroClearActive,
+      priorToolMicroClearNextArmPercent:
+        input.priorToolMicroClearNextArmPercent ?? existing.priorToolMicroClearNextArmPercent,
+      priorToolMicroClearPendingEval:
+        input.priorToolMicroClearPendingEval ?? existing.priorToolMicroClearPendingEval,
+      priorToolMicroClearLastArmPercent:
+        input.priorToolMicroClearLastArmPercent ?? existing.priorToolMicroClearLastArmPercent,
       memoryExtractionWatermark:
         input.memoryExtractionWatermark ?? existing.memoryExtractionWatermark,
       providerKey: input.providerKey ?? existing.providerKey,

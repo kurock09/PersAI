@@ -31,6 +31,10 @@ import {
 } from "./runtime-context-hydration-policy";
 import { buildPriorToolExchangeReplayMap } from "./prior-tool-exchange-replay";
 import {
+  normalizeMicroClearArmPercent,
+  shouldCrossToolObservationMicroClearArm
+} from "./tool-observation-policy";
+import {
   formatCrossSessionCarryOverStableBlock,
   formatDurableMemoryCoreStableBlock,
   formatSharedCompactionStableBlock
@@ -735,6 +739,15 @@ export class TurnContextHydrationService {
         }),
         message
       );
+      if (
+        this.isProviderWireEmptyAssistantAttachmentOnly({
+          author: message.author,
+          content,
+          attachmentCount: message.attachments.length
+        })
+      ) {
+        continue;
+      }
       messages.push({
         role: this.toProviderRole(message.author),
         content
@@ -1151,6 +1164,8 @@ export class TurnContextHydrationService {
     conversation: RuntimeConversationAddress,
     contextHydration: ReturnType<typeof resolveRuntimeContextHydrationConfig>
   ): Promise<{
+    priorToolMicroClearActive: boolean;
+    priorToolMicroClearNextArmPercent: number;
     currentTokens: number | null;
     totalTokensFresh: boolean;
     compactionTriggerThreshold: number;
@@ -1161,10 +1176,40 @@ export class TurnContextHydrationService {
     if (session === null) {
       return null;
     }
+    const currentTokens = typeof session.currentTokens === "number" ? session.currentTokens : null;
+    const totalTokensFresh = session.totalTokensFresh === true;
+    const compactionTriggerThreshold = contextHydration.compactionTriggerThreshold;
+    let priorToolMicroClearActive = session.priorToolMicroClearActive === true;
+    const priorToolMicroClearNextArmPercent = normalizeMicroClearArmPercent(
+      session.priorToolMicroClearNextArmPercent
+    );
+    // Cross next arm (50% / 75%): activate keep-N projection and queue
+    // post-turn effectiveness eval. Never re-expand when meter drops.
+    const crossedArm = shouldCrossToolObservationMicroClearArm({
+      priorToolMicroClearNextArmPercent,
+      currentTokens,
+      totalTokensFresh,
+      compactionTriggerThreshold
+    });
+    // Queue at most one pending effectiveness eval per arm cross. Do not
+    // rewrite lastArm/pending while a prior cross still awaits finalize.
+    if (crossedArm && session.priorToolMicroClearPendingEval !== true) {
+      await this.runtimeStatePostgresService.updateSession({
+        sessionId: session.id,
+        priorToolMicroClearActive: true,
+        priorToolMicroClearPendingEval: true,
+        priorToolMicroClearLastArmPercent: priorToolMicroClearNextArmPercent
+      });
+      priorToolMicroClearActive = true;
+    } else if (crossedArm) {
+      priorToolMicroClearActive = true;
+    }
     return {
-      currentTokens: typeof session.currentTokens === "number" ? session.currentTokens : null,
-      totalTokensFresh: session.totalTokensFresh === true,
-      compactionTriggerThreshold: contextHydration.compactionTriggerThreshold
+      priorToolMicroClearActive,
+      priorToolMicroClearNextArmPercent,
+      currentTokens,
+      totalTokensFresh,
+      compactionTriggerThreshold
     };
   }
 
@@ -1216,16 +1261,27 @@ export class TurnContextHydrationService {
         !isCurrentInboundMessage && message.author === "assistant"
           ? priorToolExchangesByMessageId.get(message.id)
           : undefined;
+      const wireContent =
+        isCurrentInboundMessage || message.author !== "user"
+          ? content
+          : this.withTelegramGroupSenderContext(content, message, input);
+      if (
+        !isCurrentInboundMessage &&
+        this.isProviderWireEmptyAssistantAttachmentOnly({
+          author: message.author,
+          content: wireContent,
+          attachmentCount: message.attachments.length
+        })
+      ) {
+        continue;
+      }
 
       hydrated.push({
         role: this.toProviderRole(message.author),
         ...(priorToolExchanges !== undefined && priorToolExchanges.length > 0
           ? { priorToolExchanges }
           : {}),
-        content:
-          isCurrentInboundMessage || message.author !== "user"
-            ? content
-            : this.withTelegramGroupSenderContext(content, message, input)
+        content: wireContent
       });
     }
 
@@ -1742,6 +1798,32 @@ export class TurnContextHydrationService {
       return "User sent attachments only.";
     }
     return "";
+  }
+
+  /**
+   * ADR-157 keeps empty assistant prose + delivered files in chat UI. Provider
+   * gateway rejects `content:""`. Do not invent wire captions — image perception
+   * for JOB_CATCHUP is injected separately via `pendingFilePreviewBlocks`
+   * (plan Completion vision / ADR-157 D2). Historical vision re-send is ADR-116
+   * on-demand, not every-turn history multimodal.
+   */
+  private isProviderWireEmptyAssistantAttachmentOnly(input: {
+    author: CanonicalChatMessageRow["author"];
+    content: ProviderGatewayMessageContent;
+    attachmentCount: number;
+  }): boolean {
+    if (input.author !== "assistant" || input.attachmentCount === 0) {
+      return false;
+    }
+    if (typeof input.content === "string") {
+      return input.content.trim().length === 0;
+    }
+    return input.content.every(
+      (block) =>
+        block.type !== "image" &&
+        block.type !== "pdf" &&
+        (block.type !== "text" || block.text.trim().length === 0)
+    );
   }
 
   private async buildDirectInputSelection(
