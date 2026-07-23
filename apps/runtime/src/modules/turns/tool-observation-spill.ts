@@ -153,9 +153,7 @@ export function isToolSpillReceiptContent(content: string): boolean {
       parsed.truncated === true &&
       typeof parsed.path === "string" &&
       parsed.path.length > 0 &&
-      (parsed.spillKind === "args" ||
-        parsed.spillKind === "result" ||
-        parsed.spillKind === "both")
+      (parsed.spillKind === "args" || parsed.spillKind === "result" || parsed.spillKind === "both")
     );
   } catch {
     return false;
@@ -241,12 +239,7 @@ export function stubOversizedToolArguments(input: {
       continue;
     }
     // script `input` is typically an object; spill the field when it alone is huge
-    if (
-      key === "input" &&
-      value !== null &&
-      typeof value === "object" &&
-      !Array.isArray(value)
-    ) {
+    if (key === "input" && value !== null && typeof value === "object" && !Array.isArray(value)) {
       const serialized = JSON.stringify(value);
       if (exceedsToolWireSoftMax(serialized)) {
         args[key] = spilledFieldStub(input.spillPath, serialized.length);
@@ -315,20 +308,13 @@ export function buildToolAwareSummarySource(
 
   if (toolCode === "shell" || toolCode === "exec") {
     const job = asRecord(parsed.job) ?? parsed;
-    const exitCode =
-      asFiniteNumber(job.exitCode) ?? asFiniteNumber(parsed.exitCode);
+    const exitCode = asFiniteNumber(job.exitCode) ?? asFiniteNumber(parsed.exitCode);
     const stdout = asNonEmptyString(job.stdout) ?? asNonEmptyString(parsed.stdout);
     const stderr = asNonEmptyString(job.stderr) ?? asNonEmptyString(parsed.stderr);
-    const stdoutBytes =
-      stdout === null ? 0 : Buffer.byteLength(stdout, "utf8");
-    const stderrBytes =
-      stderr === null ? 0 : Buffer.byteLength(stderr, "utf8");
+    const stdoutBytes = stdout === null ? 0 : Buffer.byteLength(stdout, "utf8");
+    const stderrBytes = stderr === null ? 0 : Buffer.byteLength(stderr, "utf8");
     const firstLine =
-      stdout !== null
-        ? firstLineOf(stdout)
-        : stderr !== null
-          ? firstLineOf(stderr)
-          : "";
+      stdout !== null ? firstLineOf(stdout) : stderr !== null ? firstLineOf(stderr) : "";
     hint = joinSummaryParts([
       exitCode !== null ? `exitCode=${String(exitCode)}` : null,
       `stdoutBytes=${String(stdoutBytes)}`,
@@ -338,11 +324,9 @@ export function buildToolAwareSummarySource(
   } else if (toolCode === "browser") {
     const page = asRecord(parsed.page);
     const finalUrl =
-      asNonEmptyString(parsed.finalUrl) ??
-      (page === null ? null : asNonEmptyString(page.finalUrl));
+      asNonEmptyString(parsed.finalUrl) ?? (page === null ? null : asNonEmptyString(page.finalUrl));
     const title =
-      asNonEmptyString(parsed.title) ??
-      (page === null ? null : asNonEmptyString(page.title));
+      asNonEmptyString(parsed.title) ?? (page === null ? null : asNonEmptyString(page.title));
     const elements = page === null ? parsed.elements : page.elements;
     const elementCount = Array.isArray(elements)
       ? elements.length
@@ -356,8 +340,7 @@ export function buildToolAwareSummarySource(
   } else if (toolCode === "files") {
     const item = asRecord(parsed.item);
     const path =
-      asNonEmptyString(parsed.path) ??
-      (item === null ? null : asNonEmptyString(item.path));
+      asNonEmptyString(parsed.path) ?? (item === null ? null : asNonEmptyString(item.path));
     const content = asNonEmptyString(parsed.content);
     const chars =
       asFiniteNumber(parsed.charCount) ??
@@ -366,9 +349,7 @@ export function buildToolAwareSummarySource(
     hint = joinSummaryParts([
       path !== null ? `path=${path}` : null,
       chars !== null ? `chars=${String(chars)}` : null,
-      asNonEmptyString(parsed.action) !== null
-        ? `action=${asNonEmptyString(parsed.action)}`
-        : null
+      asNonEmptyString(parsed.action) !== null ? `action=${asNonEmptyString(parsed.action)}` : null
     ]);
   } else if (toolCode === "web_fetch" || toolCode === "knowledge_fetch") {
     const url = asNonEmptyString(parsed.url);
@@ -406,8 +387,7 @@ export function buildToolAwareSummarySource(
     ]);
   } else if (toolCode === "script" || toolCode.startsWith("script.")) {
     const scriptKey = asNonEmptyString(parsed.scriptKey);
-    const status =
-      asNonEmptyString(parsed.status) ?? asNonEmptyString(parsed.action);
+    const status = asNonEmptyString(parsed.status) ?? asNonEmptyString(parsed.action);
     hint = joinSummaryParts([
       scriptKey !== null ? `scriptKey=${scriptKey}` : null,
       status !== null ? `status=${status}` : null
@@ -566,8 +546,7 @@ export async function sealToolExchangeSpill(
     }
   }
 
-  const spillKind: ToolSpillKind =
-    argsOver && resultOver ? "both" : argsOver ? "args" : "result";
+  const spillKind: ToolSpillKind = argsOver && resultOver ? "both" : argsOver ? "args" : "result";
 
   const seal: ToolSpillSealMeta = {
     toolCallId,
@@ -576,9 +555,7 @@ export async function sealToolExchangeSpill(
     spillKind,
     ...(action !== undefined ? { action } : {}),
     ...(argsPath !== undefined ? { argsPath } : {}),
-    ...(resultPath !== undefined &&
-    resultChars !== undefined &&
-    resultBytes !== undefined
+    ...(resultPath !== undefined && resultChars !== undefined && resultBytes !== undefined
       ? {
           resultPath,
           resultChars,

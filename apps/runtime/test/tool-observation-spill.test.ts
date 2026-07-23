@@ -218,9 +218,7 @@ export async function runToolObservationSpillTest(): Promise<void> {
         writeSpill: recorder.writeSpill
       }
     );
-    const seals = new Map<string, ToolSpillSealMeta>([
-      [sealed.seal!.toolCallId, sealed.seal!]
-    ]);
+    const seals = new Map<string, ToolSpillSealMeta>([[sealed.seal!.toolCallId, sealed.seal!]]);
     const history = [
       sealed.exchange,
       createExchange({ id: "later", name: "todo_write", content: '{"ok":true}' })
@@ -387,8 +385,9 @@ export async function runToolObservationSpillTest(): Promise<void> {
     const seriesArgs = {
       action: "generate",
       prompt: "short",
-      seriesItems: Array.from({ length: 20 }, (_, index) =>
-        `item-${String(index)}-${"z".repeat(TOOL_WIRE_SOFT_MAX_CHARS / 10)}`
+      seriesItems: Array.from(
+        { length: 20 },
+        (_, index) => `item-${String(index)}-${"z".repeat(TOOL_WIRE_SOFT_MAX_CHARS / 10)}`
       )
     };
     const seriesStub = stubOversizedToolArguments({
@@ -427,9 +426,7 @@ export async function runToolObservationSpillTest(): Promise<void> {
     assert.ok(sealed.seal !== null);
     assert.equal(sealed.seal?.isError, true);
 
-    const seals = new Map<string, ToolSpillSealMeta>([
-      [sealed.seal!.toolCallId, sealed.seal!]
-    ]);
+    const seals = new Map<string, ToolSpillSealMeta>([[sealed.seal!.toolCallId, sealed.seal!]]);
     const history = [
       sealed.exchange,
       createExchange({ id: "later", name: "todo_write", content: '{"ok":true}' })
@@ -462,8 +459,7 @@ export async function runToolObservationSpillTest(): Promise<void> {
 
   // 6. P4: prior replay / projectOneToolExchange keep spill receipts (no MB re-expand)
   {
-    const spillPath =
-      "/workspace/assistants/a/sessions/s/.tool-spill/r/call-prior.out.json";
+    const spillPath = "/workspace/assistants/a/sessions/s/.tool-spill/r/call-prior.out.json";
     const receipt = buildToolSpillReceipt({
       status: "ok",
       tool: "browser",
