@@ -27,7 +27,7 @@ type AppendAuditEventRequest = {
   details?: Record<string, unknown>;
 };
 
-const INTERNAL_DEFAULT_PROVIDER_KEYS = ["openai", "anthropic", "deepseek"] as const;
+const INTERNAL_DEFAULT_PROVIDER_KEYS = ["openai", "anthropic", "deepseek", "kimi"] as const;
 
 type InternalDefaultProvider = (typeof INTERNAL_DEFAULT_PROVIDER_KEYS)[number];
 
@@ -272,14 +272,16 @@ export class PersaiInternalApiClientService {
     const openai = this.asStringArray(row.openai);
     const anthropic = this.asStringArray(row.anthropic);
     const deepseek = this.asStringArray(row.deepseek);
-    if (openai === null || anthropic === null || deepseek === null) {
+    const kimi = this.asStringArray(row.kimi);
+    if (openai === null || anthropic === null || deepseek === null || kimi === null) {
       return null;
     }
 
     return {
       openai,
       anthropic,
-      deepseek
+      deepseek,
+      kimi
     };
   }
 

@@ -20,7 +20,7 @@ import {
   sameProviderSelection
 } from "./runtime-text-fallback";
 
-type NativeManagedProvider = "openai" | "anthropic" | "deepseek";
+type NativeManagedProvider = "openai" | "anthropic" | "deepseek" | "kimi";
 
 type ProviderSelection = {
   provider: NativeManagedProvider;
@@ -1530,7 +1530,9 @@ export class TurnRoutingService {
   }
 
   private asProvider(value: unknown): NativeManagedProvider | null {
-    return value === "openai" || value === "anthropic" || value === "deepseek" ? value : null;
+    return value === "openai" || value === "anthropic" || value === "deepseek" || value === "kimi"
+      ? value
+      : null;
   }
 
   private asExecutionMode(value: unknown): RoutingExecutionMode | null {

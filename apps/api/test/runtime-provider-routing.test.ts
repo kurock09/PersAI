@@ -206,7 +206,7 @@ function makeAdminProfile(
       secretRefsSchema: "persai.runtimeProviderCredentialRefs.v1" as const
     },
     allowedProviders: ["anthropic"],
-    availableModelsByProvider: { openai: [], anthropic: [modelKey], deepseek: [] },
+    availableModelsByProvider: { openai: [], anthropic: [modelKey], deepseek: [], kimi: [] },
     availableModelCatalogByProvider: {
       openai: { models: [] },
       anthropic: {
@@ -240,6 +240,7 @@ function makeAdminProfile(
         ]
       },
       deepseek: { models: [] },
+      kimi: { models: [] },
       runway: { models: [] },
       kling: { models: [] },
       heygen: { models: [] }
@@ -275,6 +276,7 @@ function makeMixedProviderProfile(): RuntimeProviderProfileState {
         "shared-foreign-model"
       ],
       deepseek: ["deepseek-v4-pro"],
+      kimi: [],
       runway: ["shared-foreign-model"]
     },
     availableModelCatalogByProvider: {

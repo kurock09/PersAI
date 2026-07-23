@@ -59,6 +59,14 @@ alwaysApply: true
   (`cursor-grok-4.5-high-fast`); Terra, Sonnet, Sol, and Opus are forbidden for
   those subs. Do not proliferate artificial slices. Keep ADR-161 commits
   separate from ADR-162.
+- **ADR-163** Kimi managed chat text provider is an active parent-orchestrated
+  program (P0–P5 local CLEAN 2026-07-23; baseline `f6214543`; push/deploy +
+  live acceptance pending). Source of truth:
+  `docs/ADR/163-kimi-managed-chat-text-provider.md`. Fourth chat provider
+  `kimi` on ADR-124 seams — not a DeepSeek copy. Primary `kimi-k3`; images
+  on + PDF-only strip; usage `cached_tokens`; secret `kimi/api-key`. Parent
+  orchestrates/audits/commits; impl + audits **only**
+  `cursor-grok-4.5-high-fast`. Keep ADR-163 commits separate from ADR-161/162.
 
 - Treat `docs/SESSION-HANDOFF.md` as the source of truth for the latest completed checkpoint and the user's next stated priority.
 - Treat `docs/CHANGELOG.md` as the source of truth for what has actually landed.

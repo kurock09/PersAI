@@ -17778,12 +17778,14 @@ components:
         - openai
         - anthropic
         - deepseek
+        - kimi
     ManagedRuntimeCatalogProvider:
       type: string
       enum:
         - openai
         - anthropic
         - deepseek
+        - kimi
         - runway
         - kling
         - heygen
@@ -17803,6 +17805,7 @@ components:
         - openai
         - anthropic
         - deepseek
+        - kimi
       properties:
         openai:
           type: array
@@ -17813,6 +17816,10 @@ components:
           items:
             type: string
         deepseek:
+          type: array
+          items:
+            type: string
+        kimi:
           type: array
           items:
             type: string
@@ -18349,6 +18356,7 @@ components:
         - openai
         - anthropic
         - deepseek
+        - kimi
         - runway
         - kling
         - heygen
@@ -18358,6 +18366,8 @@ components:
         anthropic:
           $ref: "#/components/schemas/RuntimeProviderModelCatalogState"
         deepseek:
+          $ref: "#/components/schemas/RuntimeProviderModelCatalogState"
+        kimi:
           $ref: "#/components/schemas/RuntimeProviderModelCatalogState"
         runway:
           $ref: "#/components/schemas/RuntimeProviderModelCatalogState"
@@ -18554,12 +18564,15 @@ components:
             - openai
             - anthropic
             - deepseek
+            - kimi
           properties:
             openai:
               $ref: "#/components/schemas/AdminRuntimeProviderKeyState"
             anthropic:
               $ref: "#/components/schemas/AdminRuntimeProviderKeyState"
             deepseek:
+              $ref: "#/components/schemas/AdminRuntimeProviderKeyState"
+            kimi:
               $ref: "#/components/schemas/AdminRuntimeProviderKeyState"
         vcoinExchangeRate:
           type: integer
@@ -18597,6 +18610,8 @@ components:
         anthropic:
           type: string
         deepseek:
+          type: string
+        kimi:
           type: string
     AdminRuntimeProviderSettingsRequest:
       type: object

@@ -10,6 +10,7 @@ export interface RuntimeProviderModelCatalogByProviderState {
   openai: RuntimeProviderModelCatalogState;
   anthropic: RuntimeProviderModelCatalogState;
   deepseek: RuntimeProviderModelCatalogState;
+  kimi: RuntimeProviderModelCatalogState;
   runway: RuntimeProviderModelCatalogState;
   kling: RuntimeProviderModelCatalogState;
   heygen: RuntimeProviderModelCatalogState;

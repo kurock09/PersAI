@@ -5,6 +5,26 @@
 
 ## 2026-07-23
 
+- **feat(ADR-163): Kimi managed chat provider (push).** Fourth chat-routing
+  provider `kimi` (Moonshot Chat Completions, not DeepSeek fork). Secret
+  `kimi/api-key`; usage v2 `cached_tokens`; Admin Runtime/Plans; images on +
+  PDF-only strip; catalog seed `kimi-k3` 0.3/3/15. Composer audits CLEAN;
+  AGENTS + api/runtime/gateway/web suites green. Live smoke pending deploy.
+
+- **ADR-163 Composer triple audit CLEAN (local).** Three Composer-2.5 hostile
+  audits: gateway CLEAN; runtime/docs CLEAN; contracts/admin DIRTY→fixed
+  (deleted dead `runtime-provider-profile-admin`; Admin Add-model seeds
+  kimi-k3 0.3/3/15). Re-audit admin CLEAN.
+
+- **ADR-163 Kimi managed chat provider (local CLEAN, pre-push).** Fourth
+  chat-routing provider `kimi` on ADR-124 seams — new Moonshot Chat
+  Completions client (not DeepSeek fork). Registration/OpenAPI/warmup
+  `kimi/api-key`; usage v2 `cached_tokens`; Admin Runtime/Plans; multimodal
+  images + PDF-only strip; catalog seed `kimi-k3` (+ `kimi-k2.6`).
+  Independent audits CLEAN; lint/format/typecheck green. Live acceptance +
+  push/deploy pending. Source:
+  `docs/ADR/163-kimi-managed-chat-text-provider.md`.
+
 - **image_generate describe-only action (local):** full wire schema no longer
   offers `action:"generate"`; real generation must omit `action`. Stops the
   invalid_arguments loop after catalog describe.

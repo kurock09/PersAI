@@ -82,7 +82,7 @@ const MICRO_DESCRIPTION_OUTPUT_SCHEMA = {
 } as const;
 
 type FileDescriptionRoute = {
-  provider: "openai" | "anthropic" | "deepseek";
+  provider: "openai" | "anthropic" | "deepseek" | "kimi";
   model: string;
 };
 
@@ -226,7 +226,7 @@ export class WorkspaceFileMicroDescriptionService {
     summary: string | null;
     usage: RuntimeUsageSnapshot | null;
     respondedAt: string;
-    provider: "openai" | "anthropic" | "deepseek";
+    provider: "openai" | "anthropic" | "deepseek" | "kimi";
     model: string;
   } | null> {
     const metadata = await this.workspaceFileMetadataService.get({
@@ -349,7 +349,10 @@ export class WorkspaceFileMicroDescriptionService {
       const provider = routing?.modelSlots.systemTool.providerKey;
       const model = routing?.modelSlots.systemTool.modelKey;
       if (
-        (provider !== "openai" && provider !== "anthropic" && provider !== "deepseek") ||
+        (provider !== "openai" &&
+          provider !== "anthropic" &&
+          provider !== "deepseek" &&
+          provider !== "kimi") ||
         typeof model !== "string" ||
         model.trim().length === 0
       ) {

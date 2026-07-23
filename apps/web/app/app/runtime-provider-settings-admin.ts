@@ -9,12 +9,14 @@ import type {
 export const MANAGED_RUNTIME_PROVIDERS: ManagedRuntimeProvider[] = [
   "openai",
   "anthropic",
-  "deepseek"
+  "deepseek",
+  "kimi"
 ];
 export const MANAGED_RUNTIME_CATALOG_PROVIDERS: ManagedRuntimeCatalogProvider[] = [
   "openai",
   "anthropic",
   "deepseek",
+  "kimi",
   "runway",
   "kling",
   "heygen"
@@ -68,6 +70,11 @@ function createEmptyProviderKeyState(): RuntimeProviderProviderKeyState {
       configured: false,
       lastFour: null,
       updatedAt: null
+    },
+    kimi: {
+      configured: false,
+      lastFour: null,
+      updatedAt: null
     }
   };
 }
@@ -87,6 +94,7 @@ export function createDefaultRuntimeProviderSettingsAdminDraft(): RuntimeProvide
       openai: "",
       anthropic: "",
       deepseek: "",
+      kimi: "",
       runway: "",
       kling: "",
       heygen: ""
@@ -94,7 +102,8 @@ export function createDefaultRuntimeProviderSettingsAdminDraft(): RuntimeProvide
     providerKeys: {
       openai: "",
       anthropic: "",
-      deepseek: ""
+      deepseek: "",
+      kimi: ""
     }
   };
 }
@@ -328,7 +337,16 @@ export function parseRuntimeProviderModelProfilesText(
 }
 
 function providerLabel(provider: ManagedRuntimeProvider): string {
-  return provider === "openai" ? "OpenAI" : "Anthropic";
+  switch (provider) {
+    case "openai":
+      return "OpenAI";
+    case "anthropic":
+      return "Anthropic";
+    case "deepseek":
+      return "DeepSeek";
+    case "kimi":
+      return "Kimi";
+  }
 }
 
 function hasListedModel(params: {
@@ -372,6 +390,9 @@ export function resolveRuntimeProviderSettingsAdminFormState(
     ),
     deepseek: formatRuntimeProviderModelProfilesText(
       settings.availableModelCatalogByProvider.deepseek.models
+    ),
+    kimi: formatRuntimeProviderModelProfilesText(
+      settings.availableModelCatalogByProvider.kimi.models
     ),
     runway: formatRuntimeProviderModelProfilesText(
       settings.availableModelCatalogByProvider.runway.models
@@ -452,6 +473,9 @@ export function buildRuntimeProviderSettingsRequest(params: {
   const deepseekProfiles = parseRuntimeProviderModelProfilesText(
     params.draft.modelProfilesTextByProvider.deepseek
   );
+  const kimiProfiles = parseRuntimeProviderModelProfilesText(
+    params.draft.modelProfilesTextByProvider.kimi
+  );
   const runwayProfiles = parseRuntimeProviderModelProfilesText(
     params.draft.modelProfilesTextByProvider.runway
   );
@@ -470,6 +494,9 @@ export function buildRuntimeProviderSettingsRequest(params: {
       .map((profile) => profile.model),
     deepseek: deepseekProfiles
       .filter((profile) => profile.capabilities.includes("chat"))
+      .map((profile) => profile.model),
+    kimi: kimiProfiles
+      .filter((profile) => profile.capabilities.includes("chat"))
       .map((profile) => profile.model)
   };
   const availableModelCatalogByProvider = {
@@ -481,6 +508,9 @@ export function buildRuntimeProviderSettingsRequest(params: {
     },
     deepseek: {
       models: deepseekProfiles
+    },
+    kimi: {
+      models: kimiProfiles
     },
     runway: {
       models: runwayProfiles

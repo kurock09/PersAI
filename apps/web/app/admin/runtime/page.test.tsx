@@ -50,7 +50,8 @@ function createRuntimeSettingsState(): AdminRuntimeProviderSettingsState {
     availableModelsByProvider: {
       openai: ["gpt-5.4"],
       anthropic: [],
-      deepseek: ["deepseek-v4-flash"]
+      deepseek: ["deepseek-v4-flash"],
+      kimi: []
     },
     availableModelCatalogByProvider: {
       openai: {
@@ -133,6 +134,7 @@ function createRuntimeSettingsState(): AdminRuntimeProviderSettingsState {
           }
         ]
       },
+      kimi: { models: [] },
       runway: {
         models: []
       },
@@ -155,6 +157,11 @@ function createRuntimeSettingsState(): AdminRuntimeProviderSettingsState {
         updatedAt: null
       },
       deepseek: {
+        configured: false,
+        lastFour: null,
+        updatedAt: null
+      },
+      kimi: {
         configured: false,
         lastFour: null,
         updatedAt: null
@@ -385,7 +392,7 @@ describe("AdminRuntimePage catalog picker", () => {
       const optionValues = within(select)
         .getAllByRole("option")
         .map((option) => option.textContent);
-      expect(optionValues).toEqual(["OpenAI", "Anthropic", "DeepSeek"]);
+      expect(optionValues).toEqual(["OpenAI", "Anthropic", "DeepSeek", "Kimi"]);
     }
   });
 
@@ -398,7 +405,8 @@ describe("AdminRuntimePage catalog picker", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /Provider Model Catalog/i }));
 
-    fireEvent.click(screen.getAllByRole("button", { name: "Add model" })[3]!);
+    // Catalog order: openai, anthropic, deepseek, kimi, runway, kling, heygen
+    fireEvent.click(screen.getAllByRole("button", { name: "Add model" })[4]!);
 
     const runwayBillingMode = screen.getAllByLabelText("Billing mode").at(-1)!;
     expect(runwayBillingMode).toHaveValue("time_metered");
@@ -436,7 +444,50 @@ describe("AdminRuntimePage catalog picker", () => {
     expect(request.availableModelsByProvider).toEqual({
       openai: ["gpt-5.4"],
       anthropic: [],
-      deepseek: ["deepseek-v4-flash"]
+      deepseek: ["deepseek-v4-flash"],
+      kimi: []
+    });
+  }, 30_000);
+
+  it("seeds kimi-k3 token pricing when adding a Kimi catalog row", async () => {
+    render(<AdminRuntimePage />);
+
+    await waitFor(() =>
+      expect(apiMocks.getAdminRuntimeProviderSettings).toHaveBeenCalledWith("token-1")
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Provider Model Catalog/i }));
+    // Catalog order: openai, anthropic, deepseek, kimi, runway, kling, heygen
+    fireEvent.click(screen.getAllByRole("button", { name: "Add model" })[3]!);
+
+    fireEvent.change(screen.getAllByLabelText("Model key").at(-1)!, {
+      target: { value: "kimi-k3" }
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(apiMocks.putAdminRuntimeProviderSettings).toHaveBeenCalledWith(
+        "token-1",
+        expect.any(Object)
+      )
+    );
+
+    const request = apiMocks.putAdminRuntimeProviderSettings.mock.calls.at(-1)?.[1];
+    expect(request.availableModelCatalogByProvider.kimi.models).toHaveLength(1);
+    expect(request.availableModelCatalogByProvider.kimi.models[0]).toMatchObject({
+      model: "kimi-k3",
+      capabilities: ["chat"],
+      billingMode: "token_metered",
+      providerPriceMetadata: {
+        currency: "USD",
+        tokenPricing: {
+          inputPer1M: 3.0,
+          cacheCreationInputPer1M: 0,
+          cachedInputPer1M: 0.3,
+          outputPer1M: 15.0
+        }
+      }
     });
   });
 
@@ -448,7 +499,8 @@ describe("AdminRuntimePage catalog picker", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: /Provider Model Catalog/i }));
-    fireEvent.click(screen.getAllByRole("button", { name: "Add model" })[4]!);
+    // Catalog order: openai, anthropic, deepseek, kimi, runway, kling, heygen
+    fireEvent.click(screen.getAllByRole("button", { name: "Add model" })[5]!);
 
     fireEvent.change(screen.getAllByLabelText("Model key").at(-1)!, {
       target: { value: "kling-v3" }

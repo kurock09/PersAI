@@ -5,23 +5,33 @@ import type {
 } from "@persai/runtime-contract";
 import {
   providerAcceptsMultimodalInput,
+  providerAcceptsPdfInput,
+  resolveMultimodalSanitizeStripMode,
   sanitizeMultimodalContentBlocks,
   sanitizeMultimodalMessages,
   type DescribableContentBlock
 } from "../src/modules/turns/runtime-text-only-multimodal-sanitizer";
 
 /**
- * ADR-124 — the text-only multimodal sanitizer turns inline image/PDF blocks
- * into text for providers (DeepSeek) whose chat API cannot accept pixels, while
- * leaving vision-capable providers (OpenAI/Anthropic) untouched. These tests
- * pin: the provider gate, block→text replacement, the explicit placeholder on
- * a null/failed describe (never a silent drop or raw pixels), and idempotency
- * so re-running across tool-loop iterations triggers no redundant describe.
+ * ADR-124 / ADR-163 — multimodal sanitizer turns unsupported image/PDF blocks
+ * into text. DeepSeek is fully text-only; Kimi keeps images and strips PDFs;
+ * OpenAI/Anthropic accept both and are never sanitized here.
  */
 export async function runRuntimeTextOnlyMultimodalSanitizerTest(): Promise<void> {
   assert.equal(providerAcceptsMultimodalInput("openai"), true);
   assert.equal(providerAcceptsMultimodalInput("anthropic"), true);
+  assert.equal(providerAcceptsMultimodalInput("kimi"), true);
   assert.equal(providerAcceptsMultimodalInput("deepseek"), false);
+
+  assert.equal(providerAcceptsPdfInput("openai"), true);
+  assert.equal(providerAcceptsPdfInput("anthropic"), true);
+  assert.equal(providerAcceptsPdfInput("kimi"), false);
+  assert.equal(providerAcceptsPdfInput("deepseek"), false);
+
+  assert.equal(resolveMultimodalSanitizeStripMode("openai"), null);
+  assert.equal(resolveMultimodalSanitizeStripMode("anthropic"), null);
+  assert.equal(resolveMultimodalSanitizeStripMode("kimi"), "pdf_only");
+  assert.equal(resolveMultimodalSanitizeStripMode("deepseek"), "all_non_text");
 
   const imageBlock: ProviderGatewayMessageContentBlock = {
     type: "image",
@@ -69,6 +79,45 @@ export async function runRuntimeTextOnlyMultimodalSanitizerTest(): Promise<void>
     "sanitized content must not carry base64 pixel data"
   );
 
+  // ── ADR-163 Kimi: keep images, describe-away PDF only. ──
+  describeCalls = 0;
+  const kimiMixed: ProviderGatewayMessageContentBlock[] = [
+    { type: "text", text: "look" },
+    imageBlock,
+    pdfBlock
+  ];
+  const kimiSanitized = await sanitizeMultimodalContentBlocks(kimiMixed, describe, "pdf_only");
+  assert.equal(kimiSanitized.changed, true);
+  assert.equal(describeCalls, 1, "kimi pdf_only must describe only the PDF block");
+  assert.deepEqual(
+    kimiSanitized.blocks.map((block) => block.type),
+    ["text", "image", "text"]
+  );
+  assert.equal(kimiSanitized.blocks[1], imageBlock, "kimi must keep the raw image block");
+  const kimiPdfText = kimiSanitized.blocks[2];
+  assert.ok(kimiPdfText?.type === "text" && /report\.pdf/.test(kimiPdfText.text));
+  assert.ok(kimiPdfText.type === "text" && /quarterly revenue table/.test(kimiPdfText.text));
+  assert.equal(
+    JSON.stringify(kimiSanitized.blocks[2]).includes("dataBase64"),
+    false,
+    "kimi PDF sanitize must not leave PDF base64 in the replaced text block"
+  );
+
+  // Image-only content under pdf_only is a no-op (same reference).
+  describeCalls = 0;
+  const kimiImagesOnly: ProviderGatewayMessageContentBlock[] = [
+    { type: "text", text: "photo" },
+    imageBlock
+  ];
+  const kimiImagesResult = await sanitizeMultimodalContentBlocks(
+    kimiImagesOnly,
+    describe,
+    "pdf_only"
+  );
+  assert.equal(kimiImagesResult.changed, false);
+  assert.equal(kimiImagesResult.blocks, kimiImagesOnly);
+  assert.equal(describeCalls, 0);
+
   // ── Idempotency: text-only content returns the SAME reference, no describe. ──
   describeCalls = 0;
   const alreadyText: ProviderGatewayMessageContentBlock[] = [{ type: "text", text: "hi" }];
@@ -112,4 +161,19 @@ export async function runRuntimeTextOnlyMultimodalSanitizerTest(): Promise<void>
   const reSanitized = await sanitizeMultimodalMessages(sanitizedMessages, describe);
   assert.equal(reSanitized, sanitizedMessages);
   assert.equal(describeCalls, 0);
+
+  // ── Kimi messages: PDF stripped, image retained across the message array. ──
+  describeCalls = 0;
+  const kimiMessages: ProviderGatewayTextMessage[] = [
+    { role: "user", content: [{ type: "text", text: "docs" }, imageBlock, pdfBlock] }
+  ];
+  const kimiMessageResult = await sanitizeMultimodalMessages(kimiMessages, describe, "pdf_only");
+  assert.notEqual(kimiMessageResult, kimiMessages);
+  assert.equal(describeCalls, 1);
+  const kimiUserContent = kimiMessageResult[0]?.content;
+  assert.ok(Array.isArray(kimiUserContent));
+  assert.deepEqual(
+    (kimiUserContent as ProviderGatewayMessageContentBlock[]).map((block) => block.type),
+    ["text", "image", "text"]
+  );
 }

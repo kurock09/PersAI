@@ -1,5 +1,37 @@
 # SESSION-HANDOFF
 
+## 2026-07-23 — ADR-163 commit+push after gates
+
+Local gates before push: lint, format:check, full workspace typecheck,
+api/runtime/provider-gateway full test suites green; focused web ADR-163
+tests green; Composer audits CLEAN. Fixed last API fixture missing `kimi`
+in catalog keys. Parallel full-web run had unrelated timeout flakes under
+load; ADR paths pass isolated. Next after push: deploy → Admin
+`kimi/api-key` → live smoke. Keep separate from ADR-161/162.
+
+## 2026-07-23 — ADR-163 Composer triple audit → CLEAN
+
+Three Composer-2.5 hostile audits of full ADR-163:
+- Gateway/usage: CLEAN
+- Runtime/docs: CLEAN
+- Contracts/admin: DIRTY P1 dead `runtime-provider-profile-admin` (+ P2
+  Admin Add-model zero pricing for kimi-k3)
+Fixes landed: deleted dead dual admin module; Admin Add-model seeds
+kimi-k3 0.3/3/15; Composer re-audit admin scope CLEAN. Residual P2 only
+(hand-maintained unions / optional test gaps) — not push-blocking.
+
+## 2026-07-23 — ADR-163 Kimi provider P0–P5 local CLEAN
+
+Fourth chat provider `kimi` landed locally on baseline `f6214543`. Not a
+DeepSeek fork: new `KimiProviderClient` → `api.moonshot.ai/v1`; usage v2
+top-level `cached_tokens`; secret `kimi/api-key`; primary seed `kimi-k3`
+(0.30/3/15); multimodal images on, PDF stripped (`pdf_only`); Admin
+ProviderSelect derived from `MANAGED_RUNTIME_PROVIDERS`. Independent audits
+CLEAN after P0 ProviderSelect + PDF fixes. Lint/format/typecheck green.
+**No push.** Next: founder commit+push when ready → deploy → live smoke
+(chat, ≥20-step tool loop, image vision, usage cache reads). Keep separate
+from ADR-161/162.
+
 ## 2026-07-23 — Stick through stream settle (committed chrome)
 
 Follow stopped when `isStreaming` flipped false, so action chips / final lines

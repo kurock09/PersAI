@@ -1,7 +1,9 @@
 import { HttpException } from "@nestjs/common";
 import type { AssistantRuntimeBundle } from "@persai/runtime-bundle";
 import {
+  isPersaiNativeManagedChatProvider,
   isRetryableProviderGatewayTextErrorKind,
+  type PersaiNativeManagedChatProvider,
   type ProviderGatewayTextFailedEvent
 } from "@persai/runtime-contract";
 import {
@@ -9,7 +11,7 @@ import {
   ProviderGatewayTimeoutError
 } from "./provider-gateway.client.service";
 
-export type NativeManagedProvider = "openai" | "anthropic" | "deepseek";
+export type NativeManagedProvider = PersaiNativeManagedChatProvider;
 
 export type ProviderSelection = {
   provider: NativeManagedProvider;
@@ -30,7 +32,7 @@ function asObject(value: unknown): Record<string, unknown> | null {
 }
 
 function asNativeManagedProvider(value: unknown): NativeManagedProvider | null {
-  return value === "openai" || value === "anthropic" || value === "deepseek" ? value : null;
+  return isPersaiNativeManagedChatProvider(value) ? value : null;
 }
 
 function asNonEmptyString(value: unknown): string | null {

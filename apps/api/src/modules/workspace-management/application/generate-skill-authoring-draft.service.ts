@@ -26,7 +26,7 @@ import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/
 const AUTHORING_TIMEOUT_MS = 60_000;
 const AUTHORING_MAX_OUTPUT_TOKENS = 2_400;
 
-type AuthoringProviderKey = "openai" | "anthropic" | "deepseek";
+type AuthoringProviderKey = "openai" | "anthropic" | "deepseek" | "kimi";
 
 @Injectable()
 export class GenerateSkillAuthoringDraftService {
@@ -185,7 +185,7 @@ export class GenerateSkillAuthoringDraftService {
     ) {
       return primaryProvider;
     }
-    for (const provider of ["openai", "anthropic", "deepseek"] as const) {
+    for (const provider of ["openai", "anthropic", "deepseek", "kimi"] as const) {
       if (
         getRuntimeProviderCatalogModelsByCapability(
           settings.availableModelCatalogByProvider[provider],

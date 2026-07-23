@@ -57,7 +57,7 @@ export interface AssistantRuntimeWebChatTurnInput {
   assistantId: string;
   publishedVersionId: string;
   runtimeTier?: RuntimeTier;
-  providerOverride?: "openai" | "anthropic" | "deepseek";
+  providerOverride?: "openai" | "anthropic" | "deepseek" | "kimi";
   modelOverride?: string;
   chatId: string;
   surfaceThreadKey: string;

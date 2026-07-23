@@ -13,6 +13,7 @@ export const ManagedRuntimeCatalogProvider = {
   openai: "openai",
   anthropic: "anthropic",
   deepseek: "deepseek",
+  kimi: "kimi",
   runway: "runway",
   kling: "kling",
   heygen: "heygen"

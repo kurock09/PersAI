@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import type { ProviderGatewayConfig } from "@persai/config";
 import { AnthropicProviderClient } from "../src/modules/providers/anthropic/anthropic-provider.client";
 import { DeepSeekProviderClient } from "../src/modules/providers/deepseek/deepseek-provider.client";
+import { KimiProviderClient } from "../src/modules/providers/kimi/kimi-provider.client";
 import { OpenAIProviderClient } from "../src/modules/providers/openai/openai-provider.client";
 import { ProviderGatewayReadinessService } from "../src/modules/platform-core/application/provider-gateway-readiness.service";
 import {
@@ -49,6 +50,9 @@ export async function runProviderWarmupBootRecoveryTest(): Promise<void> {
         if (secretId === "deepseek/api-key") {
           return "deepseek-managed-test-key";
         }
+        if (secretId === "kimi/api-key") {
+          return "kimi-managed-test-key";
+        }
         throw new Error(`Unexpected secret id ${secretId}`);
       }
     } as Pick<
@@ -57,7 +61,8 @@ export async function runProviderWarmupBootRecoveryTest(): Promise<void> {
     > as PersaiInternalApiClientService,
     new OpenAIProviderClient(config),
     new AnthropicProviderClient(config),
-    new DeepSeekProviderClient(config)
+    new DeepSeekProviderClient(config),
+    new KimiProviderClient(config)
   );
   const readinessService = new ProviderGatewayReadinessService(warmupService);
 
@@ -100,6 +105,9 @@ export async function runProviderWarmupBootRecoveryLoopTest(): Promise<void> {
         if (secretId === "deepseek/api-key") {
           return "deepseek-managed-test-key";
         }
+        if (secretId === "kimi/api-key") {
+          return "kimi-managed-test-key";
+        }
         throw new Error(`Unexpected secret id ${secretId}`);
       }
     } as Pick<
@@ -108,7 +116,8 @@ export async function runProviderWarmupBootRecoveryLoopTest(): Promise<void> {
     > as PersaiInternalApiClientService,
     new OpenAIProviderClient(config),
     new AnthropicProviderClient(config),
-    new DeepSeekProviderClient(config)
+    new DeepSeekProviderClient(config),
+    new KimiProviderClient(config)
   );
   const readinessService = new ProviderGatewayReadinessService(warmupService);
 

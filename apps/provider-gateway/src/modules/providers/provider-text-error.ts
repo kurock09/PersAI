@@ -5,7 +5,7 @@ import type {
   ProviderGatewayTextFailedEvent
 } from "@persai/runtime-contract";
 
-type NativeManagedProvider = "openai" | "anthropic" | "deepseek";
+type NativeManagedProvider = "openai" | "anthropic" | "deepseek" | "kimi";
 
 type ClassifiedProviderTextError = {
   status: number | null;

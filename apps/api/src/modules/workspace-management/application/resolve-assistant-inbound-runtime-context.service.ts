@@ -16,7 +16,7 @@ import { EnsureAssistantMaterializedSpecCurrentService } from "./ensure-assistan
 import { ResolveActiveAssistantService } from "./resolve-active-assistant.service";
 
 type RuntimeModelOverride = {
-  provider: "openai" | "anthropic" | "deepseek";
+  provider: "openai" | "anthropic" | "deepseek" | "kimi";
   model: string;
 };
 

@@ -9,6 +9,7 @@ import {
 } from "@persai/runtime-contract";
 import { AnthropicProviderClient } from "./anthropic/anthropic-provider.client";
 import { DeepSeekProviderClient } from "./deepseek/deepseek-provider.client";
+import { KimiProviderClient } from "./kimi/kimi-provider.client";
 import { OpenAIProviderClient } from "./openai/openai-provider.client";
 import { normalizeModelKey, toNormalizedNonEmptyModelKey } from "./model-key-normalization";
 import { ProviderWarmupService } from "./provider-warmup.service";
@@ -21,7 +22,8 @@ export class ProviderTextGenerationService {
     private readonly providerWarmupService: ProviderWarmupService,
     private readonly openaiProviderClient: OpenAIProviderClient,
     private readonly anthropicProviderClient: AnthropicProviderClient,
-    private readonly deepseekProviderClient: DeepSeekProviderClient
+    private readonly deepseekProviderClient: DeepSeekProviderClient,
+    private readonly kimiProviderClient: KimiProviderClient
   ) {}
 
   async generateText(
@@ -38,6 +40,8 @@ export class ProviderTextGenerationService {
           return this.anthropicProviderClient.generateText(input);
         case "deepseek":
           return this.deepseekProviderClient.generateText(input);
+        case "kimi":
+          return this.kimiProviderClient.generateText(input);
       }
     })();
     return result;
@@ -66,6 +70,8 @@ export class ProviderTextGenerationService {
           return this.anthropicProviderClient.streamText(input, signal);
         case "deepseek":
           return this.deepseekProviderClient.streamText(input, signal);
+        case "kimi":
+          return this.kimiProviderClient.streamText(input, signal);
       }
     })();
     return stream;

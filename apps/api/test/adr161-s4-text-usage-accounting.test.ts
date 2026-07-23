@@ -3,7 +3,7 @@ import { describe, test } from "node:test";
 import { decodeTextGenerationUsageForApi } from "../src/modules/workspace-management/application/text-generation-usage-accounting";
 
 function v2Entry(input: {
-  providerKey: "openai" | "anthropic" | "deepseek";
+  providerKey: "openai" | "anthropic" | "deepseek" | "kimi";
   uncached: number;
   write: number;
   read: number;

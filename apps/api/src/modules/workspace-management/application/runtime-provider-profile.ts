@@ -2,6 +2,7 @@ export const RUNTIME_PROVIDER_PROFILE_SCHEMA = "persai.runtimeProviderProfile.v1
 export const RUNTIME_PROVIDER_CREDENTIAL_REFS_SCHEMA = "persai.runtimeProviderCredentialRefs.v1";
 import { applyDerivedTokenMeteredWeights } from "@persai/types";
 import {
+  PERSAI_NATIVE_MANAGED_CHAT_PROVIDERS,
   PERSAI_RUNTIME_VIDEO_ASPECT_RATIOS,
   PERSAI_RUNTIME_VIDEO_GENERATE_SIZES,
   type PersaiRuntimeVideoAspectRatio,
@@ -17,11 +18,12 @@ import {
 } from "@persai/runtime-contract";
 import { normalizeModelKey, toNormalizedNonEmptyModelKey } from "./model-key-normalization";
 
-export const CHAT_ROUTING_PROVIDERS = ["openai", "anthropic", "deepseek"] as const;
+export const CHAT_ROUTING_PROVIDERS = PERSAI_NATIVE_MANAGED_CHAT_PROVIDERS;
 export const MANAGED_CATALOG_PROVIDERS = [
   "openai",
   "anthropic",
   "deepseek",
+  "kimi",
   "runway",
   "kling",
   "heygen"
@@ -145,6 +147,34 @@ export const MODEL_CAPABILITY_DEFAULTS: Partial<
   "deepseek-v4-pro": {
     contextWindow: 1_000_000,
     maxOutputTokens: 384_000
+  },
+  "kimi-k3": {
+    contextWindow: 1_000_000,
+    maxOutputTokens: null
+  },
+  "kimi-k2.6": {
+    contextWindow: 256_000,
+    maxOutputTokens: null
+  }
+};
+
+/** ADR-163 — published Moonshot token prices (USD / 1M) for catalog seed defaults. */
+export const MODEL_TOKEN_PRICING_DEFAULTS: Partial<
+  Record<
+    string,
+    {
+      inputPer1M: number;
+      cacheCreationInputPer1M: number;
+      cachedInputPer1M: number;
+      outputPer1M: number;
+    }
+  >
+> = {
+  "kimi-k3": {
+    inputPer1M: 3.0,
+    cacheCreationInputPer1M: 0,
+    cachedInputPer1M: 0.3,
+    outputPer1M: 15.0
   }
 };
 
@@ -453,7 +483,8 @@ function createEmptyAvailableModelsByProvider(): RuntimeProviderAvailableModelsB
   return {
     openai: [],
     anthropic: [],
-    deepseek: []
+    deepseek: [],
+    kimi: []
   };
 }
 
@@ -462,6 +493,7 @@ function createEmptyModelCatalogByProvider(): RuntimeProviderModelCatalogByProvi
     openai: { models: [] },
     anthropic: { models: [] },
     deepseek: { models: [] },
+    kimi: { models: [] },
     runway: { models: [] },
     kling: { models: [] },
     heygen: { models: [] }
@@ -1070,6 +1102,7 @@ function parseModelCatalogByProvider(
       openai: { models: createDefaultModelProfiles(chatFallback.openai, ["chat"]) },
       anthropic: { models: createDefaultModelProfiles(chatFallback.anthropic, ["chat"]) },
       deepseek: { models: createDefaultModelProfiles(chatFallback.deepseek, ["chat"]) },
+      kimi: { models: createDefaultModelProfiles(chatFallback.kimi, ["chat"]) },
       runway: { models: [] },
       kling: { models: [] },
       heygen: { models: [] }
@@ -1134,11 +1167,14 @@ function createDefaultModelProfiles(
       notes: null
     };
     if (billingMode === "token_metered") {
+      const pricingDefaults = MODEL_TOKEN_PRICING_DEFAULTS[model];
       return {
         ...base,
         billingMode,
         cacheWriteInputTokenWeight: DEFAULT_RUNTIME_PROVIDER_MODEL_TOKEN_WEIGHT,
-        providerPriceMetadata: createDefaultRuntimeProviderPriceMetadata("token_metered")
+        providerPriceMetadata: pricingDefaults
+          ? { currency: "USD" as const, tokenPricing: { ...pricingDefaults } }
+          : createDefaultRuntimeProviderPriceMetadata("token_metered")
       };
     }
     if (billingMode === "time_metered") {

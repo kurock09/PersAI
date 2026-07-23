@@ -314,7 +314,7 @@ export class ResolveAdminBusinessPlatformService {
             BOOL_AND(
               jsonb_typeof(entry.value) = 'object'
               AND entry.value ->> 'schemaVersion' = '2'
-              AND COALESCE(entry.value ->> 'providerKey', '') IN ('openai', 'anthropic', 'deepseek')
+              AND COALESCE(entry.value ->> 'providerKey', '') IN ('openai', 'anthropic', 'deepseek', 'kimi')
               AND length(trim(COALESCE(entry.value ->> 'modelKey', ''))) > 0
               AND jsonb_typeof(entry.value -> 'totalInputTokens') = 'number'
               AND jsonb_typeof(entry.value -> 'uncachedInputTokens') = 'number'

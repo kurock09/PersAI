@@ -6,6 +6,7 @@ import {
   NotFoundException
 } from "@nestjs/common";
 import { clampPlanMaxFilePreviewBytes } from "@persai/config";
+import { PERSAI_MULTIMODAL_INPUT_CHAT_PROVIDERS } from "@persai/runtime-contract";
 import {
   ASSISTANT_PLAN_CATALOG_REPOSITORY,
   type AssistantPlanCatalogRepository,
@@ -124,11 +125,12 @@ function toNullableString(value: unknown): string | null {
 const MAX_PLAN_HIGHLIGHT_ITEMS = 8;
 
 /**
- * ADR-124 — providers whose chat API accepts inline image/PDF input. The
- * systemTool slot must resolve to one of these because it describes visual
- * uploads for text-only chat models (e.g. DeepSeek).
+ * ADR-124 / ADR-163 — providers whose chat API accepts inline image input.
+ * Canonical allowlist is shared via runtime-contract.
  */
-const MULTIMODAL_INPUT_PROVIDER_KEYS: ReadonlySet<string> = new Set(["openai", "anthropic"]);
+const MULTIMODAL_INPUT_PROVIDER_KEYS: ReadonlySet<string> = new Set(
+  PERSAI_MULTIMODAL_INPUT_CHAT_PROVIDERS
+);
 
 function parseCurrencyCode(value: unknown, fieldName: string): string | null {
   if (value === null || value === undefined || value === "") {
@@ -1561,11 +1563,13 @@ export class ManageAdminPlansService {
       modelKey: string | null;
       fieldLabel: string;
       /**
-       * ADR-124 — the systemTool slot doubles as the vision helper that
-       * describes image/PDF uploads for text-only main models (e.g. DeepSeek).
-       * It must therefore resolve to a provider whose chat API accepts inline
-       * image/PDF input (OpenAI/Anthropic), or vision describe would silently
-       * degrade to placeholders.
+       * ADR-124 / ADR-163 — the systemTool slot doubles as the vision helper
+       * that describes image uploads for text-only main models (e.g. DeepSeek)
+       * and PDF uploads for image-only chat providers (e.g. Kimi). It must
+       * resolve to a multimodal image provider (openai/anthropic/kimi), or
+       * vision describe would silently degrade to placeholders. PDF describe
+       * still requires an openai/anthropic systemTool when the attachment is
+       * a PersAI PDF block.
        */
       requireMultimodalProvider?: boolean;
     }>,
@@ -1617,7 +1621,7 @@ export class ManageAdminPlansService {
             MULTIMODAL_INPUT_PROVIDER_KEYS
           ).join(
             ", "
-          )}) because it analyzes image/PDF uploads for text-only chat models; "${effectiveProviderKey}" does not accept image input.`
+          )}) because it analyzes image uploads (and PDF via openai/anthropic) for chat models that cannot ingest those blocks; "${effectiveProviderKey}" does not accept image input.`
         );
       }
     }

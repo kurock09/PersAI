@@ -88,8 +88,8 @@ export class InternalRuntimeConfigGenerationController {
   async getDefaultProviderSettings(@Req() req: InternalRequestLike): Promise<{
     generation: number;
     mode: "unconfigured_default" | "global_settings";
-    primary: { provider: "openai" | "anthropic" | "deepseek"; model: string } | null;
-    availableModelsByProvider: Record<"openai" | "anthropic" | "deepseek", string[]>;
+    primary: { provider: "openai" | "anthropic" | "deepseek" | "kimi"; model: string } | null;
+    availableModelsByProvider: Record<"openai" | "anthropic" | "deepseek" | "kimi", string[]>;
   }> {
     this.assertAuthorized(req);
     const [generation, settings] = await Promise.all([

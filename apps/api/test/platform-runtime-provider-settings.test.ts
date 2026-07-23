@@ -179,7 +179,8 @@ async function run(): Promise<void> {
     availableModelsByProvider: {
       openai: ["gpt‑5.4", "gpt‑5.4-mini"],
       anthropic: ["claude-sonnet-4-5"],
-      deepseek: ["deepseek-v4-flash", "deepseek-v4-pro"]
+      deepseek: ["deepseek-v4-flash", "deepseek-v4-pro"],
+      kimi: []
     },
     availableModelCatalogByProvider: {
       openai: {
@@ -374,6 +375,7 @@ async function run(): Promise<void> {
     "anthropic",
     "deepseek",
     "heygen",
+    "kimi",
     "kling",
     "openai",
     "runway"
@@ -517,7 +519,8 @@ async function run(): Promise<void> {
   assert.deepEqual(parsedWithVideoCatalogProviders.availableModelsByProvider, {
     openai: ["gpt-5.4", "gpt-5.4-mini"],
     anthropic: ["claude-sonnet-4-5"],
-    deepseek: ["deepseek-v4-flash", "deepseek-v4-pro"]
+    deepseek: ["deepseek-v4-flash", "deepseek-v4-pro"],
+    kimi: []
   });
   assert.deepEqual(
     parsedWithVideoCatalogProviders.availableModelCatalogByProvider.runway.models.map(
@@ -1198,9 +1201,10 @@ async function run(): Promise<void> {
   assert.deepEqual(profile.availableModelsByProvider, {
     openai: ["gpt-5.4", "gpt-5.4-mini"],
     anthropic: ["claude-sonnet-4-5"],
-    deepseek: []
+    deepseek: [],
+    kimi: []
   });
-  assert.deepEqual(profile.allowedProviders, ["openai", "anthropic", "deepseek"]);
+  assert.deepEqual(profile.allowedProviders, ["openai", "anthropic", "deepseek", "kimi"]);
   assert.deepEqual(
     profile.availableModelCatalogByProvider.openai.models
       .filter((modelProfile) => modelProfile.capabilities.includes("image"))
@@ -1309,7 +1313,7 @@ function runAdr161CacheWriteWeightTests() {
       fallbackModel: null,
       routingFastModelKey: null,
       routerPolicy: {},
-      availableModelsByProvider: { openai: ["gpt-5.4"], anthropic: [], deepseek: [] },
+      availableModelsByProvider: { openai: ["gpt-5.4"], anthropic: [], deepseek: [], kimi: [] },
       availableModelCatalogByProvider: minimalCatalogInput({
         inputTokenWeight: 4,
         providerPriceMetadata: pricing
@@ -1505,6 +1509,29 @@ function runAdr122SeedingTests() {
   assert.equal(unknownModel?.maxOutputTokens, null, "unknown model seeds null maxOutputTokens");
   assert.equal(unknownModel?.contextWindow, null, "unknown model seeds null contextWindow");
   assert.equal(unknownModel?.promptCachePolicy, null, "unknown model seeds null promptCachePolicy");
+
+  const fromLegacyKimi = parseUpdatePlatformRuntimeProviderSettingsInput({
+    primary: { provider: "kimi", model: "kimi-k3" },
+    fallback: null,
+    availableModelsByProvider: { openai: [], anthropic: [], deepseek: [], kimi: ["kimi-k3"] },
+    availableModelCatalogByProvider: null
+  });
+  const kimiModel = fromLegacyKimi.availableModelCatalogByProvider.kimi.models.find(
+    (m) => m.model === "kimi-k3"
+  );
+  assert.deepEqual(
+    kimiModel?.providerPriceMetadata,
+    {
+      currency: "USD",
+      tokenPricing: {
+        inputPer1M: 3.0,
+        cacheCreationInputPer1M: 0,
+        cachedInputPer1M: 0.3,
+        outputPer1M: 15.0
+      }
+    },
+    "kimi-k3 legacy synthesis seeds published token pricing"
+  );
 
   // Null on an UNKNOWN model row round-trips as null (gpt-5.4 is not in defaults).
   const withExplicitNullCatalog = parseUpdatePlatformRuntimeProviderSettingsInput(

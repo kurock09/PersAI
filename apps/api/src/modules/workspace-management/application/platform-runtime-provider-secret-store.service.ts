@@ -49,7 +49,7 @@ export class PlatformRuntimeProviderSecretStoreService {
     const rows = await this.prisma.platformRuntimeProviderSecret.findMany({
       where: {
         providerKey: {
-          in: ["openai", "anthropic", "deepseek"]
+          in: ["openai", "anthropic", "deepseek", "kimi"]
         }
       },
       select: {
@@ -74,12 +74,22 @@ export class PlatformRuntimeProviderSecretStoreService {
         configured: false,
         lastFour: null,
         updatedAt: null
+      },
+      kimi: {
+        configured: false,
+        lastFour: null,
+        updatedAt: null
       }
     };
 
     for (const row of rows) {
       const provider = row.providerKey;
-      if (provider !== "openai" && provider !== "anthropic" && provider !== "deepseek") {
+      if (
+        provider !== "openai" &&
+        provider !== "anthropic" &&
+        provider !== "deepseek" &&
+        provider !== "kimi"
+      ) {
         continue;
       }
       metadata[provider] = {

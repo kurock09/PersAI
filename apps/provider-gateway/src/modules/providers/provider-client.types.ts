@@ -1,4 +1,6 @@
-export const PROVIDER_GATEWAY_PROVIDERS = ["openai", "anthropic", "deepseek"] as const;
+import { PERSAI_NATIVE_MANAGED_CHAT_PROVIDERS } from "@persai/runtime-contract";
+
+export const PROVIDER_GATEWAY_PROVIDERS = PERSAI_NATIVE_MANAGED_CHAT_PROVIDERS;
 
 export type ProviderGatewayProvider = (typeof PROVIDER_GATEWAY_PROVIDERS)[number];
 

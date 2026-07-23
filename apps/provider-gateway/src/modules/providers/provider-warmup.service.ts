@@ -10,6 +10,7 @@ import type { ProviderGatewayConfig } from "@persai/config";
 import { PROVIDER_GATEWAY_CONFIG } from "../../provider-gateway-config";
 import { AnthropicProviderClient } from "./anthropic/anthropic-provider.client";
 import { DeepSeekProviderClient } from "./deepseek/deepseek-provider.client";
+import { KimiProviderClient } from "./kimi/kimi-provider.client";
 import { OpenAIProviderClient } from "./openai/openai-provider.client";
 import { toNormalizedNonEmptyModelKey } from "./model-key-normalization";
 import type {
@@ -36,7 +37,8 @@ function createEmptyCatalogByProvider(): ProviderCatalogByProvider {
   return {
     openai: [],
     anthropic: [],
-    deepseek: []
+    deepseek: [],
+    kimi: []
   };
 }
 
@@ -63,7 +65,8 @@ type ProviderCatalogState = {
 const MANAGED_PROVIDER_SECRET_IDS: Record<ProviderGatewayProvider, string> = {
   openai: "openai/api-key",
   anthropic: "anthropic/api-key",
-  deepseek: "deepseek/api-key"
+  deepseek: "deepseek/api-key",
+  kimi: "kimi/api-key"
 };
 
 @Injectable()
@@ -83,9 +86,15 @@ export class ProviderWarmupService implements OnModuleInit, OnModuleDestroy {
     private readonly persaiInternalApiClientService: PersaiInternalApiClientService,
     openaiProviderClient: OpenAIProviderClient,
     anthropicProviderClient: AnthropicProviderClient,
-    deepseekProviderClient: DeepSeekProviderClient
+    deepseekProviderClient: DeepSeekProviderClient,
+    kimiProviderClient: KimiProviderClient
   ) {
-    this.clients = [openaiProviderClient, anthropicProviderClient, deepseekProviderClient];
+    this.clients = [
+      openaiProviderClient,
+      anthropicProviderClient,
+      deepseekProviderClient,
+      kimiProviderClient
+    ];
 
     for (const client of this.clients) {
       const catalogState = this.resolveCatalogState(client, null);

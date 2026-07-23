@@ -71,7 +71,7 @@ export class ResolvePlatformRuntimeProviderSettingsService {
     value: string,
     fallback: ManagedRuntimeProvider | null
   ): ManagedRuntimeProvider | null {
-    if (value === "openai" || value === "anthropic" || value === "deepseek") {
+    if (value === "openai" || value === "anthropic" || value === "deepseek" || value === "kimi") {
       return value;
     }
     return fallback;

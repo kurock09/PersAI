@@ -9,6 +9,7 @@ import { runAnthropicEmptyCompletionTest } from "./anthropic-empty-completion.te
 import { runOpenAIProviderClientTest } from "./openai-provider.client.test";
 import { runOpenAIEmptyCompletionTest } from "./openai-empty-completion.test";
 import { runDeepSeekProviderClientTest } from "./deepseek-provider.client.test";
+import { runKimiProviderClientTest } from "./kimi-provider.client.test";
 import { runProviderDebugPayloadLoggerTest } from "./provider-debug-payload-logger.test";
 import { runProviderGatewayConfigTest } from "./provider-gateway-config.test";
 import { runProviderTextGenerationControllerTest } from "./provider-text-generation.controller.test";
@@ -39,6 +40,7 @@ async function run(): Promise<void> {
   await runOpenAIProviderClientTest();
   await runOpenAIEmptyCompletionTest();
   await runDeepSeekProviderClientTest();
+  await runKimiProviderClientTest();
   await runYandexProviderClientTest();
   await runProviderAudioTranscriptionServiceTest();
   await runHostBrowserScriptRegistryServiceTest();

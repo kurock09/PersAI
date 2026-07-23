@@ -89,12 +89,14 @@ async function run(): Promise<void> {
   assert.deepEqual(managed.availableModelsByProvider, {
     openai: [],
     anthropic: [],
-    deepseek: []
+    deepseek: [],
+    kimi: []
   });
   assert.deepEqual(Object.keys(managed.availableModelCatalogByProvider).sort(), [
     "anthropic",
     "deepseek",
     "heygen",
+    "kimi",
     "kling",
     "openai",
     "runway"
@@ -115,6 +117,7 @@ async function run(): Promise<void> {
           openai: ["gpt-5.4", "gpt-5.5"],
           anthropic: ["claude-sonnet-4-5"],
           deepseek: ["deepseek-v4-flash"],
+          kimi: [],
           runway: ["runway-gen-4"]
         },
         availableModelCatalogByProvider: {
@@ -171,7 +174,8 @@ async function run(): Promise<void> {
   assert.deepEqual(catalogOnlyManaged.availableModelsByProvider, {
     openai: ["gpt-5.4", "gpt-5.5"],
     anthropic: ["claude-sonnet-4-5"],
-    deepseek: ["deepseek-v4-flash"]
+    deepseek: ["deepseek-v4-flash"],
+    kimi: []
   });
   assert.deepEqual(
     catalogOnlyManaged.availableModelCatalogByProvider.runway.models.map(

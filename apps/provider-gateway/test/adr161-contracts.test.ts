@@ -221,6 +221,23 @@ export async function runAdr161ContractsTest(): Promise<void> {
   assert.equal(deepseek.status, "accounted");
   assert.equal(deepseek.status === "accounted" ? deepseek.entry.cacheReadInputTokens : null, 70);
 
+  const kimi = normalizeProviderTextGenerationUsageV2({
+    providerKey: "kimi",
+    ...metadata,
+    responseUsage: {
+      prompt_tokens: 100,
+      cached_tokens: 70,
+      completion_tokens: 20,
+      total_tokens: 120
+    }
+  });
+  assert.equal(kimi.status, "accounted");
+  if (kimi.status === "accounted") {
+    assert.equal(kimi.entry.cacheReadInputTokens, 70);
+    assert.equal(kimi.entry.uncachedInputTokens, 30);
+    assert.equal(kimi.entry.cacheWriteInputTokens, 0);
+  }
+
   const anthropic = normalizeProviderTextGenerationUsageV2({
     providerKey: "anthropic",
     ...metadata,

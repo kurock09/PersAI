@@ -10,4 +10,5 @@ export type AdminRuntimeProviderSettingsStateProviderKeys = {
   openai: AdminRuntimeProviderKeyState;
   anthropic: AdminRuntimeProviderKeyState;
   deepseek: AdminRuntimeProviderKeyState;
+  kimi: AdminRuntimeProviderKeyState;
 };

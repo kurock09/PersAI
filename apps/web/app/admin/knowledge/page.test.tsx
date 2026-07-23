@@ -43,7 +43,8 @@ describe("admin knowledge page helpers", () => {
         availableModelsByProvider: {
           openai: ["gpt-5.4-mini", "text-embedding-3-small"],
           anthropic: ["claude-4.6-sonnet-medium-thinking"],
-          deepseek: ["deepseek-v4-flash"]
+          deepseek: ["deepseek-v4-flash"],
+          kimi: []
         },
         availableModelCatalogByProvider: {
           openai: {
@@ -130,6 +131,7 @@ describe("admin knowledge page helpers", () => {
               }
             ]
           },
+          kimi: { models: [] },
           runway: {
             models: []
           },
@@ -155,7 +157,8 @@ describe("admin knowledge page helpers", () => {
         availableModelsByProvider: {
           openai: [],
           anthropic: [],
-          deepseek: []
+          deepseek: [],
+          kimi: []
         },
         availableModelCatalogByProvider: {
           openai: {
@@ -253,6 +256,7 @@ describe("admin knowledge page helpers", () => {
           deepseek: {
             models: []
           },
+          kimi: { models: [] },
           runway: {
             models: []
           },
@@ -372,12 +376,14 @@ describe("AdminKnowledgePage Smart Retrieval Limits (ADR-094)", () => {
             availableModelsByProvider: {
               openai: ["text-embedding-3-large"],
               anthropic: [],
-              deepseek: []
+              deepseek: [],
+              kimi: []
             },
             availableModelCatalogByProvider: {
               openai: { models: [] },
               anthropic: { models: [] },
               deepseek: { models: [] },
+              kimi: { models: [] },
               runway: { models: [] },
               kling: { models: [] },
               heygen: { models: [] }

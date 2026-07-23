@@ -12,5 +12,6 @@ export type ManagedRuntimeProvider =
 export const ManagedRuntimeProvider = {
   openai: "openai",
   anthropic: "anthropic",
-  deepseek: "deepseek"
+  deepseek: "deepseek",
+  kimi: "kimi"
 } as const;

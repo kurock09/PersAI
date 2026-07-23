@@ -40,7 +40,7 @@ import {
 import { RuntimeBundleAutoRefreshService } from "./runtime-bundle-auto-refresh.service";
 import { AutoExtractToMemoryService } from "./auto-extract-to-memory.service";
 
-type NativeManagedProvider = "openai" | "anthropic" | "deepseek";
+type NativeManagedProvider = "openai" | "anthropic" | "deepseek" | "kimi";
 type SlotPromptCachePolicyState =
   | { status: "configured"; policy: ProviderGatewayOpenAIPromptCachePolicy }
   | { status: "uncached" }
@@ -1143,7 +1143,9 @@ export class SessionCompactionService {
   }
 
   private asNativeManagedProvider(value: unknown): NativeManagedProvider | null {
-    return value === "openai" || value === "anthropic" || value === "deepseek" ? value : null;
+    return value === "openai" || value === "anthropic" || value === "deepseek" || value === "kimi"
+      ? value
+      : null;
   }
 
   private async releaseLeaseQuietly(lease: {

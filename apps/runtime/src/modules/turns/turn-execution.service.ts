@@ -163,6 +163,8 @@ import {
 import { TurnContextHydrationService } from "./turn-context-hydration.service";
 import {
   providerAcceptsMultimodalInput,
+  providerAcceptsPdfInput,
+  resolveMultimodalSanitizeStripMode,
   sanitizeMultimodalContentBlocks,
   sanitizeMultimodalMessages,
   type MultimodalBlockDescriber
@@ -199,7 +201,7 @@ import {
 } from "./catalog-tool-turn-metrics";
 import { resolveModelOutputBudget, APPROX_BYTES_PER_TOKEN } from "./model-output-budget";
 
-type NativeManagedProvider = "openai" | "anthropic" | "deepseek";
+type NativeManagedProvider = "openai" | "anthropic" | "deepseek" | "kimi";
 type SlotPromptCachePolicyState =
   | { status: "configured"; policy: ProviderGatewayOpenAIPromptCachePolicy }
   | { status: "uncached" }
@@ -7171,13 +7173,12 @@ export class TurnExecutionService {
   }
 
   /**
-   * ADR-124 — when the main turn is routed to a text-only provider (DeepSeek),
-   * inline image/PDF blocks cannot be sent to the chat model. We describe each
-   * such block once via the plan's `systemTool` slot (a vision-capable
-   * OpenAI/Anthropic model) and replace it with text. Vision-capable main
-   * providers keep their raw blocks and skip this path entirely. The describer
-   * returns null (→ explicit placeholder, never a silent drop or raw pixels)
-   * when the systemTool slot is not vision-capable or the describe call fails.
+   * ADR-124 / ADR-163 — when the main turn cannot ingest a given multimodal
+   * block (DeepSeek: image+PDF; Kimi: PDF-only), describe that block once via
+   * the plan's `systemTool` slot and replace it with text. OpenAI/Anthropic
+   * keep raw blocks. Image describe accepts any multimodal systemTool
+   * (openai/anthropic/kimi); PDF describe requires a PDF-capable systemTool
+   * (openai/anthropic). Null describe → explicit placeholder.
    */
   private buildTextOnlyMultimodalDescriber(
     execution: PreparedTurnExecution,
@@ -7191,6 +7192,10 @@ export class TurnExecutionService {
         : null;
     return async (block) => {
       if (visionSelection === null) {
+        return null;
+      }
+      // Kimi may be systemTool for image vision, but cannot ingest PersAI PDF blocks.
+      if (block.type === "pdf" && !providerAcceptsPdfInput(visionSelection.provider)) {
         return null;
       }
       const kind = block.type === "image" ? "image" : "PDF document";
@@ -7225,22 +7230,23 @@ export class TurnExecutionService {
   }
 
   /**
-   * ADR-124 — strip inline image/PDF blocks from the base turn messages once
-   * (idempotent: re-running on already text-only messages is a no-op), before
-   * the tool loop spreads them into every provider call. No-op for
-   * vision-capable main providers.
+   * ADR-124 / ADR-163 — strip unsupported multimodal blocks from base turn
+   * messages once before the tool loop. DeepSeek strips image+PDF; Kimi strips
+   * PDF only (images pass through). No-op for openai/anthropic.
    */
   private async sanitizeBaseRequestMultimodalForTextOnlyProvider(
     execution: PreparedTurnExecution,
     acceptedTurn: AcceptedRuntimeTurn
   ): Promise<void> {
-    if (providerAcceptsMultimodalInput(execution.providerRequest.provider)) {
+    const stripMode = resolveMultimodalSanitizeStripMode(execution.providerRequest.provider);
+    if (stripMode === null) {
       return;
     }
     const describe = this.buildTextOnlyMultimodalDescriber(execution, acceptedTurn);
     const sanitizedMessages = await sanitizeMultimodalMessages(
       execution.providerRequest.messages,
-      describe
+      describe,
+      stripMode
     );
     if (sanitizedMessages !== execution.providerRequest.messages) {
       execution.providerRequest = {
@@ -7251,23 +7257,28 @@ export class TurnExecutionService {
   }
 
   /**
-   * ADR-124 — strip inline image/PDF blocks from `files.preview`
-   * follow-up content before it reaches a text-only main provider. No-op for
-   * vision-capable main providers and for an absent block set.
+   * ADR-124 / ADR-163 — strip unsupported multimodal blocks from `files.preview`
+   * follow-up content. DeepSeek strips image+PDF; Kimi strips PDF only.
+   * No-op for openai/anthropic and for an absent block set.
    */
   private async sanitizePreviewBlocksMultimodalForTextOnlyProvider(
     execution: PreparedTurnExecution,
     acceptedTurn: AcceptedRuntimeTurn,
     blocks: ProviderGatewayMessageContentBlock[] | undefined
   ): Promise<ProviderGatewayMessageContentBlock[] | undefined> {
-    if (
-      blocks === undefined ||
-      providerAcceptsMultimodalInput(execution.providerRequest.provider)
-    ) {
+    if (blocks === undefined) {
+      return blocks;
+    }
+    const stripMode = resolveMultimodalSanitizeStripMode(execution.providerRequest.provider);
+    if (stripMode === null) {
       return blocks;
     }
     const describe = this.buildTextOnlyMultimodalDescriber(execution, acceptedTurn);
-    const { blocks: sanitized } = await sanitizeMultimodalContentBlocks(blocks, describe);
+    const { blocks: sanitized } = await sanitizeMultimodalContentBlocks(
+      blocks,
+      describe,
+      stripMode
+    );
     return sanitized;
   }
 
@@ -7696,7 +7707,9 @@ export class TurnExecutionService {
   }
 
   private asNativeManagedProvider(value: unknown): NativeManagedProvider | null {
-    return value === "openai" || value === "anthropic" || value === "deepseek" ? value : null;
+    return value === "openai" || value === "anthropic" || value === "deepseek" || value === "kimi"
+      ? value
+      : null;
   }
 
   private formatLogError(error: unknown): string {

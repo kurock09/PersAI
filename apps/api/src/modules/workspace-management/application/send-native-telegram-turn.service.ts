@@ -55,7 +55,7 @@ export interface SendNativeTelegramTurnInput {
   userTimezone?: string;
   currentTimeIso?: string;
   deepMode?: RuntimeTurnRequest["deepMode"];
-  providerOverride?: "openai" | "anthropic" | "deepseek";
+  providerOverride?: "openai" | "anthropic" | "deepseek" | "kimi";
   modelOverride?: string;
 }
 

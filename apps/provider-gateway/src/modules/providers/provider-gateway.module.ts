@@ -15,6 +15,7 @@ import { ProviderWarmupController } from "./interface/http/provider-warmup.contr
 import { ElevenLabsProviderClient } from "./elevenlabs/elevenlabs-provider.client";
 import { AnthropicProviderClient } from "./anthropic/anthropic-provider.client";
 import { DeepSeekProviderClient } from "./deepseek/deepseek-provider.client";
+import { KimiProviderClient } from "./kimi/kimi-provider.client";
 import { HeyGenProviderClient } from "./heygen/heygen-provider.client";
 import { KlingProviderClient } from "./kling/kling-provider.client";
 import { OpenAIProviderClient } from "./openai/openai-provider.client";
@@ -59,6 +60,7 @@ import { RunwayProviderClient } from "./runway/runway-provider.client";
     OpenAIProviderClient,
     AnthropicProviderClient,
     DeepSeekProviderClient,
+    KimiProviderClient,
     RunwayProviderClient,
     KlingProviderClient,
     HeyGenProviderClient,

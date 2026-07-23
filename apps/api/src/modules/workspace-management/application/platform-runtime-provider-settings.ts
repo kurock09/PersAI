@@ -7,6 +7,7 @@ import {
   RUNTIME_PROVIDER_PROFILE_SCHEMA,
   RUNTIME_PROVIDER_TIME_PRICE_UNITS,
   MODEL_CAPABILITY_DEFAULTS,
+  MODEL_TOKEN_PRICING_DEFAULTS,
   type ChatRoutingRuntimeProvider,
   type ManagedRuntimeCatalogProvider,
   createDefaultRuntimeProviderPriceMetadata,
@@ -64,7 +65,8 @@ export const DEFAULT_PLATFORM_VCOIN_EXCHANGE_RATE = 20;
 export const PERSAI_RUNTIME_PROVIDER_SECRET_IDS: Record<ManagedRuntimeProvider, string> = {
   openai: "openai/api-key",
   anthropic: "anthropic/api-key",
-  deepseek: "deepseek/api-key"
+  deepseek: "deepseek/api-key",
+  kimi: "kimi/api-key"
 };
 
 const MAX_MODEL_LENGTH = 256;
@@ -309,7 +311,8 @@ export function createEmptyAvailableModelsByProvider(): RuntimeProviderAvailable
   return {
     openai: [],
     anthropic: [],
-    deepseek: []
+    deepseek: [],
+    kimi: []
   };
 }
 
@@ -318,6 +321,7 @@ export function createEmptyAvailableModelCatalogByProvider(): RuntimeProviderMod
     openai: { models: [] },
     anthropic: { models: [] },
     deepseek: { models: [] },
+    kimi: { models: [] },
     runway: { models: [] },
     kling: { models: [] },
     heygen: { models: [] }
@@ -343,13 +347,23 @@ export function createEmptyPlatformRuntimeProviderKeyMetadata(): Record<
       configured: false,
       lastFour: null,
       updatedAt: null
+    },
+    kimi: {
+      configured: false,
+      lastFour: null,
+      updatedAt: null
     }
   };
 }
 
 function normalizeProvider(value: unknown, path: string): ManagedRuntimeProvider {
   const normalized = asNonEmptyString(value)?.toLowerCase();
-  if (normalized === "openai" || normalized === "anthropic" || normalized === "deepseek") {
+  if (
+    normalized === "openai" ||
+    normalized === "anthropic" ||
+    normalized === "deepseek" ||
+    normalized === "kimi"
+  ) {
     return normalized;
   }
   throw new Error(`${path} must be one of: ${CHAT_ROUTING_PROVIDERS.join(", ")}.`);
@@ -755,7 +769,8 @@ export function normalizeAvailableModelsByProvider(
       : [],
     deepseek: Array.isArray(row.deepseek)
       ? normalizeAvailableModelList(row.deepseek, `${path}.deepseek`)
-      : []
+      : [],
+    kimi: Array.isArray(row.kimi) ? normalizeAvailableModelList(row.kimi, `${path}.kimi`) : []
   };
 }
 
@@ -771,6 +786,7 @@ export function normalizeAvailableModelCatalogByProvider(
       openai: { models: createDefaultModelProfiles(chatFallback.openai, ["chat"]) },
       anthropic: { models: createDefaultModelProfiles(chatFallback.anthropic, ["chat"]) },
       deepseek: { models: createDefaultModelProfiles(chatFallback.deepseek, ["chat"]) },
+      kimi: { models: createDefaultModelProfiles(chatFallback.kimi, ["chat"]) },
       runway: { models: [] },
       kling: { models: [] },
       heygen: { models: [] }
@@ -815,6 +831,7 @@ export function normalizeAvailableModelCatalogByProvider(
     openai: normalizeProviderCatalog("openai"),
     anthropic: normalizeProviderCatalog("anthropic"),
     deepseek: normalizeProviderCatalog("deepseek"),
+    kimi: normalizeProviderCatalog("kimi"),
     runway: normalizeProviderCatalog("runway"),
     kling: normalizeProviderCatalog("kling"),
     heygen: normalizeProviderCatalog("heygen")
@@ -837,7 +854,8 @@ function deriveAvailableModelsFromProfileCatalog(
   return {
     openai: collectActiveChatModels(catalog.openai.models),
     anthropic: collectActiveChatModels(catalog.anthropic.models),
-    deepseek: collectActiveChatModels(catalog.deepseek.models)
+    deepseek: collectActiveChatModels(catalog.deepseek.models),
+    kimi: collectActiveChatModels(catalog.kimi.models)
   };
 }
 
@@ -1532,11 +1550,14 @@ function createDefaultModelProfiles(
       notes: null
     };
     if (billingMode === "token_metered") {
+      const pricingDefaults = MODEL_TOKEN_PRICING_DEFAULTS[model];
       return {
         ...base,
         billingMode,
         cacheWriteInputTokenWeight: DEFAULT_RUNTIME_PROVIDER_MODEL_TOKEN_WEIGHT,
-        providerPriceMetadata: createDefaultRuntimeProviderPriceMetadata("token_metered")
+        providerPriceMetadata: pricingDefaults
+          ? { currency: "USD" as const, tokenPricing: { ...pricingDefaults } }
+          : createDefaultRuntimeProviderPriceMetadata("token_metered")
       };
     }
     if (billingMode === "time_metered") {
@@ -1873,6 +1894,7 @@ export function parseUpdatePlatformRuntimeProviderSettingsInput(
     "providerKeys.anthropic"
   );
   const deepseekKey = normalizeProviderKeyInput(providerKeysRow?.deepseek, "providerKeys.deepseek");
+  const kimiKey = normalizeProviderKeyInput(providerKeysRow?.kimi, "providerKeys.kimi");
   if (openaiKey !== undefined) {
     providerKeys.openai = openaiKey;
   }
@@ -1881,6 +1903,9 @@ export function parseUpdatePlatformRuntimeProviderSettingsInput(
   }
   if (deepseekKey !== undefined) {
     providerKeys.deepseek = deepseekKey;
+  }
+  if (kimiKey !== undefined) {
+    providerKeys.kimi = kimiKey;
   }
   const vcoinExchangeRate = normalizeVcoinExchangeRate(row.vcoinExchangeRate, "vcoinExchangeRate");
   const heygenPersonaWorkspaceLimit = normalizeHeygenPersonaWorkspaceLimit(
@@ -2205,7 +2230,13 @@ export function assertRequiredProviderKeysAvailable(params: {
       (params.incomingProviderKeys[provider] as string).trim().length > 0;
     if (!hasExisting && !hasIncoming) {
       const label =
-        provider === "openai" ? "OpenAI" : provider === "anthropic" ? "Anthropic" : "DeepSeek";
+        provider === "openai"
+          ? "OpenAI"
+          : provider === "anthropic"
+            ? "Anthropic"
+            : provider === "deepseek"
+              ? "DeepSeek"
+              : "Kimi";
       throw new Error(`${label} API key is required for the selected provider.`);
     }
   }

@@ -397,7 +397,9 @@ export class RuntimeBackgroundTaskEvaluationService {
   }
 
   private asNativeManagedProvider(value: unknown): ProviderSelection["provider"] | null {
-    return value === "openai" || value === "anthropic" || value === "deepseek" ? value : null;
+    return value === "openai" || value === "anthropic" || value === "deepseek" || value === "kimi"
+      ? value
+      : null;
   }
 
   private asNonEmptyString(value: unknown): string | null {

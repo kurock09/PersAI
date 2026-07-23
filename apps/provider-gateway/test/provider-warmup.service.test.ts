@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import type { ProviderGatewayConfig } from "@persai/config";
 import { AnthropicProviderClient } from "../src/modules/providers/anthropic/anthropic-provider.client";
 import { DeepSeekProviderClient } from "../src/modules/providers/deepseek/deepseek-provider.client";
+import { KimiProviderClient } from "../src/modules/providers/kimi/kimi-provider.client";
 import { OpenAIProviderClient } from "../src/modules/providers/openai/openai-provider.client";
 import { ProviderCatalogService } from "../src/modules/providers/provider-catalog.service";
 import { ProviderWarmupService } from "../src/modules/providers/provider-warmup.service";
@@ -59,6 +60,7 @@ export async function runProviderWarmupServiceTest(): Promise<void> {
   const openaiClient = new OpenAIProviderClient(config);
   const anthropicClient = new AnthropicProviderClient(config);
   const deepseekClient = new DeepSeekProviderClient(config);
+  const kimiClient = new KimiProviderClient(config);
   const warmupService = new ProviderWarmupService(
     config,
     {
@@ -68,7 +70,8 @@ export async function runProviderWarmupServiceTest(): Promise<void> {
     } as Pick<PersaiInternalApiClientService, "isConfigured"> as PersaiInternalApiClientService,
     openaiClient,
     anthropicClient,
-    deepseekClient
+    deepseekClient,
+    kimiClient
   );
   const catalogService = new ProviderCatalogService(warmupService);
   const readinessService = new ProviderGatewayReadinessService(warmupService);
@@ -79,6 +82,7 @@ export async function runProviderWarmupServiceTest(): Promise<void> {
   assert.equal(beforeWarmup.providers[0]?.state, "unconfigured");
   assert.equal(beforeWarmup.providers[1]?.state, "unconfigured");
   assert.equal(beforeWarmup.providers[2]?.state, "unconfigured");
+  assert.equal(beforeWarmup.providers[3]?.state, "unconfigured");
   assert.equal(beforeWarmup.providers[0]?.catalogSource, "bootstrap_config");
   assert.deepEqual(catalogService.getSnapshot().providers, [
     {
@@ -95,6 +99,11 @@ export async function runProviderWarmupServiceTest(): Promise<void> {
       provider: "deepseek",
       models: [],
       source: "bootstrap_config"
+    },
+    {
+      provider: "kimi",
+      models: [],
+      source: "bootstrap_config"
     }
   ]);
 
@@ -104,7 +113,8 @@ export async function runProviderWarmupServiceTest(): Promise<void> {
     availableModelsByProvider: {
       openai: ["gpt-5.4-mini", "gpt-5.4-mini", "gpt-5.4"],
       anthropic: ["claude-3-7-sonnet", "claude-3-7-sonnet"],
-      deepseek: ["deepseek-v4-flash", "deepseek-v4-flash"]
+      deepseek: ["deepseek-v4-flash", "deepseek-v4-flash"],
+      kimi: []
     }
   });
   assert.equal(warmup.runs, 1);
@@ -124,6 +134,11 @@ export async function runProviderWarmupServiceTest(): Promise<void> {
   assert.equal(warmup.providers[2]?.state, "unconfigured");
   assert.equal(warmup.providers[2]?.catalogSource, "control_plane_apply");
   assert.deepEqual(warmup.providers[2]?.catalogModels, ["deepseek-v4-flash"]);
+  assert.equal(warmup.providers[3]?.provider, "kimi");
+  assert.equal(warmup.providers[3]?.configured, false);
+  assert.equal(warmup.providers[3]?.state, "unconfigured");
+  assert.equal(warmup.providers[3]?.catalogSource, "control_plane_apply");
+  assert.deepEqual(warmup.providers[3]?.catalogModels, []);
 
   const afterWarmup = readinessService.getSnapshot();
   assert.equal(afterWarmup.ready, true);
@@ -151,6 +166,11 @@ export async function runProviderWarmupServiceTest(): Promise<void> {
       provider: "deepseek",
       models: ["deepseek-v4-flash"],
       source: "control_plane_apply"
+    },
+    {
+      provider: "kimi",
+      models: [],
+      source: "control_plane_apply"
     }
   ]);
 
@@ -162,7 +182,8 @@ export async function runProviderWarmupServiceTest(): Promise<void> {
         availableModelsByProvider: {
           openai: [],
           anthropic: [],
-          deepseek: []
+          deepseek: [],
+          kimi: []
         }
       }),
     /source must equal "control_plane_apply"/
@@ -190,7 +211,8 @@ export async function runProviderWarmupServiceTest(): Promise<void> {
           availableModelsByProvider: {
             openai: ["gpt-5.4-mini", "gpt-5.4"],
             anthropic: [],
-            deepseek: []
+            deepseek: [],
+            kimi: []
           }
         };
       }
@@ -200,7 +222,8 @@ export async function runProviderWarmupServiceTest(): Promise<void> {
     > as PersaiInternalApiClientService,
     new OpenAIProviderClient(config),
     new AnthropicProviderClient(config),
-    new DeepSeekProviderClient(config)
+    new DeepSeekProviderClient(config),
+    new KimiProviderClient(config)
   );
 
   const refreshed = await autoRefreshService.ensureReadyForRequest({
@@ -240,7 +263,8 @@ export async function runProviderWarmupServiceTest(): Promise<void> {
           availableModelsByProvider: {
             openai: ["gpt-5.4"],
             anthropic: [],
-            deepseek: []
+            deepseek: [],
+            kimi: []
           }
         };
       }
@@ -250,7 +274,8 @@ export async function runProviderWarmupServiceTest(): Promise<void> {
     > as PersaiInternalApiClientService,
     capturingOpenaiClient as unknown as OpenAIProviderClient,
     capturingAnthropicClient as unknown as AnthropicProviderClient,
-    capturingDeepseekClient as unknown as DeepSeekProviderClient
+    capturingDeepseekClient as unknown as DeepSeekProviderClient,
+    new CapturingProviderClient("kimi", false, []) as unknown as KimiProviderClient
   );
   await managedOpenaiService.warmProviders({
     schema: "persai.providerGatewayWarmupRequest.v1",
@@ -258,7 +283,8 @@ export async function runProviderWarmupServiceTest(): Promise<void> {
     availableModelsByProvider: {
       openai: ["gpt-5.4"],
       anthropic: [],
-      deepseek: []
+      deepseek: [],
+      kimi: []
     }
   });
   assert.deepEqual(capturingOpenaiClient.warmedKeys, ["openai-managed-test-key"]);
@@ -284,7 +310,8 @@ export async function runProviderWarmupServiceTest(): Promise<void> {
           availableModelsByProvider: {
             openai: ["gpt-5.4"],
             anthropic: ["claude-opus-4-7"],
-            deepseek: []
+            deepseek: [],
+            kimi: []
           }
         };
       }
@@ -294,7 +321,8 @@ export async function runProviderWarmupServiceTest(): Promise<void> {
     > as PersaiInternalApiClientService,
     new OpenAIProviderClient(config),
     new AnthropicProviderClient(config),
-    new DeepSeekProviderClient(config)
+    new DeepSeekProviderClient(config),
+    new KimiProviderClient(config)
   );
 
   const managedAnthropic = await managedAnthropicService.ensureReadyForRequest({
@@ -308,7 +336,7 @@ export async function runProviderWarmupServiceTest(): Promise<void> {
   assert.equal(managedAnthropic.catalogSource, "control_plane_apply");
   assert.deepEqual(managedAnthropic.catalogModels, ["claude-opus-4-7"]);
 
-  let resolvedDeepSeekSecretId: string | null = null;
+  const resolvedSecretIdsForDeepSeekCase: string[] = [];
   const managedDeepSeekService = new ProviderWarmupService(
     config,
     {
@@ -316,8 +344,8 @@ export async function runProviderWarmupServiceTest(): Promise<void> {
         return true;
       },
       async resolveSecretValue(secretId: string) {
-        resolvedDeepSeekSecretId = secretId;
-        return "deepseek-managed-test-key";
+        resolvedSecretIdsForDeepSeekCase.push(secretId);
+        return `${secretId}-value`;
       },
       async getDefaultProviderSettings() {
         return {
@@ -327,7 +355,8 @@ export async function runProviderWarmupServiceTest(): Promise<void> {
           availableModelsByProvider: {
             openai: ["gpt-5.4"],
             anthropic: [],
-            deepseek: ["deepseek-v4-flash", "deepseek-v4-pro"]
+            deepseek: ["deepseek-v4-flash", "deepseek-v4-pro"],
+            kimi: []
           }
         };
       }
@@ -337,14 +366,15 @@ export async function runProviderWarmupServiceTest(): Promise<void> {
     > as PersaiInternalApiClientService,
     new OpenAIProviderClient(config),
     new AnthropicProviderClient(config),
-    new DeepSeekProviderClient(config)
+    new DeepSeekProviderClient(config),
+    new KimiProviderClient(config)
   );
 
   const managedDeepSeek = await managedDeepSeekService.ensureReadyForRequest({
     provider: "deepseek",
     model: "deepseek-v4-flash"
   });
-  assert.equal(resolvedDeepSeekSecretId, "deepseek/api-key");
+  assert.equal(resolvedSecretIdsForDeepSeekCase.includes("deepseek/api-key"), true);
   assert.equal(managedDeepSeek.provider, "deepseek");
   assert.equal(managedDeepSeek.configured, true);
   assert.equal(managedDeepSeek.state, "ready");

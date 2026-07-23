@@ -36,7 +36,7 @@ export interface AutoExtractToMemoryInput {
   rollingSynopsisText: string | null;
   runtimeRequestId: string | null;
   runtimeSessionId: string;
-  providerSelection: { provider: "openai" | "anthropic" | "deepseek"; model: string };
+  providerSelection: { provider: "openai" | "anthropic" | "deepseek" | "kimi"; model: string };
 }
 
 interface AutoExtractCandidate {

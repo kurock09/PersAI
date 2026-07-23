@@ -103,7 +103,9 @@ const ROUTER_STEP_TYPES = new Set(["router"]);
 type LedgerTextUsageEntry = Pick<TextGenerationUsageAccountingV2, "stepType" | "modelRole">;
 
 function normalizeManagedProvider(value: string | null): ManagedRuntimeProvider | null {
-  return value === "openai" || value === "anthropic" || value === "deepseek" ? value : null;
+  return value === "openai" || value === "anthropic" || value === "deepseek" || value === "kimi"
+    ? value
+    : null;
 }
 
 function normalizeModelKey(value: string | null): string | null {

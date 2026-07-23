@@ -713,13 +713,47 @@ export interface TextGenerationUsageAccountingV2 {
   toolCode?: string | null;
 }
 
-export const PERSAI_TEXT_GENERATION_USAGE_PROVIDER_KEYS = [
+/** Canonical managed chat-routing providers (ADR-124 / ADR-163). */
+export const PERSAI_NATIVE_MANAGED_CHAT_PROVIDERS = [
   "openai",
   "anthropic",
-  "deepseek"
+  "deepseek",
+  "kimi"
 ] as const;
+export type PersaiNativeManagedChatProvider = (typeof PERSAI_NATIVE_MANAGED_CHAT_PROVIDERS)[number];
+
+export const PERSAI_TEXT_GENERATION_USAGE_PROVIDER_KEYS = PERSAI_NATIVE_MANAGED_CHAT_PROVIDERS;
 export type TextGenerationUsageProviderKey =
   (typeof PERSAI_TEXT_GENERATION_USAGE_PROVIDER_KEYS)[number];
+
+/** Chat providers that accept multimodal (image) input blocks. */
+export const PERSAI_MULTIMODAL_INPUT_CHAT_PROVIDERS = ["openai", "anthropic", "kimi"] as const;
+export type PersaiMultimodalInputChatProvider =
+  (typeof PERSAI_MULTIMODAL_INPUT_CHAT_PROVIDERS)[number];
+
+/**
+ * Chat providers that accept PersAI inline PDF content blocks.
+ * Kimi/Moonshot accepts images but not PersAI PDF blocks (no Files API invent).
+ */
+export const PERSAI_PDF_INPUT_CHAT_PROVIDERS = ["openai", "anthropic"] as const;
+export type PersaiPdfInputChatProvider = (typeof PERSAI_PDF_INPUT_CHAT_PROVIDERS)[number];
+
+export function isPersaiNativeManagedChatProvider(
+  value: unknown
+): value is PersaiNativeManagedChatProvider {
+  return (
+    typeof value === "string" &&
+    (PERSAI_NATIVE_MANAGED_CHAT_PROVIDERS as readonly string[]).includes(value)
+  );
+}
+
+export function providerAcceptsMultimodalInput(provider: string): boolean {
+  return (PERSAI_MULTIMODAL_INPUT_CHAT_PROVIDERS as readonly string[]).includes(provider);
+}
+
+export function providerAcceptsPdfInput(provider: string): boolean {
+  return (PERSAI_PDF_INPUT_CHAT_PROVIDERS as readonly string[]).includes(provider);
+}
 export const PERSAI_TEXT_GENERATION_USAGE_STEP_TYPES = [
   "main_turn",
   "tool_loop_followup",
@@ -854,7 +888,7 @@ export type TextGenerationPromptCachePolicy =
     };
 
 export interface TextGenerationProviderUsageFixture {
-  providerKey: "openai" | "anthropic" | "deepseek";
+  providerKey: TextGenerationUsageProviderKey;
   response: Record<string, unknown>;
   expected: TextGenerationUsageAccountingV2Result;
 }
@@ -1068,6 +1102,18 @@ export function normalizeProviderTextGenerationUsageV2(params: {
     cacheReadInputTokens = readUsageInteger(usage, "prompt_cache_hit_tokens");
     uncachedInputTokens = readUsageInteger(usage, "prompt_cache_miss_tokens");
     cacheWriteInputTokens = 0;
+  } else if (params.providerKey === "kimi") {
+    // ADR-163 D3 — Moonshot Chat Completions: prompt_tokens + top-level cached_tokens.
+    totalInputTokens = readUsageInteger(usage, "prompt_tokens");
+    const cachedTokens = readUsageInteger(usage, "cached_tokens");
+    cacheReadInputTokens = cachedTokens ?? 0;
+    cacheWriteInputTokens = 0;
+    if (totalInputTokens === null) {
+      uncachedInputTokens = null;
+    } else {
+      const derivedUncached = totalInputTokens - cacheReadInputTokens;
+      uncachedInputTokens = derivedUncached < 0 ? null : derivedUncached;
+    }
   } else {
     uncachedInputTokens = readUsageInteger(usage, "input_tokens");
     cacheWriteInputTokens = readUsageInteger(usage, "cache_creation_input_tokens");
@@ -3878,7 +3924,7 @@ export interface RuntimeTurnRequest {
   chatMode?: "normal" | "smart" | "project";
   deepMode?: boolean;
   modelRoleOverride?: PersaiRuntimeModelRole;
-  providerOverride?: "openai" | "anthropic" | "deepseek";
+  providerOverride?: PersaiNativeManagedChatProvider;
   modelOverride?: string;
   skillStateContext?: RuntimeSkillStateContext;
   continuation?: {
@@ -4408,7 +4454,7 @@ export interface ProviderGatewayPromptCacheConfig {
 }
 
 export interface ProviderGatewayTextGenerateRequest {
-  provider: "openai" | "anthropic" | "deepseek";
+  provider: PersaiNativeManagedChatProvider;
   model: string;
   systemPrompt: string | null;
   /**
@@ -4469,7 +4515,7 @@ export interface ProviderGatewayTextGenerateRequest {
 }
 
 export interface ProviderGatewayTextGenerateResult {
-  provider: "openai" | "anthropic" | "deepseek";
+  provider: PersaiNativeManagedChatProvider;
   model: string;
   text: string | null;
   respondedAt: IsoTimestamp;

@@ -1,26 +1,36 @@
-import type {
-  ProviderGatewayImageContentBlock,
-  ProviderGatewayMessageContent,
-  ProviderGatewayMessageContentBlock,
-  ProviderGatewayPdfContentBlock,
-  ProviderGatewayTextMessage
+import {
+  providerAcceptsMultimodalInput as sharedProviderAcceptsMultimodalInput,
+  providerAcceptsPdfInput as sharedProviderAcceptsPdfInput,
+  type ProviderGatewayImageContentBlock,
+  type ProviderGatewayMessageContent,
+  type ProviderGatewayMessageContentBlock,
+  type ProviderGatewayPdfContentBlock,
+  type ProviderGatewayTextMessage
 } from "@persai/runtime-contract";
 
 /**
- * ADR-124 — providers whose chat input natively accepts inline image/PDF
- * (multimodal) content blocks. DeepSeek's `/chat/completions` API is text-only,
- * so any non-text block destined for a DeepSeek main turn must first be turned
- * into text. OpenAI/Anthropic accept the blocks directly and are left untouched.
+ * ADR-124 / ADR-163 — providers whose chat input natively accepts inline image
+ * content blocks. Canonical allowlist is `PERSAI_MULTIMODAL_INPUT_CHAT_PROVIDERS`
+ * in runtime-contract (openai/anthropic/kimi). DeepSeek remains text-only.
  */
-const MULTIMODAL_INPUT_PROVIDERS: ReadonlySet<string> = new Set(["openai", "anthropic"]);
-
 export function providerAcceptsMultimodalInput(provider: string): boolean {
-  return MULTIMODAL_INPUT_PROVIDERS.has(provider);
+  return sharedProviderAcceptsMultimodalInput(provider);
+}
+
+/**
+ * ADR-163 — providers whose chat input accepts PersAI inline PDF blocks.
+ * Canonical allowlist is `PERSAI_PDF_INPUT_CHAT_PROVIDERS` (openai/anthropic).
+ * Kimi accepts images but rejects PDF blocks.
+ */
+export function providerAcceptsPdfInput(provider: string): boolean {
+  return sharedProviderAcceptsPdfInput(provider);
 }
 
 export type DescribableContentBlock =
   | ProviderGatewayImageContentBlock
   | ProviderGatewayPdfContentBlock;
+
+export type MultimodalSanitizeStripMode = "all_non_text" | "pdf_only";
 
 /**
  * Produces a concise text description of a non-text block, or null when no
@@ -54,21 +64,38 @@ async function describeBlockToTextBlock(
   return { type: "text", text };
 }
 
+function shouldStripBlock(
+  block: ProviderGatewayMessageContentBlock,
+  stripMode: MultimodalSanitizeStripMode
+): block is DescribableContentBlock {
+  if (block.type === "text") {
+    return false;
+  }
+  if (stripMode === "pdf_only") {
+    return block.type === "pdf";
+  }
+  return true;
+}
+
 /**
- * Replaces every non-text block in the array with a text description. Returns
- * the original array reference (changed=false) when it is already text-only, so
+ * Replaces stripped non-text blocks with text descriptions. Returns the
+ * original array reference (changed=false) when nothing needs stripping, so
  * callers can cheaply re-run this without triggering redundant describe calls.
+ *
+ * - `all_non_text` (default): DeepSeek / text-only — strip image + PDF.
+ * - `pdf_only`: Kimi — keep images, describe-away PDF blocks only.
  */
 export async function sanitizeMultimodalContentBlocks(
   blocks: ProviderGatewayMessageContentBlock[],
-  describe: MultimodalBlockDescriber
+  describe: MultimodalBlockDescriber,
+  stripMode: MultimodalSanitizeStripMode = "all_non_text"
 ): Promise<{ blocks: ProviderGatewayMessageContentBlock[]; changed: boolean }> {
-  if (!blocks.some((block) => block.type !== "text")) {
+  if (!blocks.some((block) => shouldStripBlock(block, stripMode))) {
     return { blocks, changed: false };
   }
   const next: ProviderGatewayMessageContentBlock[] = [];
   for (const block of blocks) {
-    if (block.type === "text") {
+    if (!shouldStripBlock(block, stripMode)) {
       next.push(block);
       continue;
     }
@@ -79,28 +106,33 @@ export async function sanitizeMultimodalContentBlocks(
 
 async function sanitizeMultimodalContent(
   content: ProviderGatewayMessageContent,
-  describe: MultimodalBlockDescriber
+  describe: MultimodalBlockDescriber,
+  stripMode: MultimodalSanitizeStripMode
 ): Promise<{ content: ProviderGatewayMessageContent; changed: boolean }> {
   if (typeof content === "string") {
     return { content, changed: false };
   }
-  const { blocks, changed } = await sanitizeMultimodalContentBlocks(content, describe);
+  const { blocks, changed } = await sanitizeMultimodalContentBlocks(content, describe, stripMode);
   return { content: blocks, changed };
 }
 
 /**
- * Returns a message array whose content carries no inline image/PDF blocks.
- * Returns the original reference when nothing changed (already text-only), so
- * re-running on the same request across tool-loop iterations is a cheap no-op.
+ * Returns a message array whose content has unsupported multimodal blocks
+ * replaced with text. Returns the original reference when nothing changed.
  */
 export async function sanitizeMultimodalMessages(
   messages: ProviderGatewayTextMessage[],
-  describe: MultimodalBlockDescriber
+  describe: MultimodalBlockDescriber,
+  stripMode: MultimodalSanitizeStripMode = "all_non_text"
 ): Promise<ProviderGatewayTextMessage[]> {
   let anyChanged = false;
   const next: ProviderGatewayTextMessage[] = [];
   for (const message of messages) {
-    const { content, changed } = await sanitizeMultimodalContent(message.content, describe);
+    const { content, changed } = await sanitizeMultimodalContent(
+      message.content,
+      describe,
+      stripMode
+    );
     if (changed) {
       anyChanged = true;
       next.push({ ...message, content });
@@ -109,4 +141,20 @@ export async function sanitizeMultimodalMessages(
     }
   }
   return anyChanged ? next : messages;
+}
+
+/**
+ * Resolve which multimodal blocks must be stripped for a chat provider.
+ * Returns null when the provider accepts both images and PersAI PDF blocks.
+ */
+export function resolveMultimodalSanitizeStripMode(
+  provider: string
+): MultimodalSanitizeStripMode | null {
+  if (providerAcceptsMultimodalInput(provider) && providerAcceptsPdfInput(provider)) {
+    return null;
+  }
+  if (providerAcceptsMultimodalInput(provider) && !providerAcceptsPdfInput(provider)) {
+    return "pdf_only";
+  }
+  return "all_non_text";
 }

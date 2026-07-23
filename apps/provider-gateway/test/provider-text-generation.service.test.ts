@@ -10,6 +10,7 @@ import { ProviderTextGenerationService } from "../src/modules/providers/provider
 import type { ProviderWarmupService } from "../src/modules/providers/provider-warmup.service";
 import type { AnthropicProviderClient } from "../src/modules/providers/anthropic/anthropic-provider.client";
 import type { DeepSeekProviderClient } from "../src/modules/providers/deepseek/deepseek-provider.client";
+import type { KimiProviderClient } from "../src/modules/providers/kimi/kimi-provider.client";
 import type { OpenAIProviderClient } from "../src/modules/providers/openai/openai-provider.client";
 
 function createWarmupSnapshot(): ProviderWarmupSnapshot {
@@ -48,6 +49,15 @@ function createWarmupSnapshot(): ProviderWarmupSnapshot {
         catalogSource: "control_plane_apply",
         warmedAt: "2026-04-11T12:00:00.000Z",
         error: null
+      },
+      {
+        provider: "kimi",
+        configured: true,
+        state: "ready",
+        catalogModels: ["kimi-k3"],
+        catalogSource: "control_plane_apply",
+        warmedAt: "2026-04-11T12:00:00.000Z",
+        error: null
       }
     ]
   };
@@ -61,7 +71,7 @@ class FakeProviderWarmupService {
   }
 
   async ensureReadyForRequest(input: {
-    provider: "openai" | "anthropic" | "deepseek";
+    provider: "openai" | "anthropic" | "deepseek" | "kimi";
     model: string;
   }): Promise<ProviderWarmupSnapshot["providers"][number]> {
     const providerState = this.snapshot.providers.find(
@@ -219,6 +229,51 @@ class FakeDeepSeekProviderClient {
   }
 }
 
+class FakeKimiProviderClient {
+  calls: ProviderGatewayTextGenerateRequest[] = [];
+  streamCalls: ProviderGatewayTextGenerateRequest[] = [];
+
+  async generateText(
+    input: ProviderGatewayTextGenerateRequest
+  ): Promise<ProviderGatewayTextGenerateResult> {
+    this.calls.push(input);
+    return {
+      provider: "kimi",
+      model: input.model,
+      text: "kimi-result",
+      respondedAt: "2026-04-11T12:00:07.000Z",
+      usage: null,
+      textUsage: { status: "usage_unavailable", reason: "fixture" },
+      stopReason: "completed",
+      toolCalls: []
+    };
+  }
+
+  async *streamText(
+    input: ProviderGatewayTextGenerateRequest
+  ): AsyncGenerator<ProviderGatewayTextStreamEvent> {
+    this.streamCalls.push(input);
+    yield {
+      type: "text_delta",
+      delta: "kimi-",
+      accumulatedText: "kimi-"
+    };
+    yield {
+      type: "completed",
+      result: {
+        provider: "kimi",
+        model: input.model,
+        text: "kimi-stream",
+        respondedAt: "2026-04-11T12:00:08.000Z",
+        usage: null,
+        textUsage: { status: "usage_unavailable", reason: "fixture" },
+        stopReason: "completed",
+        toolCalls: []
+      }
+    };
+  }
+}
+
 async function collectStreamEvents(
   generator: AsyncGenerator<ProviderGatewayTextStreamEvent>
 ): Promise<ProviderGatewayTextStreamEvent[]> {
@@ -230,7 +285,7 @@ async function collectStreamEvents(
 }
 
 function createRequest(
-  provider: "openai" | "anthropic" | "deepseek"
+  provider: "openai" | "anthropic" | "deepseek" | "kimi"
 ): ProviderGatewayTextGenerateRequest {
   return {
     provider,
@@ -239,7 +294,9 @@ function createRequest(
         ? "gpt-5.4"
         : provider === "anthropic"
           ? "claude-sonnet-4-5"
-          : "deepseek-v4-flash",
+          : provider === "kimi"
+            ? "kimi-k3"
+            : "deepseek-v4-flash",
     systemPrompt: "Be helpful.",
     ...(provider === "openai"
       ? {
@@ -263,11 +320,13 @@ export async function runProviderTextGenerationServiceTest(): Promise<void> {
   const openaiClient = new FakeOpenAIProviderClient();
   const anthropicClient = new FakeAnthropicProviderClient();
   const deepseekClient = new FakeDeepSeekProviderClient();
+  const kimiClient = new FakeKimiProviderClient();
   const service = new ProviderTextGenerationService(
     warmupService as unknown as ProviderWarmupService,
     openaiClient as unknown as OpenAIProviderClient,
     anthropicClient as unknown as AnthropicProviderClient,
-    deepseekClient as unknown as DeepSeekProviderClient
+    deepseekClient as unknown as DeepSeekProviderClient,
+    kimiClient as unknown as KimiProviderClient
   );
 
   const openaiResult = await service.generateText(createRequest("openai"));
