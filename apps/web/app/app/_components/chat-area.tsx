@@ -387,7 +387,9 @@ export function ChatArea({
     }
     const count = chat.messages.length;
     const hasNewMessage = count > prevMessageCount.current;
-    const streamStarted = chat.isStreaming && !wasStreamingRef.current;
+    const wasStreaming = wasStreamingRef.current;
+    const streamStarted = chat.isStreaming && !wasStreaming;
+    const streamEnded = !chat.isStreaming && wasStreaming;
     wasStreamingRef.current = chat.isStreaming;
     // Sending / stream start always re-pins — user wants to watch the reply.
     if (streamStarted) {
@@ -401,13 +403,16 @@ export function ChatArea({
       prevMessageCount.current = count;
       return;
     }
-    const shouldFollowStreaming =
-      chat.isStreaming && count > 0 && pinnedToBottomRef.current && !userScrolledAwayRef.current;
-    if (hasNewMessage || shouldFollowStreaming || streamStarted) {
-      if (pinnedToBottomRef.current && !userScrolledAwayRef.current) {
-        // Instant while streaming — smooth lags behind growing bubbles.
-        scrollToBottom(chat.isStreaming || streamStarted ? "instant" : "smooth");
-      }
+    const stillPinned = pinnedToBottomRef.current && !userScrolledAwayRef.current;
+    // Follow while streaming AND on the streaming→committed edge: action chips /
+    // footers mount after isStreaming flips false and must not sit under the fold.
+    const shouldFollow =
+      stillPinned &&
+      count > 0 &&
+      (hasNewMessage || chat.isStreaming || streamStarted || streamEnded);
+    if (shouldFollow) {
+      // Instant across the live turn + settle — smooth lags behind growing bubbles.
+      scrollToBottom(chat.isStreaming || streamStarted || streamEnded ? "instant" : "smooth");
     }
     prevMessageCount.current = count;
   }, [chat.entries.length, chat.historyLoading, chat.isStreaming, chat.messages, scrollToBottom]);

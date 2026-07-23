@@ -1,5 +1,11 @@
 # SESSION-HANDOFF
 
+## 2026-07-23 — Stick through stream settle (committed chrome)
+
+Follow stopped when `isStreaming` flipped false, so action chips / final lines
+mounted under the fold. Fix: detect `streamEnded` and instant-stick while still
+pinned (ResizeObserver still covers later layout growth). No timers.
+
 ## 2026-07-23 — Stick-to-bottom during send/stream
 
 After F5 hydration fixes, send/stream no longer followed the growing bubble

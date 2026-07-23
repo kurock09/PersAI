@@ -369,6 +369,44 @@ describe("ChatArea", () => {
     expect(scrollTopValue).toBe(1600);
   });
 
+  it("keeps the settled reply fully in view when streaming ends and the bubble grows", () => {
+    const { container, rerender } = render(
+      <ChatArea chat={createChat("Streaming reply…", { isStreaming: true })} />
+    );
+    const scrollContainer = container.querySelector(".overflow-y-auto") as HTMLDivElement;
+    let scrollTopValue = 0;
+    let scrollHeight = 900;
+    Object.defineProperty(scrollContainer, "scrollHeight", {
+      configurable: true,
+      get: () => scrollHeight
+    });
+    Object.defineProperty(scrollContainer, "clientHeight", {
+      configurable: true,
+      get: () => 400
+    });
+    Object.defineProperty(scrollContainer, "scrollTop", {
+      configurable: true,
+      get: () => scrollTopValue,
+      set: (value: number) => {
+        scrollTopValue = value;
+      }
+    });
+
+    scrollTopValue = 500;
+
+    // Commit grows the bubble (action chips / final lines) after isStreaming flips false.
+    scrollHeight = 1100;
+    rerender(
+      <ChatArea
+        chat={createChat("Streaming reply… final paragraph that must stay visible.", {
+          isStreaming: false
+        })}
+      />
+    );
+
+    expect(scrollTopValue).toBe(1100);
+  });
+
   it("preserves scroll position when older messages are prepended", () => {
     const scrollIntoView = vi.fn();
     Object.defineProperty(Element.prototype, "scrollIntoView", {
