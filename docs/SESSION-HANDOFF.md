@@ -1,5 +1,13 @@
 # SESSION-HANDOFF
 
+## 2026-07-23 — Stick-to-bottom during send/stream
+
+After F5 hydration fixes, send/stream no longer followed the growing bubble
+(stream rendered below the fold). Cause: `overflow-anchor:auto` fought stick,
+touchmove falsely unpinned, follow used `useEffect`+smooth. Fix in chat-area:
+`overflow-anchor:none`, re-pin on stream start, layout-effect instant follow,
+unpin only on real up-scroll away from bottom. F5 discovery guards untouched.
+
 ## 2026-07-23 — F5 message reorder from continuation discovery replay
 
 Live repro on new chat `web-1784758880793` after web pin `0acfd093`: F5 showed
