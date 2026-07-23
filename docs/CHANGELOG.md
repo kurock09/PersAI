@@ -5,6 +5,19 @@
 
 ## 2026-07-24
 
+- **ux(chat): live thinking reserve + fade — no scroll jump.** Fixed ~7-line
+  slot under «Думаю» so thought lines grow/clear without resizing the bubble;
+  thought text fades (~220ms) instead of hard unmount; empty streaming status
+  keeps the same bottom gap until answer text lands.
+
+- **fix(runtime): image_generate/edit — strip junk args, no hard
+  source_image_required, alias resolve.** Allowlist parse strips echoed
+  result-schema fields (`action`, `executionMode`, `artifacts`, …) instead of
+  `invalid_arguments`; reusable-image series guard no longer skips standalone
+  generate; `image_edit` resolves `image #1` against `current image #1` and
+  ordinal fallback. Root fix for Kimi TG-post 13× generate loop; clean
+  DeepSeek path unchanged.
+
 - **ADR-164 audit fix: wave-preserving demoteOlder.** Multi-tool /
   parallel `tool_calls` waves keep all unsent oversized results full until the
   next wave appends (`preserveFromIndex`); no blind-first-receipt inside a wave.

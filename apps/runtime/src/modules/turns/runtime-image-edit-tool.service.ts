@@ -792,21 +792,27 @@ export class RuntimeImageEditToolService {
   }
 
   private readImageEditArguments(args: Record<string, unknown>): RuntimeImageEditRequest | Error {
-    const unknownKeys = Object.keys(args).filter(
-      (key) =>
-        key !== "toolCode" &&
-        key !== "prompt" &&
-        key !== "count" &&
-        key !== "outputMode" &&
-        key !== "seriesItems" &&
-        key !== "filename" &&
-        key !== "size" &&
-        key !== "background" &&
-        key !== "sourceImageAlias" &&
-        key !== "referenceImageAliases"
-    );
-    if (unknownKeys.length > 0) {
-      return new Error(`Unexpected arguments: ${unknownKeys.join(", ")}`);
+    // Allowlist only. Strip echoed result-schema junk instead of hard-failing.
+    const allowedKeys = new Set([
+      "toolCode",
+      "prompt",
+      "count",
+      "outputMode",
+      "seriesItems",
+      "filename",
+      "size",
+      "background",
+      "sourceImageAlias",
+      "referenceImageAliases"
+    ]);
+    const strippedUnknown = Object.keys(args).filter((key) => !allowedKeys.has(key));
+    if (strippedUnknown.length > 0) {
+      this.logger.warn(
+        `[image-edit] stripping unexpected arguments: ${strippedUnknown.join(", ")}`
+      );
+      args = Object.fromEntries(
+        Object.entries(args).filter(([key]) => allowedKeys.has(key))
+      ) as Record<string, unknown>;
     }
     if ("toolCode" in args && args.toolCode !== IMAGE_EDIT_TOOL_CODE) {
       return new Error(`toolCode must be ${IMAGE_EDIT_TOOL_CODE}`);
@@ -1000,11 +1006,16 @@ export class RuntimeImageEditToolService {
         ? (imageAttachments[0] ?? null)
         : this.findAttachmentByAlias(imageAttachments, sourceImageAlias);
     if (sourceAttachment === null) {
+      const available = imageAttachments
+        .map((attachment) => this.resolvePrimaryAttachmentAlias(attachment))
+        .filter((alias) => alias.length > 0);
       return {
         ok: false,
         reason: "source_image_alias_invalid",
         warning:
-          "sourceImageAlias must match one of the available reusable image aliases in the working-files context."
+          available.length > 0
+            ? `sourceImageAlias must match one of the available reusable image aliases: ${available.join(", ")}.`
+            : "sourceImageAlias must match one of the available reusable image aliases in the working-files context."
       };
     }
 
@@ -1375,13 +1386,38 @@ export class RuntimeImageEditToolService {
     alias: string
   ): RuntimeAttachmentRef | null {
     const normalized = this.normalizeAlias(alias);
-    return (
+    const byExact =
       attachments.find((attachment) =>
         (attachment.aliases ?? []).some(
           (candidate) => this.normalizeAlias(candidate) === normalized
         )
-      ) ?? null
-    );
+      ) ?? null;
+    if (byExact !== null) {
+      return byExact;
+    }
+
+    // Tolerate "image #1" vs "current image #1" / "recent image #1".
+    const bySuffix =
+      attachments.find((attachment) =>
+        (attachment.aliases ?? []).some((candidate) => {
+          const c = this.normalizeAlias(candidate);
+          return c === normalized || c.endsWith(` ${normalized}`);
+        })
+      ) ?? null;
+    if (bySuffix !== null) {
+      return bySuffix;
+    }
+
+    // Ordinal fallback: "image #N" → Nth available image (1-based).
+    // Covers generate hints that invent image #1 when sticky aliases are missing.
+    const ordinal = normalized.match(/^image\s*#\s*(\d+)$/i);
+    if (ordinal !== null) {
+      const index = Number(ordinal[1]) - 1;
+      if (Number.isInteger(index) && index >= 0 && index < attachments.length) {
+        return attachments[index] ?? null;
+      }
+    }
+    return null;
   }
 
   private resolvePrimaryAttachmentAlias(attachment: RuntimeAttachmentRef): string {

@@ -477,7 +477,7 @@ describe("RuntimeImageGenerateToolService", () => {
     assert.match(result.payload.warning ?? "", /safety system/i);
   });
 
-  test("rejects ref-bound series generate when a reusable source image is already available", async () => {
+  test("does not hard-skip series generate when a reusable source image is already available", async () => {
     const service = new RuntimeImageGenerateToolService(
       {} as never,
       createOutboundManifestApiStub() as never,
@@ -513,10 +513,7 @@ describe("RuntimeImageGenerateToolService", () => {
       requestId: "request-guard"
     });
 
-    assert.equal(result.isError, true);
-    assert.equal(result.payload.action, "skipped");
-    assert.equal(result.payload.reason, "source_image_required");
-    assert.match(result.payload.warning ?? "", /image_edit/i);
-    assert.match(result.payload.warning ?? "", /sourceImageAlias="current image #1"/i);
+    // Standalone series generate must proceed; reusable images are optional context.
+    assert.notEqual(result.payload.reason, "source_image_required");
   });
 });

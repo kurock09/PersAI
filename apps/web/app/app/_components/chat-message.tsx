@@ -390,10 +390,13 @@ function CopyButton({ text }: { text: string }) {
   );
 }
 
-/** Normalize live thinking for display; wrap/clip is CSS (full bubble width, ~4 lines). */
+/** Normalize live thinking for display; wrap/clip is CSS (full bubble width). */
 function normalizeLiveThinkingPreview(preview: string): string {
   return preview.replace(/\s+/g, " ").trim();
 }
+
+/** ~6–8 lines at text-sm/leading-5 — fixed reserve so thought growth does not jump scroll. */
+const LIVE_THINKING_FADE_MS = 220;
 
 function InlineStreamingStatus({
   preResponseStatus,
@@ -409,22 +412,58 @@ function InlineStreamingStatus({
   showShadowRoutingLabel?: boolean | undefined;
 }) {
   const t = useTranslations("chat");
+  const isThinkingKind = preResponseStatus?.kind === "thinking";
   const activityEvent =
     preResponseStatus?.kind === "activity" ? preResponseStatus.event : undefined;
   const thinkingPreview =
-    preResponseStatus?.kind === "thinking" && typeof preResponseStatus.thinkingPreview === "string"
+    isThinkingKind && typeof preResponseStatus?.thinkingPreview === "string"
       ? normalizeLiveThinkingPreview(preResponseStatus.thinkingPreview)
       : "";
   const awaitDeadlineMatch = activityEvent?.detail?.match(/^await-deadline:(\d+)$/);
   const awaitDeadlineMs =
     awaitDeadlineMatch?.[1] === undefined ? null : Number(awaitDeadlineMatch[1]);
   const [nowMs, setNowMs] = useState(() => Date.now());
+  // Hold last text + opacity so clear/unmount does not snap the layout.
+  const [displayedThinkingPreview, setDisplayedThinkingPreview] = useState(thinkingPreview);
+  const [thinkingPreviewOpaque, setThinkingPreviewOpaque] = useState(thinkingPreview.length > 0);
+  const [reserveThinkingSlot, setReserveThinkingSlot] = useState(isThinkingKind);
+
   useEffect(() => {
     if (awaitDeadlineMs === null) return;
     setNowMs(Date.now());
     const timer = window.setInterval(() => setNowMs(Date.now()), 250);
     return () => window.clearInterval(timer);
   }, [awaitDeadlineMs]);
+
+  useEffect(() => {
+    if (isThinkingKind) {
+      setReserveThinkingSlot(true);
+      return;
+    }
+    setThinkingPreviewOpaque(false);
+    const timer = window.setTimeout(() => {
+      setDisplayedThinkingPreview("");
+      setReserveThinkingSlot(false);
+    }, LIVE_THINKING_FADE_MS);
+    return () => window.clearTimeout(timer);
+  }, [isThinkingKind]);
+
+  useEffect(() => {
+    if (!isThinkingKind) {
+      return;
+    }
+    if (thinkingPreview.length > 0) {
+      setDisplayedThinkingPreview(thinkingPreview);
+      setThinkingPreviewOpaque(true);
+      return;
+    }
+    setThinkingPreviewOpaque(false);
+    const timer = window.setTimeout(() => {
+      setDisplayedThinkingPreview("");
+    }, LIVE_THINKING_FADE_MS);
+    return () => window.clearTimeout(timer);
+  }, [isThinkingKind, thinkingPreview]);
+
   const statusParts = activityEvent
     ? getActivityDisplayParts(activityEvent, t, showShadowRoutingLabel)
     : {
@@ -439,6 +478,7 @@ function InlineStreamingStatus({
       : t("awaitCountdown", {
           seconds: Math.max(0, Math.ceil((awaitDeadlineMs - nowMs) / 1000))
         });
+  const showThinkingRail = reserveThinkingSlot || displayedThinkingPreview.length > 0;
 
   return (
     <span className="animate-fade-in-inline-status inline-flex w-full max-w-full items-start gap-2 text-sm text-text-muted/78 italic motion-reduce:animate-none">
@@ -455,12 +495,26 @@ function InlineStreamingStatus({
             <span className="text-text-subtle/62 not-italic">{statusParts.detail}</span>
           ) : null}
         </span>
-        {thinkingPreview.length > 0 ? (
+        {showThinkingRail ? (
           <span
             data-testid="live-thinking-preview"
-            className="flex max-h-[5rem] w-full flex-col justify-end overflow-hidden text-sm leading-5 text-text-subtle/55 italic"
+            className={cn(
+              "flex w-full flex-col justify-end overflow-hidden text-sm leading-5 text-text-subtle/55 italic",
+              "transition-[min-height,max-height,opacity] duration-300 ease-out motion-reduce:transition-none",
+              // 7 × leading-5 (1.25rem) = 8.75rem (~6–8 line bottom gap).
+              reserveThinkingSlot
+                ? "min-h-[8.75rem] max-h-[8.75rem] opacity-100"
+                : "min-h-0 max-h-0 opacity-0"
+            )}
           >
-            <span className="block w-full whitespace-normal break-words">{thinkingPreview}</span>
+            <span
+              className={cn(
+                "block w-full whitespace-normal break-words transition-opacity duration-200 ease-out motion-reduce:transition-none",
+                thinkingPreviewOpaque ? "opacity-100" : "opacity-0"
+              )}
+            >
+              {displayedThinkingPreview}
+            </span>
           </span>
         ) : null}
         {statusParts.shellProgressLines && statusParts.shellProgressLines.length > 0 ? (
@@ -2375,7 +2429,14 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
                   />
                 ) : null}
                 {(showInlineStreamingStatus || showCursorOnlyStatus) && (
-                  <div className="mt-2 flex items-center gap-2">
+                  <div
+                    className={cn(
+                      "mt-2 flex items-start gap-2 transition-[min-height] duration-300 ease-out motion-reduce:transition-none",
+                      // Hold ~6–8 line gap until answer text lands — avoids jump when
+                      // live thinking unmounts into a bare cursor.
+                      !hasVisibleAnswerText && "min-h-[8.75rem]"
+                    )}
+                  >
                     {showInlineStreamingStatus ? (
                       <InlineStreamingStatus
                         preResponseStatus={preResponseStatus}

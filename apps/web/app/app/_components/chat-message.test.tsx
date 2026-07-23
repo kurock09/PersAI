@@ -1150,7 +1150,23 @@ describe("ChatMessageBubble — pre-response status", () => {
     const preview = screen.getByTestId("live-thinking-preview");
     expect(preview).toHaveClass("w-full");
     expect(preview).not.toHaveClass("max-w-[min(28rem,70vw)]");
+    // Fixed ~7-line reserve — growth/fade must not resize the chat layout.
+    expect(preview.className).toMatch(/min-h-\[8\.75rem\]/);
     expect(preview.textContent).toContain("word39");
+  });
+
+  it("reserves the live-thinking rail before the first thought token arrives", () => {
+    render(
+      <ChatMessageBubble
+        chatId="chat-1"
+        message={makeAssistantMessage()}
+        preResponseStatus={{ kind: "thinking" }}
+      />
+    );
+
+    const preview = screen.getByTestId("live-thinking-preview");
+    expect(preview.className).toMatch(/min-h-\[8\.75rem\]/);
+    expect(preview.textContent?.trim()).toBe("");
   });
 
   it("shows the live activity label while work is active before text starts", () => {

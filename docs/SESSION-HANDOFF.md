@@ -1,5 +1,17 @@
 # SESSION-HANDOFF
 
+## 2026-07-24 — Image args + live-thinking UI (gated, push)
+
+- **Baseline tip before push:** `e33a034b`. Bundle: image_generate/edit
+  allowlist strip + no hard `source_image_required` + alias ordinal/suffix;
+  live thinking ~7-line reserve + ~220ms fade.
+- **Gates:** `pnpm -r lint`, `format:check`, `pnpm -r typecheck`,
+  `test:adr146-slice5`, `pnpm test` green. Focused image + chat-message tests
+  green. `test:step2` web full suite flaked on unrelated `use-chat` (passes
+  isolated); pre-existing runtime stub fails when run outside full `pnpm test`.
+- **Next:** deploy runtime+web → TG image smoke; media mid-loop present/workspace
+  redesign still open (founder rejected idle-only present).
+
 ## 2026-07-24 — ADR-164 P5 hostile audit fix (wave first-seen)
 
 - **P1 fixed in audit:** `demoteOlder` now takes `preserveFromIndex` (tool_calls

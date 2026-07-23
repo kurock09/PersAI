@@ -133,17 +133,9 @@ export class RuntimeImageGenerateToolService {
       };
     }
 
-    const refBoundSeriesGuard = this.validateSeriesRequestAgainstAvailableImages(
-      request,
-      params.availableAttachments ?? []
-    );
-    if (refBoundSeriesGuard !== null) {
-      return {
-        payload: refBoundSeriesGuard,
-        artifacts: [],
-        isError: true
-      };
-    }
+    // Reusable images in the turn are optional context, not a hard gate.
+    // Models may still choose image_edit; image_generate must keep working
+    // for new standalone / series images (style inspiration ≠ source edit).
 
     const policy = this.resolveAllowedWorkerToolPolicy(params.bundle, IMAGE_GENERATE_TOOL_CODE);
     if (policy === null) {
@@ -683,19 +675,27 @@ export class RuntimeImageGenerateToolService {
   private readImageGenerateArguments(
     args: Record<string, unknown>
   ): RuntimeImageGenerateRequest | Error {
-    const unknownKeys = Object.keys(args).filter(
-      (key) =>
-        key !== "toolCode" &&
-        key !== "prompt" &&
-        key !== "count" &&
-        key !== "outputMode" &&
-        key !== "seriesItems" &&
-        key !== "filename" &&
-        key !== "size" &&
-        key !== "background"
-    );
-    if (unknownKeys.length > 0) {
-      return new Error(`Unexpected arguments: ${unknownKeys.join(", ")}`);
+    // Allowlist only. Strip echoed result-schema junk (`action`, `executionMode`,
+    // `artifacts`, `reason`, …) and mistaken empty/non-describe `action` instead
+    // of hard-failing — clean providers are unaffected; contaminated calls proceed.
+    const allowedKeys = new Set([
+      "toolCode",
+      "prompt",
+      "count",
+      "outputMode",
+      "seriesItems",
+      "filename",
+      "size",
+      "background"
+    ]);
+    const strippedUnknown = Object.keys(args).filter((key) => !allowedKeys.has(key));
+    if (strippedUnknown.length > 0) {
+      this.logger.warn(
+        `[image-generate] stripping unexpected arguments: ${strippedUnknown.join(", ")}`
+      );
+      args = Object.fromEntries(
+        Object.entries(args).filter(([key]) => allowedKeys.has(key))
+      ) as Record<string, unknown>;
     }
     if ("toolCode" in args && args.toolCode !== IMAGE_GENERATE_TOOL_CODE) {
       return new Error(`toolCode must be ${IMAGE_GENERATE_TOOL_CODE}`);
@@ -961,58 +961,6 @@ export class RuntimeImageGenerateToolService {
       `${STANDALONE_GENERATED_IMAGE_RULE} ${ANTI_COLLAGE_RULE}`,
       `This item only: ${input.itemPrompt}`
     ].join("\n\n");
-  }
-
-  private validateSeriesRequestAgainstAvailableImages(
-    request: RuntimeImageGenerateRequest,
-    availableAttachments: RuntimeAttachmentRef[]
-  ): RuntimeImageGenerateToolResult | null {
-    if (request.outputMode !== "series" || request.count <= 1) {
-      return null;
-    }
-    const reusableImages = availableAttachments.filter((attachment) => attachment.kind === "image");
-    if (reusableImages.length === 0) {
-      return null;
-    }
-    const preferredAlias =
-      this.resolvePreferredCurrentImageAlias(
-        reusableImages.find((attachment) =>
-          this.resolveAttachmentAliases(attachment).some((alias) => alias.startsWith("image #"))
-        ) ?? null
-      ) ??
-      this.resolvePreferredCurrentImageAlias(reusableImages[0] ?? null) ??
-      "image #1";
-    return {
-      toolCode: IMAGE_GENERATE_TOOL_CODE,
-      executionMode: "worker",
-      provider: null,
-      model: null,
-      prompt: request.prompt,
-      revisedPrompt: null,
-      requestedCount: request.count,
-      size: request.size,
-      artifacts: [],
-      usage: null,
-      action: "skipped",
-      reason: "source_image_required",
-      warning: `A reusable source image is already available in this turn (${preferredAlias}). For a multi-frame campaign or carousel based on that image, call image_edit with sourceImageAlias="${preferredAlias}" and keep outputMode="series" with one frame instruction per seriesItems entry.`
-    };
-  }
-
-  private resolvePreferredCurrentImageAlias(
-    attachment: RuntimeAttachmentRef | null
-  ): string | null {
-    if (attachment === null) {
-      return null;
-    }
-    const aliases = this.resolveAttachmentAliases(attachment);
-    return aliases.find((alias) => alias.startsWith("image #")) ?? aliases[0] ?? null;
-  }
-
-  private resolveAttachmentAliases(attachment: RuntimeAttachmentRef): string[] {
-    return Array.isArray(attachment.aliases)
-      ? attachment.aliases.filter((alias): alias is string => typeof alias === "string")
-      : [];
   }
 
   private resolveImageGenerateProviderId(

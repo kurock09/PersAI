@@ -84,6 +84,51 @@ describe("runtime media request parsing", () => {
     assert.ok(parsed instanceof Error);
   });
 
+  test("image_generate strips echoed result-schema junk instead of invalid_arguments", () => {
+    const service = new RuntimeImageGenerateToolService({} as never, {} as never, {} as never);
+    const parsed = (
+      service as unknown as {
+        readImageGenerateArguments(args: Record<string, unknown>): unknown;
+      }
+    ).readImageGenerateArguments({
+      prompt: "Square cream Telegram post for PersAI",
+      count: 1,
+      size: "1024x1024",
+      action: "",
+      model: "gpt-image-1",
+      provider: "openai",
+      executionMode: "worker",
+      reason: null,
+      warning: null,
+      artifacts: [],
+      usage: "social",
+      targetAudience: "telegram",
+      toolCode: "image_generate"
+    });
+    assert.ok(!(parsed instanceof Error), String(parsed));
+    assert.equal((parsed as { prompt: string }).prompt, "Square cream Telegram post for PersAI");
+    assert.equal((parsed as { count: number }).count, 1);
+  });
+
+  test("image_generate strips mistaken empty action with real prompt", () => {
+    const service = new RuntimeImageGenerateToolService({} as never, {} as never, {} as never);
+    const parsed = (
+      service as unknown as {
+        readImageGenerateArguments(args: Record<string, unknown>): unknown;
+      }
+    ).readImageGenerateArguments({
+      action: "",
+      prompt: "draw a cream SaaS card",
+      count: 2,
+      outputMode: "series",
+      seriesItems: ["variant a", "variant b"],
+      size: "1024x1024",
+      background: "opaque"
+    });
+    assert.ok(!(parsed instanceof Error), String(parsed));
+    assert.equal((parsed as { outputMode: string }).outputMode, "series");
+  });
+
   test("image_edit accepts persisted toolCode inside worker request", () => {
     const service = new RuntimeImageEditToolService(
       {} as never,
@@ -108,6 +153,86 @@ describe("runtime media request parsing", () => {
     });
     assert.ok(!(parsed instanceof Error));
     assert.equal((parsed as { count: number }).count, 2);
+  });
+
+  test("image_edit strips echoed result-schema junk instead of invalid_arguments", () => {
+    const service = new RuntimeImageEditToolService(
+      {} as never,
+      {} as never,
+      {
+        ...createFakeMediaObjectStorageForRead(),
+        ...createFakeMediaObjectStorageForOutboundWrite()
+      } as never
+    );
+    const parsed = (
+      service as unknown as {
+        readImageEditArguments(args: Record<string, unknown>): unknown;
+      }
+    ).readImageEditArguments({
+      toolCode: "image_edit",
+      prompt: "restyle for Telegram",
+      sourceImageAlias: "image #1",
+      action: "skipped",
+      reason: "source_image_required",
+      warning: "use image_edit",
+      executionMode: "worker",
+      artifacts: []
+    });
+    assert.ok(!(parsed instanceof Error), String(parsed));
+    assert.equal((parsed as { sourceImageAlias: string }).sourceImageAlias, "image #1");
+  });
+
+  test("image_edit resolves image #1 against current image #1 and ordinal fallback", () => {
+    const service = new RuntimeImageEditToolService(
+      {} as never,
+      {} as never,
+      {
+        ...createFakeMediaObjectStorageForRead(),
+        ...createFakeMediaObjectStorageForOutboundWrite()
+      } as never
+    );
+    const find = (
+      service as unknown as {
+        findAttachmentByAlias(
+          attachments: Array<{
+            attachmentId: string;
+            kind: "image";
+            storagePath: string;
+            mimeType: string;
+            displayName: string;
+            sizeBytes: number;
+            aliases: string[] | null;
+          }>,
+          alias: string
+        ): { attachmentId: string } | null;
+      }
+    ).findAttachmentByAlias.bind(service);
+
+    const withPrefixedAlias = [
+      {
+        attachmentId: "a1",
+        kind: "image" as const,
+        storagePath: "uploads/a.png",
+        mimeType: "image/png",
+        displayName: "a.png",
+        sizeBytes: 1,
+        aliases: ["current image #1"]
+      }
+    ];
+    assert.equal(find(withPrefixedAlias, "image #1")?.attachmentId, "a1");
+
+    const withEmptyAliases = [
+      {
+        attachmentId: "b1",
+        kind: "image" as const,
+        storagePath: "uploads/b.png",
+        mimeType: "image/png",
+        displayName: "b.png",
+        sizeBytes: 1,
+        aliases: null
+      }
+    ];
+    assert.equal(find(withEmptyAliases, "image #1")?.attachmentId, "b1");
   });
 
   test("image_edit rejects series mode when seriesItems count mismatches", () => {
