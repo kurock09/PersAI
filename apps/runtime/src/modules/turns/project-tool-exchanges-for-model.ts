@@ -1,14 +1,15 @@
 /**
  * ADR-161 A1/A2 helpers: per-exchange model-facing projection and sealed
- * boundary hashing over append-only full tool history.
+ * boundary hashing over append-only tool history.
  *
- * Canonical `toolExchanges` stay full. In-turn provider `toolHistory` is the
- * loop's full sanitized exchanges (no compact-at-insert, no mid-loop micro
- * clear, no ADR-156 dual-window rewrite). Cross-turn prior replay uses
+ * In-turn provider `toolHistory` is the loop's sanitized exchanges after
+ * ADR-164 seal/demote (no compact-at-insert, no mid-loop micro clear, no
+ * ADR-156 dual-window rewrite). Persisted `toolExchanges` are demoted to
+ * spill receipts at turn end when oversized. Cross-turn prior replay uses
  * `prior-tool-exchange-replay.ts`, which projects full below 50% pressure and
  * placeholders older-than-newest-5 at/above 50% of
- * `compactionTriggerThreshold`. Fresh sanitize
- * (`stringifyToolResultPayloadForModel`) remains a separate path.
+ * `compactionTriggerThreshold`; spill receipts pass through unchanged.
+ * Fresh sanitize (`stringifyToolResultPayloadForModel`) remains a separate path.
  */
 
 import type {
@@ -21,6 +22,7 @@ import {
   projectFullToolResultPayload,
   withObservationTierMarker
 } from "./tool-observation-compactors";
+import { isToolSpillReceiptContent } from "./tool-observation-spill";
 import type { ToolObservationTier } from "./tool-observation-policy";
 
 /** Serialized tool-call argument cap for model-facing projection. */
@@ -74,19 +76,32 @@ export function projectOneToolExchange(
 ): ProviderGatewayToolExchange {
   const toolName = exchange.toolCall.name || exchange.toolResult.name;
   const isError = exchange.toolResult.isError === true;
+  const rawContent =
+    typeof exchange.toolResult.content === "string" ? exchange.toolResult.content : "";
 
-  let projectedPayload;
-  if (tier === "full") {
-    projectedPayload = projectFullToolResultPayload(exchange.toolResult.content);
+  // ADR-164 P4: persisted spill receipts must stay receipts on prior replay —
+  // never re-expand `.tool-spill/` bodies and do not compact/mask away path.
+  let projectedContent: string;
+  if (isToolSpillReceiptContent(rawContent)) {
+    try {
+      const receipt = JSON.parse(rawContent) as Record<string, unknown>;
+      projectedContent = JSON.stringify(withObservationTierMarker(receipt, tier));
+    } catch {
+      projectedContent = rawContent;
+    }
+  } else if (tier === "full") {
+    projectedContent = JSON.stringify(projectFullToolResultPayload(rawContent));
   } else {
-    projectedPayload = withObservationTierMarker(
-      compactOrMaskToolResultContent({
-        toolName,
-        content: exchange.toolResult.content,
-        isError,
+    projectedContent = JSON.stringify(
+      withObservationTierMarker(
+        compactOrMaskToolResultContent({
+          toolName,
+          content: rawContent,
+          isError,
+          tier
+        }),
         tier
-      }),
-      tier
+      )
     );
   }
 
@@ -95,7 +110,7 @@ export function projectOneToolExchange(
     toolResult: {
       toolCallId: exchange.toolResult.toolCallId,
       name: exchange.toolResult.name,
-      content: JSON.stringify(projectedPayload),
+      content: projectedContent,
       isError
     },
     ...(typeof exchange.reasoningContent === "string"

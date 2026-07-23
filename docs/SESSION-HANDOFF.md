@@ -1,5 +1,25 @@
 # SESSION-HANDOFF
 
+## 2026-07-24 — ADR-164 P5 hostile audit fix (wave first-seen)
+
+- **P1 fixed in audit:** `demoteOlder` now takes `preserveFromIndex` (tool_calls
+  wave start). Multi-tool / parallel batches keep the whole unsent wave full;
+  prior waves demote when the next wave appends. No blind-first-receipt.
+- **Next:** re-audit CLEAN → full gate → one push/deploy → live.
+
+## 2026-07-24 — ADR-164 P2–P4 OUT/IN quality + prior receipt replay
+
+- **Baseline:** P1 `00dea781`. P2–P4 local (uncommitted; parent commits).
+- **P2:** Single projector — `buildToolAwareSummarySource` enriches demote
+  receipt summaries (shell/exec, browser, files, web/knowledge_fetch, grep/glob,
+  script) from parseable result JSON; first-seen-full unchanged.
+- **P3:** Arg stubs cover `content`/`text`/`prompt`/`outline`/`instructions` +
+  `input` (string or huge object); huge `seriesItems` → whole-args spill.
+- **P4:** `projectOneToolExchange` / prior-tool-exchange-replay pass spill
+  receipts through (path kept; no spill re-expand). Residual: old DB full
+  exchanges are not re-spilled on hydrate.
+- **Next:** P5 independent CLEAN audit → full gate → one push/deploy → live.
+
 ## 2026-07-24 — ADR-164 P1 first-seen full / then receipt
 
 - **Fix:** Seal spills oversized args/results to `.tool-spill/`; **results stay
@@ -7,7 +27,7 @@
   appended; **args stub immediately**; **turn-end demote all** before persist.
 - **API:** `sealToolExchangeSpill` + `demoteOlderToolExchangesToReceipts` +
   `demoteAllToolExchangesToReceipts` (replaces immediate receipt-at-insert).
-- **Next:** P2 OUT wave → P3 IN wave → CLEAN audit → gate → one push.
+- **Next:** P2–P4 landed locally; P5 audit/gate/push open.
 
 ## 2026-07-23 — ADR-164 tool spill + short receipts (open)
 

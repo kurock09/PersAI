@@ -3,7 +3,18 @@
 ## Status
 
 **Open 2026-07-23 — docs lock after founder live diagnosis (landing / DOM
-loop).** Baseline: `fa3dbc11` (`origin/main` tip at open).
+loop).** Baseline: `fa3dbc11` (`origin/main` tip at open). P1 baseline
+`00dea781`.
+
+**P1–P4 landed locally (2026-07-24).** Generic seal + first-seen-full +
+demoteOlder/demoteAll (P1); tool-aware receipt summary hints on the same
+projector (P2); field-aware arg stubs including `input` / huge `seriesItems`
+(P3); prior-replay receipt passthrough — no spill re-expand (P4).
+
+**P5 in progress:** hostile Grok audit found and fixed P1 wave-blind demote
+(`preserveFromIndex` / whole unsent `tool_calls` wave stays first-seen full).
+Re-audit CLEAN locally; full local gate → one push/deploy → live acceptance
+(landing HTML + browser snapshot: no MB `hydratedHistory` frame) still open.
 
 Parent orchestrates, audits, and commits. Implementation and independent
 audits use **`cursor-grok-4.5-high-fast` only**. Terra / Sonnet / Sol / Opus
@@ -19,6 +30,12 @@ remain, but oversized **bodies** leave the wire for session spill files.
 ADR-161 micro-clear (50%) and session compaction (100%) stay; ADR-143/156
 remain closed and are not reopened as mid-loop dual windows. Keep ADR-164
 commits separate from ADR-161 A5 evidence and ADR-162.
+
+**P4 residual (documented, not a P4 blocker):** hydrate does **not** re-spill
+historical DB rows that still hold pre-ADR-164 full multi‑MB
+`tool_exchanges`. New turns after P1 demoteAll persist receipts; prior
+replay of receipt content stays a receipt. Re-spilling old blobs is optional
+follow-up, not required for P4.
 
 ## Context
 
@@ -59,9 +76,10 @@ On tool-execute finalize (seal):
 
 1. If result/args serialized length **> 8000**, **always spill the body to disk**.
 2. **Result OUT:** keep the **FULL** result on the exchange the **first** time the
-   model sees it in the tool loop. When a **newer** exchange is appended,
-   demote older sealed oversized results to a **receipt** (path + summary).
-   Never blind the model on first observation.
+   model sees it in the tool loop. When a **newer tool_calls wave** begins
+   appending, demote sealed oversized results from **prior waves** to a
+   **receipt** (path + summary). The entire current unsent wave stays full
+   (multi-tool / parallel batches must not blind-first-receipt within the wave).
 3. **Args IN** (`files.write` content, huge prompts, etc.): **stub immediately**
    after success (the model already authored the args when calling). Spill the
    args body; do not keep multi‑MB args on later rounds.
@@ -70,7 +88,10 @@ On tool-execute finalize (seal):
    does not revive MB blobs.
 
 API shape (runtime): `sealToolExchangeSpill` →
-`demoteOlderToolExchangesToReceipts` (after each history push) →
+`demoteOlderToolExchangesToReceipts(history, seals, waveStartIndex)` after each
+history push (waveStartIndex = history length at the start of the current
+provider `tool_calls` wave — keeps the whole unsent wave full so multi-tool /
+parallel batches are never blind-first-receipt) →
 `demoteAllToolExchangesToReceipts` (turn completion).
 
 ### 2. Receipt shape (single schema)
@@ -199,10 +220,10 @@ All chat-routing providers (OpenAI, Anthropic, DeepSeek, Kimi). Spill is a
 | --- | --- |
 | **P0** | This ADR + handoff/changelog/AGENTS + ADR-161 pointer amend |
 | **P1** | Contract `isToolSpillPath` + spill writer + receipt builder + apply hook on tool-history insert; hide from list/search/glob/grep/Working Files |
-| **P2** | OUT wave: `shell`/`exec`, `files.read`/`preview`, `web_fetch`, `knowledge_fetch`, `grep`/`glob`, `browser` snapshot/act, `script.output` |
-| **P3** | IN wave: `files.write` arg stub; `document`/`presentation`/`tts`/`script.input`; image prompts if over threshold |
-| **P4** | Prior-turn replay uses stored wire receipts (no resurrecting old MB blobs); focused tests |
-| **P5** | Independent Grok audit CLEAN → full gate → one push → deploy → live (landing HTML + browser snapshot: no MB `hydratedHistory` frame) |
+| **P2** | OUT wave: `shell`/`exec`, `files.read`/`preview`, `web_fetch`, `knowledge_fetch`, `grep`/`glob`, `browser` snapshot/act, `script.output` — **landed** as tool-aware summary hints on the single demote projector (not a second serializer) |
+| **P3** | IN wave: `files.write` arg stub; `document`/`presentation`/`tts`/`script.input`; image prompts if over threshold — **landed** as field-aware stub helper (`input`, huge `seriesItems` → whole-args) |
+| **P4** | Prior-turn replay uses stored wire receipts (no resurrecting old MB blobs); focused tests — **landed**; hydrate re-spill of pre-ADR-164 full DB rows is residual |
+| **P5** | Independent Grok audit CLEAN → full gate → one push → deploy → live (landing HTML + browser snapshot: no MB `hydratedHistory` frame) — **open** |
 
 ## Acceptance
 

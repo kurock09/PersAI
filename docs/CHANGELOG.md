@@ -3,13 +3,25 @@
 > Archive: detailed historical entries from 2026-06-05 and earlier moved to `docs/CHANGELOG.archive-2026-06-05-details-and-earlier.md`; entries from 2026-05-19 and earlier remain in `docs/CHANGELOG.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: current entries plus concise recent summaries only.
 
+## 2026-07-24
+
+- **ADR-164 audit fix: wave-preserving demoteOlder.** Multi-tool /
+  parallel `tool_calls` waves keep all unsent oversized results full until the
+  next wave appends (`preserveFromIndex`); no blind-first-receipt inside a wave.
+
+- **ADR-164 P2–P4 (local): tool-aware receipt summaries, arg stubs, prior
+  receipt replay.** Same seal/demote projector: demote summaries prefer
+  shell/browser/files/fetch/grep/glob/script hints; args stub adds `input` +
+  huge `seriesItems` whole-args spill; prior replay keeps spill receipts
+  (no re-expand). P1 first-seen-full unchanged. P5 audit/gate/push open.
+
 ## 2026-07-23
 
 - **ADR-164 P1: tool spill + first-seen full, then receipt.** Oversized tool
   bodies spill to session `.tool-spill/` (hidden like install-layer). Results
   stay full on first observation; older exchanges demote to path+summary
   receipts; args stub immediately; turn-end demotes all. Soft max 8k. Amends
-  ADR-161 wire meaning. P2/P3 tool polish pending.
+  ADR-161 wire meaning. P2–P4 landed 2026-07-24 (local).
 
 - **fix(runtime): strip mistaken action:describe on real tool calls.** Catalog
   `{action:"describe"}` alone still returns the contract; if the model keeps

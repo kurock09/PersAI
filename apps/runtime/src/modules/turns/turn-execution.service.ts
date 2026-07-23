@@ -1534,6 +1534,8 @@ export class TurnExecutionService {
                   toolBudgetPolicy,
                   iteration
                 );
+                // ADR-164: preserve the whole unsent tool_calls wave as first-seen full.
+                const toolSpillWaveStartIndex = toolHistory.length;
                 for (
                   let batchStart = 0;
                   batchStart < plannedToolExecutions.length;
@@ -1587,7 +1589,8 @@ export class TurnExecutionService {
                         turnState.toolExchanges.push(result.outcome.exchange);
                         demoteOlderToolExchangesToReceipts(
                           toolHistory,
-                          turnState.toolSpillSeals
+                          turnState.toolSpillSeals,
+                          toolSpillWaveStartIndex
                         );
                         this.applyToolExecutionOutcome(turnState, result.outcome, iteration);
                         this.maybeApplySkillStateMutationFromTool(execution, result.outcome);
@@ -1676,7 +1679,11 @@ export class TurnExecutionService {
                     });
                     toolHistory.push(outcome.exchange);
                     turnState.toolExchanges.push(outcome.exchange);
-                    demoteOlderToolExchangesToReceipts(toolHistory, turnState.toolSpillSeals);
+                    demoteOlderToolExchangesToReceipts(
+                      toolHistory,
+                      turnState.toolSpillSeals,
+                      toolSpillWaveStartIndex
+                    );
                     this.applyToolExecutionOutcome(turnState, outcome, iteration);
                     this.maybeApplySkillStateMutationFromTool(execution, outcome);
                     if (this.toolMutatesVolatilePrefix(outcome)) {
@@ -3419,6 +3426,8 @@ export class TurnExecutionService {
         toolBudgetPolicy,
         iteration
       );
+      // ADR-164: preserve the whole unsent tool_calls wave as first-seen full.
+      const toolSpillWaveStartIndex = toolHistory.length;
       for (
         let batchStart = 0;
         batchStart < plannedToolExecutions.length;
@@ -3458,7 +3467,11 @@ export class TurnExecutionService {
               });
               toolHistory.push(result.outcome.exchange);
               turnState.toolExchanges.push(result.outcome.exchange);
-              demoteOlderToolExchangesToReceipts(toolHistory, turnState.toolSpillSeals);
+              demoteOlderToolExchangesToReceipts(
+                toolHistory,
+                turnState.toolSpillSeals,
+                toolSpillWaveStartIndex
+              );
               this.applyToolExecutionOutcome(turnState, result.outcome, iteration);
               this.maybeApplySkillStateMutationFromTool(execution, result.outcome);
               if (this.toolMutatesVolatilePrefix(result.outcome)) {
@@ -3508,7 +3521,11 @@ export class TurnExecutionService {
           });
           toolHistory.push(outcome.exchange);
           turnState.toolExchanges.push(outcome.exchange);
-          demoteOlderToolExchangesToReceipts(toolHistory, turnState.toolSpillSeals);
+          demoteOlderToolExchangesToReceipts(
+            toolHistory,
+            turnState.toolSpillSeals,
+            toolSpillWaveStartIndex
+          );
           this.applyToolExecutionOutcome(turnState, outcome, iteration);
           this.maybeApplySkillStateMutationFromTool(execution, outcome);
           if (this.toolMutatesVolatilePrefix(outcome)) {
@@ -6748,6 +6765,7 @@ export class TurnExecutionService {
       }
 
       const toolHistory: ProviderGatewayToolExchange[] = [];
+      const toolSpillWaveStartIndex = 0;
       for (const toolCall of firstResult.toolCalls) {
         const outcome = await this.executeProjectedToolCall(
           input.execution,
@@ -6770,7 +6788,11 @@ export class TurnExecutionService {
           turnState: input.turnState
         });
         toolHistory.push(outcome.exchange);
-        demoteOlderToolExchangesToReceipts(toolHistory, input.turnState.toolSpillSeals);
+        demoteOlderToolExchangesToReceipts(
+          toolHistory,
+          input.turnState.toolSpillSeals,
+          toolSpillWaveStartIndex
+        );
         this.applyToolExecutionOutcome(input.turnState, outcome, 0);
       }
 

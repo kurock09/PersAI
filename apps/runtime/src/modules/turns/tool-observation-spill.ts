@@ -1,5 +1,5 @@
 /**
- * ADR-164 P1 — mid-loop wire hygiene: spill oversized tool args/results to
+ * ADR-164 — mid-loop wire hygiene: spill oversized tool args/results to
  * session `.tool-spill/`, keep first-seen result full, then demote older
  * oversized results to short receipts (path + summary) once a newer exchange
  * is appended. Args stub immediately after success.
@@ -7,9 +7,11 @@
  * “Append full” (ADR-161) means every tool-call ↔ tool-result pair stays on the
  * wire with honest status; it does not mean replaying multi‑MB JSON each round.
  *
- * P2 note: `files.read` of spill (or any large file) is further bounded via this
- * same soft-max helper. Seal+demote already covers `files.read` results so a
- * huge read becomes a receipt after the next exchange (and at turn end).
+ * P2: one receipt projector; demote summaries use tool-aware hints from parseable
+ * result JSON (shell/browser/files/fetch/grep/glob/script) without dual serializers.
+ * P3: field-aware arg stubs cover content/text/prompt/outline/instructions/input;
+ * huge seriesItems → whole-args spill.
+ * P4: persisted receipts stay receipts on prior replay (no spill re-expand).
  */
 
 import { createHash } from "node:crypto";
@@ -33,7 +35,8 @@ const FIELD_AWARE_ARG_KEYS = [
   "stdout",
   "stderr",
   "outline",
-  "instructions"
+  "instructions",
+  "input"
 ] as const;
 
 export type ToolSpillKind = "args" | "result" | "both";
@@ -187,32 +190,19 @@ function sha256Utf8(content: string): string {
   return createHash("sha256").update(content, "utf8").digest("hex");
 }
 
-/**
- * Field-aware stub for known large body keys; otherwise whole-args spill marker.
- * Keeps tool call name/id; oversized string fields become path refs.
- */
-export function stubOversizedToolArguments(input: {
-  argumentsValue: Record<string, unknown>;
+function spilledFieldStub(spillPath: string, chars: number): Record<string, unknown> {
+  return {
+    __spilled_field: true,
+    path: spillPath,
+    chars
+  };
+}
+
+function wholeArgsSpillStub(input: {
   spillPath: string;
   chars: number;
+  argumentsValue: Record<string, unknown>;
 }): Record<string, unknown> {
-  const args = { ...input.argumentsValue };
-  let replacedField = false;
-  for (const key of FIELD_AWARE_ARG_KEYS) {
-    const value = args[key];
-    if (typeof value !== "string" || value.length <= TOOL_WIRE_SOFT_MAX_CHARS) {
-      continue;
-    }
-    args[key] = {
-      __spilled_field: true,
-      path: input.spillPath,
-      chars: value.length
-    };
-    replacedField = true;
-  }
-  if (replacedField && !exceedsToolWireSoftMax(JSON.stringify(args))) {
-    return args;
-  }
   return {
     __spilled_args: true,
     path: input.spillPath,
@@ -223,16 +213,211 @@ export function stubOversizedToolArguments(input: {
   };
 }
 
-function buildErrorAwareSummarySource(input: {
-  body: string;
-  isError: boolean;
-  tool: string;
-}): string {
-  if (!input.isError) {
-    return input.body;
+/**
+ * Field-aware stub for known large body keys; otherwise whole-args spill marker.
+ * Keeps tool call name/id; oversized string fields become path refs.
+ * Huge `seriesItems` arrays (or oversized object `input`) force whole-args spill.
+ */
+export function stubOversizedToolArguments(input: {
+  argumentsValue: Record<string, unknown>;
+  spillPath: string;
+  chars: number;
+}): Record<string, unknown> {
+  const seriesItems = input.argumentsValue.seriesItems;
+  if (Array.isArray(seriesItems)) {
+    const seriesSerialized = JSON.stringify(seriesItems);
+    if (exceedsToolWireSoftMax(seriesSerialized)) {
+      return wholeArgsSpillStub(input);
+    }
   }
-  const prefix = `error from ${input.tool}: `;
-  return `${prefix}${input.body}`;
+
+  const args = { ...input.argumentsValue };
+  let replacedField = false;
+  for (const key of FIELD_AWARE_ARG_KEYS) {
+    const value = args[key];
+    if (typeof value === "string" && value.length > TOOL_WIRE_SOFT_MAX_CHARS) {
+      args[key] = spilledFieldStub(input.spillPath, value.length);
+      replacedField = true;
+      continue;
+    }
+    // script `input` is typically an object; spill the field when it alone is huge
+    if (
+      key === "input" &&
+      value !== null &&
+      typeof value === "object" &&
+      !Array.isArray(value)
+    ) {
+      const serialized = JSON.stringify(value);
+      if (exceedsToolWireSoftMax(serialized)) {
+        args[key] = spilledFieldStub(input.spillPath, serialized.length);
+        replacedField = true;
+      }
+    }
+  }
+  if (replacedField && !exceedsToolWireSoftMax(JSON.stringify(args))) {
+    return args;
+  }
+  return wholeArgsSpillStub(input);
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  return value as Record<string, unknown>;
+}
+
+function asFiniteNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function asNonEmptyString(value: unknown): string | null {
+  return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function firstLineOf(text: string): string {
+  const normalized = text.replace(/\r\n/g, "\n");
+  const line = normalized.split("\n").find((entry) => entry.trim().length > 0);
+  return line === undefined ? "" : line.trim();
+}
+
+function joinSummaryParts(parts: Array<string | null | undefined>): string | null {
+  const filtered = parts
+    .map((part) => (typeof part === "string" ? part.trim() : ""))
+    .filter((part) => part.length > 0);
+  return filtered.length > 0 ? filtered.join("; ") : null;
+}
+
+/**
+ * Pure helper: tool-aware summary source for receipts when demoting oversized
+ * results. Prefers stable hints from parseable result JSON; falls back to body
+ * (with error prefix). Does not change first-seen-full seal behavior.
+ */
+export function buildToolAwareSummarySource(
+  tool: string,
+  resultContent: string,
+  isError: boolean
+): string {
+  const toolCode = tool.trim().toLowerCase();
+  const errorPrefix = isError ? `error from ${tool}: ` : "";
+  let parsed: Record<string, unknown> | null = null;
+  try {
+    parsed = asRecord(JSON.parse(resultContent) as unknown);
+  } catch {
+    parsed = null;
+  }
+
+  if (parsed === null) {
+    return `${errorPrefix}${resultContent}`;
+  }
+
+  let hint: string | null = null;
+
+  if (toolCode === "shell" || toolCode === "exec") {
+    const job = asRecord(parsed.job) ?? parsed;
+    const exitCode =
+      asFiniteNumber(job.exitCode) ?? asFiniteNumber(parsed.exitCode);
+    const stdout = asNonEmptyString(job.stdout) ?? asNonEmptyString(parsed.stdout);
+    const stderr = asNonEmptyString(job.stderr) ?? asNonEmptyString(parsed.stderr);
+    const stdoutBytes =
+      stdout === null ? 0 : Buffer.byteLength(stdout, "utf8");
+    const stderrBytes =
+      stderr === null ? 0 : Buffer.byteLength(stderr, "utf8");
+    const firstLine =
+      stdout !== null
+        ? firstLineOf(stdout)
+        : stderr !== null
+          ? firstLineOf(stderr)
+          : "";
+    hint = joinSummaryParts([
+      exitCode !== null ? `exitCode=${String(exitCode)}` : null,
+      `stdoutBytes=${String(stdoutBytes)}`,
+      `stderrBytes=${String(stderrBytes)}`,
+      firstLine.length > 0 ? `firstLine=${firstLine}` : null
+    ]);
+  } else if (toolCode === "browser") {
+    const page = asRecord(parsed.page);
+    const finalUrl =
+      asNonEmptyString(parsed.finalUrl) ??
+      (page === null ? null : asNonEmptyString(page.finalUrl));
+    const title =
+      asNonEmptyString(parsed.title) ??
+      (page === null ? null : asNonEmptyString(page.title));
+    const elements = page === null ? parsed.elements : page.elements;
+    const elementCount = Array.isArray(elements)
+      ? elements.length
+      : (asFiniteNumber(parsed.elementCount) ??
+        (page === null ? null : asFiniteNumber(page.elementCount)));
+    hint = joinSummaryParts([
+      finalUrl !== null ? `finalUrl=${finalUrl}` : null,
+      title !== null ? `title=${title}` : null,
+      elementCount !== null ? `elementCount=${String(elementCount)}` : null
+    ]);
+  } else if (toolCode === "files") {
+    const item = asRecord(parsed.item);
+    const path =
+      asNonEmptyString(parsed.path) ??
+      (item === null ? null : asNonEmptyString(item.path));
+    const content = asNonEmptyString(parsed.content);
+    const chars =
+      asFiniteNumber(parsed.charCount) ??
+      asFiniteNumber(parsed.chars) ??
+      (content === null ? null : content.length);
+    hint = joinSummaryParts([
+      path !== null ? `path=${path}` : null,
+      chars !== null ? `chars=${String(chars)}` : null,
+      asNonEmptyString(parsed.action) !== null
+        ? `action=${asNonEmptyString(parsed.action)}`
+        : null
+    ]);
+  } else if (toolCode === "web_fetch" || toolCode === "knowledge_fetch") {
+    const url = asNonEmptyString(parsed.url);
+    const referenceId = asNonEmptyString(parsed.referenceId);
+    const content =
+      asNonEmptyString(parsed.content) ??
+      asNonEmptyString(parsed.text) ??
+      asNonEmptyString(parsed.document);
+    const chars =
+      asFiniteNumber(parsed.charCount) ??
+      asFiniteNumber(parsed.chars) ??
+      (content === null ? null : content.length);
+    hint = joinSummaryParts([
+      url !== null ? `url=${url}` : null,
+      referenceId !== null ? `referenceId=${referenceId}` : null,
+      chars !== null ? `chars=${String(chars)}` : null
+    ]);
+  } else if (toolCode === "grep") {
+    const matchCount =
+      asFiniteNumber(parsed.matchCount) ??
+      (Array.isArray(parsed.matches) ? parsed.matches.length : null);
+    const truncated = parsed.truncated === true;
+    hint = joinSummaryParts([
+      matchCount !== null ? `matchCount=${String(matchCount)}` : null,
+      truncated ? "truncated=true" : "truncated=false"
+    ]);
+  } else if (toolCode === "glob") {
+    const pathCount =
+      asFiniteNumber(parsed.pathCount) ??
+      (Array.isArray(parsed.paths) ? parsed.paths.length : null);
+    const truncated = parsed.truncated === true;
+    hint = joinSummaryParts([
+      pathCount !== null ? `pathCount=${String(pathCount)}` : null,
+      truncated ? "truncated=true" : "truncated=false"
+    ]);
+  } else if (toolCode === "script" || toolCode.startsWith("script.")) {
+    const scriptKey = asNonEmptyString(parsed.scriptKey);
+    const status =
+      asNonEmptyString(parsed.status) ?? asNonEmptyString(parsed.action);
+    hint = joinSummaryParts([
+      scriptKey !== null ? `scriptKey=${scriptKey}` : null,
+      status !== null ? `status=${status}` : null
+    ]);
+  }
+
+  if (hint === null) {
+    return `${errorPrefix}${resultContent}`;
+  }
+  return `${errorPrefix}${hint}`;
 }
 
 function resolveToolCallId(exchange: ProviderGatewayToolExchange): string {
@@ -262,11 +447,7 @@ function buildResultReceiptFromSeal(
     chars: seal.resultChars ?? content.length,
     bytes: seal.resultBytes ?? Buffer.byteLength(content, "utf8"),
     path: seal.resultPath,
-    summarySource: buildErrorAwareSummarySource({
-      body: content,
-      isError: seal.isError,
-      tool: seal.tool
-    }),
+    summarySource: buildToolAwareSummarySource(seal.tool, content, seal.isError),
     ...(seal.resultSha256 !== undefined ? { sha256: seal.resultSha256 } : {}),
     spillKind: seal.spillKind === "args" ? "result" : seal.spillKind
   });
@@ -428,17 +609,25 @@ export async function sealToolExchangeSpill(
 }
 
 /**
- * Demote all but the last exchange: oversized sealed results → receipt.
- * Mutates exchanges in place (shared refs in toolHistory + turnState.toolExchanges).
+ * Demote sealed oversized results that are strictly older than the current
+ * unsent tool wave. Mutates exchanges in place (shared refs in toolHistory +
+ * turnState.toolExchanges).
+ *
+ * `preserveFromIndex` is the history index where the current provider tool_calls
+ * wave began. Exchanges at/after that index stay full until the model has seen
+ * them (founder first-seen rule). Omitting it preserves only the newest entry
+ * (legacy single-tool demote).
  */
 export function demoteOlderToolExchangesToReceipts(
   history: ProviderGatewayToolExchange[],
-  sealsByCallId: Map<string, ToolSpillSealMeta>
+  sealsByCallId: Map<string, ToolSpillSealMeta>,
+  preserveFromIndex?: number
 ): void {
-  if (history.length <= 1) {
-    return;
-  }
-  for (let index = 0; index < history.length - 1; index += 1) {
+  const cutoff =
+    typeof preserveFromIndex === "number" && Number.isFinite(preserveFromIndex)
+      ? Math.max(0, Math.min(Math.floor(preserveFromIndex), history.length))
+      : Math.max(0, history.length - 1);
+  for (let index = 0; index < cutoff; index += 1) {
     const exchange = history[index];
     if (exchange === undefined) {
       continue;
