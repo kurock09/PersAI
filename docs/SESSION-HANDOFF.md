@@ -37,10 +37,11 @@
   (whole tool_calls wave preserved); demoteOlder → receipts; args stub at
   seal; demoteAll at turn end; tool-aware receipt summaries; prior receipt
   passthrough. Independent Grok audit CLEAN after wave-preserve P1 fix.
-- **Gates:** lint + format:check + api/web/runtime/gateway/contract
-  typecheck green; spill + path-contract tests green.
-- **Next:** explicit push → deploy runtime (+api if needed) → live landing
-  HTML + browser snapshot (no MB `hydratedHistory` frame).
+- **Gates (full CI-like, no SQL):** `pnpm lint` (eslint+format),
+  `pnpm typecheck`, `test:adr146-slice5`, `pnpm test`, `test:step2` green
+  (web 1080/1080).
+- **Next:** push → deploy runtime (+api if needed) → live landing HTML +
+  browser snapshot (no MB `hydratedHistory` frame).
 
 ## 2026-07-23 — Ship describe-strip + card/thinking UX
 
