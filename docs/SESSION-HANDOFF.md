@@ -29,21 +29,18 @@
   `demoteAllToolExchangesToReceipts` (replaces immediate receipt-at-insert).
 - **Next:** P2–P4 landed locally; P5 audit/gate/push open.
 
-## 2026-07-23 — ADR-164 tool spill + short receipts (open)
+## 2026-07-24 — ADR-164 local CLEAN (P0–P4); push/live open
 
-- **Baseline:** `fa3dbc11` (ff from `e587e1f4` pin).
-- **Why:** Live loop `267b9d13` — ~8.5M-char history frame + 23× “пишу лендинг”
-  narration; mid-loop ADR-161 full append replaying multi‑MB tool bodies
-  (write args / large observations). Not a Kimi-IQ bug.
-- **Decision:** ADR-164 — wire ≤8k or receipt (path + summary); disk under
-  `sessions/<id>/.tool-spill/` hidden like ADR-150 install-layer; re-read of
-  spill uses same threshold. Amends ADR-161 wire meaning; 143/156 stay closed.
-- **Orchestration:** parent; impl/audits **only** `cursor-grok-4.5-high-fast`.
-- **P1 landed (local):** `isToolSpillPath` / hide helper; seal spill; **first-seen
-  full result → demoteOlder receipts → demoteAll at turn end**; args stub
-  immediate. Tests: spill + path contract + runtime typecheck green.
-- **Next:** parent commit P1 → P2 OUT polish → P3 IN polish → CLEAN audit →
-  gate → one push.
+- **Tip:** `66a4d557` (style) on `abcb96ad` (P2–P4 + wave-preserve) /
+  `00dea781` (P1) / `4fc7378e` (docs). Ahead of `origin/main`.
+- **Behavior:** spill >8k to `.tool-spill/` (hidden); first-seen full RESULT
+  (whole tool_calls wave preserved); demoteOlder → receipts; args stub at
+  seal; demoteAll at turn end; tool-aware receipt summaries; prior receipt
+  passthrough. Independent Grok audit CLEAN after wave-preserve P1 fix.
+- **Gates:** lint + format:check + api/web/runtime/gateway/contract
+  typecheck green; spill + path-contract tests green.
+- **Next:** explicit push → deploy runtime (+api if needed) → live landing
+  HTML + browser snapshot (no MB `hydratedHistory` frame).
 
 ## 2026-07-23 — Ship describe-strip + card/thinking UX
 
