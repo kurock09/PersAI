@@ -2,9 +2,9 @@
 
 ## 2026-07-24 — Image args + live-thinking UI (gated, push)
 
-- **Baseline tip before push:** `e33a034b`. Bundle: image_generate/edit
-  allowlist strip + no hard `source_image_required` + alias ordinal/suffix;
-  live thinking ~7-line reserve + ~220ms fade.
+- **Pushed tip:** `76b9cdcf` (rebased on GitOps pin `795f01af`). Bundle:
+  image_generate/edit allowlist strip + no hard `source_image_required` +
+  alias ordinal/suffix; live thinking ~7-line reserve + ~220ms fade.
 - **Gates:** `pnpm -r lint`, `format:check`, `pnpm -r typecheck`,
   `test:adr146-slice5`, `pnpm test` green. Focused image + chat-message tests
   green. `test:step2` web full suite flaked on unrelated `use-chat` (passes
