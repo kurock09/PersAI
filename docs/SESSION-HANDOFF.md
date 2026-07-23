@@ -1,5 +1,14 @@
 # SESSION-HANDOFF
 
+## 2026-07-24 — ADR-164 P1 first-seen full / then receipt
+
+- **Fix:** Seal spills oversized args/results to `.tool-spill/`; **results stay
+  full on first observation**, demote older to receipt when a newer exchange is
+  appended; **args stub immediately**; **turn-end demote all** before persist.
+- **API:** `sealToolExchangeSpill` + `demoteOlderToolExchangesToReceipts` +
+  `demoteAllToolExchangesToReceipts` (replaces immediate receipt-at-insert).
+- **Next:** P2 OUT wave → P3 IN wave → CLEAN audit → gate → one push.
+
 ## 2026-07-23 — ADR-164 tool spill + short receipts (open)
 
 - **Baseline:** `fa3dbc11` (ff from `e587e1f4` pin).
@@ -10,8 +19,11 @@
   `sessions/<id>/.tool-spill/` hidden like ADR-150 install-layer; re-read of
   spill uses same threshold. Amends ADR-161 wire meaning; 143/156 stay closed.
 - **Orchestration:** parent; impl/audits **only** `cursor-grok-4.5-high-fast`.
-- **Next:** P1 foundation (`isToolSpillPath` + spill/receipt + insert hook) →
-  P2 OUT wave → P3 IN wave → CLEAN audit → gate → one push.
+- **P1 landed (local):** `isToolSpillPath` / hide helper; seal spill; **first-seen
+  full result → demoteOlder receipts → demoteAll at turn end**; args stub
+  immediate. Tests: spill + path contract + runtime typecheck green.
+- **Next:** parent commit P1 → P2 OUT polish → P3 IN polish → CLEAN audit →
+  gate → one push.
 
 ## 2026-07-23 — Ship describe-strip + card/thinking UX
 

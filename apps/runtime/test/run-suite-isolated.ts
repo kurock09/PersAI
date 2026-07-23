@@ -163,6 +163,10 @@ const TESTS: Array<{ modulePath: string; exportName: string }> = [
     exportName: "runProjectToolExchangesForModelTest"
   },
   {
+    modulePath: "./tool-observation-spill.test.ts",
+    exportName: "runToolObservationSpillTest"
+  },
+  {
     modulePath: "./prior-tool-exchange-replay.test.ts",
     exportName: "runPriorToolExchangeReplayTest"
   },

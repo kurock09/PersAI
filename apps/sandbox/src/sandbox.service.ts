@@ -18,7 +18,7 @@ import {
 import {
   classifyVisibleWorkspacePath,
   DEFAULT_RUNTIME_SANDBOX_POLICY,
-  isSessionInstallLayerPath
+  isSessionHiddenModelSupportPath
 } from "@persai/runtime-contract";
 import { Prisma } from "@prisma/client";
 import { SANDBOX_CONFIG } from "./sandbox-config";
@@ -2199,7 +2199,7 @@ export class SandboxService {
       workspaceMountRoot: WORKSPACE_MOUNT_ROOT,
       isVisibleDocumentPath: (workspacePath) =>
         this.isVisibleWorkspaceProducedFilePath(workspacePath),
-      shouldSkipDirectory: (workspacePath) => isSessionInstallLayerPath(workspacePath),
+      shouldSkipDirectory: (workspacePath) => isSessionHiddenModelSupportPath(workspacePath),
       toVisibleWorkspaceAbsolutePath: (root, absolutePath) =>
         this.toVisibleWorkspaceAbsolutePath(root, absolutePath)
     });
@@ -3466,7 +3466,7 @@ export class SandboxService {
   }
 
   private isVisibleWorkspaceProducedFilePath(workspacePath: string): boolean {
-    if (isSessionInstallLayerPath(workspacePath)) {
+    if (isSessionHiddenModelSupportPath(workspacePath)) {
       return false;
     }
     const info = classifyVisibleWorkspacePath(workspacePath);

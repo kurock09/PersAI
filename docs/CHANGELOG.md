@@ -5,10 +5,11 @@
 
 ## 2026-07-23
 
-- **ADR-164 (docs open): tool observation spill + short receipts.** Oversized
-  mid-loop tool args/results spill to session `.tool-spill/` (hidden from user
-  Files); provider wire gets path + summary receipts. Amends ADR-161 “append
-  full” wire meaning. Baseline `fa3dbc11`. Implementation pending P1–P5.
+- **ADR-164 P1: tool spill + first-seen full, then receipt.** Oversized tool
+  bodies spill to session `.tool-spill/` (hidden like install-layer). Results
+  stay full on first observation; older exchanges demote to path+summary
+  receipts; args stub immediately; turn-end demotes all. Soft max 8k. Amends
+  ADR-161 wire meaning. P2/P3 tool polish pending.
 
 - **fix(runtime): strip mistaken action:describe on real tool calls.** Catalog
   `{action:"describe"}` alone still returns the contract; if the model keeps

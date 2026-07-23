@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
-import { isSessionInstallLayerPath } from "@persai/runtime-contract";
+import { isSessionHiddenModelSupportPath } from "@persai/runtime-contract";
 import { WorkspaceFileMetadataService } from "./workspace-file-metadata.service";
 
 export type SearchWorkspaceFilesFromManifestInput = {
@@ -88,7 +88,7 @@ export class SearchWorkspaceFilesFromManifestService {
       limit: 500
     });
     const ranked = rows
-      .filter((row) => !isSessionInstallLayerPath(row.path))
+      .filter((row) => !isSessionHiddenModelSupportPath(row.path))
       .map((row) => {
         const displayName = basenameFromPath(row.path);
         const corpus = [row.path, displayName, row.shortDescription ?? ""].join(" ");

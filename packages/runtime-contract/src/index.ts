@@ -5736,6 +5736,37 @@ export function isSessionInstallLayerPath(path: string): boolean {
   );
 }
 
+/**
+ * ADR-164 — session tool-spill trees (oversized tool args/results off the wire).
+ * Hidden from Working Files / files.list / search / grep|glob listing walks —
+ * same discovery spirit as ADR-150. Model may `files.read` / preview / targeted
+ * grep by exact path from a receipt. Not a reopen of ADR-143/156 dual windows.
+ */
+export function isToolSpillPath(path: string): boolean {
+  const info = classifyVisibleWorkspacePath(path);
+  if (info.kind !== "sessionDescendant" || info.assistantId === null || info.sessionId === null) {
+    return false;
+  }
+  const sessionRoot = buildAssistantSessionRoot(info.assistantId, info.sessionId);
+  const normalized = info.normalizedPath;
+  return (
+    normalized === `${sessionRoot}/.tool-spill` ||
+    normalized.startsWith(`${sessionRoot}/.tool-spill/`)
+  );
+}
+
+/**
+ * Session support trees hidden from user-facing discovery and listing walks
+ * (ADR-150 install-layer + ADR-164 tool-spill). Prefer this over dual checks
+ * at list/search/grep/glob/Working Files / metadata-upsert refuse sites.
+ * Install-layer lifecycle (hydrate skip, tar exclude, purge) stays
+ * `isSessionInstallLayerPath` only — spill is intentionally storage-plane
+ * addressable for model re-read.
+ */
+export function isSessionHiddenModelSupportPath(path: string): boolean {
+  return isSessionInstallLayerPath(path) || isToolSpillPath(path);
+}
+
 export const DOCUMENT_WORKSPACE_PROJECT_SCHEMA = "persai.document.project.v1" as const;
 
 export const DOCUMENT_WORKSPACE_PROJECT_SOURCE_KINDS = [

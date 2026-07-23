@@ -10,8 +10,10 @@ import {
   buildAssistantWorkspaceRoot,
   classifyVisibleWorkspacePath,
   isRejectedRootFlatWorkspacePath,
+  isSessionHiddenModelSupportPath,
   isSessionInstallLayerPath,
   isStaleVisibleWorkspacePath,
+  isToolSpillPath,
   isValidVisibleWorkspacePath,
   isValidWorkspacePathSegment,
   sanitizeWorkspacePathSegment
@@ -156,6 +158,33 @@ describe("workspace path contract", () => {
     assert.equal(isSessionInstallLayerPath(`${sessionRoot}/scripts/run.py`), false);
     assert.equal(
       isSessionInstallLayerPath("/workspace/assistants/assistant-1/shared/node_modules/x"),
+      false
+    );
+  });
+
+  test("ADR-164 marks session tool-spill paths and shared hidden support helper", () => {
+    const sessionRoot = buildAssistantSessionRoot("assistant-1", "session-1");
+    const spillRoot = `${sessionRoot}/.tool-spill`;
+    const spillFile = `${spillRoot}/req-1/call-1.out.json`;
+
+    assert.equal(isToolSpillPath(spillRoot), true);
+    assert.equal(isToolSpillPath(spillFile), true);
+    assert.equal(isToolSpillPath(`${sessionRoot}/report.pdf`), false);
+    assert.equal(isToolSpillPath(`${sessionRoot}/.local/lib/x.py`), false);
+    assert.equal(
+      isToolSpillPath("/workspace/assistants/assistant-1/shared/.tool-spill/x.json"),
+      false
+    );
+
+    assert.equal(isSessionHiddenModelSupportPath(spillFile), true);
+    assert.equal(
+      isSessionHiddenModelSupportPath(`${sessionRoot}/.local/lib/python3.11/site-packages/x.py`),
+      true
+    );
+    assert.equal(isSessionHiddenModelSupportPath(`${sessionRoot}/node_modules/left-pad`), true);
+    assert.equal(isSessionHiddenModelSupportPath(`${sessionRoot}/report.pdf`), false);
+    assert.equal(
+      isSessionHiddenModelSupportPath("/workspace/assistants/assistant-1/shared/node_modules/x"),
       false
     );
   });

@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
-import { isSessionInstallLayerPath } from "@persai/runtime-contract";
+import { isSessionHiddenModelSupportPath } from "@persai/runtime-contract";
 import { WorkspaceFileMetadataService } from "./workspace-file-metadata.service";
 import { matchesWorkspaceGlob } from "./workspace-path-glob";
 import { resolveWorkspaceStorageSearchScope } from "./resolve-workspace-storage-search-scope";
@@ -73,7 +73,7 @@ export class GlobWorkspaceFilesFromManifestService {
             .then((row) => (row === null ? [] : [row]));
     const paths = rows
       .map((row) => row.path)
-      .filter((path) => !isSessionInstallLayerPath(path))
+      .filter((path) => !isSessionHiddenModelSupportPath(path))
       .filter((path) =>
         matchesWorkspaceGlob({
           filePath: path,

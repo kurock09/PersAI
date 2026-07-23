@@ -136,6 +136,13 @@ import { RuntimeScriptToolService } from "./runtime-script-tool.service";
 import { RuntimeAwaitToolService } from "./runtime-await-tool.service";
 import { hydrateMediaJobCompletionVisionContent } from "./media-job-completion-vision-hydration";
 import { PersaiMediaObjectStorageService } from "./persai-media-object-storage.service";
+import { RuntimeStoragePlaneFilesService } from "./runtime-storage-plane-files.service";
+import {
+  demoteAllToolExchangesToReceipts,
+  demoteOlderToolExchangesToReceipts,
+  sealToolExchangeSpill,
+  type ToolSpillSealMeta
+} from "./tool-observation-spill";
 import { createTurnToolProgressSink, type TurnToolProgressSink } from "./tool-progress-sink";
 import { RuntimeGrepGlobToolService } from "./runtime-grep-glob-tool.service";
 import { RuntimeBackgroundTaskToolService } from "./runtime-background-task-tool.service";
@@ -306,6 +313,11 @@ type TurnExecutionState = {
   textUsageEntries: TextGenerationUsageAccountingV2[];
   toolInvocations: RuntimeTurnToolInvocation[];
   toolExchanges: ProviderGatewayToolExchange[];
+  /**
+   * ADR-164 — seal meta for oversized spills. Results stay full on first
+   * observation; demoteOlder/demoteAll replace content with receipts later.
+   */
+  toolSpillSeals: Map<string, ToolSpillSealMeta>;
   deferredMediaJobs: RuntimeDeferredMediaJobSummary[];
   deferredDocumentJobs: RuntimeDeferredDocumentJobSummary[];
   closedOpenLoopRefs: string[];
@@ -650,6 +662,7 @@ export class TurnExecutionService {
     private readonly runtimeExecutionAdmissionService: RuntimeExecutionAdmissionService,
     private readonly runtimeAwaitToolService: RuntimeAwaitToolService,
     private readonly mediaObjectStorage: PersaiMediaObjectStorageService,
+    private readonly storagePlaneFilesService: RuntimeStoragePlaneFilesService,
     @Optional() @Inject(RUNTIME_CONFIG) private readonly config?: RuntimeConfig
   ) {}
 
@@ -1563,8 +1576,19 @@ export class TurnExecutionService {
                         result.outcome.exchange.reasoningContent =
                           event.result.reasoningContent ?? null;
                         result.outcome.exchange.assistantText = event.result.text ?? null;
+                        await this.projectAndAssignToolExchangeForWire({
+                          outcome: result.outcome,
+                          bundle: execution.bundle,
+                          sessionId: acceptedTurn.session.sessionId,
+                          requestId: acceptedTurn.receipt.requestId,
+                          turnState
+                        });
                         toolHistory.push(result.outcome.exchange);
                         turnState.toolExchanges.push(result.outcome.exchange);
+                        demoteOlderToolExchangesToReceipts(
+                          toolHistory,
+                          turnState.toolSpillSeals
+                        );
                         this.applyToolExecutionOutcome(turnState, result.outcome, iteration);
                         this.maybeApplySkillStateMutationFromTool(execution, result.outcome);
                         if (this.toolMutatesVolatilePrefix(result.outcome)) {
@@ -1643,8 +1667,16 @@ export class TurnExecutionService {
                     );
                     outcome.exchange.reasoningContent = event.result.reasoningContent ?? null;
                     outcome.exchange.assistantText = event.result.text ?? null;
+                    await this.projectAndAssignToolExchangeForWire({
+                      outcome,
+                      bundle: execution.bundle,
+                      sessionId: acceptedTurn.session.sessionId,
+                      requestId: acceptedTurn.receipt.requestId,
+                      turnState
+                    });
                     toolHistory.push(outcome.exchange);
                     turnState.toolExchanges.push(outcome.exchange);
+                    demoteOlderToolExchangesToReceipts(toolHistory, turnState.toolSpillSeals);
                     this.applyToolExecutionOutcome(turnState, outcome, iteration);
                     this.maybeApplySkillStateMutationFromTool(execution, outcome);
                     if (this.toolMutatesVolatilePrefix(outcome)) {
@@ -2268,6 +2300,9 @@ export class TurnExecutionService {
 
     const turnRouting =
       routeDecision === undefined ? null : this.toRuntimeTurnRoutingSnapshot(routeDecision);
+    // ADR-164 — turn-end: demote every remaining full oversized result so the
+    // next user turn never revives multi‑MB blobs from persisted exchanges.
+    demoteAllToolExchangesToReceipts(turnState.toolExchanges, turnState.toolSpillSeals);
     const result: RuntimeTurnResult = {
       requestId: acceptedTurn.receipt.requestId,
       sessionId: acceptedTurn.session.sessionId,
@@ -3414,8 +3449,16 @@ export class TurnExecutionService {
               );
               result.outcome.exchange.reasoningContent = providerResult.reasoningContent ?? null;
               result.outcome.exchange.assistantText = providerResult.text ?? null;
+              await this.projectAndAssignToolExchangeForWire({
+                outcome: result.outcome,
+                bundle: execution.bundle,
+                sessionId: acceptedTurn.session.sessionId,
+                requestId: acceptedTurn.receipt.requestId,
+                turnState
+              });
               toolHistory.push(result.outcome.exchange);
               turnState.toolExchanges.push(result.outcome.exchange);
+              demoteOlderToolExchangesToReceipts(toolHistory, turnState.toolSpillSeals);
               this.applyToolExecutionOutcome(turnState, result.outcome, iteration);
               this.maybeApplySkillStateMutationFromTool(execution, result.outcome);
               if (this.toolMutatesVolatilePrefix(result.outcome)) {
@@ -3456,8 +3499,16 @@ export class TurnExecutionService {
           this.maybeRefundToolRequestRejectionReservation(toolBudgetPolicy, entry, outcome);
           outcome.exchange.reasoningContent = providerResult.reasoningContent ?? null;
           outcome.exchange.assistantText = providerResult.text ?? null;
+          await this.projectAndAssignToolExchangeForWire({
+            outcome,
+            bundle: execution.bundle,
+            sessionId: acceptedTurn.session.sessionId,
+            requestId: acceptedTurn.receipt.requestId,
+            turnState
+          });
           toolHistory.push(outcome.exchange);
           turnState.toolExchanges.push(outcome.exchange);
+          demoteOlderToolExchangesToReceipts(toolHistory, turnState.toolSpillSeals);
           this.applyToolExecutionOutcome(turnState, outcome, iteration);
           this.maybeApplySkillStateMutationFromTool(execution, outcome);
           if (this.toolMutatesVolatilePrefix(outcome)) {
@@ -6049,6 +6100,7 @@ export class TurnExecutionService {
       textUsageEntries: [],
       toolInvocations: [],
       toolExchanges: [],
+      toolSpillSeals: new Map(),
       deferredMediaJobs: [],
       deferredDocumentJobs: [],
       closedOpenLoopRefs: [],
@@ -6319,6 +6371,51 @@ export class TurnExecutionService {
       return null;
     }
     return candidate as RuntimeBillingFacts;
+  }
+
+  /**
+   * ADR-164 P1 — seal oversized tool args/results at finalize.
+   * Args stub immediately; oversized results stay full on first observation
+   * (seal meta stored for later demoteOlder / demoteAll).
+   */
+  private async projectAndAssignToolExchangeForWire(input: {
+    outcome: ToolExecutionOutcome;
+    bundle: AssistantRuntimeBundle;
+    sessionId: string;
+    requestId: string;
+    turnState: TurnExecutionState;
+  }): Promise<ProviderGatewayToolExchange> {
+    const assistantStableKey = input.bundle.metadata.assistantId?.trim() ?? "";
+    const sessionId = input.sessionId.trim();
+    const requestId = input.requestId.trim();
+    if (assistantStableKey.length === 0 || sessionId.length === 0 || requestId.length === 0) {
+      return input.outcome.exchange;
+    }
+    const workspaceId = input.bundle.metadata.workspaceId?.trim() ?? "";
+    const { exchange, seal } = await sealToolExchangeSpill(input.outcome.exchange, {
+      assistantStableKey,
+      sessionId,
+      requestId,
+      writeSpill: async ({ path, content }) => {
+        if (workspaceId.length === 0) {
+          throw new Error("workspaceId is required to write tool spill.");
+        }
+        const written = await this.storagePlaneFilesService.writeToolSpillFile({
+          workspaceId,
+          path,
+          content
+        });
+        if (!written.ok) {
+          throw new Error(written.warning ?? written.reason);
+        }
+        return { sha256: written.sha256, bytes: written.sizeBytes };
+      }
+    });
+    if (seal !== null) {
+      input.turnState.toolSpillSeals.set(seal.toolCallId, seal);
+    }
+    input.outcome.exchange = exchange;
+    return exchange;
   }
 
   private applyToolExecutionOutcome(
@@ -6665,7 +6762,15 @@ export class TurnExecutionService {
         );
         outcome.exchange.reasoningContent = firstResult.reasoningContent ?? null;
         outcome.exchange.assistantText = firstResult.text ?? null;
+        await this.projectAndAssignToolExchangeForWire({
+          outcome,
+          bundle: input.execution.bundle,
+          sessionId: input.acceptedTurn.session.sessionId,
+          requestId: input.acceptedTurn.receipt.requestId,
+          turnState: input.turnState
+        });
         toolHistory.push(outcome.exchange);
+        demoteOlderToolExchangesToReceipts(toolHistory, input.turnState.toolSpillSeals);
         this.applyToolExecutionOutcome(input.turnState, outcome, 0);
       }
 

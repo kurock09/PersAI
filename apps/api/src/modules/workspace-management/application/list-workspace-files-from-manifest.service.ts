@@ -1,5 +1,8 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
-import { isSessionInstallLayerPath, type RuntimeFilesToolItem } from "@persai/runtime-contract";
+import {
+  isSessionHiddenModelSupportPath,
+  type RuntimeFilesToolItem
+} from "@persai/runtime-contract";
 import { WorkspaceFileMetadataService } from "./workspace-file-metadata.service";
 import { normalizeActiveWorkspaceDirectoryPath } from "./workspace-visible-paths";
 
@@ -74,7 +77,7 @@ export class ListWorkspaceFilesFromManifestService {
     const byChildName = new Map<string, ChildEntry>();
 
     for (const row of rows) {
-      if (isSessionInstallLayerPath(row.path)) {
+      if (isSessionHiddenModelSupportPath(row.path)) {
         continue;
       }
       const rest = row.path.slice(searchPrefix.length);
@@ -95,7 +98,7 @@ export class ListWorkspaceFilesFromManifestService {
       }
       const dirName = rest.slice(0, slashIdx);
       const directoryPath = `${normalizedPrefix}/${dirName}`;
-      if (isSessionInstallLayerPath(directoryPath)) {
+      if (isSessionHiddenModelSupportPath(directoryPath)) {
         continue;
       }
       if (byChildName.get(dirName)?.type === "directory") {

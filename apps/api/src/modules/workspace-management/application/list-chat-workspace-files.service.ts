@@ -6,7 +6,7 @@ import { BadRequestException, Inject, Injectable, NotFoundException } from "@nes
 import {
   buildAssistantSessionRoot,
   buildAssistantWorkspaceRoot,
-  isSessionInstallLayerPath
+  isSessionHiddenModelSupportPath
 } from "@persai/runtime-contract";
 import {
   ASSISTANT_CHAT_REPOSITORY,
@@ -230,7 +230,7 @@ export class ListChatWorkspaceFilesService {
       if (normalizeActiveWorkspaceFilePath(manifest.path) === null) {
         continue;
       }
-      if (isSessionInstallLayerPath(manifest.path)) {
+      if (isSessionHiddenModelSupportPath(manifest.path)) {
         continue;
       }
       if (manifest.path.startsWith(EXTERNAL_DOWNLOAD_STORAGE_PATH_PREFIX)) {

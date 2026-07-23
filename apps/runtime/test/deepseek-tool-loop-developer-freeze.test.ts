@@ -9,7 +9,7 @@ import type {
 } from "@persai/runtime-contract";
 
 function createBareTurnExecutionService(): TurnExecutionService {
-  const deps = Array.from({ length: 33 }, () => ({})) as unknown as ConstructorParameters<
+  const deps = Array.from({ length: 34 }, () => ({})) as unknown as ConstructorParameters<
     typeof TurnExecutionService
   >;
   deps[4] = {

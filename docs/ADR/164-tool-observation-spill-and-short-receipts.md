@@ -47,11 +47,31 @@ Founder direction (2026-07-23):
 | Layer | Truth |
 | --- | --- |
 | **Disk (session)** | Full oversized args/results may persist under `.tool-spill/` (and real write targets for `files.write`) |
-| **Wire (provider `toolHistory` / prior replay)** | Only short bodies ≤ threshold **or** a **receipt** (path + summary + counts) |
-| **Canonical chat `tool_exchanges`** | Store what the model saw on the wire (receipt/stub). Do not re-hydrate multi‑MB blobs into future turns |
+| **Wire (provider `toolHistory` / prior replay)** | First-seen oversized **results** stay **full** on the exchange until a newer exchange is appended (then receipt); args stub immediately; at turn end every remaining full oversized result is demoted to a receipt |
+| **Canonical chat `tool_exchanges`** | Persist what remains after turn-end demote (receipt/stub). Do not re-hydrate multi‑MB blobs into future turns |
 
 “Append full” (ADR-161) means: append every tool-call ↔ tool-result **pair**
 with honest status. It does **not** mean replaying multi‑MB JSON every round.
+
+### 1a. First-seen full, then receipt (results) — founder rule
+
+On tool-execute finalize (seal):
+
+1. If result/args serialized length **> 8000**, **always spill the body to disk**.
+2. **Result OUT:** keep the **FULL** result on the exchange the **first** time the
+   model sees it in the tool loop. When a **newer** exchange is appended,
+   demote older sealed oversized results to a **receipt** (path + summary).
+   Never blind the model on first observation.
+3. **Args IN** (`files.write` content, huge prompts, etc.): **stub immediately**
+   after success (the model already authored the args when calling). Spill the
+   args body; do not keep multi‑MB args on later rounds.
+4. At **turn end** (before `toolExchanges` are returned/persisted): demote
+   **all** remaining full oversized results to receipts so the next user turn
+   does not revive MB blobs.
+
+API shape (runtime): `sealToolExchangeSpill` →
+`demoteOlderToolExchangesToReceipts` (after each history push) →
+`demoteAllToolExchangesToReceipts` (turn completion).
 
 ### 2. Receipt shape (single schema)
 
@@ -72,7 +92,7 @@ No second ad-hoc string format per tool beyond this schema.
 
 | Constant | Value | Role |
 | --- | --- | --- |
-| `TOOL_WIRE_SOFT_MAX_CHARS` | **8000** | Serialized tool-result JSON or retained tool-call arguments above this → spill + receipt/stub |
+| `TOOL_WIRE_SOFT_MAX_CHARS` | **8000** | Serialized tool-result JSON or retained tool-call arguments above this → spill; results stay full until demote; args stub immediately |
 | Receipt `summary` | ≤ **2000** chars | Human/model skim inside the receipt |
 
 Small exchanges under the soft max stay full on the wire (no spill noise).
@@ -153,10 +173,11 @@ Today:
 - Hydrate micro-clear: compactors + 600-char arg stubs
 - Files sanitize: `MAX_MODEL_VISIBLE_FILES_CONTENT_CHARS = 16_000`
 
-ADR-164 chooses **spill + short receipt** as the insert-time wire rule for
-oversized bodies. Do not keep a parallel mid-body truncate that fights spill.
-Hydrate micro-clear remains post-turn only (ADR-161). Remove dual mid-loop
-paths.
+ADR-164 chooses **spill + first-seen full result + demote-to-receipt** as the
+wire rule for oversized bodies (args stub at seal; results demoted when a newer
+exchange lands and again at turn end). Do not keep a parallel mid-body truncate
+that fights spill. Hydrate micro-clear remains post-turn only (ADR-161). Remove
+dual mid-loop paths.
 
 ### 8. Provider scope
 

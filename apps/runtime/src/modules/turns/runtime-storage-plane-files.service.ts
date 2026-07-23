@@ -5,7 +5,8 @@ import {
   buildAssistantSessionRoot,
   buildAssistantWorkspaceRoot,
   classifyVisibleWorkspacePath,
-  isSessionInstallLayerPath,
+  isSessionHiddenModelSupportPath,
+  isToolSpillPath,
   normalizeWorkspacePath
 } from "@persai/runtime-contract";
 import { buildGeneratedFileSemanticSummary } from "./generated-file-semantic-summary";
@@ -183,6 +184,34 @@ export class RuntimeStoragePlaneFilesService {
     path: string;
     maxBytes: number;
   }): Promise<StoragePlaneReadOutcome> {
+    const normalizedPath = normalizeWorkspacePath(input.path);
+    // ADR-164 — tool-spill is storage-plane addressable without manifest pollution.
+    // P2 will further bound files.read of spill via the same wire soft-max helper;
+    // P1 already runs the wire projector on files.read results so a huge read
+    // becomes a receipt (closing the OUT re-read loop).
+    if (isToolSpillPath(normalizedPath)) {
+      const buffer = await this.mediaObjectStorage.downloadByWorkspacePath({
+        workspaceId: input.workspaceId,
+        storagePath: normalizedPath
+      });
+      if (buffer === null || buffer.length === 0) {
+        return {
+          ok: false,
+          reason: "file_not_found",
+          warning: `Tool spill file ${normalizedPath} has no committed bytes in storage.`
+        };
+      }
+      const truncated = buffer.length > input.maxBytes;
+      const slice = truncated ? buffer.subarray(0, input.maxBytes) : buffer;
+      return {
+        ok: true,
+        content: slice.toString("utf8"),
+        sizeBytes: buffer.length,
+        sha256: createHash("sha256").update(buffer).digest("hex"),
+        truncated
+      };
+    }
+
     const metadata = await this.persaiInternalApiClientService.getWorkspaceFileMetadata({
       workspaceId: input.workspaceId,
       path: input.path
@@ -213,6 +242,57 @@ export class RuntimeStoragePlaneFilesService {
       sizeBytes: buffer.length,
       sha256: createHash("sha256").update(buffer).digest("hex"),
       truncated
+    };
+  }
+
+  /**
+   * ADR-164 — write a tool-spill body to the storage plane without manifest upsert.
+   * Model `files.write` must not use this path; use {@link writeTextFile} for user files.
+   */
+  async writeToolSpillFile(input: {
+    workspaceId: string;
+    path: string;
+    content: string;
+  }): Promise<
+    | { ok: true; path: string; sizeBytes: number; sha256: string }
+    | { ok: false; reason: string; warning: string | null }
+  > {
+    const normalizedPath = normalizeWorkspacePath(input.path);
+    if (!isToolSpillPath(normalizedPath)) {
+      return {
+        ok: false,
+        reason: "invalid_arguments",
+        warning: "writeToolSpillFile accepts only session /.tool-spill/ paths."
+      };
+    }
+    const buffer = Buffer.from(input.content, "utf8");
+    const mimeType = normalizedPath.endsWith(".json")
+      ? "application/json"
+      : "text/plain; charset=utf-8";
+    const objectKey = this.mediaObjectStorage.buildWorkspaceObjectKey({
+      workspaceId: input.workspaceId,
+      workspaceRelPath: normalizedPath
+    });
+    try {
+      await this.mediaObjectStorage.saveObject({
+        objectKey,
+        buffer,
+        mimeType
+      });
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      this.logger.warn(`tool_spill_write_failed path=${normalizedPath} reason=${detail}`);
+      return {
+        ok: false,
+        reason: "files_failed",
+        warning: `Tool spill write failed for ${normalizedPath}: ${detail}`
+      };
+    }
+    return {
+      ok: true,
+      path: normalizedPath,
+      sizeBytes: buffer.length,
+      sha256: createHash("sha256").update(buffer).digest("hex")
     };
   }
 
@@ -258,12 +338,12 @@ export class RuntimeStoragePlaneFilesService {
         warning: resolvedPath.message === "create_only_collision" ? null : resolvedPath.message
       };
     }
-    if (isSessionInstallLayerPath(resolvedPath)) {
+    if (isSessionHiddenModelSupportPath(resolvedPath)) {
       return {
         ok: false,
         reason: "invalid_arguments",
         warning:
-          "Session install-layer paths (.local, .npm-global, node_modules) are warm-pod ephemeral and cannot be written via files.write."
+          "Session hidden support paths (.local, .npm-global, node_modules, .tool-spill) cannot be written via files.write."
       };
     }
 

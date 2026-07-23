@@ -1,5 +1,5 @@
 import { BadRequestException, Inject, Injectable } from "@nestjs/common";
-import { isSessionInstallLayerPath } from "@persai/runtime-contract";
+import { isSessionHiddenModelSupportPath } from "@persai/runtime-contract";
 import {
   ASSISTANT_CHAT_MESSAGE_ATTACHMENT_REPOSITORY,
   type AssistantChatMessageAttachmentRepository
@@ -67,9 +67,9 @@ export class UpsertWorkspaceFileMetadataFromRuntimeService {
         'path must be an active hierarchical "/workspace/..." file path tracked by the manifest.'
       );
     }
-    if (isSessionInstallLayerPath(path)) {
+    if (isSessionHiddenModelSupportPath(path)) {
       throw new BadRequestException(
-        "path must not be a session install-layer path (.local, .npm-global, node_modules)."
+        "path must not be a session hidden support path (.local, .npm-global, node_modules, .tool-spill)."
       );
     }
     const mimeType = this.requiredString(row.mimeType, "mimeType");
