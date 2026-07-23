@@ -71,6 +71,8 @@ Additional active parent-orchestrated program: `docs/ADR/161-provider-native-pro
 
 Additional active parent-orchestrated program: `docs/ADR/163-kimi-managed-chat-text-provider.md` (P0–P5 local CLEAN 2026-07-23 on baseline `f6214543`; push/deploy + live acceptance pending). Fourth managed chat text provider `kimi` (Moonshot) on existing ADR-124 seams — clean add-provider, **not** a DeepSeek fork. Primary model `kimi-k3`; images allowlisted with PDF-only strip; automatic Moonshot prefix cache; usage v2 on top-level `cached_tokens`; secret `kimi/api-key`. Parent orchestrates/audits/commits; implementation + independent audits use **only** `cursor-grok-4.5-high-fast`. Keep ADR-163 commits separate from ADR-161/162. Do not reopen ADR-124 for DeepSeek scope.
 
+Additional active parent-orchestrated program: `docs/ADR/164-tool-observation-spill-and-short-receipts.md` (opened 2026-07-23 on baseline `fa3dbc11`). Mid-loop wire hygiene: oversized tool args/results spill to session `.tool-spill/` (hidden from user Working Files); provider history gets short receipts (path + summary). Amends ADR-161 “append full” wire meaning only — not a reopen of ADR-143/156 dual windows. Parent orchestrates/audits/commits; implementation + independent audits use **only** `cursor-grok-4.5-high-fast`. Keep ADR-164 commits separate from ADR-161 A5 and ADR-162.
+
 Additional orchestration program **superseded by ADR-140 (do not implement new scope):** `docs/ADR/138-browser-persistent-profiles-and-live-login.md` and `docs/ADR/139-browserless-capability-policy-stealth-proxy-elements-and-recovery.md`.
 
 ## Repo rules

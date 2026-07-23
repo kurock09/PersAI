@@ -10,6 +10,16 @@ open. Parent orchestrates/audits/commits; implementation subagents may use
 only Grok 4.5 (`cursor-grok-4.5-high-fast`). Terra, Sonnet, Sol, and Opus are
 forbidden for ADR-161 subs.**
 
+### 2026-07-23 — wire meaning of “append full” (ADR-164)
+
+**ADR-164** (`docs/ADR/164-tool-observation-spill-and-short-receipts.md`)
+amends mid-loop wire hygiene only: oversized tool **bodies** (args/results)
+spill to session `.tool-spill/` and the provider sees a short **receipt**
+(path + summary). Protocol pairs still append every round; multi‑MB blobs do
+not. Micro-clear (50%) and session compaction (100%) from this ADR remain.
+Do not implement silent mid-loop truncate as a substitute for ADR-164.
+Keep ADR-164 implementation commits separate from ADR-161 A5 evidence.
+
 ### 2026-07-22 founder amendment — append-full + two-tier pressure
 
 Industry agents (Claude Code, OpenAI Codex, Cursor) keep tool results **full**
@@ -20,6 +30,8 @@ PersAI adopts that model for ordinary/deep chat:
 
 1. **Append full** sanitized tool protocol pairs at insertion. No
    compact-at-insert spine. No `<persai_recent_tool_observation>` overlays.
+   (2026-07-23: “full” on the wire means full **receipts** for oversized
+   bodies per ADR-164 — not multi‑MB replay.)
 2. **Micro clear (S2)** at **50%** of the existing
    `compactionTriggerThreshold` (token-pressure family, not message count):
    model-facing bodies of older tool results become placeholders; keep the

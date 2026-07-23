@@ -1,5 +1,18 @@
 # SESSION-HANDOFF
 
+## 2026-07-23 — ADR-164 tool spill + short receipts (open)
+
+- **Baseline:** `fa3dbc11` (ff from `e587e1f4` pin).
+- **Why:** Live loop `267b9d13` — ~8.5M-char history frame + 23× “пишу лендинг”
+  narration; mid-loop ADR-161 full append replaying multi‑MB tool bodies
+  (write args / large observations). Not a Kimi-IQ bug.
+- **Decision:** ADR-164 — wire ≤8k or receipt (path + summary); disk under
+  `sessions/<id>/.tool-spill/` hidden like ADR-150 install-layer; re-read of
+  spill uses same threshold. Amends ADR-161 wire meaning; 143/156 stay closed.
+- **Orchestration:** parent; impl/audits **only** `cursor-grok-4.5-high-fast`.
+- **Next:** P1 foundation (`isToolSpillPath` + spill/receipt + insert hook) →
+  P2 OUT wave → P3 IN wave → CLEAN audit → gate → one push.
+
 ## 2026-07-23 — Ship describe-strip + card/thinking UX
 
 - **Cause of image_generate loop in prod:** strip fix was local-only; cluster
