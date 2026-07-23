@@ -5,6 +5,15 @@
 
 ## 2026-07-23
 
+- **fix(runtime): strip mistaken action:describe on real tool calls.** Catalog
+  `{action:"describe"}` alone still returns the contract; if the model keeps
+  `action:"describe"` beside real payload (prompt / seriesItems / …), runtime
+  strips it and executes. Stops the image_generate contract loop. Skill
+  `describe`+`skillId` unchanged.
+
+- **ux:** live-thinking full-width under Думаю; sidebar assistant card role
+  line is clickable (same settings open as the rest of the card).
+
 - **fix(kimi): align Moonshot thinking defaults + stream keepalive.** Always
   send K3 `reasoning_effort` (`thinkingBudget<=0` → `low`; omit = docs default
   `max`); K2.6 explicit `thinking.type` (budget off → `disabled`; omit = docs

@@ -314,7 +314,7 @@ export function Sidebar({
 
       {/* 1. Assistant card */}
       <div className={cn("relative px-3", onClose ? "pt-1 pb-3" : "pt-4 pb-3")}>
-        <div className="group relative flex w-full items-center gap-3 overflow-hidden rounded-xl bg-surface-raised p-3 transition-colors hover:bg-surface-hover">
+        <div className="group relative flex w-full select-none items-center gap-3 overflow-hidden rounded-xl bg-surface-raised p-3 transition-colors hover:bg-surface-hover">
           {hasMultiAssistantAccess ? (
             <span
               data-testid="assistant-card-premium-strip"
@@ -344,57 +344,57 @@ export function Sidebar({
               />
             ) : null}
           </button>
-          <div className="min-w-0 flex-1 text-left">
-            <div className="flex min-w-0 items-center gap-0.5">
-              <button
-                type="button"
-                onClick={onAssistantCardClick}
-                title={assistantName}
-                className="min-w-0 flex-1 cursor-pointer truncate bg-transparent text-left text-base font-semibold text-text md:text-sm"
-              >
+          <div className="flex min-w-0 flex-1 items-start gap-0.5">
+            <button
+              type="button"
+              onClick={onAssistantCardClick}
+              title={assistantName}
+              className="min-w-0 flex-1 cursor-pointer bg-transparent text-left"
+            >
+              <span className="block min-w-0 truncate text-base font-semibold text-text md:text-sm">
                 {assistantName}
-              </button>
-              {userSafetyStanding === "restricted" ? (
-                <button
-                  type="button"
-                  aria-label={t("safetyRestrictedIconAria")}
-                  className={SIDEBAR_CARD_SAFETY_RESTRICTED_AFFORDANCE_CLASS}
-                  onClick={() => setSafetyModalKind("restricted")}
-                >
-                  <OctagonX className={SIDEBAR_CARD_SETTINGS_ICON_CLASS} />
-                </button>
-              ) : userSafetyStanding === "warn" ? (
-                <button
-                  type="button"
-                  aria-label={t("safetyWarnIconAria")}
-                  className={SIDEBAR_CARD_SAFETY_WARN_AFFORDANCE_CLASS}
-                  onClick={() => setSafetyModalKind("warn")}
-                >
-                  <AlertTriangle className={SIDEBAR_CARD_SETTINGS_ICON_CLASS} />
-                </button>
-              ) : null}
+              </span>
+              {hasUnreadSupport ? (
+                <span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-accent">
+                  <MessageCircle className="h-3 w-3 shrink-0" />
+                  <span className="min-w-0 truncate">
+                    {t("supportUnreadStatus", { count: supportUnreadCount })}
+                  </span>
+                </span>
+              ) : (
+                <span className="mt-0.5 block min-w-0 truncate text-[11px] leading-tight text-text-muted">
+                  {statusLineLabel}
+                </span>
+              )}
+            </button>
+            {userSafetyStanding === "restricted" ? (
               <button
                 type="button"
-                onClick={onAssistantCardClick}
-                aria-hidden="true"
-                tabIndex={-1}
-                className={SIDEBAR_CARD_SETTINGS_AFFORDANCE_CLASS}
+                aria-label={t("safetyRestrictedIconAria")}
+                className={SIDEBAR_CARD_SAFETY_RESTRICTED_AFFORDANCE_CLASS}
+                onClick={() => setSafetyModalKind("restricted")}
               >
-                <Settings className={SIDEBAR_CARD_SETTINGS_ICON_CLASS} />
+                <OctagonX className={SIDEBAR_CARD_SETTINGS_ICON_CLASS} />
               </button>
-            </div>
-            {hasUnreadSupport ? (
-              <span className="flex min-w-0 items-center gap-1.5 text-xs text-accent">
-                <MessageCircle className="h-3 w-3 shrink-0" />
-                <span className="min-w-0 truncate">
-                  {t("supportUnreadStatus", { count: supportUnreadCount })}
-                </span>
-              </span>
-            ) : (
-              <span className="block min-w-0 truncate text-[11px] leading-tight text-text-muted">
-                {statusLineLabel}
-              </span>
-            )}
+            ) : userSafetyStanding === "warn" ? (
+              <button
+                type="button"
+                aria-label={t("safetyWarnIconAria")}
+                className={SIDEBAR_CARD_SAFETY_WARN_AFFORDANCE_CLASS}
+                onClick={() => setSafetyModalKind("warn")}
+              >
+                <AlertTriangle className={SIDEBAR_CARD_SETTINGS_ICON_CLASS} />
+              </button>
+            ) : null}
+            <button
+              type="button"
+              onClick={onAssistantCardClick}
+              aria-hidden="true"
+              tabIndex={-1}
+              className={SIDEBAR_CARD_SETTINGS_AFFORDANCE_CLASS}
+            >
+              <Settings className={SIDEBAR_CARD_SETTINGS_ICON_CLASS} />
+            </button>
           </div>
         </div>
         {safetyModalKind !== null ? (

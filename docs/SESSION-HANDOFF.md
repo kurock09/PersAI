@@ -1,5 +1,12 @@
 # SESSION-HANDOFF
 
+## 2026-07-23 — Ship describe-strip + card/thinking UX
+
+- **Cause of image_generate loop in prod:** strip fix was local-only; cluster
+  runtime stayed on `c1b453a1` without `stripMistakenDescribeAction`. Pushing
+  with web UX (full-width thinking, clickable role line).
+- **Next:** deploy runtime → live Marketer image series smoke.
+
 ## 2026-07-23 — Kimi Moonshot defaults + thinking lines UI
 
 - **Baseline:** HEAD `f0009f4a`; uncommitted `action:describe` strip kept

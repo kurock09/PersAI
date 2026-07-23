@@ -390,30 +390,9 @@ function CopyButton({ text }: { text: string }) {
   );
 }
 
-const LIVE_THINKING_MAX_LINES = 4;
-const LIVE_THINKING_CHARS_PER_LINE = 56;
-
-/** Newest-at-bottom window of wrapped thinking text (max 3–4 lines). */
-function buildLiveThinkingLines(preview: string): string[] {
-  const normalized = preview.replace(/\s+/g, " ").trim();
-  if (normalized.length === 0) {
-    return [];
-  }
-  const lines: string[] = [];
-  let remaining = normalized;
-  while (remaining.length > 0) {
-    if (remaining.length <= LIVE_THINKING_CHARS_PER_LINE) {
-      lines.push(remaining);
-      break;
-    }
-    let breakAt = remaining.lastIndexOf(" ", LIVE_THINKING_CHARS_PER_LINE);
-    if (breakAt < Math.floor(LIVE_THINKING_CHARS_PER_LINE * 0.45)) {
-      breakAt = LIVE_THINKING_CHARS_PER_LINE;
-    }
-    lines.push(remaining.slice(0, breakAt).trimEnd());
-    remaining = remaining.slice(breakAt).trimStart();
-  }
-  return lines.slice(-LIVE_THINKING_MAX_LINES);
+/** Normalize live thinking for display; wrap/clip is CSS (full bubble width, ~4 lines). */
+function normalizeLiveThinkingPreview(preview: string): string {
+  return preview.replace(/\s+/g, " ").trim();
 }
 
 function InlineStreamingStatus({
@@ -432,12 +411,10 @@ function InlineStreamingStatus({
   const t = useTranslations("chat");
   const activityEvent =
     preResponseStatus?.kind === "activity" ? preResponseStatus.event : undefined;
-  const thinkingLines =
-    preResponseStatus?.kind === "thinking" &&
-    typeof preResponseStatus.thinkingPreview === "string" &&
-    preResponseStatus.thinkingPreview.trim().length > 0
-      ? buildLiveThinkingLines(preResponseStatus.thinkingPreview)
-      : [];
+  const thinkingPreview =
+    preResponseStatus?.kind === "thinking" && typeof preResponseStatus.thinkingPreview === "string"
+      ? normalizeLiveThinkingPreview(preResponseStatus.thinkingPreview)
+      : "";
   const awaitDeadlineMatch = activityEvent?.detail?.match(/^await-deadline:(\d+)$/);
   const awaitDeadlineMs =
     awaitDeadlineMatch?.[1] === undefined ? null : Number(awaitDeadlineMatch[1]);
@@ -464,9 +441,9 @@ function InlineStreamingStatus({
         });
 
   return (
-    <span className="animate-fade-in-inline-status inline-flex max-w-full items-start gap-2 text-sm text-text-muted/78 italic motion-reduce:animate-none">
+    <span className="animate-fade-in-inline-status inline-flex w-full max-w-full items-start gap-2 text-sm text-text-muted/78 italic motion-reduce:animate-none">
       <span className="mt-[0.2em] inline-block h-4 w-1.5 shrink-0 animate-pulse rounded-sm bg-accent/65" />
-      <span className="inline-flex min-w-0 flex-col items-start gap-0.5">
+      <span className="inline-flex min-w-0 flex-1 flex-col items-stretch gap-0.5">
         <span className="inline-flex max-w-full items-baseline gap-1.5 leading-5">
           <span className="shrink-0">{label}</span>
           {statusParts.shellCommand ? (
@@ -478,22 +455,18 @@ function InlineStreamingStatus({
             <span className="text-text-subtle/62 not-italic">{statusParts.detail}</span>
           ) : null}
         </span>
-        {thinkingLines.length > 0 ? (
+        {thinkingPreview.length > 0 ? (
           <span
             data-testid="live-thinking-preview"
-            className="flex max-w-[min(28rem,70vw)] flex-col gap-0.5 text-sm leading-5 text-text-subtle/55 italic"
+            className="flex max-h-[5rem] w-full flex-col justify-end overflow-hidden text-sm leading-5 text-text-subtle/55 italic"
           >
-            {thinkingLines.map((line, index) => (
-              <span key={`live-thinking-${String(index)}`} className="block">
-                {line}
-              </span>
-            ))}
+            <span className="block w-full whitespace-normal break-words">{thinkingPreview}</span>
           </span>
         ) : null}
         {statusParts.shellProgressLines && statusParts.shellProgressLines.length > 0 ? (
           <span className="font-mono text-xs leading-4 text-text-subtle/55 not-italic tracking-tight">
             {statusParts.shellProgressLines.map((line, index) => (
-              <span key={`inline-shell-${String(index)}`} className="block max-w-[28rem] truncate">
+              <span key={`inline-shell-${String(index)}`} className="block max-w-full truncate">
                 {line}
               </span>
             ))}

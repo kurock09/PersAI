@@ -210,6 +210,10 @@ const TESTS: Array<{ modulePath: string; exportName: string }> = [
     exportName: "runCatalogToolWireExpansionTest"
   },
   {
+    modulePath: "./runtime-tool-contract-describe.test.ts",
+    exportName: "runRuntimeToolContractDescribeTest"
+  },
+  {
     modulePath: "./catalog-tool-wire-budget.test.ts",
     exportName: "runCatalogToolWireBudgetTest"
   },

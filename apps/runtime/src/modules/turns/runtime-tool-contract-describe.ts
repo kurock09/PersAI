@@ -30,15 +30,88 @@ export type RuntimeToolContractDescribeSkippedResult = {
   isError: false;
 };
 
-export function isToolContractDescribeCall(args: Record<string, unknown> | undefined): boolean {
-  return args?.action === "describe";
+/** Companion keys that remain valid on a pure/skill-scoped describe call. */
+function describeCompanionKeys(toolCode: string | null): ReadonlySet<string> {
+  if (toolCode === "skill") {
+    return new Set(["action", "skillId", "scenarioKey"]);
+  }
+  return new Set(["action"]);
+}
+
+function isMeaningfulDescribeCompanionValue(value: unknown): boolean {
+  if (value === undefined || value === null) {
+    return false;
+  }
+  if (typeof value === "string" && value.trim().length === 0) {
+    return false;
+  }
+  if (Array.isArray(value) && value.length === 0) {
+    return false;
+  }
+  if (
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    Object.keys(value as Record<string, unknown>).length === 0
+  ) {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * True when `action:"describe"` is mixed with real execution fields
+ * (prompt / seriesItems / url / …). Models frequently re-attach describe after
+ * loading the contract; treat that as a mistaken parameter, not a contract load.
+ */
+export function hasContaminatedDescribeAction(
+  args: Record<string, unknown> | undefined,
+  toolCode: string | null = null
+): boolean {
+  if (args?.action !== "describe") {
+    return false;
+  }
+  const allowed = describeCompanionKeys(toolCode);
+  for (const [key, value] of Object.entries(args)) {
+    if (allowed.has(key)) {
+      continue;
+    }
+    if (!isMeaningfulDescribeCompanionValue(value)) {
+      continue;
+    }
+    return true;
+  }
+  return false;
+}
+
+/** Drop mistaken `action:"describe"` when real execution args are also present. */
+export function stripMistakenDescribeAction(
+  args: Record<string, unknown> | undefined,
+  toolCode: string | null = null
+): Record<string, unknown> | undefined {
+  if (args === undefined || !hasContaminatedDescribeAction(args, toolCode)) {
+    return args;
+  }
+  const next: Record<string, unknown> = { ...args };
+  delete next.action;
+  return next;
+}
+
+export function isToolContractDescribeCall(
+  args: Record<string, unknown> | undefined,
+  toolCode: string | null = null
+): boolean {
+  if (args?.action !== "describe") {
+    return false;
+  }
+  // Contaminated describe+payload must not return the contract again.
+  return !hasContaminatedDescribeAction(args, toolCode);
 }
 
 export function isToolLevelContractDescribeCall(
   toolCode: string,
   args: Record<string, unknown> | undefined
 ): boolean {
-  if (!isToolContractDescribeCall(args)) {
+  if (!isToolContractDescribeCall(args, toolCode)) {
     return false;
   }
   if (toolCode === "skill" && args?.skillId !== undefined) {

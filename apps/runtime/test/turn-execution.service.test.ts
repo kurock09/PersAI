@@ -7343,10 +7343,19 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       unitResolver.resolveRequestedToolResultUnits({
         id: "tool-call-image-edit-describe",
         name: "image_edit",
-        arguments: { action: "describe", count: 4 }
+        arguments: { action: "describe" }
       }),
       0,
-      "ADR-135 D3: image_edit describe must not reserve count-based media units."
+      "ADR-135 D3: pure image_edit describe must not reserve media units."
+    );
+    assert.equal(
+      unitResolver.resolveRequestedToolResultUnits({
+        id: "tool-call-image-edit-contaminated-describe",
+        name: "image_edit",
+        arguments: { action: "describe", count: 4 }
+      }),
+      4,
+      "mistaken action:describe with real payload must reserve count units, not loop on contract."
     );
   }
   {

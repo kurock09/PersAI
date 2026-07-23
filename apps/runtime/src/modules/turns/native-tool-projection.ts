@@ -1025,7 +1025,7 @@ function createImageGenerateToolDefinition(
           type: "string",
           enum: ["describe"],
           description:
-            'Use "describe" only to load/reload the full tool contract. For real image generation omit action entirely — never pass "generate" or any other action value.'
+            'Use "describe" only in a standalone contract call with no other fields. For real image generation omit action entirely — never pass "generate", and never keep action:"describe" beside prompt/seriesItems/count.'
         },
         prompt: {
           type: "string",

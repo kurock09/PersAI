@@ -152,7 +152,8 @@ import {
   isToolContractDescribeCall,
   isToolLevelContractDescribeCall,
   markCatalogToolContractLoadedForTurn,
-  shouldGuardCatalogToolExecution
+  shouldGuardCatalogToolExecution,
+  stripMistakenDescribeAction
 } from "./runtime-tool-contract-describe";
 import {
   ToolBudgetPolicy,
@@ -3568,12 +3569,12 @@ export class TurnExecutionService {
     if (toolCall.name !== VIDEO_GENERATE_TOOL_CODE) {
       return false;
     }
+    if (isToolLevelContractDescribeCall(toolCall.name, toolCall.arguments)) {
+      return true;
+    }
     const action = toolCall.arguments.action;
     return (
-      action === "describe" ||
-      action === "list_personas" ||
-      action === "list_voices" ||
-      action === "describe_avatar_mode"
+      action === "list_personas" || action === "list_voices" || action === "describe_avatar_mode"
     );
   }
 
@@ -3725,7 +3726,7 @@ export class TurnExecutionService {
     execution: PreparedTurnExecution,
     acceptedTurn: AcceptedRuntimeTurn,
     input: RuntimeTurnRequest,
-    toolCall: ProviderGatewayToolCall,
+    rawToolCall: ProviderGatewayToolCall,
     currentUserMessageId: string | null,
     currentArtifacts: RuntimeOutputArtifact[],
     currentFileHandles: RuntimeFileHandle[],
@@ -3734,6 +3735,11 @@ export class TurnExecutionService {
     abortSignal?: AbortSignal,
     toolProgressSink?: TurnToolProgressSink
   ): Promise<ToolExecutionOutcome> {
+    const strippedArguments = stripMistakenDescribeAction(rawToolCall.arguments, rawToolCall.name);
+    const toolCall =
+      strippedArguments === undefined || strippedArguments === rawToolCall.arguments
+        ? rawToolCall
+        : { ...rawToolCall, arguments: strippedArguments };
     const { sourceUserMessageId, sourceClientTurnId } = resolveAsyncJobSourceContext(
       input,
       currentUserMessageId

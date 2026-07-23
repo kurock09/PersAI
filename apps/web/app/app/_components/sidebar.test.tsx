@@ -590,6 +590,24 @@ describe("Sidebar — ADR-076 Slice 5 chat list skeleton", () => {
     expect(screen.getByTestId("assistant-card-premium-strip")).toBeInTheDocument();
   });
 
+  it("opens settings when clicking the live role / status line on the assistant card", () => {
+    const onAssistantCardClick = vi.fn();
+    render(
+      <Sidebar
+        data={makeAppData({
+          assistant: {
+            draft: { displayName: "PERSAI", avatarUrl: null, avatarEmoji: null }
+          } as AppData["assistant"],
+          assistantStatus: "live"
+        })}
+        onAssistantCardClick={onAssistantCardClick}
+      />
+    );
+
+    fireEvent.click(screen.getByText("live"));
+    expect(onAssistantCardClick).toHaveBeenCalledTimes(1);
+  });
+
   it("opens the warn safety modal from the assistant card icon without opening settings", () => {
     const onAssistantCardClick = vi.fn();
     render(
