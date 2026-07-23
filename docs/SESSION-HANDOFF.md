@@ -1,5 +1,32 @@
 # SESSION-HANDOFF
 
+## 2026-07-23 — Kimi Moonshot defaults + thinking lines UI
+
+- **Baseline:** HEAD `f0009f4a`; uncommitted `action:describe` strip kept
+  out of this commit.
+- **Docs alignment shipped:** K3 always `reasoning_effort` (budget≤0 → `low`;
+  omit = Moonshot default `max`); K2.6 explicit `thinking` (budget off →
+  `disabled`; omit = default `enabled`); `max_completion_tokens`; keepalive
+  before `create()`.
+- **Cluster live probe (managed `kimi/api-key`):** small streams ~1–2s; large
+  ~49k-frame `kimi-k3` **omit effort** still first `reasoning_content` in
+  **~3.4s** — does **not** reproduce the prior 300s empty NDJSON by itself.
+  Follow-up A/B hit org **TPD 1.5M** rate limit. Prior hang root cause still
+  open (payload-specific stall / SDK / concurrent load); docs fix + keepalive
+  still correct.
+- **UI:** «Думаю…» + up to 4 italic gray wrapped lines, newest at bottom.
+- **Next:** push/deploy → retry Kimi live after TPD headroom; keep hunting
+  300s empty if it recurs.
+
+## 2026-07-23 — Ignore contaminated action:describe on catalog tools
+
+Founder live: Marketer looped on `image_generate` because every “real”
+series call still carried `action:"describe"` and only reloaded the
+contract. Fix in `runtime-tool-contract-describe`: pure `{action:"describe"}`
+still describes; describe + real fields → strip `action` and execute.
+Skill `describe`+`skillId` stays a skill-card path. Baseline `f0009f4a`.
+Next: focused runtime tests → gates → commit/push → deploy runtime.
+
 ## 2026-07-23 — Live status UX: thinking ticker + unstick + browser preview
 
 Bounded UX slice on baseline `f184cc2e` (local, uncommitted). Fixes stuck

@@ -390,12 +390,30 @@ function CopyButton({ text }: { text: string }) {
   );
 }
 
-function buildLiveThinkingTicker(preview: string): string {
+const LIVE_THINKING_MAX_LINES = 4;
+const LIVE_THINKING_CHARS_PER_LINE = 56;
+
+/** Newest-at-bottom window of wrapped thinking text (max 3–4 lines). */
+function buildLiveThinkingLines(preview: string): string[] {
   const normalized = preview.replace(/\s+/g, " ").trim();
-  if (normalized.length <= 96) {
-    return normalized;
+  if (normalized.length === 0) {
+    return [];
   }
-  return `…${normalized.slice(-96)}`;
+  const lines: string[] = [];
+  let remaining = normalized;
+  while (remaining.length > 0) {
+    if (remaining.length <= LIVE_THINKING_CHARS_PER_LINE) {
+      lines.push(remaining);
+      break;
+    }
+    let breakAt = remaining.lastIndexOf(" ", LIVE_THINKING_CHARS_PER_LINE);
+    if (breakAt < Math.floor(LIVE_THINKING_CHARS_PER_LINE * 0.45)) {
+      breakAt = LIVE_THINKING_CHARS_PER_LINE;
+    }
+    lines.push(remaining.slice(0, breakAt).trimEnd());
+    remaining = remaining.slice(breakAt).trimStart();
+  }
+  return lines.slice(-LIVE_THINKING_MAX_LINES);
 }
 
 function InlineStreamingStatus({
@@ -414,12 +432,12 @@ function InlineStreamingStatus({
   const t = useTranslations("chat");
   const activityEvent =
     preResponseStatus?.kind === "activity" ? preResponseStatus.event : undefined;
-  const thinkingPreview =
+  const thinkingLines =
     preResponseStatus?.kind === "thinking" &&
     typeof preResponseStatus.thinkingPreview === "string" &&
     preResponseStatus.thinkingPreview.trim().length > 0
-      ? buildLiveThinkingTicker(preResponseStatus.thinkingPreview)
-      : undefined;
+      ? buildLiveThinkingLines(preResponseStatus.thinkingPreview)
+      : [];
   const awaitDeadlineMatch = activityEvent?.detail?.match(/^await-deadline:(\d+)$/);
   const awaitDeadlineMs =
     awaitDeadlineMatch?.[1] === undefined ? null : Number(awaitDeadlineMatch[1]);
@@ -456,17 +474,22 @@ function InlineStreamingStatus({
               <span className="shrink-0 text-text-subtle/45 not-italic">—</span>
               <ActivityCommandPreview command={statusParts.shellCommand} />
             </>
-          ) : thinkingPreview ? (
-            <>
-              <span className="shrink-0 text-text-subtle/45 not-italic">—</span>
-              <span className="inline-block min-w-0 max-w-[min(28rem,55vw)] truncate text-text-subtle/55 not-italic transition-opacity duration-200">
-                {thinkingPreview}
-              </span>
-            </>
           ) : statusParts.detail && awaitDeadlineMs === null ? (
             <span className="text-text-subtle/62 not-italic">{statusParts.detail}</span>
           ) : null}
         </span>
+        {thinkingLines.length > 0 ? (
+          <span
+            data-testid="live-thinking-preview"
+            className="flex max-w-[min(28rem,70vw)] flex-col gap-0.5 text-sm leading-5 text-text-subtle/55 italic"
+          >
+            {thinkingLines.map((line, index) => (
+              <span key={`live-thinking-${String(index)}`} className="block">
+                {line}
+              </span>
+            ))}
+          </span>
+        ) : null}
         {statusParts.shellProgressLines && statusParts.shellProgressLines.length > 0 ? (
           <span className="font-mono text-xs leading-4 text-text-subtle/55 not-italic tracking-tight">
             {statusParts.shellProgressLines.map((line, index) => (

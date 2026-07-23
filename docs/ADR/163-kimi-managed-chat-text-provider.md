@@ -153,7 +153,12 @@ Add `apps/provider-gateway/.../kimi/kimi-provider.client.ts` implementing
   history when the selected model returns it (required for K3 / thinking
   tool loops per Moonshot docs)
 - Map catalog/runtime thinking intent to Kimi params **adapter-locally**:
-  - K3: top-level `reasoning_effort` when slot/catalog expresses effort
+  - K3: **always** send top-level `reasoning_effort` (`low|high|max`). Moonshot
+    default when omitted is `max` — never omit on zero/`thinkingBudget` (map
+    absent/zero → `low` per Moonshot FAQ for slow reasoning).
+  - K2.6: always send `thinking.type` (`enabled`+`keep:"all"` when budget > 0,
+    else `disabled`). Moonshot default when omitted is `{type:"enabled"}`.
+  - Prefer `max_completion_tokens` over deprecated `max_tokens`.
   - Do not send OpenAI `prompt_cache_*` / Anthropic `cache_control`
 - `stream_options.include_usage: true` on streams
 - Stable message order for automatic cache: tools + stable system + sealed

@@ -220,12 +220,43 @@ export async function runKimiProviderClientTest(): Promise<void> {
   );
   assert.ok(assistantWithReasoning);
 
-  // thinkingBudget maps to reasoning_effort for kimi-k3
+  // Moonshot: omit reasoning_effort → default max. Absent budget must send "low".
+  await client.generateText(createRequest());
+  assert.equal(capturedGeneratePayload?.["reasoning_effort"], "low");
+  assert.equal(capturedGeneratePayload?.["max_tokens"], undefined);
+
   await client.generateText({
     ...createRequest(),
+    maxOutputTokens: 2048,
     thinkingBudget: 8_192
   });
   assert.equal(capturedGeneratePayload?.["reasoning_effort"], "low");
+  assert.equal(capturedGeneratePayload?.["max_completion_tokens"], 2048);
+
+  await client.generateText({
+    ...createRequest(),
+    thinkingBudget: 32_768
+  });
+  assert.equal(capturedGeneratePayload?.["reasoning_effort"], "max");
+
+  // kimi-k2.6: omit thinking → default enabled. Budget 0 must disable.
+  await client.generateText({
+    ...createRequest(),
+    model: "kimi-k2.6",
+    thinkingBudget: 0
+  });
+  assert.deepEqual(capturedGeneratePayload?.["thinking"], { type: "disabled" });
+  assert.equal(capturedGeneratePayload?.["reasoning_effort"], undefined);
+
+  await client.generateText({
+    ...createRequest(),
+    model: "kimi-k2.6",
+    thinkingBudget: 8_192
+  });
+  assert.deepEqual(capturedGeneratePayload?.["thinking"], {
+    type: "enabled",
+    keep: "all"
+  });
 
   let capturedStreamPayload: Record<string, unknown> | null = null;
   (client as unknown as { client: unknown }).client = {

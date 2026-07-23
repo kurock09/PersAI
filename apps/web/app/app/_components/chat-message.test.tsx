@@ -1136,6 +1136,26 @@ describe("ChatMessageBubble — pre-response status", () => {
     expect(screen.getByText("preResponseThinking")).toBeInTheDocument();
   });
 
+  it("shows live thinking as a newest-at-bottom multi-line block under Думаю", () => {
+    const longThought = Array.from({ length: 40 }, (_, i) => `word${String(i)}`).join(" ");
+    render(
+      <ChatMessageBubble
+        chatId="chat-1"
+        message={makeAssistantMessage()}
+        preResponseStatus={{ kind: "thinking", thinkingPreview: longThought }}
+      />
+    );
+
+    expect(screen.getByText("preResponseThinking")).toBeInTheDocument();
+    const preview = screen.getByTestId("live-thinking-preview");
+    const lines = Array.from(preview.querySelectorAll(":scope > span")).map(
+      (node) => node.textContent ?? ""
+    );
+    expect(lines.length).toBeGreaterThan(0);
+    expect(lines.length).toBeLessThanOrEqual(4);
+    expect(lines.at(-1)).toContain("word39");
+  });
+
   it("shows the live activity label while work is active before text starts", () => {
     render(
       <ChatMessageBubble

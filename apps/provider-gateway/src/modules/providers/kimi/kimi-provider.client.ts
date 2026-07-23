@@ -150,9 +150,13 @@ export class KimiProviderClient implements ProviderWarmableClient {
     try {
       const payload = this.buildChatCompletionPayload(input, true);
       this.logCacheZoneTelemetry(input, payload);
-      const stream = await client.chat.completions.create(payload, { signal: timedSignal });
+      // Keepalive before create: Moonshot may hold HTTP headers until the first
+      // reasoning/content token (esp. k3 default max / k2.6 thinking-enabled).
+      // Without this, runtime sees an empty NDJSON body for the whole TTFT wait.
       const keepaliveEvent: ProviderGatewayTextKeepaliveEvent = { type: "keepalive" };
       yield keepaliveEvent;
+      reset();
+      const stream = await client.chat.completions.create(payload, { signal: timedSignal });
       reset();
       let finishReason: string | null = null;
       let streamUsage:
@@ -281,7 +285,9 @@ export class KimiProviderClient implements ProviderWarmableClient {
       payload.stream_options = { include_usage: true };
     }
     if (input.maxOutputTokens !== undefined) {
-      payload.max_tokens = input.maxOutputTokens;
+      // Moonshot Chat Completions: max_tokens is deprecated; K3 defaults
+      // max_completion_tokens to 131072 when unset — pin the resolved budget.
+      payload.max_completion_tokens = input.maxOutputTokens;
     }
     if ((input.tools?.length ?? 0) > 0) {
       payload.tools = input.tools?.map((tool) => ({
@@ -314,30 +320,47 @@ export class KimiProviderClient implements ProviderWarmableClient {
         }
       };
     }
-    const reasoningEffort = this.reasoningEffortForRequest(input);
-    if (reasoningEffort !== null) {
-      payload.reasoning_effort = reasoningEffort;
-    }
+    this.applyMoonshotThinkingControls(input, payload);
     return payload as unknown as KimiChatCompletionCreateParams;
   }
 
   /**
-   * Map ADR-121 thinkingBudget onto Moonshot `reasoning_effort` for kimi-k3 only.
-   * Absent/zero budget → omit (K3 defaults to max). Non-k3 models omit.
+   * Moonshot docs (platform.kimi.ai):
+   * - kimi-k3: always thinks; `reasoning_effort` default is **max** when omitted.
+   *   Omitting on light PersAI turns caused multi-minute empty TTFT. Always send;
+   *   absent/zero ADR-121 budget → "low" (docs FAQ for slow reasoning).
+   * - kimi-k2.6: `thinking` default is `{type:"enabled"}` when omitted. Map budget
+   *   off → disabled; on → enabled + keep all (we echo reasoning_content).
+   * - kimi-k2.7-code*: thinking always enabled; keep all.
    */
-  private reasoningEffortForRequest(
-    input: ProviderGatewayTextGenerateRequest
-  ): KimiReasoningEffort | null {
-    if (!/^kimi-k3(\b|$)/i.test(input.model)) {
-      return null;
+  private applyMoonshotThinkingControls(
+    input: ProviderGatewayTextGenerateRequest,
+    payload: Record<string, unknown>
+  ): void {
+    if (/^kimi-k3(\b|$)/i.test(input.model)) {
+      payload.reasoning_effort = this.reasoningEffortForK3(input);
+      return;
     }
-    if (input.thinkingBudget === undefined || input.thinkingBudget <= 0) {
-      return null;
+    if (!/^kimi-k2/i.test(input.model)) {
+      return;
     }
-    if (input.thinkingBudget <= 10_000) {
+    if (/^kimi-k2\.7-code/i.test(input.model)) {
+      payload.thinking = { type: "enabled", keep: "all" };
+      return;
+    }
+    const thinkingOn = (input.thinkingBudget ?? 0) > 0;
+    payload.thinking = thinkingOn ? { type: "enabled", keep: "all" } : { type: "disabled" };
+  }
+
+  private reasoningEffortForK3(input: ProviderGatewayTextGenerateRequest): KimiReasoningEffort {
+    const budget = input.thinkingBudget ?? 0;
+    if (budget <= 0) {
       return "low";
     }
-    if (input.thinkingBudget <= 25_000) {
+    if (budget <= 10_000) {
+      return "low";
+    }
+    if (budget <= 25_000) {
       return "high";
     }
     return "max";

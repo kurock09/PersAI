@@ -5,6 +5,17 @@
 
 ## 2026-07-23
 
+- **fix(kimi): align Moonshot thinking defaults + stream keepalive.** Always
+  send K3 `reasoning_effort` (`thinkingBudget<=0` → `low`; omit = docs default
+  `max`); K2.6 explicit `thinking.type` (budget off → `disabled`; omit = docs
+  default `enabled`); `max_completion_tokens` (not deprecated `max_tokens`);
+  stream keepalive before `create()`. Cluster probe with managed `kimi/api-key`:
+  ~49k-frame k3 omit still first-reasoning ~3.4s (does **not** alone explain
+  prior 300s empty); further A/B blocked by org TPD 1.5M.
+
+- **ux(live-thinking): multi-line scroll under Думаю.** Replace single-line
+  marquee with up to 4 italic gray wrapped lines, newest at bottom.
+
 - **ux(live-status): thinking ticker + unstick + browser preview (local).**
   Clear sticky tool-finished chips between LLM iterations; browser tool
   preview/progress mirrors shell; DeepSeek/Kimi stream `thinking_delta` as
