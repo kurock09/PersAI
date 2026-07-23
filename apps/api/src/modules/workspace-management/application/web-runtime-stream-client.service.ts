@@ -243,6 +243,17 @@ export class WebRuntimeStreamClientService {
               accumulated: event.accumulatedText
             };
             continue;
+          case "thinking":
+            deadline.recordProgress();
+            if (event.delta.length === 0 && event.accumulated.length === 0) {
+              continue;
+            }
+            yield {
+              type: "thinking",
+              delta: event.delta,
+              accumulated: event.accumulated
+            };
+            continue;
           case "tool_started":
             deadline.recordProgress();
             if (HIDDEN_RUNTIME_TOOL_NAMES.has(event.toolName)) {
@@ -619,6 +630,16 @@ export class WebRuntimeStreamClientService {
           typeof row.sessionId === "string" &&
           typeof row.delta === "string" &&
           typeof row.accumulatedText === "string"
+        ) {
+          return parsed as RuntimeTurnStreamEvent;
+        }
+        break;
+      case "thinking":
+        if (
+          typeof row.requestId === "string" &&
+          typeof row.sessionId === "string" &&
+          typeof row.delta === "string" &&
+          typeof row.accumulated === "string"
         ) {
           return parsed as RuntimeTurnStreamEvent;
         }

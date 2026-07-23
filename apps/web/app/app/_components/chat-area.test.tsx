@@ -192,7 +192,8 @@ function createChat(
     loadOlderMessages: options?.loadOlderMessages ?? vi.fn(async () => undefined),
     pendingSendStatus: null,
     retryPendingSend: vi.fn(async () => undefined),
-    cancelPendingSend: vi.fn(() => null)
+    cancelPendingSend: vi.fn(() => null),
+    liveThinkingPreviewByMessageId: {}
   };
 }
 

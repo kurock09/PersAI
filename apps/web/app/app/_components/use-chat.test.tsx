@@ -3048,7 +3048,10 @@ describe("useChat", () => {
 
     await waitFor(() => {
       const live = result.current.messages.find((message) => message.id === publishMessage.id);
-      expect(live?.thought).toBe("composing a short ack");
+      expect(live?.thought ?? "").toBe("");
+      expect(result.current.liveThinkingPreviewByMessageId[publishMessage.id]).toBe(
+        "composing a short ack"
+      );
       expect(live?.status).toBe("streaming");
       expect(live?.attachments?.map((attachment) => attachment.id)).toEqual([publishAttachment.id]);
     });
@@ -9936,47 +9939,24 @@ describe("useChat", () => {
       });
     });
 
-    it("does not apply deferred shell finished turn_status while turn is still running", async () => {
-      window.sessionStorage.setItem(
-        "persai.active-web-turn.v1.thread-defer-finished",
-        "turn-defer"
-      );
-      assistantApiMocks.getAssistantWebChatTurnStatus.mockResolvedValueOnce({
-        status: "running",
-        chat: { id: "chat-defer" },
-        userMessage: {
-          id: "server-user-defer",
-          chatId: "chat-defer",
-          assistantId: "assistant-1",
-          author: "user",
-          content: "install",
-          attachments: [],
-          createdAt: "2026-04-25T17:45:35.000Z"
-        },
-        assistantMessage: {
-          id: "server-assistant-defer",
-          chatId: "chat-defer",
-          assistantId: "assistant-1",
-          author: "assistant",
-          content: "",
-          attachments: [],
-          createdAt: "2026-04-25T17:45:36.000Z"
-        },
-        currentActivity: {
-          toolName: "shell",
-          toolCallId: "tool-shell-defer",
-          phase: "start",
-          isError: false
-        },
-        runtime: null,
-        error: null
-      });
-      assistantApiMocks.reattachAssistantWebChatTurnStream.mockImplementationOnce(
+    it("clears live tool activity on tool-end so status falls back to thinking", async () => {
+      const streamGate: { release: () => void } = {
+        release: () => undefined
+      };
+      assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
         async (
           _token: string,
-          _clientTurnId: string,
+          _payload: unknown,
           handlers: {
             onHeadersOk?: () => void;
+            onStarted?: (payload: { chat: unknown; userMessage: unknown }) => void;
+            onTool?: (payload: {
+              phase: "start" | "end";
+              toolName: string;
+              toolCallId: string;
+              isError: boolean;
+              toolInputPreview?: string;
+            }) => void;
             onToolProgress?: (payload: {
               toolName: string;
               toolCallId: string;
@@ -9984,46 +9964,134 @@ describe("useChat", () => {
               line?: string;
               seq: number;
             }) => void;
-            onTurnStatus?: (payload: {
-              turn: {
-                status: string;
-                currentActivity: {
-                  toolName: string;
-                  toolCallId: string;
-                  phase: "start" | "end";
-                  isError: boolean;
-                } | null;
-              };
-            }) => void;
+            onCompleted?: (payload: { transport: unknown }) => void;
           }
         ) => {
           handlers.onHeadersOk?.();
+          handlers.onStarted?.({
+            chat: { id: "chat-tool-end-clear" },
+            userMessage: { id: "user-tool-end-clear" }
+          });
+          handlers.onTool?.({
+            phase: "start",
+            toolName: "shell",
+            toolCallId: "tool-shell-end-clear",
+            isError: false,
+            toolInputPreview: "pip install requests"
+          });
           handlers.onToolProgress?.({
             toolName: "shell",
-            toolCallId: "tool-shell-defer",
+            toolCallId: "tool-shell-end-clear",
             kind: "stdout_line",
             line: "Downloading package",
             seq: 1
           });
-          handlers.onTurnStatus?.({
-            turn: {
-              status: "running",
-              currentActivity: {
-                toolName: "shell",
-                toolCallId: "tool-shell-defer",
-                phase: "end",
-                isError: false
-              }
-            }
+          await Promise.resolve();
+          handlers.onTool?.({
+            phase: "end",
+            toolName: "shell",
+            toolCallId: "tool-shell-end-clear",
+            isError: false
           });
+          await new Promise<void>((resolve) => {
+            streamGate.release = resolve;
+          });
+          handlers.onCompleted?.({ transport: null });
         }
       );
 
-      const { result } = renderHook(() => useChat("thread-defer-finished"), {
+      const { result } = renderHook(() => useChat("thread-tool-end-clear"), {
         wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
       });
 
-      await waitFor(() => expect(result.current.isStreaming).toBe(true));
+      let sendPromise: Promise<void> | undefined;
+      await act(async () => {
+        sendPromise = result.current.send("install");
+        await Promise.resolve();
+      });
+
+      await waitFor(() => {
+        const activityEntries = result.current.entries.filter(
+          (
+            entry
+          ): entry is Extract<(typeof result.current.entries)[number], { kind: "activity" }> =>
+            entry.kind === "activity"
+        );
+        expect(activityEntries).toHaveLength(0);
+        expect(result.current.isStreaming).toBe(true);
+      });
+
+      streamGate.release();
+      await act(async () => {
+        if (sendPromise !== undefined) {
+          await sendPromise;
+        }
+      });
+    });
+
+    it("shows browser toolInputPreview like shell command preview", async () => {
+      const streamGate: { release: () => void } = {
+        release: () => undefined
+      };
+      assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
+        async (
+          _token: string,
+          _payload: unknown,
+          handlers: {
+            onHeadersOk?: () => void;
+            onStarted?: (payload: { chat: unknown; userMessage: unknown }) => void;
+            onTool?: (payload: {
+              phase: "start" | "end";
+              toolName: string;
+              toolCallId: string;
+              isError: boolean;
+              toolInputPreview?: string;
+            }) => void;
+            onToolProgress?: (payload: {
+              toolName: string;
+              toolCallId: string;
+              kind: "stdout_line" | "stderr_line" | "browser_step";
+              step?: string;
+              seq: number;
+            }) => void;
+            onCompleted?: (payload: { transport: unknown }) => void;
+          }
+        ) => {
+          handlers.onHeadersOk?.();
+          handlers.onStarted?.({
+            chat: { id: "chat-browser-preview" },
+            userMessage: { id: "user-browser-preview" }
+          });
+          handlers.onTool?.({
+            phase: "start",
+            toolName: "browser",
+            toolCallId: "tool-browser-1",
+            isError: false,
+            toolInputPreview: "open · https://example.com"
+          });
+          handlers.onToolProgress?.({
+            toolName: "browser",
+            toolCallId: "tool-browser-1",
+            kind: "browser_step",
+            step: "navigated",
+            seq: 1
+          });
+          await new Promise<void>((resolve) => {
+            streamGate.release = resolve;
+          });
+          handlers.onCompleted?.({ transport: null });
+        }
+      );
+
+      const { result } = renderHook(() => useChat("thread-browser-preview"), {
+        wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+      });
+
+      let sendPromise: Promise<void> | undefined;
+      await act(async () => {
+        sendPromise = result.current.send("open site");
+        await Promise.resolve();
+      });
 
       await waitFor(() => {
         const activityEntries = result.current.entries.filter(
@@ -10033,8 +10101,84 @@ describe("useChat", () => {
             entry.kind === "activity"
         );
         expect(activityEntries).toHaveLength(1);
-        expect(activityEntries[0]?.event.label).not.toBe("shell_finished");
-        expect(activityEntries[0]?.event.shellProgressLines).toEqual(["Downloading package"]);
+        expect(activityEntries[0]?.event.shellCommand).toBe("open · https://example.com");
+        expect(activityEntries[0]?.event.shellProgressLines).toEqual(["navigated"]);
+      });
+
+      streamGate.release();
+      await act(async () => {
+        if (sendPromise !== undefined) {
+          await sendPromise;
+        }
+      });
+    });
+
+    it("surfaces ephemeral thinking preview from SSE without persisting thought", async () => {
+      const streamGate: { release: () => void } = {
+        release: () => undefined
+      };
+      assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
+        async (
+          _token: string,
+          _payload: unknown,
+          handlers: {
+            onHeadersOk?: () => void;
+            onStarted?: (payload: { chat: unknown; userMessage: unknown }) => void;
+            onThinking?: (payload: { delta: string; accumulated: string }) => void;
+            onCompleted?: (payload: { transport: unknown }) => void;
+          }
+        ) => {
+          handlers.onHeadersOk?.();
+          handlers.onStarted?.({
+            chat: { id: "chat-thinking-preview" },
+            userMessage: { id: "user-thinking-preview" }
+          });
+          handlers.onThinking?.({
+            delta: "I should search first",
+            accumulated: "I should search first"
+          });
+          await new Promise<void>((resolve) => {
+            streamGate.release = resolve;
+          });
+          handlers.onCompleted?.({ transport: null });
+        }
+      );
+
+      const { result } = renderHook(() => useChat("thread-thinking-preview"), {
+        wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+      });
+
+      let sendPromise: Promise<void> | undefined;
+      await act(async () => {
+        sendPromise = result.current.send("think");
+        await Promise.resolve();
+      });
+
+      await act(async () => {
+        for (const callback of Array.from(rafCallbacks.values())) {
+          callback(performance.now());
+        }
+        rafCallbacks.clear();
+      });
+
+      await waitFor(() => {
+        const assistant = result.current.messages.find((message) => message.role === "assistant");
+        expect(assistant).toBeDefined();
+        expect(assistant?.thought ?? "").toBe("");
+        expect(result.current.liveThinkingPreviewByMessageId[assistant!.id]).toBe(
+          "I should search first"
+        );
+      });
+
+      streamGate.release();
+      await act(async () => {
+        if (sendPromise !== undefined) {
+          await sendPromise;
+        }
+      });
+
+      await waitFor(() => {
+        expect(Object.keys(result.current.liveThinkingPreviewByMessageId)).toHaveLength(0);
       });
     });
   });

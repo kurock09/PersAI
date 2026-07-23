@@ -842,6 +842,10 @@ export function ChatArea({
                     previousEntry.message.role === "user" &&
                     (previousEntry.message.status === "sending" ||
                       previousEntry.message.status === "reconciling");
+                  const thinkingPreview =
+                    entry.kind === "message"
+                      ? chat.liveThinkingPreviewByMessageId[entry.message.id]
+                      : undefined;
                   const preResponseStatus =
                     entry.kind === "message" &&
                     entry.message.role === "assistant" &&
@@ -849,7 +853,12 @@ export function ChatArea({
                     !previousUserIsSending
                       ? nextEntry?.kind === "activity"
                         ? { kind: "activity" as const, event: nextEntry.event }
-                        : { kind: "thinking" as const }
+                        : {
+                            kind: "thinking" as const,
+                            ...(thinkingPreview !== undefined && thinkingPreview.trim().length > 0
+                              ? { thinkingPreview }
+                              : {})
+                          }
                       : undefined;
 
                   return entry.kind === "message" ? (

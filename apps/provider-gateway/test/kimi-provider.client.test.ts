@@ -277,8 +277,11 @@ export async function runKimiProviderClientTest(): Promise<void> {
   assert.deepEqual(capturedStreamPayload?.["stream_options"], { include_usage: true });
   assert.deepEqual(
     streamEvents.map((event) => event.type),
-    ["keepalive", "text_delta", "text_delta", "completed"]
+    ["keepalive", "thinking_delta", "text_delta", "text_delta", "completed"]
   );
+  const thinkingDelta = streamEvents.find((event) => event.type === "thinking_delta");
+  assert.ok(thinkingDelta && thinkingDelta.type === "thinking_delta");
+  assert.equal(thinkingDelta.accumulatedThinking, "r1");
   const completed = streamEvents.find((event) => event.type === "completed");
   assert.ok(completed && completed.type === "completed");
   assert.deepEqual(completed.result.usage, {

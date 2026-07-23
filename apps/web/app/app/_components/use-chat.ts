@@ -130,6 +130,8 @@ function createClientTurnId(): string {
 export interface UseChatReturn {
   entries: ChatEntry[];
   messages: ChatMessage[];
+  /** Ephemeral DeepSeek/Kimi thinking text for live status (not transcript). */
+  liveThinkingPreviewByMessageId: Record<string, string>;
   chatId: string | null;
   activeMediaJobs: WebChatActiveMediaJobState[];
   activeDocumentJobs: WebChatActiveDocumentJobState[];
@@ -666,8 +668,10 @@ function mergeLiveActivity(
   return merged;
 }
 const SHELL_PROGRESS_ROLLING_LINES = 3;
-function shouldDeferToolFinishedLiveActivity(toolName: string, phase: "start" | "end"): boolean {
-  return phase === "end" && (toolName === "shell" || toolName === "exec" || toolName === "browser");
+/** Tool-end activities are not sticky: clear the live chip so the status
+ * falls back to «thinking» while the next provider iteration runs. */
+function shouldClearLiveActivityOnToolEnd(phase: "start" | "end"): boolean {
+  return phase === "end";
 }
 function applyToolProgressToLiveActivity(
   currentActivity: LiveActivityEvent | undefined,
@@ -699,11 +703,16 @@ function applyToolProgressToLiveActivity(
         ...(params.toolCallId === undefined ? {} : { toolCallId: params.toolCallId })
       });
   if (params.kind === "browser_step" && params.step) {
+    const baseLines = sameInFlightToolCall ? (runningActivity.shellProgressLines ?? []) : [];
+    const nextLines = [...baseLines, params.step].slice(-SHELL_PROGRESS_ROLLING_LINES);
     return {
       ...runningActivity,
       toolName: params.toolName,
       ...(params.toolCallId === undefined ? {} : { toolCallId: params.toolCallId }),
-      detail: params.step,
+      shellProgressLines: nextLines,
+      ...(sameInFlightToolCall && runningActivity.shellCommand !== undefined
+        ? { shellCommand: runningActivity.shellCommand }
+        : {}),
       emphasis: "strong"
     };
   }
@@ -1520,6 +1529,9 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
   const [liveActivitiesByMessageId, setLiveActivitiesByMessageId] = useState<
     Record<string, LiveActivityEvent>
   >({});
+  const [liveThinkingPreviewByMessageId, setLiveThinkingPreviewByMessageId] = useState<
+    Record<string, string>
+  >({});
   const [shadowRoutingLabelsByMessageId, setShadowRoutingLabelsByMessageId] = useState<
     Record<string, string>
   >({});
@@ -1760,6 +1772,28 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
     },
     []
   );
+  const setThreadLiveThinkingPreview = useCallback(
+    (targetThreadKey: string, assistantMessageId: string, preview: string | null) => {
+      if (currentThreadKeyRef.current !== targetThreadKey) {
+        return;
+      }
+      setLiveThinkingPreviewByMessageId((prev) => {
+        if (preview === null || preview.trim().length === 0) {
+          if (!(assistantMessageId in prev)) {
+            return prev;
+          }
+          const next = { ...prev };
+          delete next[assistantMessageId];
+          return next;
+        }
+        if (prev[assistantMessageId] === preview) {
+          return prev;
+        }
+        return { ...prev, [assistantMessageId]: preview };
+      });
+    },
+    []
+  );
   const clearThreadLiveActivity = useCallback(
     (targetThreadKey: string, assistantMessageIdToClear: string) => {
       applyThreadLiveActivities(targetThreadKey, (prev) => {
@@ -1979,6 +2013,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
       }
       if (currentThreadKeyRef.current === targetThreadKey) {
         setLiveActivitiesByMessageId({});
+        setLiveThinkingPreviewByMessageId({});
         setMessages((prev) => finalizeActiveTurnMessages(prev, terminalKind, liveTurnIds));
       } else if (snapshot !== undefined) {
         const cached = cachedThreadHistorySnapshotsRef.current.get(targetThreadKey);
@@ -2911,8 +2946,12 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
         const nextLiveActivities =
           currentActivity === null
             ? scopedExistingLiveActivities
-            : shouldDeferToolFinishedLiveActivity(currentActivity.toolName, currentActivity.phase)
-              ? scopedExistingLiveActivities
+            : shouldClearLiveActivityOnToolEnd(currentActivity.phase)
+              ? Object.fromEntries(
+                  Object.entries(scopedExistingLiveActivities).filter(
+                    ([messageId]) => messageId !== liveAssistantMessage.id
+                  )
+                )
               : {
                   ...scopedExistingLiveActivities,
                   [liveAssistantMessage.id]: mergeLiveActivity(
@@ -3466,6 +3505,10 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                 }
               },
               onDelta: ({ delta }) => {
+                const assistantMessageId = resolveLiveAssistantId();
+                if (assistantMessageId !== null) {
+                  setThreadLiveThinkingPreview(targetThreadKey, assistantMessageId, null);
+                }
                 promoteLiveAssistantStreaming((message) => ({
                   ...message,
                   content: `${message.content}${delta}`,
@@ -3473,12 +3516,16 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                 }));
               },
               onThinking: ({ accumulated }) => {
-                const now = new Date().toISOString();
-                promoteLiveAssistantStreaming((message) => ({
-                  ...message,
-                  thought: accumulated,
-                  thoughtStartedAt: message.thoughtStartedAt ?? now
-                }));
+                const assistantMessageId = resolveLiveAssistantId();
+                if (assistantMessageId === null) {
+                  return;
+                }
+                applyThreadLiveActivities(targetThreadKey, (prev) => {
+                  const next = { ...prev };
+                  delete next[assistantMessageId];
+                  return next;
+                });
+                setThreadLiveThinkingPreview(targetThreadKey, assistantMessageId, accumulated);
               },
               onTool: ({ phase, toolName, toolCallId, isError, toolInputPreview }) => {
                 const assistantMessageId = resolveLiveAssistantId();
@@ -3486,7 +3533,23 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                   return;
                 }
                 liveTokenStream = true;
-                if (shouldDeferToolFinishedLiveActivity(toolName, phase)) {
+                setThreadLiveThinkingPreview(targetThreadKey, assistantMessageId, null);
+                if (shouldClearLiveActivityOnToolEnd(phase)) {
+                  applyThreadLiveActivities(targetThreadKey, (prev) => {
+                    const next = { ...prev };
+                    delete next[assistantMessageId];
+                    return next;
+                  });
+                  applyThreadMessages(targetThreadKey, (prev) =>
+                    prev.map((message) =>
+                      message.id === assistantMessageId
+                        ? { ...message, status: "streaming", streamingTextActive: false }
+                        : message
+                    )
+                  );
+                  if (toolName === "todo_write") {
+                    void refreshChatPlan();
+                  }
                   return;
                 }
                 applyThreadLiveActivities(targetThreadKey, (prev) => ({
@@ -3742,6 +3805,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
       refreshChatPlan,
       refreshLatestHistory,
       resolveKnownChatIdForThread,
+      setThreadLiveThinkingPreview,
       t,
       upsertAcceptedAsyncJob
     ]
@@ -4424,16 +4488,14 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
       };
       const flushThought = () => {
         const thought = pendingThought.text;
-        const startedAt = pendingThought.startedAt;
         pendingThought.raf = 0;
         if (!thought) return;
-        applyThreadMessages(sendThreadKey, (prev) =>
-          prev.map((m) =>
-            m.id === assistantMsgId
-              ? { ...m, thought, thoughtStartedAt: m.thoughtStartedAt ?? startedAt }
-              : m
-          )
-        );
+        applyThreadLiveActivities(sendThreadKey, (prev) => {
+          const next = { ...prev };
+          delete next[assistantMsgId];
+          return next;
+        });
+        setThreadLiveThinkingPreview(sendThreadKey, assistantMsgId, thought);
       };
       const cancelBufferedAssistantFlush = () => {
         if (pendingDelta.raf) {
@@ -4568,6 +4630,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
           }
         },
         onDelta: ({ delta }: { delta: string }) => {
+          setThreadLiveThinkingPreview(sendThreadKey, assistantMsgId, null);
           pendingDelta.text += delta;
           if (!pendingDelta.raf) {
             pendingDelta.raf = requestAnimationFrame(() => flushDelta());
@@ -4577,6 +4640,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
           cancelBufferedAssistantFlush();
           pendingDelta.text = "";
           pendingThought.text = "";
+          setThreadLiveThinkingPreview(sendThreadKey, assistantMsgId, null);
           applyThreadMessages(sendThreadKey, (prev) =>
             prev.map((m) =>
               m.id === assistantMsgId ? { ...m, content: "", streamingTextActive: false } : m
@@ -4598,7 +4662,14 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
         }) => {
           flushBufferedAssistantState(true);
           markAssistantActivityBoundary();
-          if (!shouldDeferToolFinishedLiveActivity(toolName, phase)) {
+          setThreadLiveThinkingPreview(sendThreadKey, assistantMsgId, null);
+          if (shouldClearLiveActivityOnToolEnd(phase)) {
+            applyThreadLiveActivities(sendThreadKey, (prev) => {
+              const next = { ...prev };
+              delete next[assistantMsgId];
+              return next;
+            });
+          } else {
             applyThreadLiveActivities(sendThreadKey, (prev) => ({
               ...prev,
               [assistantMsgId]: mergeLiveActivity(
@@ -4831,6 +4902,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
           acceptStartedStream();
           flushBufferedAssistantState(true);
           clearThreadLiveActivity(sendThreadKey, assistantMsgId);
+          setThreadLiveThinkingPreview(sendThreadKey, assistantMsgId, null);
           const t = transport as {
             userMessage?: { id?: string; chatId?: string; attachments?: ChatAttachment[] };
             assistantMessage?: {
@@ -5095,6 +5167,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
           acceptStartedStream();
           flushBufferedAssistantState();
           clearThreadLiveActivity(sendThreadKey, assistantMsgId);
+          setThreadLiveThinkingPreview(sendThreadKey, assistantMsgId, null);
           const interruptedAt = new Date().toISOString();
           const t = transport as {
             assistantMessage?: {
@@ -5178,6 +5251,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
           }
           flushBufferedAssistantState();
           clearThreadLiveActivity(sendThreadKey, assistantMsgId);
+          setThreadLiveThinkingPreview(sendThreadKey, assistantMsgId, null);
           setIssue(nextIssue);
           const failedAt = new Date().toISOString();
           const t = payload.transport as {
@@ -5291,6 +5365,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
           }
           const abortedAt = new Date().toISOString();
           clearThreadLiveActivity(sendThreadKey, assistantMsgId);
+          setThreadLiveThinkingPreview(sendThreadKey, assistantMsgId, null);
           applyThreadMessages(sendThreadKey, (prev) =>
             prev.map((m) =>
               m.id === assistantMsgId && m.status === "streaming"
@@ -5346,6 +5421,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
       resolveKnownChatIdForThread,
       setThreadPendingSend,
       setThreadChatId,
+      setThreadLiveThinkingPreview,
       startSoftDetachReconcile,
       startStoredActiveTurnRestore,
       t,
@@ -6557,6 +6633,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
   return {
     entries,
     messages,
+    liveThinkingPreviewByMessageId,
     chatId,
     activeMediaJobs,
     activeDocumentJobs,

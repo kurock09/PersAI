@@ -185,6 +185,11 @@ export class DeepSeekProviderClient implements ProviderWarmableClient {
         const reasoningDelta = this.readReasoningContentDelta(delta);
         if (reasoningDelta !== null) {
           accumulatedReasoning += reasoningDelta;
+          yield {
+            type: "thinking_delta",
+            delta: reasoningDelta,
+            accumulatedThinking: accumulatedReasoning
+          };
         }
         if (typeof delta?.content === "string" && delta.content.length > 0) {
           accumulatedText += delta.content;

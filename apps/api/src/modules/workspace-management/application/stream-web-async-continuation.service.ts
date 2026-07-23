@@ -558,6 +558,14 @@ export class StreamWebAsyncContinuationService {
                 publish("delta", { delta: event.delta });
               }
               break;
+            case "thinking":
+              if (event.delta.length > 0 || event.accumulated.length > 0) {
+                publish("thinking", {
+                  delta: event.delta,
+                  accumulated: event.accumulated
+                });
+              }
+              break;
             case "tool_started":
               publish("tool", {
                 phase: "start",

@@ -4995,6 +4995,13 @@ export interface ProviderGatewayTextDeltaEvent {
   accumulatedText: string;
 }
 
+/** Streamed provider chain-of-thought (DeepSeek/Kimi `reasoning_content`). */
+export interface ProviderGatewayTextThinkingDeltaEvent {
+  type: "thinking_delta";
+  delta: string;
+  accumulatedThinking: string;
+}
+
 export interface ProviderGatewayTextKeepaliveEvent {
   type: "keepalive";
 }
@@ -5017,6 +5024,7 @@ export interface ProviderGatewayTextFailedEvent extends ProviderGatewayTextError
 
 export type ProviderGatewayTextStreamEvent =
   | ProviderGatewayTextDeltaEvent
+  | ProviderGatewayTextThinkingDeltaEvent
   | ProviderGatewayTextKeepaliveEvent
   | ProviderGatewayTextCompletedEvent
   | ProviderGatewayTextToolCallsEvent
@@ -5039,6 +5047,15 @@ export interface RuntimeTextDeltaEvent {
   source?: RuntimeTextDeltaSource;
 }
 
+/** Ephemeral provider thinking stream for live UI status (not transcript). */
+export interface RuntimeThinkingDeltaEvent {
+  type: "thinking";
+  requestId: string;
+  sessionId: string;
+  delta: string;
+  accumulated: string;
+}
+
 export interface RuntimeArtifactEvent {
   type: "artifact";
   requestId: string;
@@ -5052,7 +5069,7 @@ export interface RuntimeToolStartedEvent {
   sessionId: string;
   toolCallId: string;
   toolName: string;
-  /** Bounded single-line preview for UI (shell/exec command). */
+  /** Bounded single-line preview for UI (shell/exec command, browser action). */
   toolInputPreview?: string;
 }
 
@@ -5179,6 +5196,7 @@ export interface RuntimeFailedEvent {
 export type RuntimeTurnStreamEvent =
   | RuntimeStreamStartedEvent
   | RuntimeTextDeltaEvent
+  | RuntimeThinkingDeltaEvent
   | RuntimeArtifactEvent
   | RuntimeRetrievalActivityEvent
   | RuntimeProjectActivityEvent

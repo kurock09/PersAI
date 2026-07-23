@@ -1,5 +1,20 @@
 # SESSION-HANDOFF
 
+## 2026-07-23 — Live status UX: thinking ticker + unstick + browser preview
+
+Bounded UX slice on baseline `f184cc2e` (local, uncommitted). Fixes stuck
+tool-finished status (clear live activity on tool end → fall back to
+«Думаю»); browser `toolInputPreview` + `browser_step` progress lines like
+shell; DeepSeek/Kimi `reasoning_content` → gateway `thinking_delta` →
+runtime `thinking` → SSE → ephemeral gray ticker beside live status (not
+persisted / not ThoughtBlock). OpenAI/Anthropic out of scope. Gates before
+push: lint/format/workspace typecheck green; adr146-slice5 green; api+
+runtime+gateway+sandbox test green; web 1078/1078 with
+`--no-file-parallelism` (parallel full-web still has known use-chat flakes);
+api test:step2 + build green. Local `prisma:migrate:check` blocked by
+pre-existing failed migration on localhost DB (unrelated). Next after push:
+deploy web+api+runtime+gateway → live smoke on Kimi/DeepSeek.
+
 ## 2026-07-23 — ADR-163 commit+push after gates
 
 Local gates before push: lint, format:check, full workspace typecheck,

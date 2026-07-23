@@ -1200,6 +1200,9 @@ export class ProviderGatewayClientService {
     if (row?.type === "text_delta") {
       return typeof row.delta === "string" && typeof row.accumulatedText === "string";
     }
+    if (row?.type === "thinking_delta") {
+      return typeof row.delta === "string" && typeof row.accumulatedThinking === "string";
+    }
     if (row?.type === "completed") {
       return this.isTextGenerateResult(row.result);
     }

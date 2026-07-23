@@ -501,6 +501,12 @@ async function runDeepSeekReasoningContentRoundTripTest(
     }
   };
   const streamToolEvents = await collectStream(await client.streamText(createRequest()));
+  const thinkingDeltas = streamToolEvents.filter((event) => event.type === "thinking_delta");
+  assert.equal(thinkingDeltas.length, 2);
+  assert.equal(
+    thinkingDeltas[1]?.type === "thinking_delta" ? thinkingDeltas[1].accumulatedThinking : null,
+    "Thinking about it."
+  );
   const toolCallsEvent = streamToolEvents.find((event) => event.type === "tool_calls");
   assert.ok(toolCallsEvent, "stream must emit a tool_calls event");
   assert.equal(

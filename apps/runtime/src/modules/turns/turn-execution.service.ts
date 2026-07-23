@@ -1422,6 +1422,17 @@ export class TurnExecutionService {
                 continue;
               }
 
+              if (event.type === "thinking_delta") {
+                yield {
+                  type: "thinking",
+                  requestId: acceptedTurn.receipt.requestId,
+                  sessionId: acceptedTurn.session.sessionId,
+                  delta: event.delta,
+                  accumulated: event.accumulatedThinking
+                };
+                continue;
+              }
+
               if (event.type === "text_delta" && event.delta !== undefined) {
                 providerOutputSeen = true;
                 assembledText = this.mergeAssistantTurnText(
@@ -5756,6 +5767,9 @@ export class TurnExecutionService {
         ? `await-deadline:${String(Date.now() + timeoutMs)}`
         : null;
     }
+    if (toolCall.name === "browser") {
+      return this.readBrowserToolInputPreview(toolCall.arguments);
+    }
     if (toolCall.name !== "shell" && toolCall.name !== "exec") {
       return null;
     }
@@ -5764,6 +5778,39 @@ export class TurnExecutionService {
       return null;
     }
     const singleLine = command.replace(/\s+/g, " ").trim();
+    if (singleLine.length === 0) {
+      return null;
+    }
+    return singleLine.length > 240 ? `${singleLine.slice(0, 240)}…` : singleLine;
+  }
+
+  private readBrowserToolInputPreview(args: Record<string, unknown>): string | null {
+    const action = this.asNonEmptyString(args.action);
+    if (action === null || action === "describe") {
+      return null;
+    }
+    const url = this.asNonEmptyString(args.url);
+    const profile = this.asNonEmptyString(args.profile);
+    const displayName = this.asNonEmptyString(args.displayName);
+    const ops = Array.isArray(args.operations) ? args.operations.length : 0;
+    const parts: string[] = [action];
+    if (url !== null) {
+      parts.push(url);
+    } else if (displayName !== null) {
+      parts.push(displayName);
+    } else if (profile !== null) {
+      parts.push(profile);
+    }
+    if (action === "act" && ops > 0) {
+      parts.push(`${String(ops)} ops`);
+    }
+    if (action === "request_user_action") {
+      const prompt = this.asNonEmptyString(args.userActionPrompt);
+      if (prompt !== null) {
+        parts.push(prompt.length > 80 ? `${prompt.slice(0, 80)}…` : prompt);
+      }
+    }
+    const singleLine = parts.join(" · ").replace(/\s+/g, " ").trim();
     if (singleLine.length === 0) {
       return null;
     }

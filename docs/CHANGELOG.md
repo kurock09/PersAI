@@ -5,6 +5,11 @@
 
 ## 2026-07-23
 
+- **ux(live-status): thinking ticker + unstick + browser preview (local).**
+  Clear sticky tool-finished chips between LLM iterations; browser tool
+  preview/progress mirrors shell; DeepSeek/Kimi stream `thinking_delta` as
+  ephemeral gray status ticker (not transcript). OpenAI/Anthropic deferred.
+
 - **feat(ADR-163): Kimi managed chat provider (push).** Fourth chat-routing
   provider `kimi` (Moonshot Chat Completions, not DeepSeek fork). Secret
   `kimi/api-key`; usage v2 `cached_tokens`; Admin Runtime/Plans; images on +

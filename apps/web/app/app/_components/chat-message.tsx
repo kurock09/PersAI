@@ -342,7 +342,11 @@ interface ChatMessageBubbleProps {
   /** When false, the absolute left-gutter avatar is omitted (narrow panes). */
   showAssistantAvatar?: boolean | undefined;
   preResponseStatus?:
-    | { kind: "thinking" | "activity"; event?: ActivityEvent | undefined }
+    | {
+        kind: "thinking" | "activity";
+        event?: ActivityEvent | undefined;
+        thinkingPreview?: string | undefined;
+      }
     | undefined;
   showShadowRoutingLabel?: boolean | undefined;
   onAssistantAction?: ((text: string) => void) | undefined;
@@ -386,18 +390,36 @@ function CopyButton({ text }: { text: string }) {
   );
 }
 
+function buildLiveThinkingTicker(preview: string): string {
+  const normalized = preview.replace(/\s+/g, " ").trim();
+  if (normalized.length <= 96) {
+    return normalized;
+  }
+  return `…${normalized.slice(-96)}`;
+}
+
 function InlineStreamingStatus({
   preResponseStatus,
   showShadowRoutingLabel = false
 }: {
   preResponseStatus:
-    | { kind: "thinking" | "activity"; event?: ActivityEvent | undefined }
+    | {
+        kind: "thinking" | "activity";
+        event?: ActivityEvent | undefined;
+        thinkingPreview?: string | undefined;
+      }
     | undefined;
   showShadowRoutingLabel?: boolean | undefined;
 }) {
   const t = useTranslations("chat");
   const activityEvent =
     preResponseStatus?.kind === "activity" ? preResponseStatus.event : undefined;
+  const thinkingPreview =
+    preResponseStatus?.kind === "thinking" &&
+    typeof preResponseStatus.thinkingPreview === "string" &&
+    preResponseStatus.thinkingPreview.trim().length > 0
+      ? buildLiveThinkingTicker(preResponseStatus.thinkingPreview)
+      : undefined;
   const awaitDeadlineMatch = activityEvent?.detail?.match(/^await-deadline:(\d+)$/);
   const awaitDeadlineMs =
     awaitDeadlineMatch?.[1] === undefined ? null : Number(awaitDeadlineMatch[1]);
@@ -433,6 +455,13 @@ function InlineStreamingStatus({
             <>
               <span className="shrink-0 text-text-subtle/45 not-italic">—</span>
               <ActivityCommandPreview command={statusParts.shellCommand} />
+            </>
+          ) : thinkingPreview ? (
+            <>
+              <span className="shrink-0 text-text-subtle/45 not-italic">—</span>
+              <span className="inline-block min-w-0 max-w-[min(28rem,55vw)] truncate text-text-subtle/55 not-italic transition-opacity duration-200">
+                {thinkingPreview}
+              </span>
             </>
           ) : statusParts.detail && awaitDeadlineMs === null ? (
             <span className="text-text-subtle/62 not-italic">{statusParts.detail}</span>
