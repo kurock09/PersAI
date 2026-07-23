@@ -225,13 +225,17 @@ export function ChatArea({
   const initialAnchorDoneRef = useRef(false);
   const resizeAnchorFrameRef = useRef<number | null>(null);
   const scrollStateChatIdRef = useRef(chat.chatId);
+  const wasStreamingRef = useRef(false);
+  const programmaticScrollRef = useRef(false);
 
   const anchorToBottom = useCallback(() => {
     const container = scrollRef.current;
     if (!container) {
       return;
     }
+    programmaticScrollRef.current = true;
     container.scrollTop = container.scrollHeight;
+    programmaticScrollRef.current = false;
   }, []);
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior | "instant") => {
@@ -242,11 +246,16 @@ export function ChatArea({
       bottomRef.current?.scrollIntoView({ behavior: behavior === "instant" ? "auto" : behavior });
       return;
     }
+    programmaticScrollRef.current = true;
     if (behavior === "smooth" && typeof container.scrollTo === "function") {
       container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
     } else {
       container.scrollTop = container.scrollHeight;
     }
+    // Smooth scroll keeps firing native scroll events; clear on next frame.
+    requestAnimationFrame(() => {
+      programmaticScrollRef.current = false;
+    });
   }, []);
 
   const updatePinnedState = useCallback(() => {
@@ -257,6 +266,9 @@ export function ChatArea({
     const distanceFromBottom =
       container.scrollHeight - container.scrollTop - container.clientHeight;
     setShowScrollToBottom(distanceFromBottom > 280);
+    if (programmaticScrollRef.current) {
+      return;
+    }
     if (distanceFromBottom <= 96) {
       pinnedToBottomRef.current = true;
       userScrolledAwayRef.current = false;
@@ -298,18 +310,29 @@ export function ChatArea({
     }
     updatePinnedState();
     const markUserScrolledAway = () => {
+      if (programmaticScrollRef.current) {
+        return;
+      }
       userScrolledAwayRef.current = true;
+      pinnedToBottomRef.current = false;
     };
     const handleScroll = () => {
       updatePinnedState();
+      // Touch/trackpad: unpin only when the user is actually away from the bottom.
+      // Blind touchmove handlers falsely unpin on send/composer taps.
+      if (!programmaticScrollRef.current) {
+        const distanceFromBottom =
+          container.scrollHeight - container.scrollTop - container.clientHeight;
+        if (distanceFromBottom > 96) {
+          userScrolledAwayRef.current = true;
+          pinnedToBottomRef.current = false;
+        }
+      }
     };
     const handleWheel = (event: WheelEvent) => {
       if (event.deltaY < 0) {
         markUserScrolledAway();
       }
-    };
-    const handleTouchMove = () => {
-      markUserScrolledAway();
     };
     const handleKeyDown = (event: KeyboardEvent) => {
       if (
@@ -322,12 +345,10 @@ export function ChatArea({
     };
     container.addEventListener("scroll", handleScroll, { passive: true });
     container.addEventListener("wheel", handleWheel, { passive: true });
-    container.addEventListener("touchmove", handleTouchMove, { passive: true });
     container.addEventListener("keydown", handleKeyDown);
     return () => {
       container.removeEventListener("scroll", handleScroll);
       container.removeEventListener("wheel", handleWheel);
-      container.removeEventListener("touchmove", handleTouchMove);
       container.removeEventListener("keydown", handleKeyDown);
     };
   }, [chat.chatId, updatePinnedState]);
@@ -341,6 +362,7 @@ export function ChatArea({
     skipAutoScrollOnHistoryPrependRef.current = false;
     pinnedToBottomRef.current = true;
     userScrolledAwayRef.current = false;
+    wasStreamingRef.current = false;
     setShowScrollToBottom(false);
   }, [chat.chatId]);
 
@@ -356,13 +378,22 @@ export function ChatArea({
   }, [anchorToBottom, chat.chatId, chat.historyLoading, chat.messages.length]);
 
   // Follow new tail messages / live stream only after initial anchor, never during hydrate.
-  useEffect(() => {
+  // useLayoutEffect: stick before paint so the stream cannot render below the fold.
+  useLayoutEffect(() => {
     if (!initialAnchorDoneRef.current || chat.historyLoading) {
       prevMessageCount.current = chat.messages.length;
+      wasStreamingRef.current = chat.isStreaming;
       return;
     }
     const count = chat.messages.length;
     const hasNewMessage = count > prevMessageCount.current;
+    const streamStarted = chat.isStreaming && !wasStreamingRef.current;
+    wasStreamingRef.current = chat.isStreaming;
+    // Sending / stream start always re-pins — user wants to watch the reply.
+    if (streamStarted) {
+      pinnedToBottomRef.current = true;
+      userScrolledAwayRef.current = false;
+    }
     const shouldSkipHistoryPrependAutoScroll =
       skipAutoScrollOnHistoryPrependRef.current && (hasNewMessage || !chat.olderMessagesLoading);
     if (shouldSkipHistoryPrependAutoScroll) {
@@ -370,11 +401,12 @@ export function ChatArea({
       prevMessageCount.current = count;
       return;
     }
-    const shouldFollowStreamingDelta =
-      !hasNewMessage && chat.isStreaming && count > 0 && pinnedToBottomRef.current;
-    if (hasNewMessage || shouldFollowStreamingDelta) {
+    const shouldFollowStreaming =
+      chat.isStreaming && count > 0 && pinnedToBottomRef.current && !userScrolledAwayRef.current;
+    if (hasNewMessage || shouldFollowStreaming || streamStarted) {
       if (pinnedToBottomRef.current && !userScrolledAwayRef.current) {
-        scrollToBottom(hasNewMessage ? "smooth" : "instant");
+        // Instant while streaming — smooth lags behind growing bubbles.
+        scrollToBottom(chat.isStreaming || streamStarted ? "instant" : "smooth");
       }
     }
     prevMessageCount.current = count;
@@ -731,7 +763,9 @@ export function ChatArea({
           ref={scrollRef}
           data-testid="chat-message-scroll"
           className={cn(
-            "absolute inset-0 overflow-x-hidden overflow-y-auto [overflow-anchor:auto]",
+            // overflow-anchor:none — browser anchoring fights stick-to-bottom while
+            // the assistant bubble grows; we own bottom follow in layout effects.
+            "absolute inset-0 overflow-x-hidden overflow-y-auto [overflow-anchor:none]",
             // ~pill height top / ~composer height bottom — text softens to the browser edge under chrome.
             "[mask-image:linear-gradient(to_bottom,transparent_0,black_3.75rem,black_calc(100%-5rem),transparent_100%)]",
             "[-webkit-mask-image:linear-gradient(to_bottom,transparent_0,black_3.75rem,black_calc(100%-5rem),transparent_100%)]"

@@ -336,6 +336,39 @@ describe("ChatArea", () => {
     expect(scrollTopValue).toBe(800);
   });
 
+  it("re-pins to bottom when a stream starts after the user was mid-thread", () => {
+    const { container, rerender } = render(
+      <ChatArea chat={createChat(["Old", "Tail"], { isStreaming: false })} />
+    );
+    const scrollContainer = container.querySelector(".overflow-y-auto") as HTMLDivElement;
+    let scrollTopValue = 0;
+    let scrollHeight = 1200;
+    Object.defineProperty(scrollContainer, "scrollHeight", {
+      configurable: true,
+      get: () => scrollHeight
+    });
+    Object.defineProperty(scrollContainer, "clientHeight", {
+      configurable: true,
+      get: () => 400
+    });
+    Object.defineProperty(scrollContainer, "scrollTop", {
+      configurable: true,
+      get: () => scrollTopValue,
+      set: (value: number) => {
+        scrollTopValue = value;
+      }
+    });
+
+    // Simulate reading older content (unpinned).
+    scrollTopValue = 200;
+    fireEvent.scroll(scrollContainer);
+
+    scrollHeight = 1600;
+    rerender(<ChatArea chat={createChat(["Old", "Tail", "Live"], { isStreaming: true })} />);
+
+    expect(scrollTopValue).toBe(1600);
+  });
+
   it("preserves scroll position when older messages are prepended", () => {
     const scrollIntoView = vi.fn();
     Object.defineProperty(Element.prototype, "scrollIntoView", {
