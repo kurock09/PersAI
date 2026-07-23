@@ -12,8 +12,9 @@ push: lint/format/workspace typecheck green; adr146-slice5 green; api+
 runtime+gateway+sandbox test green; web 1078/1078 with
 `--no-file-parallelism` (parallel full-web still has known use-chat flakes);
 api test:step2 + build green. Local `prisma:migrate:check` blocked by
-pre-existing failed migration on localhost DB (unrelated). Next after push:
-deploy web+api+runtime+gateway → live smoke on Kimi/DeepSeek.
+pre-existing failed migration on localhost DB (unrelated). Pushed
+`c1b453a1` to `origin/main`. Next: wait CI/GitOps exact-image pin → deploy
+web+api+runtime+gateway → live smoke on Kimi/DeepSeek.
 
 ## 2026-07-23 — ADR-163 commit+push after gates
 
