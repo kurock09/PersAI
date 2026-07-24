@@ -15,13 +15,16 @@ import {
   type CompletedWebTurnReplayState
 } from "../domain/assistant-channel-surface-binding.repository";
 import {
+  runtimeMediaArtifactIdentity,
   type AssistantRuntimeWebChatTurnStreamChunk,
   type RuntimeMediaArtifact
 } from "./assistant-runtime.facade";
+import type { InlineMediaPlacementEntry } from "./persist-assistant-message";
 import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
 import type { Assistant } from "../domain/assistant.entity";
 import {
   deriveEngagementSummary,
+  type AssistantWebChatMessageAttachmentState,
   type AssistantWebChatMessageState,
   type AssistantWebChatState,
   type AssistantWebChatTurnState
@@ -409,6 +412,17 @@ export class StreamWebChatTurnService {
         summary: string;
         detail?: string | null;
       }) => void;
+      /**
+       * ADR-165 — sync in-loop media delivered mid-stream into the live assistant
+       * bubble. Includes `assistantMessageId` so the client can bind the local
+       * streaming bubble to the early server row (avoids history-refresh orphans).
+       * `afterToolCallId` is set when the runtime stamped producingToolCallId.
+       */
+      onMediaAttachments?: (payload: {
+        assistantMessageId: string;
+        attachments: AssistantWebChatMessageAttachmentState[];
+        afterToolCallId?: string;
+      }) => void;
       onDone: (respondedAt: string) => void;
       /**
        * Fired when the cadence watchdog has detected a stalled stream and we are
@@ -442,6 +456,18 @@ export class StreamWebChatTurnService {
     let runtimeTruncated = false;
     const collectedMedia: RuntimeMediaArtifact[] = [];
     let mediaDeliveryCompleted = false;
+    /** ADR-165 — early live bubble + already-delivered artifact identities. */
+    const liveSyncMediaPresent: {
+      earlyAssistantMessageId: string | null;
+      deliveredIdentities: Set<string>;
+      inlineMediaPlacement: InlineMediaPlacementEntry[];
+      deliveredAttachments: AssistantWebChatMessageAttachmentState[];
+    } = {
+      earlyAssistantMessageId: null,
+      deliveredIdentities: new Set<string>(),
+      inlineMediaPlacement: [],
+      deliveredAttachments: []
+    };
     const trace =
       prepared.traceHandle ??
       this.overviewLatencyTraceService.start({
@@ -577,6 +603,7 @@ export class StreamWebChatTurnService {
           cadenceState,
           accumulatedSoFar: accumulated,
           callbacks,
+          liveSyncMediaPresent,
           trace,
           primaryRuntimeStartedAt,
           primaryFirstDeltaMs,
@@ -693,10 +720,14 @@ export class StreamWebChatTurnService {
           status: "interrupted",
           outputPreview: accumulated
         });
-        if (collectedMedia.length > 0) {
+        const undeliveredStoppedMedia = collectedMedia.filter(
+          (artifact) =>
+            !liveSyncMediaPresent.deliveredIdentities.has(runtimeMediaArtifactIdentity(artifact))
+        );
+        if (undeliveredStoppedMedia.length > 0) {
           await this.mediaDeliveryService.settleUserStoppedArtifacts({
             assistantId: prepared.assistantId,
-            artifacts: collectedMedia,
+            artifacts: undeliveredStoppedMedia,
             reason: "web_stream_client_aborted_before_delivery"
           });
         }
@@ -704,7 +735,12 @@ export class StreamWebChatTurnService {
           prepared,
           accumulated.trim(),
           respondedAt,
-          callbacks.isUserStopped?.() === true
+          callbacks.isUserStopped?.() === true,
+          {
+            reuseMessageId: liveSyncMediaPresent.earlyAssistantMessageId,
+            inlineMediaPlacement: liveSyncMediaPresent.inlineMediaPlacement,
+            deliveredAttachments: liveSyncMediaPresent.deliveredAttachments
+          }
         );
         if (prepared.clientTurnId !== undefined && this.webChatTurnAttemptService) {
           const stopCode = callbacks.isUserStopped?.() === true ? "user_stopped" : "client_aborted";
@@ -816,6 +852,11 @@ export class StreamWebChatTurnService {
           toolInvocations !== undefined && toolInvocations.length > 0
             ? stripToolInvocationsForClient(toolInvocations)
             : undefined,
+        reuseMessageId: liveSyncMediaPresent.earlyAssistantMessageId,
+        inlineMediaPlacement:
+          liveSyncMediaPresent.inlineMediaPlacement.length > 0
+            ? liveSyncMediaPresent.inlineMediaPlacement
+            : undefined,
         partialStatus: isCompletedNormally ? undefined : "partial",
         truncatedStatus: isCompletedNormally && runtimeTruncated ? "truncated" : undefined
       });
@@ -829,6 +870,10 @@ export class StreamWebChatTurnService {
         assistantMessageId: assistantMessage.id
       });
       trace.stage("assistant_message_saved");
+      const undeliveredMediaArtifacts = collectedMedia.filter(
+        (artifact) =>
+          !liveSyncMediaPresent.deliveredIdentities.has(runtimeMediaArtifactIdentity(artifact))
+      );
       const postRuntime = await finalizePersistedWebTurn({
         logger: this.logger,
         assistantChatRepository: this.assistantChatRepository,
@@ -862,7 +907,9 @@ export class StreamWebChatTurnService {
         assistant: prepared.assistant,
         assistantMessage,
         assistantText: contentToPersist,
-        mediaArtifacts: collectedMedia,
+        mediaArtifacts: undeliveredMediaArtifacts,
+        alreadyDeliveredAttachments: liveSyncMediaPresent.deliveredAttachments,
+        attemptedMediaArtifacts: collectedMedia,
         respondedAt: respondedAt ?? assistantMessage.createdAt.toISOString(),
         ...(textUsageAccounting === undefined ? {} : { textUsageAccounting }),
         traceId: trace.getTraceId(),
@@ -985,6 +1032,9 @@ export class StreamWebChatTurnService {
             ...(runtimeWorkingNotes.length > 0 ? { workingNotes: runtimeWorkingNotes } : {}),
             ...(toolInvocations !== undefined && toolInvocations.length > 0
               ? { toolInvocations: stripToolInvocationsForClient(toolInvocations) }
+              : {}),
+            ...(liveSyncMediaPresent.inlineMediaPlacement.length > 0
+              ? { inlineMediaPlacement: liveSyncMediaPresent.inlineMediaPlacement }
               : {})
           },
           ...(postRuntime.followUpAssistantMessage === null
@@ -1025,10 +1075,14 @@ export class StreamWebChatTurnService {
         );
       }
       const normalized = toAssistantInboundFailurePayload(error);
-      if (collectedMedia.length > 0 && !mediaDeliveryCompleted) {
+      const undeliveredFailedMedia = collectedMedia.filter(
+        (artifact) =>
+          !liveSyncMediaPresent.deliveredIdentities.has(runtimeMediaArtifactIdentity(artifact))
+      );
+      if (undeliveredFailedMedia.length > 0 && !mediaDeliveryCompleted) {
         await this.mediaDeliveryService.markUndeliveredArtifactsReconciliationRequired({
           assistantId: prepared.assistantId,
-          artifacts: collectedMedia,
+          artifacts: undeliveredFailedMedia,
           reason: "web_stream_delivery_not_completed"
         });
       }
@@ -1037,7 +1091,11 @@ export class StreamWebChatTurnService {
             status: "interrupted" as const,
             transport: null
           }
-        : await this.persistInterruptedOutcome(prepared, accumulated, respondedAt);
+        : await this.persistInterruptedOutcome(prepared, accumulated, respondedAt, false, {
+            reuseMessageId: liveSyncMediaPresent.earlyAssistantMessageId,
+            inlineMediaPlacement: liveSyncMediaPresent.inlineMediaPlacement,
+            deliveredAttachments: liveSyncMediaPresent.deliveredAttachments
+          });
       if (prepared.clientTurnId !== undefined && this.webChatTurnAttemptService) {
         await this.webChatTurnAttemptService.markInterrupted({
           assistantId: prepared.assistantId,
@@ -1083,6 +1141,168 @@ export class StreamWebChatTurnService {
         message: normalized.message
       };
     }
+  }
+
+  /**
+   * ADR-165 — deliver sync image (and any other mid-loop media) into the live
+   * assistant bubble as soon as the runtime yields artifacts. Tracks identities
+   * so end-of-turn finalize does not double-deliver.
+   */
+  private async deliverSyncMediaMidStream(input: {
+    prepared: StreamWebChatTurnPrepared;
+    artifacts: RuntimeMediaArtifact[];
+    liveSyncMediaPresent: {
+      earlyAssistantMessageId: string | null;
+      deliveredIdentities: Set<string>;
+      inlineMediaPlacement: InlineMediaPlacementEntry[];
+      deliveredAttachments: AssistantWebChatMessageAttachmentState[];
+    };
+    onMediaAttachments?: (payload: {
+      assistantMessageId: string;
+      attachments: AssistantWebChatMessageAttachmentState[];
+      afterToolCallId?: string;
+    }) => void;
+  }): Promise<void> {
+    const pending = input.artifacts.filter(
+      (artifact) =>
+        !input.liveSyncMediaPresent.deliveredIdentities.has(runtimeMediaArtifactIdentity(artifact))
+    );
+    if (pending.length === 0) {
+      return;
+    }
+
+    if (input.liveSyncMediaPresent.earlyAssistantMessageId === null) {
+      const earlyMessage = await this.assistantChatRepository.createMessage({
+        chatId: input.prepared.chat.id,
+        assistantId: input.prepared.assistantId,
+        author: "assistant",
+        content: "",
+        metadata: {
+          sourceUserMessageId: input.prepared.userMessage.id,
+          inlineMediaPlacement: []
+        }
+      });
+      input.liveSyncMediaPresent.earlyAssistantMessageId = earlyMessage.id;
+    }
+
+    const messageId = input.liveSyncMediaPresent.earlyAssistantMessageId;
+    let delivered: Awaited<ReturnType<MediaDeliveryService["deliver"]>>;
+    try {
+      delivered = await this.mediaDeliveryService.deliver({
+        artifacts: pending,
+        channel: "web",
+        assistantId: input.prepared.assistantId,
+        chatId: input.prepared.chat.id,
+        messageId,
+        workspaceId: input.prepared.workspaceId
+      });
+    } catch (error) {
+      // Early row may already exist; leave identities unmarked so end/interrupt
+      // can reuse the message and retry undelivered artifacts.
+      this.logger.warn(
+        `ADR-165 mid-stream media deliver failed messageId=${messageId}: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+      return;
+    }
+
+    // If nothing attached, leave identities unmarked so end-of-turn finalize can retry.
+    if (delivered.attachments.length === 0) {
+      return;
+    }
+
+    const deliveredByPath = new Map<string, AssistantWebChatMessageAttachmentState>();
+    for (const attachment of delivered.attachments) {
+      if (typeof attachment.path === "string" && attachment.path.trim().length > 0) {
+        deliveredByPath.set(attachment.path.trim(), attachment);
+      }
+    }
+
+    const succeededArtifacts: RuntimeMediaArtifact[] = [];
+    const succeededAttachments: AssistantWebChatMessageAttachmentState[] = [];
+    for (const artifact of pending) {
+      if (artifact.source !== "persai_object_storage") {
+        continue;
+      }
+      const attachment = deliveredByPath.get(artifact.objectKey);
+      if (attachment === undefined) {
+        continue;
+      }
+      input.liveSyncMediaPresent.deliveredIdentities.add(runtimeMediaArtifactIdentity(artifact));
+      succeededArtifacts.push(artifact);
+      if (!succeededAttachments.some((entry) => entry.id === attachment.id)) {
+        succeededAttachments.push(attachment);
+      }
+    }
+
+    // Fallback when path matching fails but every pending artifact attached
+    // (e.g. runtime_url sources): mark all only if counts match exactly.
+    if (succeededAttachments.length === 0 && delivered.attachments.length === pending.length) {
+      for (const artifact of pending) {
+        input.liveSyncMediaPresent.deliveredIdentities.add(runtimeMediaArtifactIdentity(artifact));
+        succeededArtifacts.push(artifact);
+      }
+      succeededAttachments.push(...delivered.attachments);
+    }
+
+    if (succeededAttachments.length === 0) {
+      return;
+    }
+
+    input.liveSyncMediaPresent.deliveredAttachments.push(...succeededAttachments);
+
+    // Place each succeeded attachment under its own producingToolCallId.
+    let afterToolCallId: string | undefined;
+    for (let index = 0; index < succeededArtifacts.length; index += 1) {
+      const artifact = succeededArtifacts[index]!;
+      const attachment =
+        artifact.source === "persai_object_storage"
+          ? deliveredByPath.get(artifact.objectKey)
+          : succeededAttachments[index];
+      if (attachment === undefined) {
+        continue;
+      }
+      const toolCallId =
+        typeof artifact.producingToolCallId === "string" &&
+        artifact.producingToolCallId.trim().length > 0
+          ? artifact.producingToolCallId.trim()
+          : null;
+      if (toolCallId === null) {
+        continue;
+      }
+      afterToolCallId ??= toolCallId;
+      const existing = input.liveSyncMediaPresent.inlineMediaPlacement.find(
+        (entry) => entry.toolCallId === toolCallId
+      );
+      if (existing !== undefined) {
+        if (!existing.attachmentIds.includes(attachment.id)) {
+          existing.attachmentIds.push(attachment.id);
+        }
+      } else {
+        input.liveSyncMediaPresent.inlineMediaPlacement.push({
+          toolCallId,
+          attachmentIds: [attachment.id]
+        });
+      }
+    }
+
+    if (input.liveSyncMediaPresent.inlineMediaPlacement.length > 0) {
+      await this.assistantChatRepository.mergeMessageMetadata(
+        messageId,
+        input.prepared.assistantId,
+        {
+          sourceUserMessageId: input.prepared.userMessage.id,
+          inlineMediaPlacement: input.liveSyncMediaPresent.inlineMediaPlacement
+        }
+      );
+    }
+
+    input.onMediaAttachments?.({
+      assistantMessageId: messageId,
+      attachments: succeededAttachments,
+      ...(afterToolCallId === undefined ? {} : { afterToolCallId })
+    });
   }
 
   private buildWebRuntimeStreamInput(input: {
@@ -1249,8 +1469,19 @@ export class StreamWebChatTurnService {
         summary: string;
         detail?: string | null;
       }) => void;
+      onMediaAttachments?: (payload: {
+        assistantMessageId: string;
+        attachments: AssistantWebChatMessageAttachmentState[];
+        afterToolCallId?: string;
+      }) => void;
       onDone: (respondedAt: string) => void;
       onPendingBrowserLogin?: (state: PendingBrowserLoginState) => void;
+    };
+    liveSyncMediaPresent: {
+      earlyAssistantMessageId: string | null;
+      deliveredIdentities: Set<string>;
+      inlineMediaPlacement: InlineMediaPlacementEntry[];
+      deliveredAttachments: AssistantWebChatMessageAttachmentState[];
     };
     trace: OverviewLatencyTraceHandle;
     primaryRuntimeStartedAt: number;
@@ -1504,6 +1735,14 @@ export class StreamWebChatTurnService {
         if (chunk.type === "media" && Array.isArray(chunk.media)) {
           watchdog.recordActivity();
           collectedMedia.push(...chunk.media);
+          await this.deliverSyncMediaMidStream({
+            prepared: input.prepared,
+            artifacts: chunk.media,
+            liveSyncMediaPresent: input.liveSyncMediaPresent,
+            ...(input.callbacks.onMediaAttachments === undefined
+              ? {}
+              : { onMediaAttachments: input.callbacks.onMediaAttachments })
+          });
         }
 
         if (
@@ -2050,27 +2289,69 @@ export class StreamWebChatTurnService {
     prepared: StreamWebChatTurnPrepared,
     partialOutput: string,
     respondedAt: string | null,
-    userStopped = false
+    userStopped = false,
+    options?: {
+      reuseMessageId?: string | null;
+      inlineMediaPlacement?: InlineMediaPlacementEntry[];
+      deliveredAttachments?: AssistantWebChatMessageAttachmentState[];
+    }
   ): Promise<StreamWebChatTurnOutcomeInterrupted> {
     const cleanedPartial = partialOutput.trim();
+    const reuseMessageId =
+      typeof options?.reuseMessageId === "string" && options.reuseMessageId.trim().length > 0
+        ? options.reuseMessageId.trim()
+        : null;
     // ADR-149 H5 — even with no partial assistant text, explicit Stop must leave
     // a durable hydration marker so the next turn sees user_stopped truth.
-    if (cleanedPartial.length === 0 && !userStopped) {
+    // ADR-165 — also keep an early mid-stream image bubble when present.
+    if (cleanedPartial.length === 0 && !userStopped && reuseMessageId === null) {
       return {
         status: "interrupted",
         transport: null
       };
     }
 
-    const partialAssistantMessage = await this.assistantChatRepository.createMessage({
-      chatId: prepared.chat.id,
-      assistantId: prepared.assistantId,
-      author: "assistant",
-      content: cleanedPartial,
-      metadata: userStopped
-        ? { status: "partial", stopReason: "user_stopped" }
-        : { status: "partial" }
-    });
+    const lifecycleMetadata: Record<string, unknown> = userStopped
+      ? { status: "partial", stopReason: "user_stopped" }
+      : { status: "partial" };
+    if (Array.isArray(options?.inlineMediaPlacement) && options.inlineMediaPlacement.length > 0) {
+      lifecycleMetadata.inlineMediaPlacement = options.inlineMediaPlacement;
+      lifecycleMetadata.sourceUserMessageId = prepared.userMessage.id;
+    }
+
+    let partialAssistantMessage =
+      reuseMessageId === null
+        ? null
+        : await this.assistantChatRepository.updateMessageContent(
+            reuseMessageId,
+            prepared.assistantId,
+            cleanedPartial
+          );
+    if (partialAssistantMessage === null && reuseMessageId !== null) {
+      partialAssistantMessage = await this.assistantChatRepository.findMessageByIdForAssistant(
+        reuseMessageId,
+        prepared.assistantId
+      );
+    }
+    if (partialAssistantMessage !== null) {
+      const merged = await this.assistantChatRepository.mergeMessageMetadata(
+        partialAssistantMessage.id,
+        prepared.assistantId,
+        lifecycleMetadata
+      );
+      if (merged !== null) {
+        partialAssistantMessage = merged;
+      }
+    } else {
+      partialAssistantMessage = await this.assistantChatRepository.createMessage({
+        chatId: prepared.chat.id,
+        assistantId: prepared.assistantId,
+        author: "assistant",
+        content: cleanedPartial,
+        metadata: lifecycleMetadata
+      });
+    }
+
     const refreshedChat = await this.assistantChatRepository.findChatById(prepared.chat.id);
     if (refreshedChat === null) {
       throw new NotFoundException("Chat does not exist for this assistant.");
@@ -2083,6 +2364,8 @@ export class StreamWebChatTurnService {
         source: "web_chat_turn_stream_partial"
       });
     }
+
+    const attachments = options?.deliveredAttachments ?? [];
 
     return {
       status: "interrupted",
@@ -2108,11 +2391,15 @@ export class StreamWebChatTurnService {
           assistantId: partialAssistantMessage.assistantId,
           author: partialAssistantMessage.author,
           content: partialAssistantMessage.content,
-          attachments: [],
+          attachments,
           createdAt: partialAssistantMessage.createdAt.toISOString(),
           ...(userStopped
             ? { status: "partial" as const, stopReason: "user_stopped" as const }
-            : { status: "partial" as const })
+            : { status: "partial" as const }),
+          ...(Array.isArray(options?.inlineMediaPlacement) &&
+          options.inlineMediaPlacement.length > 0
+            ? { inlineMediaPlacement: options.inlineMediaPlacement }
+            : {})
         },
         runtime: {
           respondedAt: respondedAt ?? partialAssistantMessage.createdAt.toISOString(),

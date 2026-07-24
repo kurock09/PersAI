@@ -135,6 +135,7 @@ import { RuntimeSandboxToolService } from "./runtime-sandbox-tool.service";
 import { RuntimeScriptToolService } from "./runtime-script-tool.service";
 import { RuntimeAwaitToolService } from "./runtime-await-tool.service";
 import { hydrateMediaJobCompletionVisionContent } from "./media-job-completion-vision-hydration";
+import { shouldDeferMediaToolExecution as shouldDeferMediaToolExecutionPolicy } from "./media-tool-deferral";
 import { PersaiMediaObjectStorageService } from "./persai-media-object-storage.service";
 import { RuntimeStoragePlaneFilesService } from "./runtime-storage-plane-files.service";
 import {
@@ -4222,6 +4223,7 @@ export class TurnExecutionService {
           currentArtifacts,
           currentFileHandles
         );
+        const deferImageEdit = this.shouldDeferMediaToolExecution(input, IMAGE_EDIT_TOOL_CODE);
         const result = await this.runtimeImageEditToolService.executeToolCall({
           bundle: execution.bundle,
           toolCall,
@@ -4231,10 +4233,8 @@ export class TurnExecutionService {
           chatId: currentChatId,
           sourceUserMessageText: input.message.text,
           sourceUserMessageCreatedAt: new Date().toISOString(),
-          ...(this.shouldDeferMediaToolExecution(input) && abortSignal !== undefined
-            ? { abortSignal }
-            : {}),
-          ...(this.shouldDeferMediaToolExecution(input)
+          ...(deferImageEdit && abortSignal !== undefined ? { abortSignal } : {}),
+          ...(deferImageEdit
             ? {
                 deferToAsyncMediaJob: {
                   sourceUserMessageId,
@@ -4259,6 +4259,10 @@ export class TurnExecutionService {
           currentArtifacts,
           currentFileHandles
         );
+        const deferImageGenerate = this.shouldDeferMediaToolExecution(
+          input,
+          IMAGE_GENERATE_TOOL_CODE
+        );
         const result = await this.runtimeImageGenerateToolService.executeToolCall({
           bundle: execution.bundle,
           toolCall,
@@ -4268,10 +4272,8 @@ export class TurnExecutionService {
           chatId: currentChatId,
           sourceUserMessageText: input.message.text,
           sourceUserMessageCreatedAt: new Date().toISOString(),
-          ...(this.shouldDeferMediaToolExecution(input) && abortSignal !== undefined
-            ? { abortSignal }
-            : {}),
-          ...(this.shouldDeferMediaToolExecution(input)
+          ...(deferImageGenerate && abortSignal !== undefined ? { abortSignal } : {}),
+          ...(deferImageGenerate
             ? {
                 deferToAsyncMediaJob: {
                   sourceUserMessageId,
@@ -4290,6 +4292,10 @@ export class TurnExecutionService {
         );
       }
       case VIDEO_GENERATE_TOOL_CODE: {
+        const deferVideoGenerate = this.shouldDeferMediaToolExecution(
+          input,
+          VIDEO_GENERATE_TOOL_CODE
+        );
         const result = this.isReadOnlyVideoGenerateLookup(toolCall)
           ? await this.runtimeVideoGenerateToolService.executeToolCall({
               bundle: execution.bundle,
@@ -4315,10 +4321,8 @@ export class TurnExecutionService {
               chatId: currentChatId,
               sourceUserMessageText: input.message.text,
               sourceUserMessageCreatedAt: new Date().toISOString(),
-              ...(this.shouldDeferMediaToolExecution(input) && abortSignal !== undefined
-                ? { abortSignal }
-                : {}),
-              ...(this.shouldDeferMediaToolExecution(input)
+              ...(deferVideoGenerate && abortSignal !== undefined ? { abortSignal } : {}),
+              ...(deferVideoGenerate
                 ? {
                     deferToAsyncMediaJob: {
                       sourceUserMessageId,
@@ -4865,7 +4869,14 @@ export class TurnExecutionService {
         }
       },
       payload,
-      ...(artifacts === undefined ? {} : { artifacts }),
+      ...(artifacts === undefined
+        ? {}
+        : {
+            artifacts: artifacts.map((artifact) => ({
+              ...artifact,
+              producingToolCallId: artifact.producingToolCallId ?? toolCall.id
+            }))
+          }),
       ...(discoveredFileHandles === undefined || discoveredFileHandles.length === 0
         ? {}
         : { discoveredFileHandles }),
@@ -6670,8 +6681,11 @@ export class TurnExecutionService {
     return null;
   }
 
-  private shouldDeferMediaToolExecution(input: RuntimeTurnRequest): boolean {
-    return !input.conversation.externalThreadKey.startsWith("system:media-job:");
+  private shouldDeferMediaToolExecution(input: RuntimeTurnRequest, toolCode?: string): boolean {
+    return shouldDeferMediaToolExecutionPolicy({
+      externalThreadKey: input.conversation.externalThreadKey,
+      ...(toolCode === undefined ? {} : { toolCode })
+    });
   }
 
   private async runPostFinalChatPlanSelfCheck(input: {

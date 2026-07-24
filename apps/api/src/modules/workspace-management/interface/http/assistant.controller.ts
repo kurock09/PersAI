@@ -1544,6 +1544,13 @@ export class AssistantController {
             ...(sandboxJob === undefined ? {} : { sandboxJob })
           });
         },
+        onMediaAttachments: ({ assistantMessageId, attachments, afterToolCallId }) => {
+          sendSse("media", {
+            assistantMessageId,
+            attachments,
+            ...(afterToolCallId === undefined ? {} : { afterToolCallId })
+          });
+        },
         onActivity: ({ source, phase, resultCount, skillName, skillIconEmoji }) => {
           sendSse("activity", {
             source,

@@ -10,7 +10,14 @@ const tsxPackagePath = require.resolve("tsx/package.json");
 const tsxCliPath = join(dirname(tsxPackagePath), "dist", "cli.mjs");
 
 const testFiles = readdirSync(testDir)
-  .filter((file) => file.endsWith(".test.ts") && !file.includes(".e2e."))
+  .filter(
+    (file) =>
+      file.endsWith(".test.ts") &&
+      !file.includes(".e2e.") &&
+      // SQL-backed migration/integration probes need a live Postgres; keep them
+      // out of the default no-SQL CI-like gate (same policy as `.e2e.`).
+      !file.includes(".integration.")
+  )
   .sort();
 
 if (testFiles.length === 0) {

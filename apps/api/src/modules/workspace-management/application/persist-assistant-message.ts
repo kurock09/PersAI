@@ -7,10 +7,18 @@ import {
   type ClientRuntimeTurnToolInvocation
 } from "./strip-tool-invocations-for-client";
 
+export type InlineMediaPlacementEntry = {
+  toolCallId: string;
+  attachmentIds: string[];
+};
+
 type PersistAssistantMessageInput = {
   chatRepository: Pick<
     AssistantChatRepository,
-    "createMessage" | "updateMessageContent" | "findMessageByIdForAssistant"
+    | "createMessage"
+    | "updateMessageContent"
+    | "findMessageByIdForAssistant"
+    | "mergeMessageMetadata"
   >;
   assistantMediaJobService?: Pick<
     AssistantMediaJobService,
@@ -25,6 +33,10 @@ type PersistAssistantMessageInput = {
   workingNotes?: string[] | undefined;
   toolInvocations?: readonly ClientRuntimeTurnToolInvocation[] | undefined;
   toolExchanges?: readonly ProviderGatewayToolExchange[] | undefined;
+  /** ADR-165 — reuse an early mid-stream live assistant message when present. */
+  reuseMessageId?: string | null | undefined;
+  /** ADR-165 — tool→attachment placement for organic F5 interleaving. */
+  inlineMediaPlacement?: readonly InlineMediaPlacementEntry[] | undefined;
   /** "partial" when the turn was aborted / stalled before a completed event arrived. */
   partialStatus?: "partial" | undefined;
   /** ADR-122 Slice 3: "truncated" when the provider stopped due to the output-token ceiling. */
@@ -39,12 +51,19 @@ export async function persistAssistantMessage(
   const hasWorkingNotes = Array.isArray(input.workingNotes) && input.workingNotes.length > 0;
   const hasToolInvocations =
     Array.isArray(input.toolInvocations) && input.toolInvocations.length > 0;
+  const hasInlineMediaPlacement =
+    Array.isArray(input.inlineMediaPlacement) && input.inlineMediaPlacement.length > 0;
   const hasSourceUserMessageId =
     typeof input.sourceUserMessageId === "string" && input.sourceUserMessageId.length > 0;
   const resolvedStatus = input.truncatedStatus ?? input.partialStatus;
   const hasStatus = resolvedStatus !== undefined;
   const metadata: Record<string, unknown> | undefined =
-    hasFileRefs || hasWorkingNotes || hasToolInvocations || hasStatus || hasSourceUserMessageId
+    hasFileRefs ||
+    hasWorkingNotes ||
+    hasToolInvocations ||
+    hasInlineMediaPlacement ||
+    hasStatus ||
+    hasSourceUserMessageId
       ? {
           ...(hasSourceUserMessageId ? { sourceUserMessageId: input.sourceUserMessageId } : {}),
           ...(hasFileRefs ? { discoveredFilePaths: input.discoveredFilePaths } : {}),
@@ -52,37 +71,57 @@ export async function persistAssistantMessage(
           ...(hasToolInvocations
             ? { toolInvocations: stripToolInvocationsForClient(input.toolInvocations ?? []) }
             : {}),
+          ...(hasInlineMediaPlacement ? { inlineMediaPlacement: input.inlineMediaPlacement } : {}),
           ...(hasStatus ? { status: resolvedStatus } : {})
         }
       : undefined;
+
+  const explicitReuseMessageId =
+    typeof input.reuseMessageId === "string" && input.reuseMessageId.trim().length > 0
+      ? input.reuseMessageId.trim()
+      : null;
 
   const findPinnedDeliveryMessageId =
     input.assistantMediaJobService?.findPinnedDeliveryMessageId?.bind(
       input.assistantMediaJobService
     ) ?? null;
   const pinnedDeliveryMessageId =
-    findPinnedDeliveryMessageId !== null && hasSourceUserMessageId
+    explicitReuseMessageId === null &&
+    findPinnedDeliveryMessageId !== null &&
+    hasSourceUserMessageId
       ? await findPinnedDeliveryMessageId({
           assistantId: input.assistantId,
           sourceUserMessageId: input.sourceUserMessageId as string
         })
       : null;
 
+  const reuseMessageId = explicitReuseMessageId ?? pinnedDeliveryMessageId;
+
   let assistantMessage: AssistantChatMessage | null = null;
-  if (pinnedDeliveryMessageId !== null) {
+  if (reuseMessageId !== null) {
     // Mid-turn media delivery may have already created the bubble (often with
-    // empty ADR-157 image text + attachments). Reuse it for chat-model narration
-    // instead of inventing a sibling orphan message.
+    // empty ADR-157/ADR-165 image text + attachments). Reuse it for chat-model
+    // narration instead of inventing a sibling orphan message.
     assistantMessage = await input.chatRepository.updateMessageContent(
-      pinnedDeliveryMessageId,
+      reuseMessageId,
       input.assistantId,
       input.content
     );
     if (assistantMessage === null) {
       assistantMessage = await input.chatRepository.findMessageByIdForAssistant(
-        pinnedDeliveryMessageId,
+        reuseMessageId,
         input.assistantId
       );
+    }
+    if (assistantMessage !== null && metadata !== undefined) {
+      const merged = await input.chatRepository.mergeMessageMetadata(
+        assistantMessage.id,
+        input.assistantId,
+        metadata
+      );
+      if (merged !== null) {
+        assistantMessage = merged;
+      }
     }
   }
 

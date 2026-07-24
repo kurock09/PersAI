@@ -537,6 +537,36 @@ export class PrismaAssistantChatRepository implements AssistantChatRepository {
     return this.mapMessageToDomain(updated);
   }
 
+  async mergeMessageMetadata(
+    messageId: string,
+    assistantId: string,
+    metadataPatch: Record<string, unknown>
+  ): Promise<AssistantChatMessage | null> {
+    const existingMessage = await this.prisma.assistantChatMessage.findFirst({
+      where: { id: messageId, assistantId },
+      select: { id: true, metadata: true }
+    });
+    if (existingMessage === null) {
+      return null;
+    }
+    const existingMetadata =
+      existingMessage.metadata !== null &&
+      typeof existingMessage.metadata === "object" &&
+      !Array.isArray(existingMessage.metadata)
+        ? (existingMessage.metadata as Record<string, unknown>)
+        : {};
+    const updated = await this.prisma.assistantChatMessage.update({
+      where: { id: existingMessage.id },
+      data: {
+        metadata: {
+          ...existingMetadata,
+          ...metadataPatch
+        } as Prisma.InputJsonValue
+      }
+    });
+    return this.mapMessageToDomain(updated);
+  }
+
   async deleteMessage(messageId: string, assistantId: string): Promise<boolean> {
     const existingMessage = await this.prisma.assistantChatMessage.findFirst({
       where: { id: messageId, assistantId },

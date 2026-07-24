@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -398,6 +398,33 @@ function normalizeLiveThinkingPreview(preview: string): string {
 /** ~6–8 lines at text-sm/leading-5 — fixed reserve so thought growth does not jump scroll. */
 const LIVE_THINKING_FADE_MS = 220;
 
+/**
+ * Top-first under the status label. Short text sits at the top of the reserve;
+ * when the buffer overflows, pin to the end so oldest lines leave upward.
+ */
+function LiveThinkingPreviewRail({ text, opaque }: { text: string; opaque: boolean }) {
+  const railRef = useRef<HTMLSpanElement>(null);
+  useLayoutEffect(() => {
+    const el = railRef.current;
+    if (el === null) {
+      return;
+    }
+    el.scrollTop = Math.max(0, el.scrollHeight - el.clientHeight);
+  }, [text]);
+
+  return (
+    <span
+      ref={railRef}
+      className={cn(
+        "block h-full w-full overflow-x-hidden overflow-y-hidden whitespace-normal break-words transition-opacity duration-200 ease-out motion-reduce:transition-none",
+        opaque ? "opacity-100" : "opacity-0"
+      )}
+    >
+      {text}
+    </span>
+  );
+}
+
 function InlineStreamingStatus({
   preResponseStatus,
   showShadowRoutingLabel = false
@@ -499,7 +526,10 @@ function InlineStreamingStatus({
           <span
             data-testid="live-thinking-preview"
             className={cn(
-              "flex w-full flex-col justify-end overflow-hidden text-sm leading-5 text-text-subtle/55 italic",
+              // Top-first under «Думаю»: short text sits next to the status.
+              // Overflow clips from the top (oldest leave upward) via justify-end
+              // only once the buffer exceeds the reserved window — see inner rail.
+              "relative flex w-full flex-col overflow-hidden text-sm leading-5 text-text-subtle/55 italic",
               "transition-[min-height,max-height,opacity] duration-300 ease-out motion-reduce:transition-none",
               // 7 × leading-5 (1.25rem) = 8.75rem (~6–8 line bottom gap).
               reserveThinkingSlot
@@ -507,14 +537,10 @@ function InlineStreamingStatus({
                 : "min-h-0 max-h-0 opacity-0"
             )}
           >
-            <span
-              className={cn(
-                "block w-full whitespace-normal break-words transition-opacity duration-200 ease-out motion-reduce:transition-none",
-                thinkingPreviewOpaque ? "opacity-100" : "opacity-0"
-              )}
-            >
-              {displayedThinkingPreview}
-            </span>
+            <LiveThinkingPreviewRail
+              text={displayedThinkingPreview}
+              opaque={thinkingPreviewOpaque}
+            />
           </span>
         ) : null}
         {statusParts.shellProgressLines && statusParts.shellProgressLines.length > 0 ? (
@@ -896,11 +922,57 @@ function MarkdownFragment({ content }: { content: string }) {
 
 type IterationProcessPiece =
   | { kind: "text"; markdown: string }
-  | { kind: "tool"; tool: RuntimeTurnToolInvocation };
+  | { kind: "tool"; tool: RuntimeTurnToolInvocation }
+  | { kind: "attachment"; attachments: ChatAttachment[] };
 
 type IterationBlock =
   | { kind: "content"; markdown: string }
   | { kind: "process"; pieces: IterationProcessPiece[] };
+
+function resolveInlineAttachmentsForToolCall(input: {
+  toolCallId: string | undefined;
+  attachments: ChatAttachment[] | undefined;
+  inlineMediaPlacement: Array<{ toolCallId: string; attachmentIds: string[] }> | undefined;
+}): ChatAttachment[] {
+  if (input.toolCallId === undefined || input.toolCallId.trim().length === 0) {
+    return [];
+  }
+  const toolCallId = input.toolCallId.trim();
+  const attachments = input.attachments ?? [];
+  if (attachments.length === 0) {
+    return [];
+  }
+  const placementIds = new Set(
+    (input.inlineMediaPlacement ?? [])
+      .filter((entry) => entry.toolCallId === toolCallId)
+      .flatMap((entry) => entry.attachmentIds)
+  );
+  return attachments.filter(
+    (attachment) =>
+      placementIds.has(attachment.id) || attachment.inlineAfterToolCallId === toolCallId
+  );
+}
+
+function collectInlineAttachmentIds(input: {
+  attachments: ChatAttachment[] | undefined;
+  inlineMediaPlacement: Array<{ toolCallId: string; attachmentIds: string[] }> | undefined;
+}): Set<string> {
+  const ids = new Set<string>();
+  for (const entry of input.inlineMediaPlacement ?? []) {
+    for (const attachmentId of entry.attachmentIds) {
+      ids.add(attachmentId);
+    }
+  }
+  for (const attachment of input.attachments ?? []) {
+    if (
+      typeof attachment.inlineAfterToolCallId === "string" &&
+      attachment.inlineAfterToolCallId.trim().length > 0
+    ) {
+      ids.add(attachment.id);
+    }
+  }
+  return ids;
+}
 
 function isContentBlock(text: string): boolean {
   if (/^\s*\|.*\|.*\|/m.test(text)) return true;
@@ -925,7 +997,11 @@ function isContentBlock(text: string): boolean {
 function buildIterationBlocks(
   workingNotes: string[],
   toolInvocations: RuntimeTurnToolInvocation[],
-  options: { committed: boolean }
+  options: {
+    committed: boolean;
+    attachments?: ChatAttachment[] | undefined;
+    inlineMediaPlacement?: Array<{ toolCallId: string; attachmentIds: string[] }> | undefined;
+  }
 ): IterationBlock[] {
   const allPieces: IterationProcessPiece[] = [];
   const contentBlocks: Array<{ insertAfterPieceIndex: number; markdown: string }> = [];
@@ -948,6 +1024,14 @@ function buildIterationBlocks(
     const toolsAtIteration = toolInvocations.filter((tool) => tool.iteration === i);
     for (const tool of toolsAtIteration) {
       allPieces.push({ kind: "tool", tool });
+      const inlineAttachments = resolveInlineAttachmentsForToolCall({
+        toolCallId: tool.toolCallId,
+        attachments: options.attachments,
+        inlineMediaPlacement: options.inlineMediaPlacement
+      });
+      if (inlineAttachments.length > 0) {
+        allPieces.push({ kind: "attachment", attachments: inlineAttachments });
+      }
     }
   }
 
@@ -1111,10 +1195,14 @@ function resolveProcessBadgeLabel(
   pieces: IterationProcessPiece[],
   t: ReturnType<typeof useTranslations>
 ): string {
-  const toolPieces = pieces.filter(
+  const processPieces = pieces.filter(
+    (piece): piece is Extract<IterationProcessPiece, { kind: "text" | "tool" }> =>
+      piece.kind === "text" || piece.kind === "tool"
+  );
+  const toolPieces = processPieces.filter(
     (piece): piece is Extract<IterationProcessPiece, { kind: "tool" }> => piece.kind === "tool"
   );
-  const allTools = toolPieces.length === pieces.length && toolPieces.length > 0;
+  const allTools = toolPieces.length === processPieces.length && toolPieces.length > 0;
   const firstToolName = toolPieces[0]?.tool.name;
   const hasSingleToolName =
     allTools &&
@@ -1151,7 +1239,7 @@ function resolveProcessBadgeLabel(
     }
   }
 
-  return t("processBadge.worked", { steps: pieces.length });
+  return t("processBadge.worked", { steps: processPieces.length });
 }
 
 function ProcessBadge({ pieces }: { pieces: IterationProcessPiece[] }) {
@@ -1210,21 +1298,70 @@ function ProcessBadge({ pieces }: { pieces: IterationProcessPiece[] }) {
   );
 }
 
-function IterationBlocks({ blocks }: { blocks: IterationBlock[] }) {
+function IterationBlocks({
+  blocks,
+  chatId,
+  onDocumentJobAccepted
+}: {
+  blocks: IterationBlock[];
+  chatId: string;
+  onDocumentJobAccepted?: (() => void) | undefined;
+}) {
   if (blocks.length === 0) {
     return null;
   }
   return (
     <div className="mb-4 space-y-3">
-      {blocks.map((block, index) =>
-        block.kind === "content" ? (
-          <div key={`content-${index}`} className="text-text">
-            <MarkdownMessageContent content={block.markdown} />
+      {blocks.map((block, index) => {
+        if (block.kind === "content") {
+          return (
+            <div key={`content-${index}`} className="text-text">
+              <MarkdownMessageContent content={block.markdown} />
+            </div>
+          );
+        }
+        // ADR-165 — split attachment pieces out of the collapsed process badge so
+        // sync images appear organically between tool/text runs.
+        const segments: Array<
+          | { kind: "process"; pieces: IterationProcessPiece[] }
+          | { kind: "attachment"; attachments: ChatAttachment[] }
+        > = [];
+        let currentProcess: IterationProcessPiece[] = [];
+        const flushProcess = () => {
+          if (currentProcess.length > 0) {
+            segments.push({ kind: "process", pieces: currentProcess });
+            currentProcess = [];
+          }
+        };
+        for (const piece of block.pieces) {
+          if (piece.kind === "attachment") {
+            flushProcess();
+            segments.push(piece);
+            continue;
+          }
+          currentProcess.push(piece);
+        }
+        flushProcess();
+        return (
+          <div key={`process-${index}`} className="space-y-3">
+            {segments.map((segment, segmentIndex) =>
+              segment.kind === "attachment" ? (
+                <AttachmentStrip
+                  key={`inline-att-${index}-${segmentIndex}`}
+                  chatId={chatId}
+                  attachments={segment.attachments}
+                  onDocumentJobAccepted={onDocumentJobAccepted}
+                />
+              ) : (
+                <ProcessBadge
+                  key={`process-seg-${index}-${segmentIndex}`}
+                  pieces={segment.pieces}
+                />
+              )
+            )}
           </div>
-        ) : (
-          <ProcessBadge key={`process-${index}`} pieces={block.pieces} />
-        )
-      )}
+        );
+      })}
     </div>
   );
 }
@@ -2213,17 +2350,34 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
     const toolInvocations = Array.isArray(message.toolInvocations) ? message.toolInvocations : [];
     return {
       iterationBlocks: buildIterationBlocks(workingNotes, toolInvocations, {
-        committed: message.status === "committed"
+        committed: message.status === "committed",
+        attachments: message.attachments,
+        inlineMediaPlacement: message.inlineMediaPlacement
       }),
       answerText: message.content
     };
   }, [
+    message.attachments,
     message.content,
+    message.inlineMediaPlacement,
     message.role,
     message.status,
     message.toolInvocations,
     message.workingNotes
   ]);
+  const inlineAttachmentIds = useMemo(
+    () =>
+      collectInlineAttachmentIds({
+        attachments: message.attachments,
+        inlineMediaPlacement: message.inlineMediaPlacement
+      }),
+    [message.attachments, message.inlineMediaPlacement]
+  );
+  const bottomStripAttachments = useMemo(
+    () =>
+      (message.attachments ?? []).filter((attachment) => !inlineAttachmentIds.has(attachment.id)),
+    [inlineAttachmentIds, message.attachments]
+  );
   const hasVisibleAnswerText = assistantSegments.answerText.trim().length > 0;
   const isStreamingTextActive = message.streamingTextActive === true;
   const showInlineStreamingStatus =
@@ -2419,7 +2573,11 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
         ) : (
           <div className="prose-invert min-w-0 max-w-full text-sm break-words text-text [overflow-wrap:anywhere]">
             <ThoughtBlock message={message} />
-            <IterationBlocks blocks={assistantSegments.iterationBlocks} />
+            <IterationBlocks
+              blocks={assistantSegments.iterationBlocks}
+              chatId={chatId ?? ""}
+              onDocumentJobAccepted={onDocumentJobAccepted}
+            />
             {isStreaming ? (
               <>
                 {hasVisibleAnswerText ? (
@@ -2477,10 +2635,10 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
                 onAction={onAssistantAction}
               />
             )}
-            {message.attachments && message.attachments.length > 0 && (
+            {bottomStripAttachments.length > 0 && (
               <AttachmentStrip
                 chatId={chatId}
-                attachments={message.attachments}
+                attachments={bottomStripAttachments}
                 onDocumentJobAccepted={onDocumentJobAccepted}
               />
             )}

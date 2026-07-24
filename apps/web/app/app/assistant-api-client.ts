@@ -372,6 +372,14 @@ type WebChatStreamEvent =
       };
     }
   | {
+      event: "media";
+      data: {
+        assistantMessageId: string;
+        attachments: ChatHistoryAttachment[];
+        afterToolCallId?: string;
+      };
+    }
+  | {
       event: "activity";
       data: {
         source: "skill" | "user" | "product" | "web";
@@ -474,6 +482,12 @@ export interface AssistantWebChatStreamHandlers {
     mediaJob?: WebChatActiveMediaJobState;
     documentJob?: WebChatActiveDocumentJobState;
     sandboxJob?: WebChatActiveSandboxJobState;
+  }) => void;
+  /** ADR-165 — sync in-loop media attached to the live assistant bubble. */
+  onMedia?: (payload: {
+    assistantMessageId: string;
+    attachments: ChatHistoryAttachment[];
+    afterToolCallId?: string;
   }) => void;
   onActivity?: (payload: {
     source: "skill" | "user" | "product" | "web";
@@ -1189,6 +1203,27 @@ function toStreamEvent(eventName: string, payload: unknown): WebChatStreamEvent 
       }
     };
   }
+  if (eventName === "media") {
+    if (
+      typeof body.assistantMessageId !== "string" ||
+      body.assistantMessageId.trim().length === 0 ||
+      !Array.isArray(body.attachments)
+    ) {
+      return null;
+    }
+    const afterToolCallId =
+      typeof body.afterToolCallId === "string" && body.afterToolCallId.trim().length > 0
+        ? body.afterToolCallId.trim()
+        : undefined;
+    return {
+      event: "media",
+      data: {
+        assistantMessageId: body.assistantMessageId.trim(),
+        attachments: body.attachments as ChatHistoryAttachment[],
+        ...(afterToolCallId === undefined ? {} : { afterToolCallId })
+      }
+    };
+  }
   if (eventName === "async_job_accepted") {
     if (
       (body.kind !== "media" && body.kind !== "document" && body.kind !== "sandbox") ||
@@ -1491,6 +1526,8 @@ export async function streamAssistantWebChatTurn(
       handlers.onToolProgress?.(streamEvent.data);
     } else if (streamEvent.event === "async_job_accepted") {
       handlers.onAsyncJobAccepted?.(streamEvent.data);
+    } else if (streamEvent.event === "media") {
+      handlers.onMedia?.(streamEvent.data);
     } else if (streamEvent.event === "activity") {
       handlers.onActivity?.(streamEvent.data);
     } else if (streamEvent.event === "project_activity") {
@@ -1635,6 +1672,7 @@ export async function reattachAssistantWebChatTurnStream(
     else if (streamEvent.event === "tool_progress") handlers.onToolProgress?.(streamEvent.data);
     else if (streamEvent.event === "async_job_accepted")
       handlers.onAsyncJobAccepted?.(streamEvent.data);
+    else if (streamEvent.event === "media") handlers.onMedia?.(streamEvent.data);
     else if (streamEvent.event === "activity") handlers.onActivity?.(streamEvent.data);
     else if (streamEvent.event === "project_activity")
       handlers.onProjectActivity?.(streamEvent.data);
@@ -2891,6 +2929,8 @@ export type ChatHistoryMessage = {
   } | null;
   workingNotes?: string[];
   toolInvocations?: RuntimeTurnToolInvocation[];
+  /** ADR-165 — organic in-loop image placement after F5 / history reload. */
+  inlineMediaPlacement?: Array<{ toolCallId: string; attachmentIds: string[] }>;
 };
 
 export type ChatCompactionState = AssistantWebChatCompactionState & {

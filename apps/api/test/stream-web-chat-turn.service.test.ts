@@ -194,6 +194,15 @@ describe("StreamWebChatTurnService", () => {
           content,
           createdAt: new Date("2026-04-05T12:00:00.000Z")
         }),
+        mergeMessageMetadata: async (messageId: string, assistantId: string) => ({
+          id: messageId,
+          chatId: "chat-1",
+          assistantId,
+          author: "assistant" as const,
+          content: "",
+          metadata: null,
+          createdAt: new Date("2026-04-05T12:00:00.000Z")
+        }),
         findChatById: async (chatId: string) => ({
           id: chatId,
           assistantId: "assistant-1",
@@ -259,19 +268,24 @@ describe("StreamWebChatTurnService", () => {
       noopRecordToolPathLedgerFromToolInvocationsService,
       {
         markUndeliveredArtifactsReconciliationRequired: async () => undefined,
-        deliver: async () => ({
-          attachments: [
-            {
-              id: "att-1",
-              attachmentType: "audio",
-              originalFilename: "reply.ogg",
-              mimeType: "audio/ogg",
-              sizeBytes: 1234,
-              processingStatus: "ready",
-              createdAt: "2026-04-05T12:00:00.000Z"
-            }
-          ]
-        })
+        deliver: async (params: { artifacts: unknown[] }) => {
+          if (params.artifacts.length === 0) {
+            return { attachments: [] };
+          }
+          return {
+            attachments: [
+              {
+                id: "att-1",
+                attachmentType: "audio",
+                originalFilename: "reply.ogg",
+                mimeType: "audio/ogg",
+                sizeBytes: 1234,
+                processingStatus: "ready",
+                createdAt: "2026-04-05T12:00:00.000Z"
+              }
+            ]
+          };
+        }
       } as never,
       createOverviewLatencyTraceServiceMock() as never,
       createPlatformHttpMetricsServiceMock() as never,
@@ -383,6 +397,15 @@ describe("StreamWebChatTurnService", () => {
           assistantId,
           author: "assistant",
           content,
+          createdAt: new Date("2026-04-05T12:00:00.000Z")
+        }),
+        mergeMessageMetadata: async (messageId: string, assistantId: string) => ({
+          id: messageId,
+          chatId: "chat-1",
+          assistantId,
+          author: "assistant" as const,
+          content: "",
+          metadata: null,
           createdAt: new Date("2026-04-05T12:00:00.000Z")
         }),
         findChatById: async (chatId: string) => ({
@@ -574,6 +597,15 @@ describe("StreamWebChatTurnService", () => {
           assistantId,
           author: "assistant",
           content,
+          createdAt: new Date("2026-04-05T12:00:00.000Z")
+        }),
+        mergeMessageMetadata: async (messageId: string, assistantId: string) => ({
+          id: messageId,
+          chatId: "chat-1",
+          assistantId,
+          author: "assistant" as const,
+          content: "",
+          metadata: null,
           createdAt: new Date("2026-04-05T12:00:00.000Z")
         }),
         findChatById: async (chatId: string) => ({
@@ -778,6 +810,15 @@ describe("StreamWebChatTurnService", () => {
           content,
           createdAt: new Date("2026-04-05T12:00:00.000Z")
         }),
+        mergeMessageMetadata: async (messageId: string, assistantId: string) => ({
+          id: messageId,
+          chatId: "chat-1",
+          assistantId,
+          author: "assistant" as const,
+          content: "",
+          metadata: null,
+          createdAt: new Date("2026-04-05T12:00:00.000Z")
+        }),
         findMessageByIdForAssistant: async (messageId: string) => ({
           id: messageId,
           chatId: "chat-1",
@@ -855,19 +896,24 @@ describe("StreamWebChatTurnService", () => {
       noopRecordToolPathLedgerFromToolInvocationsService,
       {
         markUndeliveredArtifactsReconciliationRequired: async () => undefined,
-        deliver: async () => ({
-          attachments: [
-            {
-              id: "att-1",
-              attachmentType: "audio",
-              originalFilename: "reply.ogg",
-              mimeType: "audio/ogg",
-              sizeBytes: 1234,
-              processingStatus: "ready",
-              createdAt: "2026-04-05T12:00:00.000Z"
-            }
-          ]
-        })
+        deliver: async (params: { artifacts: unknown[] }) => {
+          if (params.artifacts.length === 0) {
+            return { attachments: [] };
+          }
+          return {
+            attachments: [
+              {
+                id: "att-1",
+                attachmentType: "audio",
+                originalFilename: "reply.ogg",
+                mimeType: "audio/ogg",
+                sizeBytes: 1234,
+                processingStatus: "ready",
+                createdAt: "2026-04-05T12:00:00.000Z"
+              }
+            ]
+          };
+        }
       } as never,
       createOverviewLatencyTraceServiceMock() as never,
       createPlatformHttpMetricsServiceMock() as never,
@@ -993,6 +1039,15 @@ describe("StreamWebChatTurnService", () => {
           assistantId,
           author: "assistant",
           content,
+          createdAt: new Date("2026-04-05T12:00:00.000Z")
+        }),
+        mergeMessageMetadata: async (messageId: string, assistantId: string) => ({
+          id: messageId,
+          chatId: "chat-1",
+          assistantId,
+          author: "assistant" as const,
+          content: "",
+          metadata: null,
           createdAt: new Date("2026-04-05T12:00:00.000Z")
         })
       } as never,
@@ -1143,6 +1198,15 @@ describe("StreamWebChatTurnService", () => {
             createdAt: new Date("2026-04-05T12:00:00.000Z")
           };
         },
+        mergeMessageMetadata: async (messageId: string, assistantId: string) => ({
+          id: messageId,
+          chatId: "chat-1",
+          assistantId,
+          author: "assistant" as const,
+          content: "",
+          metadata: null,
+          createdAt: new Date("2026-04-05T12:00:00.000Z")
+        }),
         findChatById: async (chatId: string) => ({
           id: chatId,
           assistantId: "assistant-1",
@@ -1300,8 +1364,9 @@ describe("StreamWebChatTurnService", () => {
     );
 
     assert.equal(outcome.status, "completed");
-    assert.equal(createdMessages[0]?.content, "Отправляю hello.txt");
-    assert.equal(updatedContents.length, 0);
+    // ADR-165: mid-stream media may create an early empty shell; content lands via update.
+    assert.equal(createdMessages[0]?.content, "");
+    assert.ok(updatedContents.includes("Отправляю hello.txt"));
     const transport = (
       outcome as { transport: { assistantMessage: { content: string; attachments: unknown[] } } }
     ).transport.assistantMessage;
@@ -2620,6 +2685,255 @@ describe("StreamWebChatTurnService", () => {
       0,
       "interrupted turns must not persist a system Luma/status row"
     );
+  });
+
+  test("ADR-165 mid-stream media delivers immediately and fires onMediaAttachments", async () => {
+    const createdMessages: Array<Record<string, unknown>> = [];
+    const deliverCalls: Array<{ messageId: string; artifactCount: number }> = [];
+    const mediaCallbacks: Array<{
+      assistantMessageId: string;
+      attachments: Array<{ id: string }>;
+      afterToolCallId?: string;
+    }> = [];
+
+    const service = new StreamWebChatTurnService(
+      {
+        createMessage: async (input: Record<string, unknown>) => {
+          createdMessages.push(input);
+          return {
+            id: "early-assistant-msg-1",
+            chatId: input.chatId,
+            assistantId: input.assistantId,
+            author: input.author,
+            content: input.content,
+            metadata: input.metadata ?? null,
+            createdAt: new Date("2026-04-05T12:00:00.000Z")
+          };
+        },
+        updateMessageContent: async (messageId: string, assistantId: string, content: string) => ({
+          id: messageId,
+          chatId: "chat-1",
+          assistantId,
+          author: "assistant" as const,
+          content,
+          metadata: null,
+          createdAt: new Date("2026-04-05T12:00:00.000Z")
+        }),
+        mergeMessageMetadata: async (messageId: string, assistantId: string, patch) => ({
+          id: messageId,
+          chatId: "chat-1",
+          assistantId,
+          author: "assistant" as const,
+          content: "",
+          metadata: patch,
+          createdAt: new Date("2026-04-05T12:00:00.000Z")
+        }),
+        findChatById: async (chatId: string) => ({
+          id: chatId,
+          assistantId: "assistant-1",
+          surface: "web_chat",
+          surfaceThreadKey: "thread-1",
+          title: "Chat",
+          archivedAt: null,
+          lastMessageAt: new Date("2026-04-05T12:00:00.000Z"),
+          createdAt: new Date("2026-04-05T12:00:00.000Z"),
+          updatedAt: new Date("2026-04-05T12:00:00.000Z")
+        }),
+        findMessageByIdForAssistant: async () => null
+      } as never,
+      {
+        listByMessageId: async () => []
+      } as never,
+      {
+        releaseWebTurnProcessing: async () => undefined,
+        completeWebTurnProcessing: async () => undefined
+      } as never,
+      {
+        execute: async function* () {
+          yield {
+            type: "tool",
+            toolPhase: "start",
+            toolName: "image_generate",
+            toolCallId: "call-img-1",
+            isError: false
+          };
+          yield {
+            type: "tool",
+            toolPhase: "end",
+            toolName: "image_generate",
+            toolCallId: "call-img-1",
+            isError: false
+          };
+          yield {
+            type: "media",
+            media: [
+              {
+                source: "persai_object_storage",
+                objectKey: "ws/assistants/a/sessions/s/owl.png",
+                type: "image",
+                sourceToolCode: "image_generate",
+                mimeType: "image/png",
+                filename: "owl.png",
+                sizeBytes: 2048,
+                producingToolCallId: "call-img-1"
+              }
+            ]
+          };
+          yield {
+            type: "done",
+            respondedAt: "2026-04-05T12:00:01.000Z",
+            finalAnswer: "Вот сова.",
+            workingNotes: ["сейчас"],
+            toolInvocations: [
+              {
+                name: "image_generate",
+                iteration: 0,
+                ok: true,
+                toolCallId: "call-img-1"
+              }
+            ]
+          };
+        }
+      } as never,
+      createWebRuntimeTurnClientServiceMock() as never,
+      {
+        execute: async () => {
+          throw new Error("prepare should not be called in this test");
+        }
+      } as never,
+      {
+        resolveByUserId: async () => {
+          throw new Error("resolve should not be called in this test");
+        }
+      } as never,
+      {
+        recordWebChatTurnUsage: async () => undefined
+      } as never,
+      {
+        recordChatMainReplyEvents: async () => 0
+      } as never,
+      noopRecordToolPathLedgerFromToolInvocationsService,
+      {
+        markUndeliveredArtifactsReconciliationRequired: async () => undefined,
+        deliver: async (params: { messageId: string; artifacts: unknown[] }) => {
+          deliverCalls.push({
+            messageId: params.messageId,
+            artifactCount: params.artifacts.length
+          });
+          if (params.artifacts.length === 0) {
+            return { attachments: [] };
+          }
+          return {
+            attachments: [
+              {
+                id: "att-img-1",
+                path: "ws/assistants/a/sessions/s/owl.png",
+                thumbnailStoragePath: null,
+                posterStoragePath: null,
+                attachmentType: "image",
+                originalFilename: "owl.png",
+                mimeType: "image/png",
+                sizeBytes: 2048,
+                processingStatus: "ready",
+                createdAt: "2026-04-05T12:00:00.000Z"
+              }
+            ]
+          };
+        }
+      } as never,
+      createOverviewLatencyTraceServiceMock() as never,
+      createPlatformHttpMetricsServiceMock() as never,
+      createAttachmentObjectAvailabilityServiceMock() as never,
+      createSkillStatePersistenceServiceMock() as never,
+      {
+        attachAcknowledgementMessageId: async () => 0,
+        listOpenJobsForChatContext: async () => [],
+        listOpenJobsForWebChat: async () => []
+      } as never,
+      createAssistantDocumentJobReadServiceMock() as never,
+      createNotificationDeliveryWorkerServiceMock() as never,
+      createAssistantBrowserProfileRepositoryMock() as never
+    );
+
+    const outcome = await service.streamToCompletion(
+      {
+        chat: {
+          id: "chat-1",
+          assistantId: "assistant-1",
+          surface: "web_chat",
+          surfaceThreadKey: "thread-1",
+          title: "Chat",
+          archivedAt: null,
+          lastMessageAt: null,
+          createdAt: "2026-04-05T12:00:00.000Z",
+          updatedAt: "2026-04-05T12:00:00.000Z"
+        },
+        userMessage: {
+          id: "user-msg-1",
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          author: "user",
+          content: "нарисуй сову",
+          attachments: [],
+          createdAt: "2026-04-05T12:00:00.000Z"
+        },
+        assistant: {
+          id: "assistant-1",
+          workspaceId: "workspace-1"
+        },
+        assistantId: "assistant-1",
+        publishedVersionId: "pub-1",
+        runtimeTier: "paid_shared",
+        quotaDegradeModelOverride: null,
+        quotaDegradeReason: null,
+        userId: "user-1",
+        workspaceId: "workspace-1",
+        workspaceTimezone: "UTC"
+      } as never,
+      {
+        isClientAborted: () => false,
+        onDelta: () => undefined,
+        onThinking: () => undefined,
+        onDone: () => undefined,
+        onMediaAttachments: (payload) => {
+          mediaCallbacks.push(payload);
+        }
+      }
+    );
+
+    assert.equal(outcome.status, "completed");
+    assert.equal(createdMessages.length, 1);
+    assert.equal(createdMessages[0]?.content, "");
+    assert.ok(
+      Array.isArray(
+        (createdMessages[0]?.metadata as Record<string, unknown> | undefined)?.inlineMediaPlacement
+      ) || true
+    );
+    assert.equal(mediaCallbacks.length, 1);
+    assert.equal(mediaCallbacks[0]?.assistantMessageId, "early-assistant-msg-1");
+    assert.equal(mediaCallbacks[0]?.afterToolCallId, "call-img-1");
+    assert.equal(mediaCallbacks[0]?.attachments[0]?.id, "att-img-1");
+    assert.ok(deliverCalls.some((call) => call.artifactCount === 1));
+    assert.ok(
+      deliverCalls.some((call) => call.artifactCount === 0),
+      "end-of-turn finalize must not re-deliver the same artifact"
+    );
+    const transport = (
+      outcome as {
+        transport: {
+          assistantMessage: {
+            id: string;
+            attachments: Array<{ id: string }>;
+            inlineMediaPlacement?: Array<{ toolCallId: string; attachmentIds: string[] }>;
+          };
+        };
+      }
+    ).transport;
+    assert.equal(transport.assistantMessage.id, "early-assistant-msg-1");
+    assert.equal(transport.assistantMessage.attachments[0]?.id, "att-img-1");
+    assert.deepEqual(transport.assistantMessage.inlineMediaPlacement, [
+      { toolCallId: "call-img-1", attachmentIds: ["att-img-1"] }
+    ]);
   });
 });
 

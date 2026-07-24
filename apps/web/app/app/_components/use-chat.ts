@@ -87,6 +87,8 @@ export type PendingSendStatus =
 export type ChatAttachment = ChatHistoryAttachment & {
   localPreviewUrl?: string | undefined;
   uploadProgressPercent?: number | undefined;
+  /** ADR-165 — live/history: render this attachment after the producing tool piece. */
+  inlineAfterToolCallId?: string | undefined;
 };
 export type ChatPlatformNotice = {
   kind: "safety_inbound_warn" | "safety_inbound_restricted";
@@ -111,6 +113,11 @@ export interface ChatMessage {
   workingNotes?: string[];
   /** Sanitized tool calls emitted by the runtime, used to interleave process badges with working notes. */
   toolInvocations?: RuntimeTurnToolInvocation[];
+  /**
+   * ADR-165 — which attachments belong after which tool call (history / completed transport).
+   * Live stream may also stamp `inlineAfterToolCallId` on individual attachments.
+   */
+  inlineMediaPlacement?: Array<{ toolCallId: string; attachmentIds: string[] }>;
   /** Local-only streaming hint: true while text deltas are actively being appended. */
   streamingTextActive?: boolean;
 }
@@ -797,6 +804,21 @@ function toCommittedChatMessage(message: ChatHistoryMessage): ChatMessage | null
   ) {
     return null;
   }
+  const inlineMediaPlacement =
+    Array.isArray(message.inlineMediaPlacement) && message.inlineMediaPlacement.length > 0
+      ? message.inlineMediaPlacement
+      : undefined;
+  const attachmentsWithInline =
+    message.attachments.length > 0
+      ? (message.attachments as ChatAttachment[]).map((attachment) => {
+          const placementToolCallId = inlineMediaPlacement?.find((entry) =>
+            entry.attachmentIds.includes(attachment.id)
+          )?.toolCallId;
+          return placementToolCallId === undefined
+            ? attachment
+            : { ...attachment, inlineAfterToolCallId: placementToolCallId };
+        })
+      : undefined;
   return {
     id: message.id,
     role: message.author,
@@ -811,8 +833,8 @@ function toCommittedChatMessage(message: ChatHistoryMessage): ChatMessage | null
     ...(Array.isArray(message.toolInvocations) && message.toolInvocations.length > 0
       ? { toolInvocations: message.toolInvocations }
       : {}),
-    attachments:
-      message.attachments.length > 0 ? (message.attachments as ChatAttachment[]) : undefined
+    ...(inlineMediaPlacement !== undefined ? { inlineMediaPlacement } : {}),
+    attachments: attachmentsWithInline
   };
 }
 
@@ -1231,6 +1253,45 @@ function committedHistoryHasActiveTurnResult(
 }
 function isLocalScopedAssistantId(id: string): boolean {
   return id.startsWith("local-assistant-") || id.startsWith("active-assistant-");
+}
+
+/** ADR-165 — replace local streaming assistant id with the early server row id. */
+function remapChatMessagesAssistantId(
+  messages: ChatMessage[],
+  fromId: string,
+  toId: string
+): ChatMessage[] {
+  if (fromId === toId) {
+    return messages;
+  }
+  let injected = false;
+  const next: ChatMessage[] = [];
+  for (const message of messages) {
+    if (message.id === fromId || message.id === toId) {
+      if (!injected) {
+        const base =
+          message.id === fromId
+            ? message
+            : (messages.find((candidate) => candidate.id === fromId) ?? message);
+        next.push({ ...base, id: toId });
+        injected = true;
+      }
+      continue;
+    }
+    next.push(message);
+  }
+  if (!injected) {
+    next.push({
+      id: toId,
+      role: "assistant",
+      content: "",
+      status: "streaming",
+      thought: "",
+      thoughtStartedAt: null,
+      thoughtFinishedAt: null
+    });
+  }
+  return next;
 }
 
 /**
@@ -3541,11 +3602,33 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                     return next;
                   });
                   applyThreadMessages(targetThreadKey, (prev) =>
-                    prev.map((message) =>
-                      message.id === assistantMessageId
-                        ? { ...message, status: "streaming", streamingTextActive: false }
-                        : message
-                    )
+                    prev.map((message) => {
+                      if (message.id !== assistantMessageId) {
+                        return message;
+                      }
+                      const prior = Array.isArray(message.toolInvocations)
+                        ? message.toolInvocations
+                        : [];
+                      const already = prior.some((tool) => tool.toolCallId === toolCallId);
+                      return {
+                        ...message,
+                        status: "streaming",
+                        streamingTextActive: false,
+                        toolInvocations: already
+                          ? prior.map((tool) =>
+                              tool.toolCallId === toolCallId ? { ...tool, ok: !isError } : tool
+                            )
+                          : [
+                              ...prior,
+                              {
+                                name: toolName,
+                                iteration: prior.length,
+                                ok: !isError,
+                                toolCallId
+                              }
+                            ]
+                      };
+                    })
                   );
                   if (toolName === "todo_write") {
                     void refreshChatPlan();
@@ -3575,6 +3658,103 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                 if (toolName === "todo_write") {
                   void refreshChatPlan();
                 }
+              },
+              onMedia: ({
+                assistantMessageId: serverAssistantMessageId,
+                attachments,
+                afterToolCallId
+              }) => {
+                if (attachments.length === 0) {
+                  return;
+                }
+                const currentLiveId = resolveLiveAssistantId();
+                if (
+                  currentLiveId !== null &&
+                  isLocalScopedAssistantId(currentLiveId) &&
+                  currentLiveId !== serverAssistantMessageId
+                ) {
+                  const snapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
+                  const baseMessages =
+                    snapshot?.messages ??
+                    (currentThreadKeyRef.current === targetThreadKey ? messages : []);
+                  const nextMessages = remapChatMessagesAssistantId(
+                    baseMessages,
+                    currentLiveId,
+                    serverAssistantMessageId
+                  );
+                  const previousActivities = snapshot?.liveActivitiesByMessageId ?? {};
+                  const remappedActivities =
+                    previousActivities[currentLiveId] !== undefined
+                      ? {
+                          [serverAssistantMessageId]: {
+                            ...previousActivities[currentLiveId]!,
+                            afterMessageId: serverAssistantMessageId
+                          }
+                        }
+                      : Object.fromEntries(
+                          Object.entries(previousActivities).filter(
+                            ([messageId]) => messageId === serverAssistantMessageId
+                          )
+                        );
+                  if (snapshot !== undefined) {
+                    activeTurnSnapshotsRef.current.set(targetThreadKey, {
+                      ...snapshot,
+                      messages: nextMessages,
+                      liveAssistantMessageId: serverAssistantMessageId,
+                      liveActivitiesByMessageId: remappedActivities
+                    });
+                  }
+                  applyThreadMessages(targetThreadKey, () => nextMessages);
+                  applyThreadLiveActivities(targetThreadKey, () => remappedActivities);
+                  setThreadLiveThinkingPreview(targetThreadKey, currentLiveId, null);
+                }
+                const assistantMessageId = resolveLiveAssistantId() ?? serverAssistantMessageId;
+                applyThreadMessages(targetThreadKey, (prev) =>
+                  prev.map((message) => {
+                    if (message.id !== assistantMessageId) {
+                      return message;
+                    }
+                    const existing = message.attachments ?? [];
+                    const existingIds = new Set(existing.map((attachment) => attachment.id));
+                    const incoming: ChatAttachment[] = attachments
+                      .filter((attachment) => !existingIds.has(attachment.id))
+                      .map((attachment) => ({
+                        ...attachment,
+                        ...(afterToolCallId === undefined
+                          ? {}
+                          : { inlineAfterToolCallId: afterToolCallId })
+                      }));
+                    if (incoming.length === 0) {
+                      return message;
+                    }
+                    const nextPlacement =
+                      afterToolCallId === undefined
+                        ? message.inlineMediaPlacement
+                        : [
+                            ...(message.inlineMediaPlacement ?? []).filter(
+                              (entry) => entry.toolCallId !== afterToolCallId
+                            ),
+                            {
+                              toolCallId: afterToolCallId,
+                              attachmentIds: [
+                                ...((message.inlineMediaPlacement ?? []).find(
+                                  (entry) => entry.toolCallId === afterToolCallId
+                                )?.attachmentIds ?? []),
+                                ...incoming.map((attachment) => attachment.id)
+                              ]
+                            }
+                          ];
+                    return {
+                      ...message,
+                      status: "streaming",
+                      streamingTextActive: false,
+                      attachments: [...existing, ...incoming],
+                      ...(nextPlacement !== undefined
+                        ? { inlineMediaPlacement: nextPlacement }
+                        : {})
+                    };
+                  })
+                );
               },
               onToolProgress: ({ toolName, toolCallId, kind, line, step }) => {
                 const assistantMessageId = resolveLiveAssistantId();
@@ -4197,7 +4377,8 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
             : undefined
       }));
       const userMsgId = `local-user-${Date.now()}`;
-      const assistantMsgId = `local-assistant-${Date.now()}`;
+      // ADR-165 — may be rebound to the early server assistant row on first media SSE.
+      let assistantMsgId = `local-assistant-${Date.now()}`;
       const controller = new AbortController();
       // User send wins the single stream-owner slot: abort any in-flight
       // continuation reattach / prior controller and clear sticky so notify
@@ -4669,6 +4850,31 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
               delete next[assistantMsgId];
               return next;
             });
+            applyThreadMessages(sendThreadKey, (prev) =>
+              prev.map((message) => {
+                if (message.id !== assistantMsgId) {
+                  return message;
+                }
+                const prior = Array.isArray(message.toolInvocations) ? message.toolInvocations : [];
+                const already = prior.some((tool) => tool.toolCallId === toolCallId);
+                return {
+                  ...message,
+                  toolInvocations: already
+                    ? prior.map((tool) =>
+                        tool.toolCallId === toolCallId ? { ...tool, ok: !isError } : tool
+                      )
+                    : [
+                        ...prior,
+                        {
+                          name: toolName,
+                          iteration: prior.length,
+                          ok: !isError,
+                          toolCallId
+                        }
+                      ]
+                };
+              })
+            );
           } else {
             applyThreadLiveActivities(sendThreadKey, (prev) => ({
               ...prev,
@@ -4688,6 +4894,110 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
           if (toolName === "todo_write") {
             void refreshChatPlan();
           }
+        },
+        onMedia: ({
+          assistantMessageId: serverAssistantMessageId,
+          attachments,
+          afterToolCallId
+        }: {
+          assistantMessageId: string;
+          attachments: ChatHistoryAttachment[];
+          afterToolCallId?: string;
+        }) => {
+          if (attachments.length === 0) {
+            return;
+          }
+          flushBufferedAssistantState(true);
+          markAssistantActivityBoundary();
+          if (
+            isLocalScopedAssistantId(assistantMsgId) &&
+            assistantMsgId !== serverAssistantMessageId
+          ) {
+            const previousId = assistantMsgId;
+            assistantMsgId = serverAssistantMessageId;
+            applyThreadMessages(sendThreadKey, (prev) =>
+              remapChatMessagesAssistantId(prev, previousId, serverAssistantMessageId)
+            );
+            applyThreadLiveActivities(sendThreadKey, (prev) => {
+              const previous = prev[previousId];
+              if (previous === undefined) {
+                return Object.fromEntries(
+                  Object.entries(prev).filter(
+                    ([messageId]) => messageId === serverAssistantMessageId
+                  )
+                );
+              }
+              const next = { ...prev };
+              delete next[previousId];
+              next[serverAssistantMessageId] = {
+                ...previous,
+                afterMessageId: serverAssistantMessageId
+              };
+              return next;
+            });
+            setThreadLiveThinkingPreview(sendThreadKey, previousId, null);
+            const snapshot = activeTurnSnapshotsRef.current.get(sendThreadKey);
+            if (snapshot !== undefined) {
+              activeTurnSnapshotsRef.current.set(sendThreadKey, {
+                ...snapshot,
+                liveAssistantMessageId: serverAssistantMessageId,
+                messages: remapChatMessagesAssistantId(
+                  snapshot.messages,
+                  previousId,
+                  serverAssistantMessageId
+                )
+              });
+            }
+            setActivities((prev) =>
+              prev.map((activity) =>
+                activity.afterMessageId === previousId
+                  ? { ...activity, afterMessageId: serverAssistantMessageId }
+                  : activity
+              )
+            );
+          }
+          applyThreadMessages(sendThreadKey, (prev) =>
+            prev.map((message) => {
+              if (message.id !== assistantMsgId) {
+                return message;
+              }
+              const existing = message.attachments ?? [];
+              const existingIds = new Set(existing.map((attachment) => attachment.id));
+              const incoming: ChatAttachment[] = attachments
+                .filter((attachment) => !existingIds.has(attachment.id))
+                .map((attachment) => ({
+                  ...attachment,
+                  ...(afterToolCallId === undefined
+                    ? {}
+                    : { inlineAfterToolCallId: afterToolCallId })
+                }));
+              if (incoming.length === 0) {
+                return message;
+              }
+              const nextPlacement =
+                afterToolCallId === undefined
+                  ? message.inlineMediaPlacement
+                  : [
+                      ...(message.inlineMediaPlacement ?? []).filter(
+                        (entry) => entry.toolCallId !== afterToolCallId
+                      ),
+                      {
+                        toolCallId: afterToolCallId,
+                        attachmentIds: [
+                          ...((message.inlineMediaPlacement ?? []).find(
+                            (entry) => entry.toolCallId === afterToolCallId
+                          )?.attachmentIds ?? []),
+                          ...incoming.map((attachment) => attachment.id)
+                        ]
+                      }
+                    ];
+              return {
+                ...message,
+                attachments: [...existing, ...incoming],
+                ...(nextPlacement !== undefined ? { inlineMediaPlacement: nextPlacement } : {})
+              };
+            })
+          );
         },
         onToolProgress: ({
           toolName,
@@ -4911,6 +5221,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
               workingNotes?: string[];
               toolInvocations?: RuntimeTurnToolInvocation[];
               attachments?: ChatAttachment[];
+              inlineMediaPlacement?: Array<{ toolCallId: string; attachmentIds: string[] }>;
             };
             followUpAssistantMessage?: {
               id?: string;
@@ -4954,10 +5265,23 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
           const realUserMsgId = typeof t?.userMessage?.id === "string" ? t.userMessage.id : null;
           const newAssistantId =
             typeof t?.assistantMessage?.id === "string" ? t.assistantMessage.id : null;
+          const authoritativeInlineMediaPlacement =
+            Array.isArray(t?.assistantMessage?.inlineMediaPlacement) &&
+            t.assistantMessage.inlineMediaPlacement.length > 0
+              ? t.assistantMessage.inlineMediaPlacement
+              : undefined;
           const assistantAttachments =
             Array.isArray(t?.assistantMessage?.attachments) &&
             t.assistantMessage.attachments.length > 0
-              ? t.assistantMessage.attachments.map((attachment) => toChatAttachment(attachment))
+              ? t.assistantMessage.attachments.map((attachment) => {
+                  const mapped = toChatAttachment(attachment);
+                  const placementToolCallId = authoritativeInlineMediaPlacement?.find((entry) =>
+                    entry.attachmentIds.includes(mapped.id)
+                  )?.toolCallId;
+                  return placementToolCallId === undefined
+                    ? mapped
+                    : { ...mapped, inlineAfterToolCallId: placementToolCallId };
+                })
               : undefined;
           const followUpAssistantMessage =
             typeof t?.followUpAssistantMessage?.id === "string" &&
@@ -4999,6 +5323,26 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                   t.assistantMessage.toolInvocations.length > 0
                     ? t.assistantMessage.toolInvocations
                     : null;
+                const mergedAttachments = (() => {
+                  if (assistantAttachments === undefined) {
+                    return m.attachments;
+                  }
+                  const byId = new Map<string, ChatAttachment>();
+                  for (const attachment of m.attachments ?? []) {
+                    byId.set(attachment.id, attachment);
+                  }
+                  for (const attachment of assistantAttachments) {
+                    const prior = byId.get(attachment.id);
+                    byId.set(
+                      attachment.id,
+                      prior?.inlineAfterToolCallId !== undefined &&
+                        attachment.inlineAfterToolCallId === undefined
+                        ? { ...attachment, inlineAfterToolCallId: prior.inlineAfterToolCallId }
+                        : attachment
+                    );
+                  }
+                  return [...byId.values()];
+                })();
                 return {
                   ...m,
                   ...(newAssistantId ? { id: newAssistantId } : {}),
@@ -5011,8 +5355,11 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                   ...(authoritativeToolInvocations !== null
                     ? { toolInvocations: authoritativeToolInvocations }
                     : {}),
+                  ...(authoritativeInlineMediaPlacement !== undefined
+                    ? { inlineMediaPlacement: authoritativeInlineMediaPlacement }
+                    : {}),
                   status: "committed" as const,
-                  attachments: assistantAttachments
+                  attachments: mergedAttachments
                 };
               }
               if (m.id === userMsgId && realUserMsgId) {

@@ -50,7 +50,15 @@ async function assertWorkspaceQuotaBeforeOutboundWrite(input: {
   }
 }
 
-/** Worker media artifacts (image/tts/video) persist directly to GCS — no sandbox HTTP body limit. */
+/**
+ * Worker media artifacts (image/tts/video) persist directly to GCS — no sandbox HTTP body limit.
+ *
+ * ADR-165 residual: optional warm-pod hydrate of the outbound file is desirable
+ * only when a session sandbox pod **already exists**. There is no cheap
+ * "pod-exists-only" hook on this write path today — do **not** invent a cold
+ * pod start just to hydrate the image. If such a hook appears later, hydrate
+ * best-effort here without changing sync present semantics.
+ */
 export async function writeRuntimeOutboundArtifact(input: {
   mediaObjectStorage: PersaiMediaObjectStorageService;
   assistantId: string;

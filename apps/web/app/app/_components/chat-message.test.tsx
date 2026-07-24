@@ -1152,6 +1152,8 @@ describe("ChatMessageBubble — pre-response status", () => {
     expect(preview).not.toHaveClass("max-w-[min(28rem,70vw)]");
     // Fixed ~7-line reserve — growth/fade must not resize the chat layout.
     expect(preview.className).toMatch(/min-h-\[8\.75rem\]/);
+    // Top-first rail (not justify-end on the outer slot) — short text under status.
+    expect(preview).not.toHaveClass("justify-end");
     expect(preview.textContent).toContain("word39");
   });
 
@@ -1331,6 +1333,41 @@ describe("ChatMessageBubble — pre-response status", () => {
       "aria-expanded",
       "false"
     );
+  });
+
+  it("ADR-165: renders in-loop image after image tool piece and not in bottom strip", () => {
+    const image = {
+      ...makeImageAttachment("att-inline-1"),
+      inlineAfterToolCallId: "call-img-1"
+    };
+    const { container } = render(
+      <ChatMessageBubble
+        chatId="chat-1"
+        message={makeAssistantMessage({
+          status: "committed",
+          content: "Вот картинка.",
+          workingNotes: ["сейчас"],
+          toolInvocations: [
+            { name: "image_generate", iteration: 0, ok: true, toolCallId: "call-img-1" }
+          ],
+          inlineMediaPlacement: [{ toolCallId: "call-img-1", attachmentIds: ["att-inline-1"] }],
+          attachments: [image]
+        })}
+      />
+    );
+
+    const badge = screen.getByRole("button", { name: /Сгенерировано|Выполнено/ });
+    const strips = screen.getAllByTestId("attachment-strip");
+    expect(strips).toHaveLength(1);
+    const imageEl = container.querySelector('img[alt="photo.jpg"]');
+    expect(imageEl).not.toBeNull();
+    expect(
+      badge.compareDocumentPosition(strips[0] as Node) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    expect(
+      (strips[0] as Node).compareDocumentPosition(screen.getByText("Вот картинка.")) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
   });
 
   it("preserves order for mixed connective text, content, then connective text plus tool", () => {

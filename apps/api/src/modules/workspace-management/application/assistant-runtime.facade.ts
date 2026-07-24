@@ -79,6 +79,8 @@ export interface RuntimeUrlMediaArtifact {
   caption?: string;
   downloadUrl?: string | null;
   billingFacts?: RuntimeBillingFacts | null;
+  /** ADR-165 — tool call that produced this artifact (sync in-loop image present). */
+  producingToolCallId?: string | null;
 }
 
 export interface PersaiObjectStorageRuntimeMediaArtifact {
@@ -93,6 +95,8 @@ export interface PersaiObjectStorageRuntimeMediaArtifact {
   caption?: string;
   downloadUrl?: string | null;
   billingFacts?: RuntimeBillingFacts | null;
+  /** ADR-165 — tool call that produced this artifact (sync in-loop image present). */
+  producingToolCallId?: string | null;
 }
 
 export type RuntimeMediaArtifact =
@@ -298,7 +302,11 @@ export function runtimeOutputArtifactsToMediaArtifacts(
         ? {}
         : { billingFacts: artifact.billingFacts }),
       ...(artifact.caption ? { caption: artifact.caption } : {}),
-      ...(artifact.voiceNote ? { audioAsVoice: true } : {})
+      ...(artifact.voiceNote ? { audioAsVoice: true } : {}),
+      ...(typeof artifact.producingToolCallId === "string" &&
+      artifact.producingToolCallId.trim().length > 0
+        ? { producingToolCallId: artifact.producingToolCallId.trim() }
+        : {})
     });
   }
   return mediaArtifacts;
@@ -306,6 +314,11 @@ export function runtimeOutputArtifactsToMediaArtifacts(
 
 export function describeRuntimeMediaArtifact(artifact: RuntimeMediaArtifact): string {
   return artifact.source === "runtime_url" ? artifact.url : artifact.objectKey;
+}
+
+/** Stable identity for mid-stream vs end-of-turn double-delivery guards (ADR-165). */
+export function runtimeMediaArtifactIdentity(artifact: RuntimeMediaArtifact): string {
+  return `${artifact.source}:${describeRuntimeMediaArtifact(artifact)}`;
 }
 
 export function readRuntimeMediaArtifactFilename(artifact: RuntimeMediaArtifact): string | null {

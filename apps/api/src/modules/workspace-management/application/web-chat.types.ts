@@ -119,6 +119,11 @@ export interface AssistantWebChatMessageState {
   workingNotes?: string[];
   /** Tool-call summaries for process badges. Heavy billing facts are stripped before persistence/client transport. */
   toolInvocations?: ClientRuntimeTurnToolInvocation[];
+  /**
+   * ADR-165 — which attachments belong after which tool call for organic
+   * in-loop image interleaving after F5 / history reload.
+   */
+  inlineMediaPlacement?: Array<{ toolCallId: string; attachmentIds: string[] }>;
 }
 
 export interface AssistantWebChatTurnRoutingState {

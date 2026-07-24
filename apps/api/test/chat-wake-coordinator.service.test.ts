@@ -11,11 +11,19 @@ describe("ChatWakeCoordinator", () => {
     process.env.PERSAI_POSTGRES_INTEGRATION_URL ??
     "postgresql://postgres:postgres@localhost:5432/persai_v2?schema=public";
 
-  test("PostgreSQL parses eligible-chat SQL with overlapping joined-table columns", async () => {
+  test("PostgreSQL parses eligible-chat SQL with overlapping joined-table columns", async (t) => {
     const prisma = new PrismaClient({
       datasources: { db: { url: postgresIntegrationUrl } }
     });
     try {
+      try {
+        await prisma.$connect();
+      } catch {
+        // Default no-SQL CI-like gate has no local Postgres; keep the SQL probe
+        // for environments that set PERSAI_POSTGRES_INTEGRATION_URL.
+        t.skip("Postgres unavailable for eligible-chat SQL probe");
+        return;
+      }
       await prisma.$transaction(async (tx) => {
         await tx.$executeRawUnsafe(`
             CREATE TEMP TABLE "assistant_chats" (

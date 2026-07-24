@@ -24,6 +24,9 @@ async function run(): Promise<void> {
         },
         async findMessageByIdForAssistant() {
           return null;
+        },
+        async mergeMessageMetadata() {
+          return null;
         }
       },
       assistantMediaJobService: {
@@ -103,6 +106,9 @@ async function run(): Promise<void> {
         },
         async findMessageByIdForAssistant() {
           return null;
+        },
+        async mergeMessageMetadata() {
+          return null;
         }
       },
       assistantMediaJobService: {
@@ -161,6 +167,9 @@ async function run(): Promise<void> {
         },
         async findMessageByIdForAssistant() {
           return null;
+        },
+        async mergeMessageMetadata() {
+          return null;
         }
       },
       assistantMediaJobService: {
@@ -215,6 +224,9 @@ async function run(): Promise<void> {
         },
         async findMessageByIdForAssistant() {
           return null;
+        },
+        async mergeMessageMetadata() {
+          return null;
         }
       },
       chatId: "chat-3",
@@ -249,6 +261,9 @@ async function run(): Promise<void> {
         },
         async findMessageByIdForAssistant() {
           return null;
+        },
+        async mergeMessageMetadata() {
+          return null;
         }
       },
       chatId: "chat-4",
@@ -280,6 +295,9 @@ async function run(): Promise<void> {
           return null;
         },
         async findMessageByIdForAssistant() {
+          return null;
+        },
+        async mergeMessageMetadata() {
           return null;
         }
       },
@@ -321,6 +339,9 @@ async function run(): Promise<void> {
           return null;
         },
         async findMessageByIdForAssistant() {
+          return null;
+        },
+        async mergeMessageMetadata() {
           return null;
         }
       },

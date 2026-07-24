@@ -1,5 +1,25 @@
 # SESSION-HANDOFF
 
+## 2026-07-24 — ADR-165 in-loop sync image present (gated; push)
+
+- **Baseline tip:** `ce624fcd`. Scope: sync `image_generate` / `image_edit`
+  into the **same** live assistant bubble mid-loop (after producing tool-step);
+  video stays deferred; ADR-162 catch-up unchanged for deferred jobs.
+- **Landed:** ADR-165 docs + ADR-162 P6 note; runtime defer policy +
+  `producingToolCallId`; API mid-stream deliver + SSE `media` +
+  `inlineMediaPlacement`; web interleaving + bottom-strip dedupe; bind early
+  `assistantMessageId`; interrupt/stop reuses early message; partial deliver
+  marks only path-matched succeeded identities.
+- **Gates (full CI-like):** `pnpm -r lint`, `format:check`, api/web/runtime
+  typecheck, `api`/`runtime`/`provider-gateway`/`web` test, `test:step2`,
+  `test:adr146-slice5` green. ChatWake Postgres probe skips when DB unavailable;
+  api suite excludes `*.integration.test.ts` for no-SQL local gate.
+- **Residual:** warm-pod hydrate only if pod already exists (no cold-start);
+  known intermittent `use-chat` continuity flakes under heavy parallel load
+  (isolated + full suite passed this run).
+- **Next:** deploy api+runtime+web → live web in-loop image smoke (F5 organic).
+  Do not mix with ADR-161 commits.
+
 ## 2026-07-24 — Image args + live-thinking UI (gated, push)
 
 - **Pushed tip:** `76b9cdcf` (rebased on GitOps pin `795f01af`). Bundle:

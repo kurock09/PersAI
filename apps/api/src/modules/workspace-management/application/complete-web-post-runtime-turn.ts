@@ -254,6 +254,13 @@ export async function finalizePersistedWebTurn(input: {
   assistantMessage: AssistantChatMessage;
   assistantText: string;
   mediaArtifacts: RuntimeMediaArtifact[];
+  /**
+   * ADR-165 — attachments already delivered mid-stream. Counted for honesty /
+   * transport merge; must not be re-delivered.
+   */
+  alreadyDeliveredAttachments?: Awaited<ReturnType<MediaDeliveryService["deliver"]>>["attachments"];
+  /** ADR-165 — full attempted artifact set for honesty kind/count (includes mid-stream). */
+  attemptedMediaArtifacts?: RuntimeMediaArtifact[];
   respondedAt: string;
   textUsageAccounting?: TextGenerationUsageAccountingEnvelope;
   traceId: string;
@@ -273,6 +280,8 @@ export async function finalizePersistedWebTurn(input: {
   followUpAssistantMessageId: string | null;
   followUpAssistantMessage: AssistantWebChatMessageState | null;
 }> {
+  const alreadyDeliveredAttachments = input.alreadyDeliveredAttachments ?? [];
+  const attemptedMediaArtifacts = input.attemptedMediaArtifacts ?? input.mediaArtifacts;
   const [activeMediaJobs, activeDocumentJobs, activeSandboxJobs, delivered] = await Promise.all([
     input.assistantMediaJobService.listOpenJobsForWebChat({
       assistantId: input.assistantId,
@@ -299,15 +308,16 @@ export async function finalizePersistedWebTurn(input: {
   ]);
   input.markTraceStage?.("media_delivered");
 
+  const deliveredAttachments = [...alreadyDeliveredAttachments, ...delivered.attachments];
   const finalAssistantContent = await persistFinalAssistantContentIfNeeded({
     assistantChatRepository: input.assistantChatRepository,
     logger: input.logger,
     assistantMessage: input.assistantMessage,
     assistantId: input.assistantId,
     assistantText: input.assistantText,
-    deliveredAttachments: delivered.attachments,
-    attemptedArtifactCount: input.mediaArtifacts.length,
-    attemptedArtifactKind: resolveUndeliveredArtifactKind(input.mediaArtifacts),
+    deliveredAttachments,
+    attemptedArtifactCount: attemptedMediaArtifacts.length,
+    attemptedArtifactKind: resolveUndeliveredArtifactKind(attemptedMediaArtifacts),
     locale: input.locale
   });
 
@@ -347,7 +357,7 @@ export async function finalizePersistedWebTurn(input: {
   });
 
   return {
-    deliveredAttachments: delivered.attachments,
+    deliveredAttachments,
     finalAssistantContent,
     activeMediaJobs,
     activeDocumentJobs,

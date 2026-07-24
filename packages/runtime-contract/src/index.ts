@@ -155,6 +155,8 @@ export interface RuntimeOutputArtifact {
   caption?: string | null;
   downloadUrl?: string | null;
   billingFacts?: RuntimeBillingFacts | null;
+  /** ADR-165 — tool call that produced this artifact (sync in-loop image present). */
+  producingToolCallId?: string | null;
 }
 
 export interface RuntimeDocumentSourceFile {

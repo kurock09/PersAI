@@ -5,6 +5,14 @@
 
 ## 2026-07-24
 
+- **ADR-165: in-loop sync image present.** Ordinary-turn `image_generate` /
+  `image_edit` no longer defer; bytes attach mid-stream into the same live
+  assistant bubble after the producing tool-step (`producingToolCallId` +
+  `inlineMediaPlacement` + SSE `media` with early `assistantMessageId` bind).
+  Interrupt/stop reuses the early bubble. Video stays deferred; ADR-162
+  catch-up remains for async jobs only. Warm-pod hydrate residual noted (no
+  cold-start). Full CI-like gates green before push.
+
 - **ux(chat): live thinking reserve + fade — no scroll jump.** Fixed ~7-line
   slot under «Думаю» so thought lines grow/clear without resizing the bubble;
   thought text fades (~220ms) instead of hard unmount; empty streaming status

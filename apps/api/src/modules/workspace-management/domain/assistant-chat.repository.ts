@@ -95,6 +95,16 @@ export interface AssistantChatRepository {
     assistantId: string,
     content: string
   ): Promise<AssistantChatMessage | null>;
+  /**
+   * ADR-165 — merge keys into existing message.metadata (shallow replace per key).
+   * Used for mid-stream inlineMediaPlacement and end-of-turn workingNotes/toolInvocations
+   * when an early live assistant message already exists.
+   */
+  mergeMessageMetadata(
+    messageId: string,
+    assistantId: string,
+    metadataPatch: Record<string, unknown>
+  ): Promise<AssistantChatMessage | null>;
   deleteMessage(messageId: string, assistantId: string): Promise<boolean>;
   listMessagesByChatId(chatId: string): Promise<AssistantChatMessage[]>;
   findLatestAssistantMessageToolContext(
