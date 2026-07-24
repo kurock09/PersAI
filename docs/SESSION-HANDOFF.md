@@ -2,6 +2,7 @@
 
 ## 2026-07-24 — ADR-165 in-loop sync image present (gated; push)
 
+- **Pushed tip:** `7ab4c0c2` (rebased on GitOps pin `8ac38f13`).
 - **Baseline tip:** `ce624fcd`. Scope: sync `image_generate` / `image_edit`
   into the **same** live assistant bubble mid-loop (after producing tool-step);
   video stays deferred; ADR-162 catch-up unchanged for deferred jobs.
