@@ -1,7 +1,8 @@
 # SESSION-HANDOFF
 
-## 2026-07-25 — TG stream parser parity hotfix (local → push/deploy api)
+## 2026-07-25 — TG stream parser parity hotfix (pushed; deploy api)
 
+- **Pushed tip:** `f9d76f29` (rebased on GitOps pin `89a4e007`).
 - **Baseline tip:** `e0e28f50`. Live: `mr.danilov.r.s@gmail.com` TG failed with
   `runtime_invalid_response` / `invalid Telegram stream event` (not plan/quota);
   B2B upgrade unrelated. Root cause: TG NDJSON parser lagged web and rejected
