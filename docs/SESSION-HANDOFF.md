@@ -1,19 +1,18 @@
 # SESSION-HANDOFF
 
-## 2026-07-25 — TG stream parser parity hotfix (pushed; deploy api)
+## 2026-07-25 — TG stream parser parity hotfix (CLEAN audit; full gates)
 
-- **Pushed tip:** `f9d76f29` (rebased on GitOps pin `89a4e007`).
-- **Baseline tip:** `e0e28f50`. Live: `mr.danilov.r.s@gmail.com` TG failed with
-  `runtime_invalid_response` / `invalid Telegram stream event` (not plan/quota);
-  B2B upgrade unrelated. Root cause: TG NDJSON parser lagged web and rejected
-  `thinking` / `tool_progress` / `async_job_accepted` (+ retrieval/project).
-- **Fix:** `SendNativeTelegramTurnService` accepts the same stream event types as
-  `WebRuntimeStreamClientService` and ignores ephemeral events on TG consume.
-- **Test:** `send-native-telegram-turn.service.test.ts` green (8/8) including new
-  ephemeral-events case; api typecheck/lint/format green.
-- **Next:** commit/push → deploy **api only** → Danilov TG smoke; confirm no
-  `invalid Telegram stream event` on assistant `2e8fde0a-…`. Do not mix with
-  ADR-161/165.
+- **Pushed tip:** `f9d76f29` (+ docs `2dfb0deb`). Independent hostile audit
+  CLEAN (zero P0/P1/P2): TG parse matches web field-for-field on all
+  `RuntimeTurnStreamEvent` types; ephemeral consume `continue`; deploy api-only
+  sufficient.
+- **Gates (full CI-like):** recursive lint, `format:check`, api/web/runtime
+  typecheck, api/runtime/provider-gateway/web test, `test:step2`,
+  `test:adr146-slice5` green (one known intermittent `use-chat` continuity flake
+  on step2 web re-run; retry green).
+- **Live residual until api pin:** Danilov TG may still fail until the new api
+  image is live; then smoke assistant `2e8fde0a-…` for no
+  `invalid Telegram stream event`. Do not mix with ADR-161/165.
 
 ## 2026-07-24 — ADR-165 in-loop sync image present (gated; push)
 
