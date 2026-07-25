@@ -286,6 +286,14 @@ export class SendNativeTelegramTurnService {
           continue;
         case "text_delta":
           continue;
+        // Ephemeral / web-only stream events — accept and ignore on Telegram.
+        case "thinking":
+        case "tool_progress":
+        case "async_job_accepted":
+        case "retrieval_activity":
+        case "project_activity":
+        case "project_reasoning_summary":
+          continue;
         case "tool_started":
           if (HIDDEN_RUNTIME_TOOL_NAMES.has(event.toolName)) {
             continue;
@@ -490,11 +498,66 @@ export class SendNativeTelegramTurnService {
           return parsed as RuntimeTurnStreamEvent;
         }
         break;
+      case "thinking":
+        if (
+          typeof row.requestId === "string" &&
+          typeof row.sessionId === "string" &&
+          typeof row.delta === "string" &&
+          typeof row.accumulated === "string"
+        ) {
+          return parsed as RuntimeTurnStreamEvent;
+        }
+        break;
       case "artifact":
         if (
           typeof row.requestId === "string" &&
           typeof row.sessionId === "string" &&
           this.asObject(row.artifact) !== null
+        ) {
+          return parsed as RuntimeTurnStreamEvent;
+        }
+        break;
+      case "retrieval_activity":
+        if (
+          typeof row.requestId === "string" &&
+          typeof row.sessionId === "string" &&
+          (row.source === "skill" ||
+            row.source === "user" ||
+            row.source === "product" ||
+            row.source === "web") &&
+          row.phase === "start" &&
+          typeof row.resultCount === "number"
+        ) {
+          return parsed as RuntimeTurnStreamEvent;
+        }
+        break;
+      case "project_activity":
+        if (
+          typeof row.requestId === "string" &&
+          typeof row.sessionId === "string" &&
+          (row.stage === "plan" ||
+            row.stage === "gather" ||
+            row.stage === "analyze" ||
+            row.stage === "replan" ||
+            row.stage === "synthesize") &&
+          (row.status === "started" || row.status === "completed") &&
+          typeof row.summary === "string"
+        ) {
+          return parsed as RuntimeTurnStreamEvent;
+        }
+        break;
+      case "project_reasoning_summary":
+        if (
+          typeof row.requestId === "string" &&
+          typeof row.sessionId === "string" &&
+          (row.kind === "plan" ||
+            row.kind === "check" ||
+            row.kind === "gap" ||
+            row.kind === "conflict" ||
+            row.kind === "interim" ||
+            row.kind === "replan" ||
+            row.kind === "synthesis") &&
+          typeof row.summary === "string"
         ) {
           return parsed as RuntimeTurnStreamEvent;
         }
@@ -516,6 +579,31 @@ export class SendNativeTelegramTurnService {
           typeof row.toolCallId === "string" &&
           typeof row.toolName === "string" &&
           typeof row.isError === "boolean"
+        ) {
+          return parsed as RuntimeTurnStreamEvent;
+        }
+        break;
+      case "tool_progress":
+        if (
+          typeof row.requestId === "string" &&
+          typeof row.sessionId === "string" &&
+          typeof row.toolCallId === "string" &&
+          typeof row.toolName === "string" &&
+          (row.kind === "stdout_line" ||
+            row.kind === "stderr_line" ||
+            row.kind === "browser_step") &&
+          typeof row.seq === "number"
+        ) {
+          return parsed as RuntimeTurnStreamEvent;
+        }
+        break;
+      case "async_job_accepted":
+        if (
+          typeof row.requestId === "string" &&
+          typeof row.sessionId === "string" &&
+          (row.kind === "media" || row.kind === "document" || row.kind === "sandbox") &&
+          typeof row.jobRef === "string" &&
+          row.jobRef.trim().length > 0
         ) {
           return parsed as RuntimeTurnStreamEvent;
         }

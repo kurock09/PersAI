@@ -3,6 +3,15 @@
 > Archive: detailed historical entries from 2026-06-05 and earlier moved to `docs/CHANGELOG.archive-2026-06-05-details-and-earlier.md`; entries from 2026-05-19 and earlier remain in `docs/CHANGELOG.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: current entries plus concise recent summaries only.
 
+## 2026-07-25
+
+- **fix(api): Telegram runtime stream accepts thinking/tool_progress/async
+  events.** `SendNativeTelegramTurnService` lagged the web NDJSON parser and
+  threw `invalid Telegram stream event` when DeepSeek/Kimi emitted `thinking`
+  (also `tool_progress` / `async_job_accepted` / retrieval/project). TG now
+  parses the same event types as web and ignores ephemeral ones. Live impact:
+  owner TG turns no longer die mid-stream for that reason.
+
 ## 2026-07-24
 
 - **ADR-165: in-loop sync image present.** Ordinary-turn `image_generate` /

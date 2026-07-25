@@ -1,5 +1,19 @@
 # SESSION-HANDOFF
 
+## 2026-07-25 — TG stream parser parity hotfix (local → push/deploy api)
+
+- **Baseline tip:** `e0e28f50`. Live: `mr.danilov.r.s@gmail.com` TG failed with
+  `runtime_invalid_response` / `invalid Telegram stream event` (not plan/quota);
+  B2B upgrade unrelated. Root cause: TG NDJSON parser lagged web and rejected
+  `thinking` / `tool_progress` / `async_job_accepted` (+ retrieval/project).
+- **Fix:** `SendNativeTelegramTurnService` accepts the same stream event types as
+  `WebRuntimeStreamClientService` and ignores ephemeral events on TG consume.
+- **Test:** `send-native-telegram-turn.service.test.ts` green (8/8) including new
+  ephemeral-events case; api typecheck/lint/format green.
+- **Next:** commit/push → deploy **api only** → Danilov TG smoke; confirm no
+  `invalid Telegram stream event` on assistant `2e8fde0a-…`. Do not mix with
+  ADR-161/165.
+
 ## 2026-07-24 — ADR-165 in-loop sync image present (gated; push)
 
 - **Pushed tip:** `7ab4c0c2` (rebased on GitOps pin `8ac38f13`).

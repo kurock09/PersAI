@@ -725,4 +725,152 @@ describe("SendNativeTelegramTurnService", () => {
       globalThis.fetch = originalFetch;
     }
   });
+
+  test("ignores thinking/tool_progress/async_job_accepted stream events and completes", async () => {
+    setApiEnv();
+    const originalFetch = globalThis.fetch;
+    const toolEvents: Array<{
+      phase: "start" | "end";
+      toolName: string;
+      toolCallId: string;
+      isError: boolean;
+    }> = [];
+
+    globalThis.fetch = (async () => {
+      return new Response(
+        [
+          JSON.stringify({
+            type: "started",
+            requestId: "runtime-request-ephemeral-1",
+            sessionId: "runtime-session-ephemeral-1"
+          }),
+          JSON.stringify({
+            type: "thinking",
+            requestId: "runtime-request-ephemeral-1",
+            sessionId: "runtime-session-ephemeral-1",
+            delta: "plan…",
+            accumulated: "plan…"
+          }),
+          JSON.stringify({
+            type: "tool_started",
+            requestId: "runtime-request-ephemeral-1",
+            sessionId: "runtime-session-ephemeral-1",
+            toolCallId: "tool-shell-1",
+            toolName: "shell",
+            toolInputPreview: "ls"
+          }),
+          JSON.stringify({
+            type: "tool_progress",
+            requestId: "runtime-request-ephemeral-1",
+            sessionId: "runtime-session-ephemeral-1",
+            toolCallId: "tool-shell-1",
+            toolName: "shell",
+            kind: "stdout_line",
+            line: "ok",
+            seq: 1
+          }),
+          JSON.stringify({
+            type: "async_job_accepted",
+            requestId: "runtime-request-ephemeral-1",
+            sessionId: "runtime-session-ephemeral-1",
+            kind: "media",
+            jobRef: "media-job-1",
+            mediaJob: {
+              id: "media-job-1",
+              kind: "image",
+              operation: "image_generate",
+              status: "queued",
+              createdAt: "2026-07-25T19:00:00.000Z",
+              startedAt: null,
+              updatedAt: "2026-07-25T19:00:00.000Z"
+            }
+          }),
+          JSON.stringify({
+            type: "tool_finished",
+            requestId: "runtime-request-ephemeral-1",
+            sessionId: "runtime-session-ephemeral-1",
+            toolCallId: "tool-shell-1",
+            toolName: "shell",
+            isError: false
+          }),
+          JSON.stringify({
+            type: "retrieval_activity",
+            requestId: "runtime-request-ephemeral-1",
+            sessionId: "runtime-session-ephemeral-1",
+            source: "web",
+            phase: "start",
+            resultCount: 0
+          }),
+          JSON.stringify({
+            type: "text_delta",
+            requestId: "runtime-request-ephemeral-1",
+            sessionId: "runtime-session-ephemeral-1",
+            delta: "done",
+            accumulatedText: "done"
+          }),
+          JSON.stringify({
+            type: "completed",
+            result: {
+              requestId: "runtime-request-ephemeral-1",
+              sessionId: "runtime-session-ephemeral-1",
+              assistantText: "done",
+              artifacts: [],
+              respondedAt: "2026-07-25T19:00:01.000Z",
+              usage: null
+            }
+          })
+        ].join("\n"),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/x-ndjson"
+          }
+        }
+      );
+    }) as typeof fetch;
+
+    try {
+      const service = new SendNativeTelegramTurnService({
+        findByPublishedVersionId: async () => createMaterializedSpec()
+      } as AssistantMaterializedSpecRepository);
+
+      const result = await service.execute(
+        {
+          assistantId: "assistant-1",
+          publishedVersionId: "version-1",
+          runtimeTier: "paid_shared_restricted",
+          workspaceId: "workspace-1",
+          threadId: "telegram-chat-1",
+          externalUserKey: "telegram-user-1",
+          mode: "direct",
+          userMessageId: "message-ephemeral-1",
+          userMessage: "run tools",
+          attachments: []
+        },
+        {
+          onTool: (event) => {
+            toolEvents.push(event);
+          }
+        }
+      );
+
+      assert.equal(result.assistantMessage, "done");
+      assert.deepEqual(toolEvents, [
+        {
+          phase: "start",
+          toolName: "shell",
+          toolCallId: "tool-shell-1",
+          isError: false
+        },
+        {
+          phase: "end",
+          toolName: "shell",
+          toolCallId: "tool-shell-1",
+          isError: false
+        }
+      ]);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
 });
