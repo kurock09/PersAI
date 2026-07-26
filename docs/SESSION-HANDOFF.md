@@ -19,6 +19,9 @@
   isolated + suite retry green).
 - **Out of scope:** ADR-161; never-defer sync image; TG; document open-turn
   attach/receipts.
+- **Audit follow-up:** document `failJob` now also publishes `async_jobs_open`
+  (Working clear on document terminal failure). Dual-bubble / missing document
+  `media` SSE findings were already closed by banner-only document path.
 - **Next:** deploy api+web → live onion smoke (receipt mid-await + Working
   clears on `deliveredAt`).
 
