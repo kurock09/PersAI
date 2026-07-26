@@ -450,10 +450,10 @@ function InlineStreamingStatus({
   const awaitDeadlineMs =
     awaitDeadlineMatch?.[1] === undefined ? null : Number(awaitDeadlineMatch[1]);
   const [nowMs, setNowMs] = useState(() => Date.now());
-  // Hold last text + opacity so clear/unmount does not snap the layout.
+  // Hold last text + opacity so clear does not snap; the ~7-line slot itself
+  // stays reserved for the whole pre-answer status lifetime (thinking↔activity).
   const [displayedThinkingPreview, setDisplayedThinkingPreview] = useState(thinkingPreview);
   const [thinkingPreviewOpaque, setThinkingPreviewOpaque] = useState(thinkingPreview.length > 0);
-  const [reserveThinkingSlot, setReserveThinkingSlot] = useState(isThinkingKind);
 
   useEffect(() => {
     if (awaitDeadlineMs === null) return;
@@ -464,26 +464,18 @@ function InlineStreamingStatus({
 
   useEffect(() => {
     if (isThinkingKind) {
-      setReserveThinkingSlot(true);
-      return;
+      if (thinkingPreview.length > 0) {
+        setDisplayedThinkingPreview(thinkingPreview);
+        setThinkingPreviewOpaque(true);
+        return;
+      }
+      setThinkingPreviewOpaque(false);
+      const timer = window.setTimeout(() => {
+        setDisplayedThinkingPreview("");
+      }, LIVE_THINKING_FADE_MS);
+      return () => window.clearTimeout(timer);
     }
-    setThinkingPreviewOpaque(false);
-    const timer = window.setTimeout(() => {
-      setDisplayedThinkingPreview("");
-      setReserveThinkingSlot(false);
-    }, LIVE_THINKING_FADE_MS);
-    return () => window.clearTimeout(timer);
-  }, [isThinkingKind]);
-
-  useEffect(() => {
-    if (!isThinkingKind) {
-      return;
-    }
-    if (thinkingPreview.length > 0) {
-      setDisplayedThinkingPreview(thinkingPreview);
-      setThinkingPreviewOpaque(true);
-      return;
-    }
+    // Activity / tool status: fade thought text, keep the reserved slot height.
     setThinkingPreviewOpaque(false);
     const timer = window.setTimeout(() => {
       setDisplayedThinkingPreview("");
@@ -505,7 +497,6 @@ function InlineStreamingStatus({
       : t("awaitCountdown", {
           seconds: Math.max(0, Math.ceil((awaitDeadlineMs - nowMs) / 1000))
         });
-  const showThinkingRail = reserveThinkingSlot || displayedThinkingPreview.length > 0;
 
   return (
     <span className="animate-fade-in-inline-status inline-flex w-full max-w-full items-start gap-2 text-sm text-text-muted/78 italic motion-reduce:animate-none">
@@ -522,27 +513,18 @@ function InlineStreamingStatus({
             <span className="text-text-subtle/62 not-italic">{statusParts.detail}</span>
           ) : null}
         </span>
-        {showThinkingRail ? (
-          <span
-            data-testid="live-thinking-preview"
-            className={cn(
-              // Top-first under «Думаю»: short text sits next to the status.
-              // Overflow clips from the top (oldest leave upward) via justify-end
-              // only once the buffer exceeds the reserved window — see inner rail.
-              "relative flex w-full flex-col overflow-hidden text-sm leading-5 text-text-subtle/55 italic",
-              "transition-[min-height,max-height,opacity] duration-300 ease-out motion-reduce:transition-none",
-              // 7 × leading-5 (1.25rem) = 8.75rem (~6–8 line bottom gap).
-              reserveThinkingSlot
-                ? "min-h-[8.75rem] max-h-[8.75rem] opacity-100"
-                : "min-h-0 max-h-0 opacity-0"
-            )}
-          >
-            <LiveThinkingPreviewRail
-              text={displayedThinkingPreview}
-              opaque={thinkingPreviewOpaque}
-            />
-          </span>
-        ) : null}
+        <span
+          data-testid="live-thinking-preview"
+          className={cn(
+            // Fixed ~7-line reserve under every pre-answer status label so
+            // thinking↔activity swaps do not resize the bubble / jump scroll.
+            // 7 × leading-5 (1.25rem) = 8.75rem. Thought text fades inside;
+            // empty slot stays while tools/await run.
+            "relative flex w-full min-h-[8.75rem] max-h-[8.75rem] flex-col overflow-hidden text-sm leading-5 text-text-subtle/55 italic"
+          )}
+        >
+          <LiveThinkingPreviewRail text={displayedThinkingPreview} opaque={thinkingPreviewOpaque} />
+        </span>
         {statusParts.shellProgressLines && statusParts.shellProgressLines.length > 0 ? (
           <span className="font-mono text-xs leading-4 text-text-subtle/55 not-italic tracking-tight">
             {statusParts.shellProgressLines.map((line, index) => (
@@ -2623,10 +2605,13 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
                 {(showInlineStreamingStatus || showCursorOnlyStatus) && (
                   <div
                     className={cn(
-                      "mt-2 flex items-start gap-2 transition-[min-height] duration-300 ease-out motion-reduce:transition-none",
-                      // Hold ~6–8 line gap until answer text lands — avoids jump when
-                      // live thinking unmounts into a bare cursor.
-                      !hasVisibleAnswerText && "min-h-[8.75rem]"
+                      "mt-2 flex items-start gap-2",
+                      // Cursor-only path (no InlineStreamingStatus): keep the same
+                      // ~7-line footprint until answer text lands. When the status
+                      // chip is mounted it already owns that reserve internally.
+                      !hasVisibleAnswerText &&
+                        !showInlineStreamingStatus &&
+                        "min-h-[8.75rem] transition-[min-height] duration-300 ease-out motion-reduce:transition-none"
                     )}
                   >
                     {showInlineStreamingStatus ? (

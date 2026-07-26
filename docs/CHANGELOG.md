@@ -5,6 +5,11 @@
 
 ## 2026-07-26
 
+- **ux(chat): keep ~7-line status reserve across thinking↔activity.** Pre-answer
+  chip no longer collapses the live-thinking slot when the label switches to a
+  tool/await status; thought text fades inside a fixed `8.75rem` rail so mobile
+  scroll does not jump down/up.
+
 - **ADR-165 D6.1: deferred media receipts actually bind + status/scroll repair.**
   Enqueue now stores `sourceToolCallId`; open-turn present uses it for
   `afterToolCallId` / placement when worker artifacts omit

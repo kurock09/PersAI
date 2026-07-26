@@ -1203,6 +1203,38 @@ describe("ChatMessageBubble — pre-response status", () => {
     );
 
     expect(screen.getByText("activityKnowledgeSearchDone")).toBeInTheDocument();
+    // Same ~7-line reserve as «Думаю» — activity must not collapse the slot.
+    expect(screen.getByTestId("live-thinking-preview").className).toMatch(/min-h-\[8\.75rem\]/);
+  });
+
+  it("keeps the reserved status slot when switching thinking → activity", () => {
+    const { rerender } = render(
+      <ChatMessageBubble
+        chatId="chat-1"
+        message={makeAssistantMessage()}
+        preResponseStatus={{ kind: "thinking", thinkingPreview: "planning next step" }}
+      />
+    );
+
+    expect(screen.getByTestId("live-thinking-preview").className).toMatch(/min-h-\[8\.75rem\]/);
+
+    rerender(
+      <ChatMessageBubble
+        chatId="chat-1"
+        message={makeAssistantMessage()}
+        preResponseStatus={{
+          kind: "activity",
+          event: {
+            id: "activity-1",
+            type: "tool_use",
+            label: "knowledge_search_finished"
+          }
+        }}
+      />
+    );
+
+    expect(screen.getByText("activityKnowledgeSearchDone")).toBeInTheDocument();
+    expect(screen.getByTestId("live-thinking-preview").className).toMatch(/min-h-\[8\.75rem\]/);
   });
 
   it("keeps the inline cursor status below visible streaming text", () => {
