@@ -2,6 +2,7 @@
 
 ## 2026-07-26 — ADR-165 D6 open-turn media present + Working on job terminal
 
+- **Pushed tip:** `77146a2e` (baseline `e014600b`).
 - **Scope:** deferred **media** jobs that finish while the source web USER_TURN
   is still `running` attach into the live assistant bubble and publish SSE
   `media` + `async_jobs_open`. Document terminals only publish
@@ -18,8 +19,8 @@
   isolated + suite retry green).
 - **Out of scope:** ADR-161; never-defer sync image; TG; document open-turn
   attach/receipts.
-- **Next:** push → deploy api+web → live onion smoke (receipt mid-await +
-  Working clears on `deliveredAt`).
+- **Next:** deploy api+web → live onion smoke (receipt mid-await + Working
+  clears on `deliveredAt`).
 
 ## 2026-07-26 — ADR-165 D1 rollback + live media receipts (pushed)
 
