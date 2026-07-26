@@ -2,14 +2,13 @@
 
 ## 2026-07-26 — live status slot: no jump on thinking↔activity
 
-- **Baseline tip:** `91be72e7` / D6.1 `ac03c77a`. Founder: on mobile the
-  ~7-line «Думаю» reserve collapses when status switches to tool activity,
-  text falls, then «Думаю» returns with an upward jump.
+- **Pushed tip:** `4cf717a7`. Baseline `91be72e7` / D6.1 `ac03c77a`.
 - **Fix:** `InlineStreamingStatus` always keeps `min-h-[8.75rem]` under the
   status label for the whole pre-answer chip lifetime; thought text fades
   inside the slot; activity does not collapse height. Outer cursor-only path
   still reserves the same footprint until answer text lands.
-- **Next:** gates → push web → live smoke status swaps without scroll jump.
+- **Gates:** web lint/typecheck, `chat-message` tests, `format:check`.
+- **Next:** wait web pin `4cf717a7` → live smoke thinking↔activity without jump.
 
 ## 2026-07-26 — ADR-165 D6.1 live UX repair (receipts / status / scroll)
 
