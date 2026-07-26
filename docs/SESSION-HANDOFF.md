@@ -2,13 +2,17 @@
 
 ## 2026-07-26 — ADR-165 D1 rollback + live media receipts (pushed)
 
-- **Pushed tip:** `a89fd366` (baseline `c1da3a41`). Scope: restore
-  ordinary-thread deferral for `image_generate` / `image_edit` (no sync-tool
-  exception); live chat shows italic media receipts; committed replies use
-  classic bottom attachments; remove hidden image/video activity suppress.
-  Keep mid-stream deliver / placement / early message bind for receipts.
+- **Pushed tip:** `a89fd366` (baseline `c1da3a41`; docs tip `79146e46`). Scope:
+  restore ordinary-thread deferral for `image_generate` / `image_edit` (no
+  sync-tool exception); live chat shows italic media receipts; committed
+  replies use classic bottom attachments; remove hidden image/video activity
+  suppress. Keep mid-stream deliver / placement / early message bind for
+  receipts.
+- **CI repair:** `use-chat` tests that still expected hidden `image_generate`
+  activity now assert the visible “Generating image” live status.
 - **Verified locally:** recursive lint, `format:check`, api/web/runtime
-  typecheck, runtime suite, web `chat-message` + api suite green.
+  typecheck, runtime suite, web `chat-message` + api suite green; focused
+  failing `use-chat` cases green after repair.
 - **Out of scope:** ADR-161; ADR-162 queue mechanics; TG.
 - **Next:** deploy api+runtime+web → live smoke (defer + await countdown +
   receipt + bottom strip).

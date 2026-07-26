@@ -4847,7 +4847,15 @@ describe("useChat", () => {
       "server-user-1",
       "local-assistant-turn-1"
     ]);
-    expect(result.current.entries.some((entry) => entry.kind === "activity")).toBe(false);
+    // ADR-165 amendment: image/video live tool activity is visible again (not hidden).
+    expect(
+      result.current.entries.some(
+        (entry) =>
+          entry.kind === "activity" &&
+          entry.event.toolName === "image_generate" &&
+          entry.event.label === "Generating image"
+      )
+    ).toBe(true);
   });
 
   it("loadHistory removes a restored live assistant when committed history has the final turn", async () => {
@@ -6213,6 +6221,14 @@ describe("useChat", () => {
           expect.objectContaining({
             kind: "message",
             message: expect.objectContaining({ role: "assistant", status: "streaming" })
+          }),
+          expect.objectContaining({
+            kind: "activity",
+            event: expect.objectContaining({
+              toolName: "image_generate",
+              label: "Generating image",
+              toolCallId: "tool-1"
+            })
           })
         ]);
       });
@@ -6231,6 +6247,14 @@ describe("useChat", () => {
         expect.objectContaining({
           kind: "message",
           message: expect.objectContaining({ role: "assistant", status: "streaming" })
+        }),
+        expect.objectContaining({
+          kind: "activity",
+          event: expect.objectContaining({
+            toolName: "image_generate",
+            label: "Generating image",
+            toolCallId: "tool-1"
+          })
         })
       ]);
 
