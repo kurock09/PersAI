@@ -7060,13 +7060,16 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   turnAcceptanceService.result = createAcceptedTurn();
   (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
     request.bundle.bundleHash;
-  const deferredMediaEnqueueCallsBeforeImageGenerate =
-    persaiInternalApiClientService.deferredMediaEnqueueCalls.length;
   const imageGenerateCompleted = await service.createTurn(request);
-  // ADR-165 — ordinary-turn image_generate is sync in-loop (not deferred).
-  // Model follow-up text and outbound artifacts land in the same turn.
-  assert.equal(imageGenerateCompleted.assistantText, "reply after image");
-  assert.equal(imageGenerateCompleted.artifacts.length, 1);
+  // Ordinary image_generate defers again (ADR-165 D1 rollback).
+  // A deferred job's source turn has no artifact yet. Its canonical pending
+  // acknowledgement prevents premature/duplicate completion narration; the
+  // authoritative text arrives only from the completion continuation.
+  assert.equal(
+    imageGenerateCompleted.assistantText,
+    "Request accepted. I am generating the image and will send it separately when it is ready."
+  );
+  assert.equal(imageGenerateCompleted.artifacts.length, 0);
   assert.equal(providerGatewayClient.calls.length, providerCallsBeforeImageGenerate + 2);
   assert.equal(
     providerGatewayClient.calls[providerCallsBeforeImageGenerate]?.tools?.some(
@@ -7074,10 +7077,47 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     ),
     true
   );
-  assert.equal(providerGatewayClient.imageGenerateCalls.length, 1);
+  assert.equal(providerGatewayClient.imageGenerateCalls.length, 0);
   assert.equal(
-    persaiInternalApiClientService.deferredMediaEnqueueCalls.length,
-    deferredMediaEnqueueCallsBeforeImageGenerate
+    persaiInternalApiClientService.deferredMediaEnqueueCalls.at(-1)?.assistantId,
+    "assistant-1"
+  );
+  assert.equal(
+    persaiInternalApiClientService.deferredMediaEnqueueCalls.at(-1)?.sourceUserMessageId,
+    "turn-1"
+  );
+  assert.equal(
+    persaiInternalApiClientService.deferredMediaEnqueueCalls.at(-1)?.sourceUserMessageText,
+    "hello runtime"
+  );
+  assert.deepEqual(
+    persaiInternalApiClientService.deferredMediaEnqueueCalls.at(-1)?.attachments,
+    []
+  );
+  assert.equal(
+    (
+      persaiInternalApiClientService.deferredMediaEnqueueCalls.at(-1)?.directToolExecution as
+        | { toolCode?: string; request?: Record<string, unknown> }
+        | undefined
+    )?.toolCode,
+    "image_generate"
+  );
+  assert.deepEqual(
+    (
+      persaiInternalApiClientService.deferredMediaEnqueueCalls.at(-1)?.directToolExecution as
+        | { toolCode?: string; request?: Record<string, unknown> }
+        | undefined
+    )?.request,
+    {
+      toolCode: "image_generate",
+      prompt: "Draw a serene poster",
+      count: 1,
+      outputMode: null,
+      seriesItems: null,
+      filename: "poster.png",
+      size: "1024x1024",
+      background: "auto"
+    }
   );
   const imageGenerateToolHistory = JSON.parse(
     providerGatewayClient.calls.at(-1)?.toolHistory?.[0]?.toolResult.content ?? "{}"
@@ -7094,7 +7134,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       sizeBytes?: number | null;
     }>;
   };
-  assert.equal(imageGenerateToolHistory.action, "generated");
+  assert.equal(imageGenerateToolHistory.action, "pending_delivery");
   assert.equal(imageGenerateToolHistory.prompt, "Draw a serene poster");
 
   if (bundleRegistry.entry !== null) {
@@ -7451,13 +7491,13 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   turnAcceptanceService.result = createAcceptedTurn();
   (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
     request.bundle.bundleHash;
-  const imageEditCallsBeforeSingleSource = providerGatewayClient.imageEditCalls.length;
-  const deferredMediaEnqueueCallsBeforeImageEdit =
-    persaiInternalApiClientService.deferredMediaEnqueueCalls.length;
   const imageEditCompleted = await service.createTurn(request);
-  // ADR-165 — ordinary-turn image_edit is sync in-loop (not deferred).
-  assert.equal(imageEditCompleted.assistantText, "reply after image edit");
-  assert.equal(imageEditCompleted.artifacts.length, 1);
+  // Ordinary image_edit defers again (ADR-165 D1 rollback).
+  assert.equal(
+    imageEditCompleted.assistantText,
+    "Request accepted. I am editing the image and will send it separately when it is ready."
+  );
+  assert.equal(imageEditCompleted.artifacts.length, 0);
   assert.equal(providerGatewayClient.calls.length, providerCallsBeforeImageEdit + 2);
   assert.equal(
     providerGatewayClient.calls[providerCallsBeforeImageEdit]?.tools?.some(
@@ -7465,11 +7505,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     ),
     true
   );
-  assert.equal(providerGatewayClient.imageEditCalls.length, imageEditCallsBeforeSingleSource + 1);
-  assert.equal(
-    persaiInternalApiClientService.deferredMediaEnqueueCalls.length,
-    deferredMediaEnqueueCallsBeforeImageEdit
-  );
+  assert.equal(providerGatewayClient.imageEditCalls.length, 0);
   const imageEditToolHistory = JSON.parse(
     providerGatewayClient.calls.at(-1)?.toolHistory?.[0]?.toolResult.content ?? "{}"
   ) as {
@@ -7491,7 +7527,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       sizeBytes?: number | null;
     }>;
   };
-  assert.equal(imageEditToolHistory.action, "generated");
+  assert.equal(imageEditToolHistory.action, "pending_delivery");
   assert.equal(imageEditToolHistory.prompt, "Replace the couch with a red chair");
   assert.equal(imageEditToolHistory.sourceImageAlias, "image #1");
   assert.equal(imageEditToolHistory.referenceImageAliases ?? null, null);
@@ -7653,7 +7689,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   const inferredReferenceImageEditCompleted = await service.createTurn(request);
   assert.equal(
     inferredReferenceImageEditCompleted.assistantText,
-    "reply after inferred reference image edit"
+    "Request accepted. I am editing the image and will send it separately when it is ready."
   );
   assert.equal(
     providerGatewayClient.calls.length,
@@ -7661,7 +7697,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   );
   assert.equal(
     providerGatewayClient.imageEditCalls.length,
-    providerImageEditsBeforeInferredReference + 1
+    providerImageEditsBeforeInferredReference
   );
   const inferredReferenceImageEditToolHistory = JSON.parse(
     providerGatewayClient.calls.at(-1)?.toolHistory?.[0]?.toolResult.content ?? "{}"
@@ -7670,7 +7706,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     sourceImageAlias?: string | null;
     referenceImageAliases?: string[] | null;
   };
-  assert.equal(inferredReferenceImageEditToolHistory.action, "generated");
+  assert.equal(inferredReferenceImageEditToolHistory.action, "pending_delivery");
   assert.equal(inferredReferenceImageEditToolHistory.sourceImageAlias, "image #1");
   assert.equal(inferredReferenceImageEditToolHistory.referenceImageAliases ?? null, null);
 
@@ -7720,13 +7756,13 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
     request.bundle.bundleHash;
   const ambiguousImageEditCompleted = await service.createTurn(request);
-  // Ambiguous multi-image edit still auto-selects image #1; ADR-165 runs it sync.
   assert.equal(
     ambiguousImageEditCompleted.assistantText,
-    "Which image should I edit, image #1 or image #2?"
+    "Request accepted. I am editing the image and will send it separately when it is ready."
   );
+
   assert.equal(providerGatewayClient.calls.length, providerCallsBeforeAmbiguousImageEdit + 2);
-  assert.equal(providerGatewayClient.imageEditCalls.length, providerImageEditsBeforeAmbiguous + 1);
+  assert.equal(providerGatewayClient.imageEditCalls.length, providerImageEditsBeforeAmbiguous);
   const ambiguousImageEditToolHistory = JSON.parse(
     providerGatewayClient.calls.at(-1)?.toolHistory?.[0]?.toolResult.content ?? "{}"
   ) as {
@@ -7734,7 +7770,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     sourceImageAlias?: string | null;
     referenceImageAliases?: string[] | null;
   };
-  assert.equal(ambiguousImageEditToolHistory.action, "generated");
+  assert.equal(ambiguousImageEditToolHistory.action, "pending_delivery");
   assert.equal(ambiguousImageEditToolHistory.sourceImageAlias, "image #1");
   assert.equal(ambiguousImageEditToolHistory.referenceImageAliases ?? null, null);
   request.message.attachments = [];

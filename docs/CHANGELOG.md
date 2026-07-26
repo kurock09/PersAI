@@ -3,6 +3,15 @@
 > Archive: detailed historical entries from 2026-06-05 and earlier moved to `docs/CHANGELOG.archive-2026-06-05-details-and-earlier.md`; entries from 2026-05-19 and earlier remain in `docs/CHANGELOG.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: current entries plus concise recent summaries only.
 
+## 2026-07-26
+
+- **ADR-165 amendment: restore image deferral + live media receipts.** Ordinary
+  `image_generate` / `image_edit` defer again (D1 rollback); model waits via
+  `await`. Live UI shows italic “received image/video/file” receipts instead of
+  inline attachment previews; committed replies keep the classic bottom strip.
+  Removed hidden media-activity suppress. Mid-stream deliver / placement /
+  early `assistantMessageId` bind kept for live receipts.
+
 ## 2026-07-25
 
 - **fix(api): Telegram runtime stream accepts thinking/tool_progress/async
@@ -14,13 +23,10 @@
 
 ## 2026-07-24
 
-- **ADR-165: in-loop sync image present.** Ordinary-turn `image_generate` /
-  `image_edit` no longer defer; bytes attach mid-stream into the same live
-  assistant bubble after the producing tool-step (`producingToolCallId` +
-  `inlineMediaPlacement` + SSE `media` with early `assistantMessageId` bind).
-  Interrupt/stop reuses the early bubble. Video stays deferred; ADR-162
-  catch-up remains for async jobs only. Warm-pod hydrate residual noted (no
-  cold-start). Full CI-like gates green before push.
+- **ADR-165: in-loop media present (later amended 2026-07-26).** First land
+  mid-stream deliver + `producingToolCallId` + `inlineMediaPlacement` + SSE
+  `media` with early `assistantMessageId` bind. The sync never-defer image
+  exception was rolled back; see 2026-07-26 amendment.
 
 - **ux(chat): live thinking reserve + fade — no scroll jump.** Fixed ~7-line
   slot under «Думаю» so thought lines grow/clear without resizing the bubble;

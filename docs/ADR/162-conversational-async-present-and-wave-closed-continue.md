@@ -129,13 +129,14 @@ thread.
 - Settle-after-delivered (quiet complete when bytes shown but narration fails)
   may remain once publish seam is correct — without inventing chat captions.
 
-### P6 — Sync in-loop image is out of deferred catch-up scope
+### P6 — Live-bubble media receipts vs deferred catch-up
 
-**ADR-165** owns sync `image_generate` / `image_edit` present into the **same
-live assistant bubble** mid-turn (after the producing tool-step). That path is
-not ConversationalPublish, not idle/wave-closed FIFO catch-up, and must not be
-re-derived as deferred media delivery. Video and other ordinary deferred jobs
-remain on this ADR’s publish/catch-up contour.
+**ADR-165** (amended) owns live-bubble binding + italic media-receipt UX when
+media arrives on the open USER_TURN stream. Ordinary `image_generate` /
+`image_edit` / `video_generate` **defer** again and wait via `await`; they are
+not a sync-tool exception. ConversationalPublish / idle / wave-closed FIFO
+catch-up on this ADR remains the chat-present path for ordinary deferred jobs
+that finalize outside that open bubble.
 
 ---
 

@@ -1,5 +1,18 @@
 # SESSION-HANDOFF
 
+## 2026-07-26 — ADR-165 D1 rollback + live media receipts (local)
+
+- **Baseline tip:** `c1da3a41`. Scope: restore ordinary-thread deferral for
+  `image_generate` / `image_edit` (no sync-tool exception); live chat shows
+  italic media receipts; committed replies use classic bottom attachments;
+  remove hidden image/video activity suppress. Keep mid-stream deliver /
+  placement / early message bind for receipts.
+- **Verified locally:** recursive lint, `format:check`, api/web/runtime
+  typecheck, runtime suite, web `chat-message` + api suite green.
+- **Out of scope:** ADR-161; ADR-162 queue mechanics; TG; deploy until gated.
+- **Next:** commit/push when asked → deploy api+runtime+web → live smoke
+  (defer + await countdown + receipt + bottom strip).
+
 ## 2026-07-25 — TG stream parser parity hotfix (CLEAN audit; full gates)
 
 - **Pushed tip:** `f9d76f29` (+ docs `2dfb0deb`). Independent hostile audit

@@ -4223,7 +4223,7 @@ export class TurnExecutionService {
           currentArtifacts,
           currentFileHandles
         );
-        const deferImageEdit = this.shouldDeferMediaToolExecution(input, IMAGE_EDIT_TOOL_CODE);
+        const deferImageEdit = this.shouldDeferMediaToolExecution(input);
         const result = await this.runtimeImageEditToolService.executeToolCall({
           bundle: execution.bundle,
           toolCall,
@@ -4259,10 +4259,7 @@ export class TurnExecutionService {
           currentArtifacts,
           currentFileHandles
         );
-        const deferImageGenerate = this.shouldDeferMediaToolExecution(
-          input,
-          IMAGE_GENERATE_TOOL_CODE
-        );
+        const deferImageGenerate = this.shouldDeferMediaToolExecution(input);
         const result = await this.runtimeImageGenerateToolService.executeToolCall({
           bundle: execution.bundle,
           toolCall,
@@ -4292,10 +4289,7 @@ export class TurnExecutionService {
         );
       }
       case VIDEO_GENERATE_TOOL_CODE: {
-        const deferVideoGenerate = this.shouldDeferMediaToolExecution(
-          input,
-          VIDEO_GENERATE_TOOL_CODE
-        );
+        const deferVideoGenerate = this.shouldDeferMediaToolExecution(input);
         const result = this.isReadOnlyVideoGenerateLookup(toolCall)
           ? await this.runtimeVideoGenerateToolService.executeToolCall({
               bundle: execution.bundle,
@@ -6681,10 +6675,9 @@ export class TurnExecutionService {
     return null;
   }
 
-  private shouldDeferMediaToolExecution(input: RuntimeTurnRequest, toolCode?: string): boolean {
+  private shouldDeferMediaToolExecution(input: RuntimeTurnRequest): boolean {
     return shouldDeferMediaToolExecutionPolicy({
-      externalThreadKey: input.conversation.externalThreadKey,
-      ...(toolCode === undefined ? {} : { toolCode })
+      externalThreadKey: input.conversation.externalThreadKey
     });
   }
 

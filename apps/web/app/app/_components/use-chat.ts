@@ -87,7 +87,7 @@ export type PendingSendStatus =
 export type ChatAttachment = ChatHistoryAttachment & {
   localPreviewUrl?: string | undefined;
   uploadProgressPercent?: number | undefined;
-  /** ADR-165 — live/history: render this attachment after the producing tool piece. */
+  /** ADR-165 — live stream: place a media-receipt line after this tool call. */
   inlineAfterToolCallId?: string | undefined;
 };
 export type ChatPlatformNotice = {
@@ -114,8 +114,8 @@ export interface ChatMessage {
   /** Sanitized tool calls emitted by the runtime, used to interleave process badges with working notes. */
   toolInvocations?: RuntimeTurnToolInvocation[];
   /**
-   * ADR-165 — which attachments belong after which tool call (history / completed transport).
-   * Live stream may also stamp `inlineAfterToolCallId` on individual attachments.
+   * ADR-165 — which attachments belong after which tool call for live media-receipt
+   * lines. Committed UI still uses the classic bottom attachment strip.
    */
   inlineMediaPlacement?: Array<{ toolCallId: string; attachmentIds: string[] }>;
   /** Local-only streaming hint: true while text deltas are actively being appended. */
@@ -433,15 +433,6 @@ const TOOL_ACTIVITY_COPY: Record<string, { start: string; end: string; failure: 
     failure: "background_task_failed"
   }
 };
-const HIDDEN_MEDIA_ACTIVITY_LABEL = "__hidden_media_activity__";
-function shouldSuppressLegacyMediaActivity(toolName: string): boolean {
-  return (
-    toolName === "image_generate" || toolName === "image_edit" || toolName === "video_generate"
-  );
-}
-function isHiddenMediaActivity(event: ActivityEvent): boolean {
-  return event.label === HIDDEN_MEDIA_ACTIVITY_LABEL;
-}
 function buildToolLiveActivity(params: {
   assistantMessageId: string;
   toolName: string;
@@ -450,18 +441,6 @@ function buildToolLiveActivity(params: {
   toolCallId?: string;
   toolInputPreview?: string;
 }): LiveActivityEvent {
-  if (shouldSuppressLegacyMediaActivity(params.toolName)) {
-    return {
-      id: `activity-live-tool-hidden-${Date.now()}-${params.phase}-${params.toolName}`,
-      type: "tool_use",
-      label: HIDDEN_MEDIA_ACTIVITY_LABEL,
-      afterMessageId: params.assistantMessageId,
-      emphasis: "default",
-      source: "tool",
-      toolName: params.toolName,
-      ...(params.toolCallId === undefined ? {} : { toolCallId: params.toolCallId })
-    };
-  }
   const copy = TOOL_ACTIVITY_COPY[params.toolName];
   const label =
     copy === undefined
@@ -6951,12 +6930,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
   for (const m of visibleMessages) {
     entries.push({ kind: "message", message: m });
     const live = liveActivitiesByMessageId[m.id];
-    if (
-      live &&
-      !isHiddenMediaActivity(live) &&
-      activityTargetMessageId !== null &&
-      m.id === activityTargetMessageId
-    ) {
+    if (live && activityTargetMessageId !== null && m.id === activityTargetMessageId) {
       const shadowRoutingLabel = shadowRoutingLabelsByMessageId[m.id];
       entries.push({
         kind: "activity",
@@ -6966,16 +6940,12 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
     const linked = activityByMsg.get(m.id);
     if (linked) {
       for (const ev of linked) {
-        if (!isHiddenMediaActivity(ev)) {
-          entries.push({ kind: "activity", event: ev });
-        }
+        entries.push({ kind: "activity", event: ev });
       }
     }
   }
   for (const ev of orphanActivities) {
-    if (!isHiddenMediaActivity(ev)) {
-      entries.push({ kind: "activity", event: ev });
-    }
+    entries.push({ kind: "activity", event: ev });
   }
   return {
     entries,

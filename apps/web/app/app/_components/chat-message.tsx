@@ -923,7 +923,8 @@ function MarkdownFragment({ content }: { content: string }) {
 type IterationProcessPiece =
   | { kind: "text"; markdown: string }
   | { kind: "tool"; tool: RuntimeTurnToolInvocation }
-  | { kind: "attachment"; attachments: ChatAttachment[] };
+  /** Live-only italic receipt; committed replies use the classic bottom strip. */
+  | { kind: "media_receipt"; attachments: ChatAttachment[] };
 
 type IterationBlock =
   | { kind: "content"; markdown: string }
@@ -951,27 +952,6 @@ function resolveInlineAttachmentsForToolCall(input: {
     (attachment) =>
       placementIds.has(attachment.id) || attachment.inlineAfterToolCallId === toolCallId
   );
-}
-
-function collectInlineAttachmentIds(input: {
-  attachments: ChatAttachment[] | undefined;
-  inlineMediaPlacement: Array<{ toolCallId: string; attachmentIds: string[] }> | undefined;
-}): Set<string> {
-  const ids = new Set<string>();
-  for (const entry of input.inlineMediaPlacement ?? []) {
-    for (const attachmentId of entry.attachmentIds) {
-      ids.add(attachmentId);
-    }
-  }
-  for (const attachment of input.attachments ?? []) {
-    if (
-      typeof attachment.inlineAfterToolCallId === "string" &&
-      attachment.inlineAfterToolCallId.trim().length > 0
-    ) {
-      ids.add(attachment.id);
-    }
-  }
-  return ids;
 }
 
 function isContentBlock(text: string): boolean {
@@ -1024,13 +1004,18 @@ function buildIterationBlocks(
     const toolsAtIteration = toolInvocations.filter((tool) => tool.iteration === i);
     for (const tool of toolsAtIteration) {
       allPieces.push({ kind: "tool", tool });
-      const inlineAttachments = resolveInlineAttachmentsForToolCall({
-        toolCallId: tool.toolCallId,
-        attachments: options.attachments,
-        inlineMediaPlacement: options.inlineMediaPlacement
-      });
-      if (inlineAttachments.length > 0) {
-        allPieces.push({ kind: "attachment", attachments: inlineAttachments });
+      // While the reply is live, show italic "received …" lines after the
+      // producing tool — not full attachment previews. Committed history keeps
+      // the classic bottom attachment strip only.
+      if (!options.committed) {
+        const inlineAttachments = resolveInlineAttachmentsForToolCall({
+          toolCallId: tool.toolCallId,
+          attachments: options.attachments,
+          inlineMediaPlacement: options.inlineMediaPlacement
+        });
+        if (inlineAttachments.length > 0) {
+          allPieces.push({ kind: "media_receipt", attachments: inlineAttachments });
+        }
       }
     }
   }
@@ -1298,15 +1283,7 @@ function ProcessBadge({ pieces }: { pieces: IterationProcessPiece[] }) {
   );
 }
 
-function IterationBlocks({
-  blocks,
-  chatId,
-  onDocumentJobAccepted
-}: {
-  blocks: IterationBlock[];
-  chatId: string;
-  onDocumentJobAccepted?: (() => void) | undefined;
-}) {
+function IterationBlocks({ blocks }: { blocks: IterationBlock[] }) {
   if (blocks.length === 0) {
     return null;
   }
@@ -1320,11 +1297,11 @@ function IterationBlocks({
             </div>
           );
         }
-        // ADR-165 — split attachment pieces out of the collapsed process badge so
-        // sync images appear organically between tool/text runs.
+        // Split media receipts out of the collapsed process badge so they read
+        // as status lines between tool/text runs while the reply is still live.
         const segments: Array<
           | { kind: "process"; pieces: IterationProcessPiece[] }
-          | { kind: "attachment"; attachments: ChatAttachment[] }
+          | { kind: "media_receipt"; attachments: ChatAttachment[] }
         > = [];
         let currentProcess: IterationProcessPiece[] = [];
         const flushProcess = () => {
@@ -1334,7 +1311,7 @@ function IterationBlocks({
           }
         };
         for (const piece of block.pieces) {
-          if (piece.kind === "attachment") {
+          if (piece.kind === "media_receipt") {
             flushProcess();
             segments.push(piece);
             continue;
@@ -1345,12 +1322,10 @@ function IterationBlocks({
         return (
           <div key={`process-${index}`} className="space-y-3">
             {segments.map((segment, segmentIndex) =>
-              segment.kind === "attachment" ? (
-                <AttachmentStrip
-                  key={`inline-att-${index}-${segmentIndex}`}
-                  chatId={chatId}
+              segment.kind === "media_receipt" ? (
+                <MediaReceiptLines
+                  key={`media-receipt-${index}-${segmentIndex}`}
                   attachments={segment.attachments}
-                  onDocumentJobAccepted={onDocumentJobAccepted}
                 />
               ) : (
                 <ProcessBadge
@@ -1495,6 +1470,50 @@ function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${String(bytes)} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function formatMediaReceiptLabel(
+  attachment: ChatAttachment,
+  t: (key: string, values?: Record<string, string | number | Date>) => string
+): string {
+  const size = formatBytes(
+    typeof attachment.sizeBytes === "number" && Number.isFinite(attachment.sizeBytes)
+      ? attachment.sizeBytes
+      : 0
+  );
+  if (attachment.attachmentType === "image") {
+    return t("mediaReceiptImage", {
+      detail: t("mediaReceiptImageGeneration"),
+      size
+    });
+  }
+  if (attachment.attachmentType === "video") {
+    return t("mediaReceiptVideo", { size });
+  }
+  const name = attachment.originalFilename?.trim();
+  return t("mediaReceiptFile", {
+    name: name && name.length > 0 ? name : t("mediaReceiptFileGeneric"),
+    size
+  });
+}
+
+function MediaReceiptLines({ attachments }: { attachments: ChatAttachment[] }) {
+  const t = useTranslations("chat");
+  if (attachments.length === 0) {
+    return null;
+  }
+  return (
+    <div className="space-y-1" data-testid="media-receipt-lines">
+      {attachments.map((attachment) => (
+        <div
+          key={attachment.id}
+          className="animate-fade-in-inline-status text-sm italic leading-5 text-text-muted/78 motion-reduce:animate-none"
+        >
+          {formatMediaReceiptLabel(attachment, t)}
+        </div>
+      ))}
+    </div>
+  );
 }
 
 function attachmentTypeBadge(attachment: ChatAttachment): string {
@@ -2365,19 +2384,18 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
     message.toolInvocations,
     message.workingNotes
   ]);
-  const inlineAttachmentIds = useMemo(
-    () =>
-      collectInlineAttachmentIds({
-        attachments: message.attachments,
-        inlineMediaPlacement: message.inlineMediaPlacement
-      }),
-    [message.attachments, message.inlineMediaPlacement]
-  );
-  const bottomStripAttachments = useMemo(
-    () =>
-      (message.attachments ?? []).filter((attachment) => !inlineAttachmentIds.has(attachment.id)),
-    [inlineAttachmentIds, message.attachments]
-  );
+  const bottomStripAttachments = useMemo(() => {
+    // Live reply: italic media receipts only — no bottom file strip yet.
+    // Committed: classic bottom strip with every attachment (placement is
+    // history metadata for live receipts, not a permanent inline preview).
+    if (
+      message.role === "assistant" &&
+      (message.status === "streaming" || message.status === "reconciling")
+    ) {
+      return [];
+    }
+    return message.attachments ?? [];
+  }, [message.attachments, message.role, message.status]);
   const hasVisibleAnswerText = assistantSegments.answerText.trim().length > 0;
   const isStreamingTextActive = message.streamingTextActive === true;
   const showInlineStreamingStatus =
@@ -2573,11 +2591,7 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
         ) : (
           <div className="prose-invert min-w-0 max-w-full text-sm break-words text-text [overflow-wrap:anywhere]">
             <ThoughtBlock message={message} />
-            <IterationBlocks
-              blocks={assistantSegments.iterationBlocks}
-              chatId={chatId ?? ""}
-              onDocumentJobAccepted={onDocumentJobAccepted}
-            />
+            <IterationBlocks blocks={assistantSegments.iterationBlocks} />
             {isStreaming ? (
               <>
                 {hasVisibleAnswerText ? (

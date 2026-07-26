@@ -15,9 +15,9 @@ vi.mock("@clerk/nextjs", () => ({
 }));
 
 vi.mock("next-intl", () => ({
-  useTranslations: () => (key: string, values?: Record<string, number>) => {
-    const n = values?.n ?? 0;
-    const steps = values?.steps ?? 0;
+  useTranslations: () => (key: string, values?: Record<string, number | string>) => {
+    const n = typeof values?.n === "number" ? values.n : 0;
+    const steps = typeof values?.steps === "number" ? values.steps : 0;
     const ruSteps = (count: number) =>
       count === 1 ? "шаг" : count >= 2 && count <= 4 ? "шага" : "шагов";
     const ruCommands = (count: number) =>
@@ -136,6 +136,21 @@ vi.mock("next-intl", () => ({
     }
     if (key === "processBadge.micro.failedSuffix") {
       return ` · ${String(n)} ${ruErrors(n)}`;
+    }
+    if (key === "mediaReceiptImage") {
+      return `🖼 Получено изображение — ${String(values?.detail ?? "")} (${String(values?.size ?? "")})`;
+    }
+    if (key === "mediaReceiptImageGeneration") {
+      return "генерация";
+    }
+    if (key === "mediaReceiptVideo") {
+      return `🎬 Получено видео (${String(values?.size ?? "")})`;
+    }
+    if (key === "mediaReceiptFile") {
+      return `📎 Получен файл — ${String(values?.name ?? "")} (${String(values?.size ?? "")})`;
+    }
+    if (key === "mediaReceiptFileGeneric") {
+      return "файл";
     }
     return key;
   }
@@ -1335,10 +1350,11 @@ describe("ChatMessageBubble — pre-response status", () => {
     );
   });
 
-  it("ADR-165: renders in-loop image after image tool piece and not in bottom strip", () => {
+  it("ADR-165: committed reply keeps attachments in the classic bottom strip", () => {
     const image = {
       ...makeImageAttachment("att-inline-1"),
-      inlineAfterToolCallId: "call-img-1"
+      inlineAfterToolCallId: "call-img-1",
+      sizeBytes: 1024 * 1024
     };
     const { container } = render(
       <ChatMessageBubble
@@ -1356,18 +1372,43 @@ describe("ChatMessageBubble — pre-response status", () => {
       />
     );
 
-    const badge = screen.getByRole("button", { name: /Сгенерировано|Выполнено/ });
+    expect(screen.queryByTestId("media-receipt-lines")).toBeNull();
     const strips = screen.getAllByTestId("attachment-strip");
     expect(strips).toHaveLength(1);
-    const imageEl = container.querySelector('img[alt="photo.jpg"]');
-    expect(imageEl).not.toBeNull();
+    expect(container.querySelector('img[alt="photo.jpg"]')).not.toBeNull();
+    // Classic layout: answer text, then bottom attachment strip.
     expect(
-      badge.compareDocumentPosition(strips[0] as Node) & Node.DOCUMENT_POSITION_FOLLOWING
-    ).toBeTruthy();
-    expect(
-      (strips[0] as Node).compareDocumentPosition(screen.getByText("Вот картинка.")) &
+      screen.getByText("Вот картинка.").compareDocumentPosition(strips[0] as Node) &
         Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy();
+  });
+
+  it("ADR-165: live reply shows italic media receipt instead of inline preview", () => {
+    const image = {
+      ...makeImageAttachment("att-inline-1"),
+      inlineAfterToolCallId: "call-img-1",
+      sizeBytes: 1024 * 1024
+    };
+    render(
+      <ChatMessageBubble
+        chatId="chat-1"
+        message={makeAssistantMessage({
+          status: "streaming",
+          content: "",
+          workingNotes: ["сейчас"],
+          toolInvocations: [
+            { name: "image_generate", iteration: 0, ok: true, toolCallId: "call-img-1" }
+          ],
+          inlineMediaPlacement: [{ toolCallId: "call-img-1", attachmentIds: ["att-inline-1"] }],
+          attachments: [image]
+        })}
+      />
+    );
+
+    expect(screen.queryByTestId("attachment-strip")).toBeNull();
+    expect(screen.getByTestId("media-receipt-lines")).toHaveTextContent(
+      /Получено изображение.*генерация.*1\.0 MB/
+    );
   });
 
   it("preserves order for mixed connective text, content, then connective text plus tool", () => {
