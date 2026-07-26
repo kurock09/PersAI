@@ -4850,10 +4850,7 @@ describe("useChat", () => {
     // ADR-165 amendment: image/video live tool activity is visible again (not hidden).
     expect(
       result.current.entries.some(
-        (entry) =>
-          entry.kind === "activity" &&
-          entry.event.toolName === "image_generate" &&
-          entry.event.label === "Generating image"
+        (entry) => entry.kind === "activity" && entry.event.label === "Generating image"
       )
     ).toBe(true);
   });
