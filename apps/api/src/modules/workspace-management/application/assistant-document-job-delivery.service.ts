@@ -139,14 +139,14 @@ export class AssistantDocumentJobDeliveryService {
   ) {}
 
   private async publishOpenJobsIfOpenTurn(
-    job: Pick<ClaimedReadyDocumentJob, "assistantId" | "chatId" | "surface">,
-    payload: PersistedDeliveryPayload
+    job: Pick<ClaimedReadyDocumentJob, "assistantId" | "chatId" | "surface" | "providerStatusJson">,
+    payload?: PersistedDeliveryPayload | Partial<PersistedDeliveryPayload> | null
   ): Promise<void> {
     if (this.liveTurnPresent === null || job.surface !== "web") {
       return;
     }
-    const sourceUserMessageId = this.readSourceUserMessageId(payload);
-    if (sourceUserMessageId === "unknown") {
+    const sourceUserMessageId = this.resolveOpenTurnSourceUserMessageId(job, payload);
+    if (sourceUserMessageId === null) {
       return;
     }
     const attempt = await this.liveTurnPresent.findOpenUserTurnAttempt({
@@ -158,6 +158,35 @@ export class AssistantDocumentJobDeliveryService {
       return;
     }
     await this.liveTurnPresent.publishOpenJobsSnapshot({ attempt });
+  }
+
+  private resolveOpenTurnSourceUserMessageId(
+    job: Pick<ClaimedReadyDocumentJob, "providerStatusJson">,
+    payload?: PersistedDeliveryPayload | Partial<PersistedDeliveryPayload> | null
+  ): string | null {
+    if (
+      payload !== null &&
+      payload !== undefined &&
+      typeof payload.sourceUserMessageId === "string" &&
+      payload.sourceUserMessageId.trim().length > 0
+    ) {
+      return payload.sourceUserMessageId.trim();
+    }
+    const parsed = this.parsePersistedPayload(job.providerStatusJson);
+    if (
+      typeof parsed?.sourceUserMessageId === "string" &&
+      parsed.sourceUserMessageId.trim().length > 0
+    ) {
+      return parsed.sourceUserMessageId.trim();
+    }
+    const raw = job.providerStatusJson;
+    if (raw !== null && typeof raw === "object" && !Array.isArray(raw)) {
+      const id = (raw as Record<string, unknown>).sourceUserMessageId;
+      if (typeof id === "string" && id.trim().length > 0) {
+        return id.trim();
+      }
+    }
+    return null;
   }
 
   private async persistDocumentRenderBillingFacts(input: {
@@ -1541,6 +1570,8 @@ export class AssistantDocumentJobDeliveryService {
           message: "Job failed."
         }
       });
+      // ADR-165 D6 — clear Working mid-turn on document terminal failure too.
+      await this.publishOpenJobsIfOpenTurn(job, payload ?? null);
     }
     this.logger.warn(`Document delivery failed for ${job.id}: ${message}`);
   }
