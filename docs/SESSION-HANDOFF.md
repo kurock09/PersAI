@@ -2,7 +2,7 @@
 
 ## 2026-07-26 — ADR-165 D6.1 live UX repair (receipts / status / scroll)
 
-- **Pushed tip:** (this commit). Baseline `79f25862` (api pin `78f5c199` /
+- **Pushed tip:** `ac03c77a`. Baseline `79f25862` (api pin `78f5c199` /
   web `77146a2e` were live; founder reported D6 UX still broken).
 - **Root cause:** deferred media jobs never stored chat `toolCallId` → SSE
   `media` had no `afterToolCallId` → italic receipts never rendered; live chip
