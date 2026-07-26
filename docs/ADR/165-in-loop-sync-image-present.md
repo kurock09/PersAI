@@ -4,8 +4,11 @@
 
 **Amended 2026-07-26** — founder rollback of D1 (ordinary `image_generate` /
 `image_edit` defer again) + live UI receipts instead of inline file previews.
-Parent orchestrates/audits/commits; implementation subagents use
-**`cursor-grok-4.5-high-fast` only**. Keep commits separate from ADR-161/162/163/164.
+**Amended again 2026-07-26** — open USER_TURN job-deliver uses the same live
+`media` + `async_jobs_open` contour (no parallel bus); Working banner clears on
+job terminal, not turn end. Parent orchestrates/audits/commits; implementation
+subagents use **`cursor-grok-4.5-high-fast` only**. Keep commits separate from
+ADR-161/162/163/164.
 
 Opened 2026-07-24 on baseline `ce624fcd`; first land `7ab4c0c2`.
 
@@ -45,14 +48,15 @@ attachment strip.
 | D3 | On web stream `media` chunks: ensure a live assistant message exists early; `mediaDeliveryService.deliver` when media arrives on that stream; persist `metadata.inlineMediaPlacement` as `{ toolCallId, attachmentIds }[]`; SSE `media` with `assistantMessageId` + attachments + `afterToolCallId` so the client binds the local streaming bubble; interrupt/stop reuses the early message; mark delivered identities only for succeeded path-matched artifacts; end-of-turn must not double-deliver. |
 | D4 | **Amended 2026-07-26.** Live UI: iteration pieces may include `{ kind: "media_receipt" }` (italic status line). Committed UI: no inline attachment/receipt pieces from placement — classic bottom `AttachmentStrip` for all attachments. Do not hide ordinary image/video live activity labels. |
 | D5 | Warm-pod hydrate is best-effort only when a cheap “pod already exists” hook is available; otherwise leave an explicit residual — no cold-start invent. |
+| D6 | **2026-07-26.** While a web USER_TURN attempt is `running` for the job’s `sourceUserMessageId`, **media** job completion **must not** take the ADR-162 settle-without-chat path. It claims `current_turn_inline` if still unowned, attaches into the open assistant bubble (create+bind early row if needed), publishes SSE `media` (same shape as stream mid-present) for receipts, and publishes SSE `async_jobs_open` so the Working banner clears on job terminal. Document jobs keep ADR-162 settle/ConversationalPublish for chat invent (persist does not yet reuse document pins) but still publish `async_jobs_open` on terminal so Working clears. Closed-turn ordinary deferred media still uses ConversationalPublish. One turn bus — no second websocket / parallel client handler family. |
 
 ---
 
 ## Non-goals
 
 - Sync video present / forcing image tools to run sync in the turn loop.
-- Changes to ADR-162 ConversationalPublish, wave-closed continue, or catch-up
-  eligibility for deferred/async jobs.
+- Changes to ADR-162 ConversationalPublish / wave-closed continue for jobs that
+  finalize **after** the source USER_TURN is already closed.
 - ADR-161 cache / observation / usage work.
 - Spinning a sandbox pod solely to hydrate an outbound image.
 - Dual local-assistant invent or absorb-as-architecture for media present.
@@ -62,7 +66,9 @@ attachment strip.
 ## Relation to ADR-162
 
 ADR-162 owns **ordinary deferred / post-finalize** media & document chat
-present (ConversationalPublish + wave-closed continue). ADR-165 owns **live
-bubble binding + receipt UX** when media arrives on the open USER_TURN stream
-(and the placement metadata that powers those live receipts). It does not
-reintroduce a sync-image tool exception.
+present (ConversationalPublish + wave-closed continue) when the source
+USER_TURN is already closed. ADR-165 owns **live bubble binding + receipt UX**
+when bytes arrive while that USER_TURN is still open — including deferred
+media/document jobs that finish mid-loop (D6), via the same SSE `media` /
+placement contour as stream mid-present, plus `async_jobs_open` for Working.
+It does not reintroduce a sync-image tool exception.

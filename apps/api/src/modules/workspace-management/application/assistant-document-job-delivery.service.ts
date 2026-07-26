@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger } from "@nestjs/common";
+import { Inject, Injectable, Logger, Optional } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import type { RuntimeOutputArtifact, RuntimeUsageSnapshot } from "@persai/runtime-contract";
 import {
@@ -30,6 +30,7 @@ import {
   normalizeDocumentWorkspaceFacts
 } from "./assistant-document-link-metadata";
 import { AssistantAsyncJobHandleStateService } from "./assistant-async-job-handle-state.service";
+import { WebChatLiveTurnPresentService } from "./web-chat-live-turn-present.service";
 
 const DOCUMENT_DELIVERY_LAST_ERROR_MAX_CHARS = 1_000;
 const DOCUMENT_JOB_CLAIM_TTL_MS = 10 * 60 * 1000;
@@ -129,8 +130,35 @@ export class AssistantDocumentJobDeliveryService {
         decision: "legacy_frame",
         state: "completed"
       })
-    }
+    },
+    @Optional()
+    private readonly liveTurnPresent: Pick<
+      WebChatLiveTurnPresentService,
+      "findOpenUserTurnAttempt" | "publishOpenJobsSnapshot"
+    > | null = null
   ) {}
+
+  private async publishOpenJobsIfOpenTurn(
+    job: Pick<ClaimedReadyDocumentJob, "assistantId" | "chatId" | "surface">,
+    payload: PersistedDeliveryPayload
+  ): Promise<void> {
+    if (this.liveTurnPresent === null || job.surface !== "web") {
+      return;
+    }
+    const sourceUserMessageId = this.readSourceUserMessageId(payload);
+    if (sourceUserMessageId === "unknown") {
+      return;
+    }
+    const attempt = await this.liveTurnPresent.findOpenUserTurnAttempt({
+      assistantId: job.assistantId,
+      chatId: job.chatId,
+      userMessageId: sourceUserMessageId
+    });
+    if (attempt === null) {
+      return;
+    }
+    await this.liveTurnPresent.publishOpenJobsSnapshot({ attempt });
+  }
 
   private async persistDocumentRenderBillingFacts(input: {
     job: Pick<ClaimedReadyDocumentJob, "id" | "assistantId" | "workspaceId" | "surface">;
@@ -274,12 +302,15 @@ export class AssistantDocumentJobDeliveryService {
 
       // ADR-162 Phase 1 — ordinary deferred: settle + finalize without chat
       // invent / attach. ConversationalPublish owns the bubble at present.
+      // ADR-165 D6 live attach+SSE media is media-job only until document pins
+      // are wired into end-of-turn persist (avoid dual assistant bubbles).
       const deferChatPublish = await this.shouldDeferConversationalPublish(job.id);
       if (deferChatPublish && currentPayload.externalDeliveryCommitted !== true) {
         await this.finalizeOrdinaryDeferredWithoutChat({
           job,
           payload: currentPayload
         });
+        await this.publishOpenJobsIfOpenTurn(job, currentPayload);
         return;
       }
 
@@ -465,6 +496,7 @@ export class AssistantDocumentJobDeliveryService {
       if (!finalized) {
         return;
       }
+      await this.publishOpenJobsIfOpenTurn(job, finalPayload);
 
       const finalAssistantText = completionAssistantText.trim();
       const finalLocale = inferAssistantDocumentJobLocale({

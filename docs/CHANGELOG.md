@@ -5,6 +5,14 @@
 
 ## 2026-07-26
 
+- **ADR-165 D6: open-turn media live present + Working clears on job terminal.**
+  Deferred media jobs that finish while the source web USER_TURN is still
+  running attach into the live assistant bubble and publish the same SSE
+  `media` receipts as sync mid-stream present; media/document terminals also
+  publish `async_jobs_open` so the Working banner clears without waiting for
+  turn end. Closed-turn ordinary deferred media still uses ADR-162
+  ConversationalPublish. One turn bus.
+
 - **ADR-165 amendment: restore image deferral + live media receipts.** Ordinary
   `image_generate` / `image_edit` defer again (D1 rollback); model waits via
   `await`. Live UI shows italic “received image/video/file” receipts instead of

@@ -1,5 +1,26 @@
 # SESSION-HANDOFF
 
+## 2026-07-26 — ADR-165 D6 open-turn media present + Working on job terminal
+
+- **Scope:** deferred **media** jobs that finish while the source web USER_TURN
+  is still `running` attach into the live assistant bubble and publish SSE
+  `media` + `async_jobs_open`. Document terminals only publish
+  `async_jobs_open` (no open-turn document attach — avoids dual bubble until
+  persist reuses document pins). Closed-turn ordinary deferred media stays
+  ADR-162 ConversationalPublish. One turn bus.
+- **Landed:** `WebChatLiveTurnPresentService`; handle `claimOpenTurnLivePresent`;
+  media open-turn deliver; document/media open-jobs snapshot; web
+  `onAsyncJobsOpen`; ADR-165 D6 + changelog. Audit DIRTY on document attach
+  repaired by narrowing document to banner-only.
+- **Gates:** recursive lint, `format:check`, api/web/runtime typecheck, api +
+  runtime + provider-gateway + web tests, `test:adr146-slice5`, `test:step2`
+  green (known intermittent `use-chat` continuity flakes under parallel load;
+  isolated + suite retry green).
+- **Out of scope:** ADR-161; never-defer sync image; TG; document open-turn
+  attach/receipts.
+- **Next:** push → deploy api+web → live onion smoke (receipt mid-await +
+  Working clears on `deliveredAt`).
+
 ## 2026-07-26 — ADR-165 D1 rollback + live media receipts (pushed)
 
 - **Pushed tip:** `a89fd366` (baseline `c1da3a41`; docs tip `79146e46`). Scope:
@@ -14,8 +35,7 @@
   typecheck, runtime suite, web `chat-message` + api suite green; focused
   failing `use-chat` cases green after repair.
 - **Out of scope:** ADR-161; ADR-162 queue mechanics; TG.
-- **Next:** deploy api+runtime+web → live smoke (defer + await countdown +
-  receipt + bottom strip).
+- **Follow-up:** D6 open-turn job present (above).
 
 ## 2026-07-25 — TG stream parser parity hotfix (CLEAN audit; full gates)
 

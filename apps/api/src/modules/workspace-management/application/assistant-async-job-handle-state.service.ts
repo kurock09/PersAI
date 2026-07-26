@@ -692,6 +692,34 @@ export class AssistantAsyncJobHandleStateService {
     });
   }
 
+  /**
+   * ADR-165 — when artifacts land while the source USER_TURN is still open,
+   * claim current-turn inline narration so completion can attach into the live
+   * bubble and ADR-162 catch-up does not invent a second present for the same
+   * job. No-op when already owned (including continuation).
+   */
+  async claimOpenTurnLivePresent(input: {
+    kind: "media" | "document";
+    canonicalJobId: string;
+  }): Promise<boolean> {
+    return this.prisma.$transaction(async (tx) => {
+      const row = await this.lockCanonical(tx, input);
+      if (row === null || row.narrationOwner !== null) {
+        return false;
+      }
+      const now = new Date();
+      await tx.assistantAsyncJobHandle.update({
+        where: { id: row.id },
+        data: {
+          narrationOwner: "current_turn",
+          narrationDecision: "current_turn_inline",
+          narrationDecisionAt: now
+        }
+      });
+      return true;
+    });
+  }
+
   async recordCanonicalCompletion(input: {
     kind: "media" | "document" | "sandbox";
     canonicalJobId: string;

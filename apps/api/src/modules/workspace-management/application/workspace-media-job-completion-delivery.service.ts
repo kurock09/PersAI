@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger } from "@nestjs/common";
+import { Inject, Injectable, Logger, Optional } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { type RuntimeOutputArtifact, type RuntimeUsageSnapshot } from "@persai/runtime-contract";
 import {
@@ -27,6 +27,10 @@ import {
   inferAssistantMediaJobFailureLocale
 } from "./workspace-media-job-failure-copy.service";
 import { AssistantAsyncJobHandleStateService } from "./assistant-async-job-handle-state.service";
+import {
+  type OpenWebUserTurnAttempt,
+  WebChatLiveTurnPresentService
+} from "./web-chat-live-turn-present.service";
 
 const COMPLETION_DELIVERY_BATCH_SIZE = 4;
 const COMPLETION_DELIVERY_CLAIM_TTL_MS = 5 * 60 * 1000;
@@ -73,6 +77,45 @@ function truncateLastError(message: string): string {
   return `${message.slice(0, COMPLETION_DELIVERY_LAST_ERROR_MAX_CHARS - 3)}...`;
 }
 
+function firstProducingToolCallId(artifacts: RuntimeOutputArtifact[]): string | null {
+  for (const artifact of artifacts) {
+    if (
+      typeof artifact.producingToolCallId === "string" &&
+      artifact.producingToolCallId.trim().length > 0
+    ) {
+      return artifact.producingToolCallId.trim();
+    }
+  }
+  return null;
+}
+
+function readInlineMediaPlacement(
+  metadata: unknown
+): Array<{ toolCallId: string; attachmentIds: string[] }> {
+  if (metadata === null || typeof metadata !== "object" || Array.isArray(metadata)) {
+    return [];
+  }
+  const raw = (metadata as Record<string, unknown>).inlineMediaPlacement;
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  return raw.flatMap((entry) => {
+    if (entry === null || typeof entry !== "object" || Array.isArray(entry)) {
+      return [];
+    }
+    const row = entry as Record<string, unknown>;
+    if (typeof row.toolCallId !== "string" || row.toolCallId.trim().length === 0) {
+      return [];
+    }
+    const attachmentIds = Array.isArray(row.attachmentIds)
+      ? row.attachmentIds.filter(
+          (id): id is string => typeof id === "string" && id.trim().length > 0
+        )
+      : [];
+    return [{ toolCallId: row.toolCallId.trim(), attachmentIds }];
+  });
+}
+
 function computeRetryBackoffMs(attempt: number): number {
   const safeAttempt = Math.max(1, Math.floor(attempt));
   return Math.min(
@@ -107,7 +150,16 @@ export class AssistantMediaJobCompletionDeliveryService {
         decision: "legacy_frame",
         state: "completed"
       })
-    }
+    },
+    @Optional()
+    private readonly liveTurnPresent: Pick<
+      WebChatLiveTurnPresentService,
+      | "findOpenUserTurnAttempt"
+      | "ensureOpenTurnAssistantMessage"
+      | "claimInlineForOpenTurnPresent"
+      | "publishMedia"
+      | "publishOpenJobsSnapshot"
+    > | null = null
   ) {}
 
   private async persistCompletionFramingLedger(input: {
@@ -334,11 +386,21 @@ export class AssistantMediaJobCompletionDeliveryService {
         kind: "media",
         canonicalJobId: job.id
       });
-      // ADR-162 Phase 1 — ordinary deferred (owned handle, not await-inline):
-      // finalize + settle + handle ready; chat invent/attach waits for
-      // ConversationalPublish at catch-up present. No parallel early invent.
+      // ADR-165 — open USER_TURN supersedes ordinary defer settle-without-chat:
+      // attach into the live bubble + SSE media / open-jobs so receipts and the
+      // Working banner track job terminal truth while the loop is still alive.
+      const openTurnAttempt = job.surface === "web" ? await this.resolveOpenTurnAttempt(job) : null;
+      if (openTurnAttempt !== null) {
+        await this.liveTurnPresent?.claimInlineForOpenTurnPresent({
+          kind: "media",
+          canonicalJobId: job.id
+        });
+      }
+      // ADR-162 Phase 1 — ordinary deferred (owned handle, not await-inline)
+      // with no open USER_TURN: finalize + settle; chat invent waits for
+      // ConversationalPublish at catch-up present.
       const deferChatPublish = await this.shouldDeferConversationalPublish(job.id);
-      if (deferChatPublish) {
+      if (deferChatPublish && openTurnAttempt === null) {
         await this.mediaDeliveryService.settleProducedArtifactsWithoutDelivery({
           assistantId: job.assistantId,
           workspaceId: job.workspaceId,
@@ -378,10 +440,14 @@ export class AssistantMediaJobCompletionDeliveryService {
 
       // Attachment delivery is authoritative. In the missing-handle historical
       // contour, do not persist or publish legacy framing before this succeeds.
-      const messageId = await this.ensureCompletionMessage(job, {
-        text: "",
-        shouldUpdateExistingMessage: false
-      });
+      const messageId = await this.ensureCompletionMessage(
+        job,
+        {
+          text: "",
+          shouldUpdateExistingMessage: false
+        },
+        { openTurnAttempt }
+      );
       const delivered = await this.mediaDeliveryService.deliver({
         artifacts: runtimeOutputArtifactsToMediaArtifacts(artifacts),
         channel: "web",
@@ -392,6 +458,15 @@ export class AssistantMediaJobCompletionDeliveryService {
       });
       deliveryState.loopResolved = true;
       await this.releaseUnproducedRemainderBestEffort(job, artifacts.length);
+      if (openTurnAttempt !== null && delivered.attachments.length > 0) {
+        await this.publishOpenTurnMediaPresent({
+          attempt: openTurnAttempt,
+          job,
+          messageId,
+          artifacts,
+          attachments: delivered.attachments
+        });
+      }
       const completionAssistantText = await this.resolveCompletionAssistantText({
         job,
         sourceUserMessageText: requestPayload.sourceUserMessageText,
@@ -446,6 +521,9 @@ export class AssistantMediaJobCompletionDeliveryService {
             ? "Generated media could not be delivered to the user-visible chat."
             : null
       });
+      if (openTurnAttempt !== null) {
+        await this.liveTurnPresent?.publishOpenJobsSnapshot({ attempt: openTurnAttempt });
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Media delivery failed.";
       const canRetry = job.attemptCount < job.maxAttempts;
@@ -603,6 +681,10 @@ export class AssistantMediaJobCompletionDeliveryService {
             message: "Job failed."
           }
         });
+      }
+      const openTurnAttempt = await this.resolveOpenTurnAttempt(job);
+      if (openTurnAttempt !== null) {
+        await this.liveTurnPresent?.publishOpenJobsSnapshot({ attempt: openTurnAttempt });
       }
       return;
     }
@@ -884,15 +966,81 @@ export class AssistantMediaJobCompletionDeliveryService {
     );
   }
 
+  private async resolveOpenTurnAttempt(
+    job: Pick<ClaimedCompletionPendingMediaJob, "assistantId" | "chatId" | "sourceUserMessageId">
+  ): Promise<OpenWebUserTurnAttempt | null> {
+    if (this.liveTurnPresent === null) {
+      return null;
+    }
+    return this.liveTurnPresent.findOpenUserTurnAttempt({
+      assistantId: job.assistantId,
+      chatId: job.chatId,
+      userMessageId: job.sourceUserMessageId
+    });
+  }
+
+  private async publishOpenTurnMediaPresent(input: {
+    attempt: OpenWebUserTurnAttempt;
+    job: ClaimedCompletionPendingMediaJob;
+    messageId: string;
+    artifacts: RuntimeOutputArtifact[];
+    attachments: Awaited<ReturnType<MediaDeliveryService["deliver"]>>["attachments"];
+  }): Promise<void> {
+    if (this.liveTurnPresent === null || input.attachments.length === 0) {
+      return;
+    }
+    const afterToolCallId = firstProducingToolCallId(input.artifacts);
+    if (afterToolCallId !== null) {
+      const existing = await this.assistantChatRepository.findMessageByIdForAssistant(
+        input.messageId,
+        input.job.assistantId
+      );
+      const priorPlacement = readInlineMediaPlacement(existing?.metadata);
+      const nextPlacement = [
+        ...priorPlacement.filter((entry) => entry.toolCallId !== afterToolCallId),
+        {
+          toolCallId: afterToolCallId,
+          attachmentIds: [
+            ...(priorPlacement.find((entry) => entry.toolCallId === afterToolCallId)
+              ?.attachmentIds ?? []),
+            ...input.attachments.map((attachment) => attachment.id)
+          ]
+        }
+      ];
+      await this.assistantChatRepository.mergeMessageMetadata(
+        input.messageId,
+        input.job.assistantId,
+        {
+          sourceUserMessageId: input.job.sourceUserMessageId,
+          inlineMediaPlacement: nextPlacement
+        }
+      );
+    }
+    this.liveTurnPresent.publishMedia({
+      attempt: input.attempt,
+      assistantMessageId: input.messageId,
+      attachments: input.attachments,
+      ...(afterToolCallId === null ? {} : { afterToolCallId })
+    });
+  }
+
   private async ensureCompletionMessage(
     job: ClaimedCompletionPendingMediaJob,
-    assistantText: CompletionAssistantTextResolution
+    assistantText: CompletionAssistantTextResolution,
+    options?: { openTurnAttempt?: OpenWebUserTurnAttempt | null }
   ): Promise<string> {
+    const openTurnAttempt = options?.openTurnAttempt ?? null;
     const inlineAwait = await this.isCurrentTurnInlineAwait(job.id);
     // Ordinary async jobs never reuse the acknowledgement bubble — that left
     // artifacts on "request accepted" while catch-up reply stayed empty below.
     // Await-wait may still share the turn narration message.
     let pinnedId = job.completionAssistantMessageId ?? null;
+    if (pinnedId === null && openTurnAttempt !== null && this.liveTurnPresent !== null) {
+      pinnedId = await this.liveTurnPresent.ensureOpenTurnAssistantMessage({
+        attempt: openTurnAttempt,
+        preferredMessageId: job.assistantAcknowledgementMessageId
+      });
+    }
     if (pinnedId === null && inlineAwait) {
       pinnedId = job.assistantAcknowledgementMessageId ?? null;
     }
@@ -941,7 +1089,8 @@ export class AssistantMediaJobCompletionDeliveryService {
     }
 
     // ADR-162 — ordinary owned-handle jobs must never invent here; only
-    // await-inline (pinned above) or missing-handle legacy may create.
+    // await-inline / open-turn live present (pinned above) or missing-handle
+    // legacy may create.
     if (await this.shouldDeferConversationalPublish(job.id)) {
       throw new Error(
         `ADR-162: ordinary media job ${job.id} must not invent a chat row at artifact-ready`

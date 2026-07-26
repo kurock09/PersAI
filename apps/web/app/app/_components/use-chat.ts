@@ -1999,6 +1999,44 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
     },
     [replaceActiveDocumentJobs, replaceActiveMediaJobs, replaceActiveSandboxJobs]
   );
+  /** ADR-165 — replace Working banner from authoritative mid-turn open-jobs snapshot. */
+  const applyOpenJobsSnapshot = useCallback(
+    (
+      targetThreadKey: string,
+      payload: {
+        activeMediaJobs: WebChatActiveMediaJobState[];
+        activeDocumentJobs: WebChatActiveDocumentJobState[];
+        activeSandboxJobs: WebChatActiveSandboxJobState[];
+      }
+    ) => {
+      const cached = cachedThreadHistorySnapshotsRef.current.get(targetThreadKey);
+      if (cached !== undefined) {
+        cachedThreadHistorySnapshotsRef.current.set(targetThreadKey, {
+          ...cached,
+          activeMediaJobs: payload.activeMediaJobs,
+          activeDocumentJobs: payload.activeDocumentJobs,
+          activeSandboxJobs: payload.activeSandboxJobs
+        });
+      }
+      markMediaActive(targetThreadKey, payload.activeMediaJobs.length > 0);
+      markDocumentActive(targetThreadKey, payload.activeDocumentJobs.length > 0);
+      markSandboxActive(targetThreadKey, payload.activeSandboxJobs.length > 0);
+      if (currentThreadKeyRef.current !== targetThreadKey) {
+        return;
+      }
+      replaceActiveMediaJobs(payload.activeMediaJobs);
+      replaceActiveDocumentJobs(payload.activeDocumentJobs);
+      replaceActiveSandboxJobs(payload.activeSandboxJobs);
+    },
+    [
+      markDocumentActive,
+      markMediaActive,
+      markSandboxActive,
+      replaceActiveDocumentJobs,
+      replaceActiveMediaJobs,
+      replaceActiveSandboxJobs
+    ]
+  );
   const clearSoftDetachReconcileTimer = useCallback((targetThreadKey: string) => {
     const timer = softDetachReconcileTimersByThreadRef.current.get(targetThreadKey);
     if (timer !== undefined) {
@@ -3797,6 +3835,9 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                 }
                 upsertAcceptedAsyncJob(payload);
               },
+              onAsyncJobsOpen: (payload) => {
+                applyOpenJobsSnapshot(targetThreadKey, payload);
+              },
               onProjectActivity: ({ summary, detail }) => {
                 const assistantMessageId = resolveLiveAssistantId();
                 if (assistantMessageId === null) {
@@ -5054,6 +5095,13 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
             return;
           }
           upsertAcceptedAsyncJob(payload);
+        },
+        onAsyncJobsOpen: (payload: {
+          activeMediaJobs: WebChatActiveMediaJobState[];
+          activeDocumentJobs: WebChatActiveDocumentJobState[];
+          activeSandboxJobs: WebChatActiveSandboxJobState[];
+        }) => {
+          applyOpenJobsSnapshot(sendThreadKey, payload);
         },
         onProjectActivity: ({
           summary,

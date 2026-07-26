@@ -323,6 +323,7 @@ import { WebChatTurnStopDispatchService } from "./application/web-chat-turn-stop
 import { WebChatContinuationDiscoveryService } from "./application/web-chat-continuation-discovery.service";
 import { WebChatTurnStreamBusService } from "./application/web-chat-turn-stream-bus.service";
 import { WebChatTurnStreamRegistry } from "./application/web-chat-turn-stream-registry.service";
+import { WebChatLiveTurnPresentService } from "./application/web-chat-live-turn-present.service";
 import { createTurnStreamEventStore } from "./application/turn-stream-event-store.factory";
 import { TURN_STREAM_EVENT_STORE } from "./application/turn-stream-event-store";
 import { PrepareAssistantInboundTurnService } from "./application/prepare-assistant-inbound-turn.service";
@@ -813,6 +814,7 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     },
     WebChatTurnStreamBusService,
     WebChatTurnStreamRegistry,
+    WebChatLiveTurnPresentService,
     UpdateAssistantDraftService,
     SwitchActiveAssistantService,
     ResolveTelegramChannelRuntimeConfigService,

@@ -372,6 +372,14 @@ type WebChatStreamEvent =
       };
     }
   | {
+      event: "async_jobs_open";
+      data: {
+        activeMediaJobs: WebChatActiveMediaJobState[];
+        activeDocumentJobs: WebChatActiveDocumentJobState[];
+        activeSandboxJobs: WebChatActiveSandboxJobState[];
+      };
+    }
+  | {
       event: "media";
       data: {
         assistantMessageId: string;
@@ -483,7 +491,13 @@ export interface AssistantWebChatStreamHandlers {
     documentJob?: WebChatActiveDocumentJobState;
     sandboxJob?: WebChatActiveSandboxJobState;
   }) => void;
-  /** ADR-165 — sync in-loop media attached to the live assistant bubble. */
+  /** ADR-165 — authoritative open-jobs snapshot after a job becomes terminal mid-turn. */
+  onAsyncJobsOpen?: (payload: {
+    activeMediaJobs: WebChatActiveMediaJobState[];
+    activeDocumentJobs: WebChatActiveDocumentJobState[];
+    activeSandboxJobs: WebChatActiveSandboxJobState[];
+  }) => void;
+  /** ADR-165 — media attached to the live assistant bubble (stream or job-deliver). */
   onMedia?: (payload: {
     assistantMessageId: string;
     attachments: ChatHistoryAttachment[];
@@ -1224,6 +1238,22 @@ function toStreamEvent(eventName: string, payload: unknown): WebChatStreamEvent 
       }
     };
   }
+  if (eventName === "async_jobs_open") {
+    return {
+      event: "async_jobs_open",
+      data: {
+        activeMediaJobs: Array.isArray(body.activeMediaJobs)
+          ? (body.activeMediaJobs as WebChatActiveMediaJobState[])
+          : [],
+        activeDocumentJobs: Array.isArray(body.activeDocumentJobs)
+          ? (body.activeDocumentJobs as WebChatActiveDocumentJobState[])
+          : [],
+        activeSandboxJobs: Array.isArray(body.activeSandboxJobs)
+          ? (body.activeSandboxJobs as WebChatActiveSandboxJobState[])
+          : []
+      }
+    };
+  }
   if (eventName === "async_job_accepted") {
     if (
       (body.kind !== "media" && body.kind !== "document" && body.kind !== "sandbox") ||
@@ -1526,6 +1556,8 @@ export async function streamAssistantWebChatTurn(
       handlers.onToolProgress?.(streamEvent.data);
     } else if (streamEvent.event === "async_job_accepted") {
       handlers.onAsyncJobAccepted?.(streamEvent.data);
+    } else if (streamEvent.event === "async_jobs_open") {
+      handlers.onAsyncJobsOpen?.(streamEvent.data);
     } else if (streamEvent.event === "media") {
       handlers.onMedia?.(streamEvent.data);
     } else if (streamEvent.event === "activity") {
@@ -1672,6 +1704,7 @@ export async function reattachAssistantWebChatTurnStream(
     else if (streamEvent.event === "tool_progress") handlers.onToolProgress?.(streamEvent.data);
     else if (streamEvent.event === "async_job_accepted")
       handlers.onAsyncJobAccepted?.(streamEvent.data);
+    else if (streamEvent.event === "async_jobs_open") handlers.onAsyncJobsOpen?.(streamEvent.data);
     else if (streamEvent.event === "media") handlers.onMedia?.(streamEvent.data);
     else if (streamEvent.event === "activity") handlers.onActivity?.(streamEvent.data);
     else if (streamEvent.event === "project_activity")
