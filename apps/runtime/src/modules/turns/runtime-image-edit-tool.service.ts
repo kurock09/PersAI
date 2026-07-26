@@ -118,6 +118,7 @@ export class RuntimeImageEditToolService {
       sourceUserMessageId: string;
       sourceClientTurnId?: string;
       sourceUserMessageText: string;
+      sourceToolCallId: string;
     };
     abortSignal?: AbortSignal;
   }): Promise<RuntimeImageEditToolExecutionResult> {
@@ -335,6 +336,7 @@ export class RuntimeImageEditToolService {
             params.deferToAsyncMediaJob.sourceClientTurnId ??
             params.deferToAsyncMediaJob.sourceUserMessageId,
           sourceUserMessageText: params.deferToAsyncMediaJob.sourceUserMessageText,
+          sourceToolCallId: params.deferToAsyncMediaJob.sourceToolCallId,
           runtimeSessionId: params.sessionId,
           attachments: params.availableAttachments,
           directToolExecution: {

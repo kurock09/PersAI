@@ -21,6 +21,8 @@ export type AssistantMediaJobRequestPayload = {
   sourceUserMessageText: string;
   sourceUserMessageCreatedAt: string;
   runtimeSessionId: string;
+  /** Chat-turn tool call that enqueued this deferred job (ADR-165 receipts). */
+  sourceToolCallId?: string;
   directToolExecution:
     | {
         toolCode: "image_generate";

@@ -1,29 +1,33 @@
 # SESSION-HANDOFF
 
+## 2026-07-26 — ADR-165 D6.1 live UX repair (receipts / status / scroll)
+
+- **Pushed tip:** (this commit). Baseline `79f25862` (api pin `78f5c199` /
+  web `77146a2e` were live; founder reported D6 UX still broken).
+- **Root cause:** deferred media jobs never stored chat `toolCallId` → SSE
+  `media` had no `afterToolCallId` → italic receipts never rendered; live chip
+  cleared on tool-end; stick-follow re-ran on every attachment patch.
+- **Landed:** enqueue `sourceToolCallId` → open-turn placement fallback;
+  orphan live receipts; keep “Generating image” until open-jobs empty / next
+  tool; stick-follow keyed on text/status (not attachments). ADR-165 D6.1.
+- **Gates:** recursive lint, `format:check`, api/web/runtime/gateway
+  typecheck, api+runtime+gateway+web tests, `test:adr146-slice5`,
+  `test:step2` green.
+- **Next:** wait Dev Image Publish pin **api+runtime+web** → live series
+  smoke (receipts mid-await, Working, no scroll jump).
+
 ## 2026-07-26 — ADR-165 D6 open-turn media present + Working on job terminal
 
-- **Pushed tip:** `77146a2e` (baseline `e014600b`).
+- **Pushed tip:** `77146a2e` (baseline `e014600b`). Deployed with follow-up api
+  pin `78f5c199`. D6 plumbing landed; **live UX incomplete until D6.1** (above).
 - **Scope:** deferred **media** jobs that finish while the source web USER_TURN
   is still `running` attach into the live assistant bubble and publish SSE
   `media` + `async_jobs_open`. Document terminals only publish
   `async_jobs_open` (no open-turn document attach — avoids dual bubble until
   persist reuses document pins). Closed-turn ordinary deferred media stays
   ADR-162 ConversationalPublish. One turn bus.
-- **Landed:** `WebChatLiveTurnPresentService`; handle `claimOpenTurnLivePresent`;
-  media open-turn deliver; document/media open-jobs snapshot; web
-  `onAsyncJobsOpen`; ADR-165 D6 + changelog. Audit DIRTY on document attach
-  repaired by narrowing document to banner-only.
-- **Gates:** recursive lint, `format:check`, api/web/runtime typecheck, api +
-  runtime + provider-gateway + web tests, `test:adr146-slice5`, `test:step2`
-  green (known intermittent `use-chat` continuity flakes under parallel load;
-  isolated + suite retry green).
 - **Out of scope:** ADR-161; never-defer sync image; TG; document open-turn
   attach/receipts.
-- **Audit follow-up:** document `failJob` now also publishes `async_jobs_open`
-  (Working clear on document terminal failure). Dual-bubble / missing document
-  `media` SSE findings were already closed by banner-only document path.
-- **Next:** deploy api+web → live onion smoke (receipt mid-await + Working
-  clears on `deliveredAt`).
 
 ## 2026-07-26 — ADR-165 D1 rollback + live media receipts (pushed)
 

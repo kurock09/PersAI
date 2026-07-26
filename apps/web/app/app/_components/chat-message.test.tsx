@@ -1411,6 +1411,32 @@ describe("ChatMessageBubble — pre-response status", () => {
     );
   });
 
+  it("ADR-165: live reply shows orphan media receipts when placement is missing", () => {
+    const image = {
+      ...makeImageAttachment("att-orphan-1"),
+      sizeBytes: 1024 * 1024
+    };
+    render(
+      <ChatMessageBubble
+        chatId="chat-1"
+        message={makeAssistantMessage({
+          status: "streaming",
+          content: "",
+          workingNotes: ["жду"],
+          toolInvocations: [
+            { name: "image_generate", iteration: 0, ok: true, toolCallId: "call-img-1" }
+          ],
+          attachments: [image]
+        })}
+      />
+    );
+
+    expect(screen.queryByTestId("attachment-strip")).toBeNull();
+    expect(screen.getByTestId("media-receipt-lines")).toHaveTextContent(
+      /Получено изображение.*генерация.*1\.0 MB/
+    );
+  });
+
   it("preserves order for mixed connective text, content, then connective text plus tool", () => {
     const { container } = render(
       <ChatMessageBubble

@@ -1020,6 +1020,26 @@ function buildIterationBlocks(
     }
   }
 
+  // Deferred media can land without afterToolCallId / placement (pre-repair jobs
+  // or race). Still show italic receipts for any live attachments not yet placed.
+  if (!options.committed) {
+    const shownIds = new Set<string>();
+    for (const piece of allPieces) {
+      if (piece.kind !== "media_receipt") {
+        continue;
+      }
+      for (const attachment of piece.attachments) {
+        shownIds.add(attachment.id);
+      }
+    }
+    const orphanAttachments = (options.attachments ?? []).filter(
+      (attachment) => !shownIds.has(attachment.id)
+    );
+    if (orphanAttachments.length > 0) {
+      allPieces.push({ kind: "media_receipt", attachments: orphanAttachments });
+    }
+  }
+
   if (options.committed) {
     const blocks: IterationBlock[] = [];
     if (allPieces.length > 0) {

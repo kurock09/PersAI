@@ -97,6 +97,7 @@ export class RuntimeImageGenerateToolService {
       sourceUserMessageId: string;
       sourceClientTurnId?: string;
       sourceUserMessageText: string;
+      sourceToolCallId: string;
     };
     abortSignal?: AbortSignal;
   }): Promise<RuntimeImageGenerateToolExecutionResult> {
@@ -268,6 +269,7 @@ export class RuntimeImageGenerateToolService {
             params.deferToAsyncMediaJob.sourceClientTurnId ??
             params.deferToAsyncMediaJob.sourceUserMessageId,
           sourceUserMessageText: params.deferToAsyncMediaJob.sourceUserMessageText,
+          sourceToolCallId: params.deferToAsyncMediaJob.sourceToolCallId,
           runtimeSessionId: params.sessionId,
           attachments: [],
           directToolExecution: {

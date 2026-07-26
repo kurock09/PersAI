@@ -48,6 +48,8 @@ export type EnqueueRuntimeDeferredMediaJobInput = {
   sourceClientTurnId?: string;
   sourceUserMessageText: string;
   runtimeSessionId: string;
+  /** Originating chat-turn toolCall.id for live receipts / placement. */
+  sourceToolCallId?: string;
   attachments: RuntimeAttachmentRef[];
   directToolExecution: DirectToolExecutionPayload;
 };
@@ -97,6 +99,11 @@ export class EnqueueRuntimeDeferredMediaJobService {
   parseInput(payload: unknown): EnqueueRuntimeDeferredMediaJobInput {
     const row = this.objectValue(payload, "payload");
     const sourceUserMessageId = this.requiredString(row.sourceUserMessageId, "sourceUserMessageId");
+    const sourceToolCallIdRaw = row.sourceToolCallId;
+    const sourceToolCallId =
+      typeof sourceToolCallIdRaw === "string" && sourceToolCallIdRaw.trim().length > 0
+        ? sourceToolCallIdRaw.trim()
+        : undefined;
     return {
       assistantId: this.requiredString(row.assistantId, "assistantId"),
       sourceUserMessageId,
@@ -109,6 +116,7 @@ export class EnqueueRuntimeDeferredMediaJobService {
         "sourceUserMessageText"
       ),
       runtimeSessionId: this.requiredString(row.runtimeSessionId, "runtimeSessionId"),
+      ...(sourceToolCallId === undefined ? {} : { sourceToolCallId }),
       attachments: this.attachments(row.attachments),
       directToolExecution: this.directToolExecution(row.directToolExecution)
     };
@@ -248,6 +256,7 @@ export class EnqueueRuntimeDeferredMediaJobService {
       sourceUserMessageText: input.sourceUserMessageText,
       sourceUserMessageCreatedAt: sourceMessage.createdAt.toISOString(),
       runtimeSessionId: input.runtimeSessionId,
+      ...(input.sourceToolCallId === undefined ? {} : { sourceToolCallId: input.sourceToolCallId }),
       directToolExecution: input.directToolExecution
     };
     let created: { id: string; jobRef: string };

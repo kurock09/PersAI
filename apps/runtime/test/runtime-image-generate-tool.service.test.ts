@@ -101,7 +101,8 @@ describe("RuntimeImageGenerateToolService", () => {
       requestId: "request-1",
       deferToAsyncMediaJob: {
         sourceUserMessageId: "message-1",
-        sourceUserMessageText: "Draw a serene poster"
+        sourceUserMessageText: "Draw a serene poster",
+        sourceToolCallId: "call-1"
       }
     });
 
@@ -145,7 +146,8 @@ describe("RuntimeImageGenerateToolService", () => {
       requestId: "request-1",
       deferToAsyncMediaJob: {
         sourceUserMessageId: "message-1",
-        sourceUserMessageText: "Draw a serene poster"
+        sourceUserMessageText: "Draw a serene poster",
+        sourceToolCallId: "call-1"
       }
     });
 

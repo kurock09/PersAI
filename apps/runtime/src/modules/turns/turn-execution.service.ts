@@ -4239,7 +4239,8 @@ export class TurnExecutionService {
                 deferToAsyncMediaJob: {
                   sourceUserMessageId,
                   sourceClientTurnId,
-                  sourceUserMessageText: input.message.text
+                  sourceUserMessageText: input.message.text,
+                  sourceToolCallId: toolCall.id
                 }
               }
             : {})
@@ -4275,7 +4276,8 @@ export class TurnExecutionService {
                 deferToAsyncMediaJob: {
                   sourceUserMessageId,
                   sourceClientTurnId,
-                  sourceUserMessageText: input.message.text
+                  sourceUserMessageText: input.message.text,
+                  sourceToolCallId: toolCall.id
                 }
               }
             : {})
@@ -4321,7 +4323,8 @@ export class TurnExecutionService {
                     deferToAsyncMediaJob: {
                       sourceUserMessageId,
                       sourceClientTurnId,
-                      sourceUserMessageText: input.message.text
+                      sourceUserMessageText: input.message.text,
+                      sourceToolCallId: toolCall.id
                     }
                   }
                 : {})

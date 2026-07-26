@@ -2803,7 +2803,8 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
     requestId: "request-ta-defer-bad-portrait-alias",
     deferToAsyncMediaJob: {
       sourceUserMessageId: "user-msg-defer-bad-alias",
-      sourceUserMessageText: "Hello deferred."
+      sourceUserMessageText: "Hello deferred.",
+      sourceToolCallId: "tool-call-1"
     }
   });
   assert.equal(talkingAvatarDeferBadPortraitAlias.payload.action, "skipped");
@@ -2844,7 +2845,8 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
     requestId: "request-ta-defer-accepted",
     deferToAsyncMediaJob: {
       sourceUserMessageId: "user-msg-defer-1",
-      sourceUserMessageText: "Hello deferred."
+      sourceUserMessageText: "Hello deferred.",
+      sourceToolCallId: "tool-call-1"
     }
   });
   assert.equal(
@@ -2904,7 +2906,8 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
     requestId: "request-ta-defer-refused",
     deferToAsyncMediaJob: {
       sourceUserMessageId: "user-msg-defer-2",
-      sourceUserMessageText: "Limit hit."
+      sourceUserMessageText: "Limit hit.",
+      sourceToolCallId: "tool-call-1"
     }
   });
   assert.equal(talkingAvatarDeferRefused.payload.action, "skipped");

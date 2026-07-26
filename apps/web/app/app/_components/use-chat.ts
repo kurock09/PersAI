@@ -654,10 +654,23 @@ function mergeLiveActivity(
   return merged;
 }
 const SHELL_PROGRESS_ROLLING_LINES = 3;
+/** Deferred media tools keep their start chip until await / next tool / text
+ * takes over — clearing on tool-end hid "Generating image" while the job ran. */
+function isDeferredMediaLiveTool(toolName: string): boolean {
+  return (
+    toolName === "image_generate" || toolName === "image_edit" || toolName === "video_generate"
+  );
+}
 /** Tool-end activities are not sticky: clear the live chip so the status
  * falls back to «thinking» while the next provider iteration runs. */
-function shouldClearLiveActivityOnToolEnd(phase: "start" | "end"): boolean {
-  return phase === "end";
+function shouldClearLiveActivityOnToolEnd(phase: "start" | "end", toolName?: string): boolean {
+  if (phase !== "end") {
+    return false;
+  }
+  if (typeof toolName === "string" && isDeferredMediaLiveTool(toolName)) {
+    return false;
+  }
+  return true;
 }
 function applyToolProgressToLiveActivity(
   currentActivity: LiveActivityEvent | undefined,
@@ -2021,6 +2034,25 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
       markMediaActive(targetThreadKey, payload.activeMediaJobs.length > 0);
       markDocumentActive(targetThreadKey, payload.activeDocumentJobs.length > 0);
       markSandboxActive(targetThreadKey, payload.activeSandboxJobs.length > 0);
+      // Job terminal emptied media Working rows — drop a stuck "Generating image" chip.
+      if (payload.activeMediaJobs.length === 0) {
+        applyThreadLiveActivities(targetThreadKey, (prev) => {
+          let changed = false;
+          const next: typeof prev = {};
+          for (const [messageId, activity] of Object.entries(prev)) {
+            if (
+              activity.source === "tool" &&
+              typeof activity.toolName === "string" &&
+              isDeferredMediaLiveTool(activity.toolName)
+            ) {
+              changed = true;
+              continue;
+            }
+            next[messageId] = activity;
+          }
+          return changed ? next : prev;
+        });
+      }
       if (currentThreadKeyRef.current !== targetThreadKey) {
         return;
       }
@@ -2029,6 +2061,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
       replaceActiveSandboxJobs(payload.activeSandboxJobs);
     },
     [
+      applyThreadLiveActivities,
       markDocumentActive,
       markMediaActive,
       markSandboxActive,
@@ -3024,7 +3057,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
         const nextLiveActivities =
           currentActivity === null
             ? scopedExistingLiveActivities
-            : shouldClearLiveActivityOnToolEnd(currentActivity.phase)
+            : shouldClearLiveActivityOnToolEnd(currentActivity.phase, currentActivity.toolName)
               ? Object.fromEntries(
                   Object.entries(scopedExistingLiveActivities).filter(
                     ([messageId]) => messageId !== liveAssistantMessage.id
@@ -3037,7 +3070,12 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                     buildToolLiveActivity({
                       assistantMessageId: liveAssistantMessage.id,
                       toolName: currentActivity.toolName,
-                      phase: currentActivity.phase,
+                      // Deferred media: keep the start chip while the job runs.
+                      phase:
+                        currentActivity.phase === "end" &&
+                        isDeferredMediaLiveTool(currentActivity.toolName)
+                          ? "start"
+                          : currentActivity.phase,
                       isError: currentActivity.isError,
                       toolCallId: currentActivity.toolCallId,
                       ...(currentActivity.toolInputPreview === undefined
@@ -3612,12 +3650,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                 }
                 liveTokenStream = true;
                 setThreadLiveThinkingPreview(targetThreadKey, assistantMessageId, null);
-                if (shouldClearLiveActivityOnToolEnd(phase)) {
-                  applyThreadLiveActivities(targetThreadKey, (prev) => {
-                    const next = { ...prev };
-                    delete next[assistantMessageId];
-                    return next;
-                  });
+                const recordToolInvocation = () => {
                   applyThreadMessages(targetThreadKey, (prev) =>
                     prev.map((message) => {
                       if (message.id !== assistantMessageId) {
@@ -3647,6 +3680,22 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                       };
                     })
                   );
+                };
+                if (phase === "end" && isDeferredMediaLiveTool(toolName)) {
+                  // Keep "Generating image" while the deferred job runs.
+                  recordToolInvocation();
+                  if (toolName === "todo_write") {
+                    void refreshChatPlan();
+                  }
+                  return;
+                }
+                if (shouldClearLiveActivityOnToolEnd(phase, toolName)) {
+                  applyThreadLiveActivities(targetThreadKey, (prev) => {
+                    const next = { ...prev };
+                    delete next[assistantMessageId];
+                    return next;
+                  });
+                  recordToolInvocation();
                   if (toolName === "todo_write") {
                     void refreshChatPlan();
                   }
@@ -4864,12 +4913,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
           flushBufferedAssistantState(true);
           markAssistantActivityBoundary();
           setThreadLiveThinkingPreview(sendThreadKey, assistantMsgId, null);
-          if (shouldClearLiveActivityOnToolEnd(phase)) {
-            applyThreadLiveActivities(sendThreadKey, (prev) => {
-              const next = { ...prev };
-              delete next[assistantMsgId];
-              return next;
-            });
+          const recordToolInvocation = () => {
             applyThreadMessages(sendThreadKey, (prev) =>
               prev.map((message) => {
                 if (message.id !== assistantMsgId) {
@@ -4895,6 +4939,17 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                 };
               })
             );
+          };
+          if (phase === "end" && isDeferredMediaLiveTool(toolName)) {
+            // Keep "Generating image" while the deferred job runs.
+            recordToolInvocation();
+          } else if (shouldClearLiveActivityOnToolEnd(phase, toolName)) {
+            applyThreadLiveActivities(sendThreadKey, (prev) => {
+              const next = { ...prev };
+              delete next[assistantMsgId];
+              return next;
+            });
+            recordToolInvocation();
           } else {
             applyThreadLiveActivities(sendThreadKey, (prev) => ({
               ...prev,

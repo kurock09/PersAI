@@ -5,6 +5,13 @@
 
 ## 2026-07-26
 
+- **ADR-165 D6.1: deferred media receipts actually bind + status/scroll repair.**
+  Enqueue now stores `sourceToolCallId`; open-turn present uses it for
+  `afterToolCallId` / placement when worker artifacts omit
+  `producingToolCallId`. Live UI shows orphan receipts without placement;
+  keeps “Generating image” until open-jobs empty / next tool; stick-to-bottom
+  ignores attachment-only message patches.
+
 - **ADR-165 D6: open-turn media live present + Working clears on job terminal.**
   Deferred media jobs that finish while the source web USER_TURN is still
   running attach into the live assistant bubble and publish the same SSE

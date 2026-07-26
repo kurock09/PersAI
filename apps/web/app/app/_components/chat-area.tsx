@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import type { Route } from "next";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import {
   AlertCircle,
@@ -377,6 +377,19 @@ export function ChatArea({
     anchorToBottom();
   }, [anchorToBottom, chat.chatId, chat.historyLoading, chat.messages.length]);
 
+  // Text/status growth only — attachment/receipt patches must not force scrollToBottom
+  // (ResizeObserver still re-anchors real height growth when pinned).
+  const streamFollowKey = useMemo(
+    () =>
+      chat.messages
+        .map(
+          (message) =>
+            `${message.id}:${message.status}:${message.content.length}:${message.streamingTextActive === true ? 1 : 0}:${(message.workingNotes ?? []).reduce((sum, note) => sum + note.length, 0)}`
+        )
+        .join("|"),
+    [chat.messages]
+  );
+
   // Follow new tail messages / live stream only after initial anchor, never during hydrate.
   // useLayoutEffect: stick before paint so the stream cannot render below the fold.
   useLayoutEffect(() => {
@@ -415,7 +428,14 @@ export function ChatArea({
       scrollToBottom(chat.isStreaming || streamStarted || streamEnded ? "instant" : "smooth");
     }
     prevMessageCount.current = count;
-  }, [chat.entries.length, chat.historyLoading, chat.isStreaming, chat.messages, scrollToBottom]);
+  }, [
+    chat.entries.length,
+    chat.historyLoading,
+    chat.isStreaming,
+    chat.olderMessagesLoading,
+    scrollToBottom,
+    streamFollowKey
+  ]);
 
   // While pinned to bottom, compensate layout growth (image decode above) silently.
   useEffect(() => {

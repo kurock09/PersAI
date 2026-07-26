@@ -238,6 +238,7 @@ export class RuntimeVideoGenerateToolService {
       sourceUserMessageId: string;
       sourceClientTurnId?: string;
       sourceUserMessageText: string;
+      sourceToolCallId: string;
     };
     abortSignal?: AbortSignal;
   }): Promise<RuntimeVideoGenerateToolExecutionResult> {
@@ -465,6 +466,7 @@ export class RuntimeVideoGenerateToolService {
               params.deferToAsyncMediaJob.sourceClientTurnId ??
               params.deferToAsyncMediaJob.sourceUserMessageId,
             sourceUserMessageText: params.deferToAsyncMediaJob.sourceUserMessageText,
+            sourceToolCallId: params.deferToAsyncMediaJob.sourceToolCallId,
             runtimeSessionId: params.sessionId,
             attachments: params.availableAttachments,
             directToolExecution: {
@@ -777,6 +779,7 @@ export class RuntimeVideoGenerateToolService {
             params.deferToAsyncMediaJob.sourceClientTurnId ??
             params.deferToAsyncMediaJob.sourceUserMessageId,
           sourceUserMessageText: params.deferToAsyncMediaJob.sourceUserMessageText,
+          sourceToolCallId: params.deferToAsyncMediaJob.sourceToolCallId,
           runtimeSessionId: params.sessionId,
           attachments: params.availableAttachments,
           directToolExecution: {

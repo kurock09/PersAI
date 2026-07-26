@@ -440,7 +440,8 @@ describe("RuntimeImageEditToolService", () => {
       requestId: "request-1",
       deferToAsyncMediaJob: {
         sourceUserMessageId: "message-1",
-        sourceUserMessageText: "Make the background a sunset"
+        sourceUserMessageText: "Make the background a sunset",
+        sourceToolCallId: "call-1"
       }
     });
 

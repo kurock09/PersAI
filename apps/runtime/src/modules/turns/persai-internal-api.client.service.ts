@@ -436,6 +436,8 @@ export type InternalEnqueueDeferredMediaJobInput = {
   sourceClientTurnId: string;
   sourceUserMessageText: string;
   runtimeSessionId: string;
+  /** Chat-turn tool call id — required for ADR-165 live media receipts. */
+  sourceToolCallId?: string;
   attachments: RuntimeAttachmentRef[];
   directToolExecution:
     | {

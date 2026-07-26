@@ -77,6 +77,18 @@ function truncateLastError(message: string): string {
   return `${message.slice(0, COMPLETION_DELIVERY_LAST_ERROR_MAX_CHARS - 3)}...`;
 }
 
+function sourceToolCallIdFromRequestJson(requestJson: unknown): string | null {
+  if (requestJson === null || typeof requestJson !== "object" || Array.isArray(requestJson)) {
+    return null;
+  }
+  const raw = (requestJson as Record<string, unknown>).sourceToolCallId;
+  if (typeof raw !== "string") {
+    return null;
+  }
+  const trimmed = raw.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
 function firstProducingToolCallId(artifacts: RuntimeOutputArtifact[]): string | null {
   for (const artifact of artifacts) {
     if (
@@ -989,7 +1001,11 @@ export class AssistantMediaJobCompletionDeliveryService {
     if (this.liveTurnPresent === null || input.attachments.length === 0) {
       return;
     }
-    const afterToolCallId = firstProducingToolCallId(input.artifacts);
+    // Worker artifacts historically omit producingToolCallId; fall back to the
+    // enqueue-time chat toolCall.id so live receipts can bind mid-await.
+    const afterToolCallId =
+      firstProducingToolCallId(input.artifacts) ??
+      sourceToolCallIdFromRequestJson(input.job.requestJson);
     if (afterToolCallId !== null) {
       const existing = await this.assistantChatRepository.findMessageByIdForAssistant(
         input.messageId,
