@@ -961,10 +961,13 @@ function buildIterationBlocks(
   toolInvocations: RuntimeTurnToolInvocation[],
   options: {
     committed: boolean;
+    /** Ordinary USER_TURN live receipts only — catch-up uses classic strip. */
+    liveInlineMediaReceipts?: boolean;
     attachments?: ChatAttachment[] | undefined;
     inlineMediaPlacement?: Array<{ toolCallId: string; attachmentIds: string[] }> | undefined;
   }
 ): IterationBlock[] {
+  const showLiveMediaReceipts = !options.committed && options.liveInlineMediaReceipts === true;
   const allPieces: IterationProcessPiece[] = [];
   const contentBlocks: Array<{ insertAfterPieceIndex: number; markdown: string }> = [];
   const iterations = Math.max(
@@ -986,10 +989,9 @@ function buildIterationBlocks(
     const toolsAtIteration = toolInvocations.filter((tool) => tool.iteration === i);
     for (const tool of toolsAtIteration) {
       allPieces.push({ kind: "tool", tool });
-      // While the reply is live, show italic "received …" lines after the
-      // producing tool — not full attachment previews. Committed history keeps
-      // the classic bottom attachment strip only.
-      if (!options.committed) {
+      // Ordinary USER_TURN live only: italic "received …" after the producing
+      // tool. Catch-up / committed use the classic bottom strip.
+      if (showLiveMediaReceipts) {
         const inlineAttachments = resolveInlineAttachmentsForToolCall({
           toolCallId: tool.toolCallId,
           attachments: options.attachments,
@@ -1004,7 +1006,7 @@ function buildIterationBlocks(
 
   // Deferred media can land without afterToolCallId / placement (pre-repair jobs
   // or race). Still show italic receipts for any live attachments not yet placed.
-  if (!options.committed) {
+  if (showLiveMediaReceipts) {
     const shownIds = new Set<string>();
     for (const piece of allPieces) {
       if (piece.kind !== "media_receipt") {
@@ -2372,6 +2374,7 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
     return {
       iterationBlocks: buildIterationBlocks(workingNotes, toolInvocations, {
         committed: message.status === "committed",
+        liveInlineMediaReceipts: message.liveInlineMediaReceipts === true,
         attachments: message.attachments,
         inlineMediaPlacement: message.inlineMediaPlacement
       }),
@@ -2381,23 +2384,24 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
     message.attachments,
     message.content,
     message.inlineMediaPlacement,
+    message.liveInlineMediaReceipts,
     message.role,
     message.status,
     message.toolInvocations,
     message.workingNotes
   ]);
   const bottomStripAttachments = useMemo(() => {
-    // Live reply: italic media receipts only — no bottom file strip yet.
-    // Committed: classic bottom strip with every attachment (placement is
-    // history metadata for live receipts, not a permanent inline preview).
+    // Ordinary USER_TURN live + receipts flag: italic receipts only.
+    // Catch-up streaming (no flag) and committed: classic bottom strip.
     if (
       message.role === "assistant" &&
+      message.liveInlineMediaReceipts === true &&
       (message.status === "streaming" || message.status === "reconciling")
     ) {
       return [];
     }
     return message.attachments ?? [];
-  }, [message.attachments, message.role, message.status]);
+  }, [message.attachments, message.liveInlineMediaReceipts, message.role, message.status]);
   const hasVisibleAnswerText = assistantSegments.answerText.trim().length > 0;
   const isStreamingTextActive = message.streamingTextActive === true;
   const showInlineStreamingStatus =

@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger, Optional } from "@nestjs/common";
+import { Inject, Injectable, Logger } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { type RuntimeOutputArtifact, type RuntimeUsageSnapshot } from "@persai/runtime-contract";
 import {
@@ -163,15 +163,8 @@ export class AssistantMediaJobCompletionDeliveryService {
         state: "completed"
       })
     },
-    @Optional()
-    private readonly liveTurnPresent: Pick<
-      WebChatLiveTurnPresentService,
-      | "findOpenUserTurnAttempt"
-      | "ensureOpenTurnAssistantMessage"
-      | "claimInlineForOpenTurnPresent"
-      | "publishMedia"
-      | "publishOpenJobsSnapshot"
-    > | null = null
+    @Inject(WebChatLiveTurnPresentService)
+    private readonly liveTurnPresent: WebChatLiveTurnPresentService
   ) {}
 
   private async persistCompletionFramingLedger(input: {
@@ -403,7 +396,7 @@ export class AssistantMediaJobCompletionDeliveryService {
       // Working banner track job terminal truth while the loop is still alive.
       const openTurnAttempt = job.surface === "web" ? await this.resolveOpenTurnAttempt(job) : null;
       if (openTurnAttempt !== null) {
-        await this.liveTurnPresent?.claimInlineForOpenTurnPresent({
+        await this.liveTurnPresent.claimInlineForOpenTurnPresent({
           kind: "media",
           canonicalJobId: job.id
         });
@@ -534,7 +527,7 @@ export class AssistantMediaJobCompletionDeliveryService {
             : null
       });
       if (openTurnAttempt !== null) {
-        await this.liveTurnPresent?.publishOpenJobsSnapshot({ attempt: openTurnAttempt });
+        await this.liveTurnPresent.publishOpenJobsSnapshot({ attempt: openTurnAttempt });
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Media delivery failed.";
@@ -696,7 +689,7 @@ export class AssistantMediaJobCompletionDeliveryService {
       }
       const openTurnAttempt = await this.resolveOpenTurnAttempt(job);
       if (openTurnAttempt !== null) {
-        await this.liveTurnPresent?.publishOpenJobsSnapshot({ attempt: openTurnAttempt });
+        await this.liveTurnPresent.publishOpenJobsSnapshot({ attempt: openTurnAttempt });
       }
       return;
     }
@@ -981,9 +974,6 @@ export class AssistantMediaJobCompletionDeliveryService {
   private async resolveOpenTurnAttempt(
     job: Pick<ClaimedCompletionPendingMediaJob, "assistantId" | "chatId" | "sourceUserMessageId">
   ): Promise<OpenWebUserTurnAttempt | null> {
-    if (this.liveTurnPresent === null) {
-      return null;
-    }
     return this.liveTurnPresent.findOpenUserTurnAttempt({
       assistantId: job.assistantId,
       chatId: job.chatId,
@@ -998,7 +988,7 @@ export class AssistantMediaJobCompletionDeliveryService {
     artifacts: RuntimeOutputArtifact[];
     attachments: Awaited<ReturnType<MediaDeliveryService["deliver"]>>["attachments"];
   }): Promise<void> {
-    if (this.liveTurnPresent === null || input.attachments.length === 0) {
+    if (input.attachments.length === 0) {
       return;
     }
     // Worker artifacts historically omit producingToolCallId; fall back to the
@@ -1051,10 +1041,14 @@ export class AssistantMediaJobCompletionDeliveryService {
     // artifacts on "request accepted" while catch-up reply stayed empty below.
     // Await-wait may still share the turn narration message.
     let pinnedId = job.completionAssistantMessageId ?? null;
-    if (pinnedId === null && openTurnAttempt !== null && this.liveTurnPresent !== null) {
+    if (pinnedId === null && openTurnAttempt !== null) {
+      // Pin to the live USER_TURN bubble / early bind — never the ack row.
       pinnedId = await this.liveTurnPresent.ensureOpenTurnAssistantMessage({
         attempt: openTurnAttempt,
-        preferredMessageId: job.assistantAcknowledgementMessageId
+        ...(typeof openTurnAttempt.assistantMessageId === "string" &&
+        openTurnAttempt.assistantMessageId.trim().length > 0
+          ? { preferredMessageId: openTurnAttempt.assistantMessageId }
+          : {})
       });
     }
     if (pinnedId === null && inlineAwait) {

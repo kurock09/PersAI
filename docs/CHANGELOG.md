@@ -3,6 +3,16 @@
 > Archive: detailed historical entries from 2026-06-05 and earlier moved to `docs/CHANGELOG.archive-2026-06-05-details-and-earlier.md`; entries from 2026-05-19 and earlier remain in `docs/CHANGELOG.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: current entries plus concise recent summaries only.
 
+## 2026-07-27
+
+- **ADR-165 D6.2: open-turn DI + catch-up classic strip + status clear→thinking.**
+  Media/document completion delivery now require `@Inject(WebChatLiveTurnPresentService)`
+  (Nest no longer nulls the Optional `Pick|null` and skip live present). Open-turn
+  attach pins the live USER_TURN bubble, not the ack row. Web italic «Получено»
+  receipts only on ordinary USER_TURN (`liveInlineMediaReceipts`); catch-up /
+  async-cont / committed use the classic bottom strip. Clearing deferred-media or
+  await live chips leaves `streamingTextActive: false` so «Думаю» returns.
+
 ## 2026-07-26
 
 - **ux(chat): keep ~7-line status reserve across thinking↔activity.** Pre-answer

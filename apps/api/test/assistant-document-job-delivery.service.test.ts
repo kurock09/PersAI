@@ -10,6 +10,24 @@ const noopRecordModelCostLedgerService = {
   }
 } as never;
 
+const noopAsyncJobHandleState = {
+  async prepareDelivery() {
+    return "legacy_frame";
+  },
+  async recordCanonicalCompletion() {
+    return { decision: "legacy_frame", state: "completed" };
+  }
+} as never;
+
+const noopLiveTurnPresent = {
+  async findOpenUserTurnAttempt() {
+    return null;
+  },
+  async publishOpenJobsSnapshot() {
+    return undefined;
+  }
+} as never;
+
 describe("AssistantDocumentJobDeliveryService", () => {
   test("does not overwrite terminal truth when the ready_for_delivery claim is stale", async () => {
     const renderJobUpdates: Array<Record<string, unknown>> = [];
@@ -119,7 +137,9 @@ describe("AssistantDocumentJobDeliveryService", () => {
           return null;
         }
       } as never,
-      noopRecordModelCostLedgerService
+      noopRecordModelCostLedgerService,
+      noopAsyncJobHandleState,
+      noopLiveTurnPresent
     );
 
     await service.deliverReadyJob({
@@ -257,7 +277,8 @@ describe("AssistantDocumentJobDeliveryService", () => {
           handleCompletionCalls += 1;
           return { decision: "skip_legacy_frame", state: "ready" };
         }
-      } as never
+      } as never,
+      noopLiveTurnPresent
     );
 
     await service.deliverReadyJob({
@@ -409,7 +430,9 @@ describe("AssistantDocumentJobDeliveryService", () => {
           return null;
         }
       } as never,
-      noopRecordModelCostLedgerService
+      noopRecordModelCostLedgerService,
+      noopAsyncJobHandleState,
+      noopLiveTurnPresent
     );
 
     await service.deliverReadyJob({
@@ -579,7 +602,9 @@ describe("AssistantDocumentJobDeliveryService", () => {
           return null;
         }
       } as never,
-      noopRecordModelCostLedgerService
+      noopRecordModelCostLedgerService,
+      noopAsyncJobHandleState,
+      noopLiveTurnPresent
     );
 
     await service.deliverReadyJob({
@@ -735,7 +760,9 @@ describe("AssistantDocumentJobDeliveryService", () => {
           return null;
         }
       } as never,
-      noopRecordModelCostLedgerService
+      noopRecordModelCostLedgerService,
+      noopAsyncJobHandleState,
+      noopLiveTurnPresent
     );
 
     await service.deliverReadyJob({
@@ -849,7 +876,9 @@ describe("AssistantDocumentJobDeliveryService", () => {
           return "Не удалось подготовить документ. Попробуйте запустить запрос еще раз.";
         }
       } as never,
-      noopRecordModelCostLedgerService
+      noopRecordModelCostLedgerService,
+      noopAsyncJobHandleState,
+      noopLiveTurnPresent
     );
 
     await (
@@ -1004,7 +1033,9 @@ describe("AssistantDocumentJobDeliveryService", () => {
           return `LLM failure: ${String(input.failure?.message ?? "unknown failure")}`;
         }
       } as never,
-      noopRecordModelCostLedgerService
+      noopRecordModelCostLedgerService,
+      noopAsyncJobHandleState,
+      noopLiveTurnPresent
     );
 
     await service.deliverReadyJob({
@@ -1164,7 +1195,9 @@ describe("AssistantDocumentJobDeliveryService", () => {
           return null;
         }
       } as never,
-      noopRecordModelCostLedgerService
+      noopRecordModelCostLedgerService,
+      noopAsyncJobHandleState,
+      noopLiveTurnPresent
     );
 
     await service.deliverReadyJob({
@@ -1299,7 +1332,9 @@ describe("AssistantDocumentJobDeliveryService", () => {
           return null;
         }
       } as never,
-      noopRecordModelCostLedgerService
+      noopRecordModelCostLedgerService,
+      noopAsyncJobHandleState,
+      noopLiveTurnPresent
     );
 
     await service.deliverReadyJob({
@@ -1445,7 +1480,9 @@ describe("AssistantDocumentJobDeliveryService", () => {
           return null;
         }
       } as never,
-      noopRecordModelCostLedgerService
+      noopRecordModelCostLedgerService,
+      noopAsyncJobHandleState,
+      noopLiveTurnPresent
     );
 
     await service.deliverReadyJob({
@@ -1607,7 +1644,8 @@ describe("AssistantDocumentJobDeliveryService", () => {
           decision: "skip_legacy_frame",
           state: "completed"
         })
-      } as never
+      } as never,
+      noopLiveTurnPresent
     );
 
     await service.deliverReadyJob({
@@ -1787,7 +1825,9 @@ describe("AssistantDocumentJobDeliveryService", () => {
           return { text: "Fresh LLM completion framing (should NOT run on retry).", usage: null };
         }
       } as never,
-      noopRecordModelCostLedgerService
+      noopRecordModelCostLedgerService,
+      noopAsyncJobHandleState,
+      noopLiveTurnPresent
     );
 
     await service.deliverReadyJob({
@@ -1938,7 +1978,9 @@ describe("AssistantDocumentJobDeliveryService", () => {
           return { text: "Готово. Документ собран.", usage: null };
         }
       } as never,
-      noopRecordModelCostLedgerService
+      noopRecordModelCostLedgerService,
+      noopAsyncJobHandleState,
+      noopLiveTurnPresent
     );
 
     await service.deliverReadyJob({
@@ -2066,7 +2108,8 @@ describe("AssistantDocumentJobDeliveryService", () => {
         async recordCanonicalCompletion() {
           return { decision: "legacy_frame" as const, state: "completed" as const };
         }
-      }
+      },
+      noopLiveTurnPresent
     );
     const finalize = (jobId: string, versionId: string) =>
       (

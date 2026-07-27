@@ -20,6 +20,33 @@ const noopTrackWorkspaceQuotaUsageService = {
   }
 } as never;
 
+const noopAsyncJobHandleState = {
+  async prepareDelivery() {
+    return "legacy_frame";
+  },
+  async recordCanonicalCompletion() {
+    return { decision: "legacy_frame", state: "completed" };
+  }
+} as never;
+
+const noopLiveTurnPresent = {
+  async findOpenUserTurnAttempt() {
+    return null;
+  },
+  async ensureOpenTurnAssistantMessage() {
+    return "assistant-message-open";
+  },
+  async claimInlineForOpenTurnPresent() {
+    return true;
+  },
+  publishMedia() {
+    return undefined;
+  },
+  async publishOpenJobsSnapshot() {
+    return undefined;
+  }
+} as never;
+
 describe("AssistantMediaJobCompletionDeliveryService", () => {
   test("delivers completion_pending web jobs and marks them delivered", async () => {
     const txUpdates: Array<Record<string, unknown>> = [];
@@ -141,7 +168,8 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
           handleCompletionCalls += 1;
           return { decision: "skip_legacy_frame", state: "ready" };
         }
-      } as never
+      } as never,
+      noopLiveTurnPresent
     );
 
     const processed = await service.processPendingBatch();
@@ -320,7 +348,8 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
         async recordCanonicalCompletion() {
           return { decision: "skip_legacy_frame", state: "ready" };
         }
-      } as never
+      } as never,
+      noopLiveTurnPresent
     );
 
     const processed = await service.processPendingBatch();
@@ -391,14 +420,6 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
             "Request accepted. I am generating the image and will send it separately when it is ready.",
           createdAt: new Date("2026-05-05T09:10:00.000Z")
         }),
-        findMessageByIdForAssistant: async () => ({
-          id: "msg",
-          content: "",
-          chatId: "chat-1",
-          assistantId: "assistant-1",
-          author: "assistant" as const,
-          createdAt: new Date()
-        }),
         updateMessageContent: async (messageId: string, assistantId: string, content: string) => {
           messageUpdates.push({ messageId, assistantId, content });
           return null;
@@ -432,7 +453,9 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
       } as never,
       noopRecordModelCostLedgerService,
       noopAssistantRepository,
-      noopTrackWorkspaceQuotaUsageService
+      noopTrackWorkspaceQuotaUsageService,
+      noopAsyncJobHandleState,
+      noopLiveTurnPresent
     );
 
     const processed = await service.processPendingBatch();
@@ -548,7 +571,9 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
       } as never,
       noopRecordModelCostLedgerService,
       noopAssistantRepository,
-      noopTrackWorkspaceQuotaUsageService
+      noopTrackWorkspaceQuotaUsageService,
+      noopAsyncJobHandleState,
+      noopLiveTurnPresent
     );
 
     const processed = await service.processPendingBatch();
@@ -658,7 +683,9 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
       } as never,
       noopRecordModelCostLedgerService,
       noopAssistantRepository,
-      noopTrackWorkspaceQuotaUsageService
+      noopTrackWorkspaceQuotaUsageService,
+      noopAsyncJobHandleState,
+      noopLiveTurnPresent
     );
 
     const processed = await service.processPendingBatch();
@@ -774,7 +801,9 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
       } as never,
       noopRecordModelCostLedgerService,
       noopAssistantRepository,
-      noopTrackWorkspaceQuotaUsageService
+      noopTrackWorkspaceQuotaUsageService,
+      noopAsyncJobHandleState,
+      noopLiveTurnPresent
     );
 
     const processed = await service.processPendingBatch();
@@ -892,7 +921,9 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
         async markAssistantMonthlyMediaQuotaReconciliationRequired(input: Record<string, unknown>) {
           reconcileCalls.push(input);
         }
-      } as never
+      } as never,
+      noopAsyncJobHandleState,
+      noopLiveTurnPresent
     );
 
     const processed = await service.processPendingBatch();
@@ -1016,7 +1047,9 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
         async releaseAssistantMonthlyMediaQuota(input: Record<string, unknown>) {
           releaseCalls.push(input);
         }
-      } as never
+      } as never,
+      noopAsyncJobHandleState,
+      noopLiveTurnPresent
     );
 
     const processed = await service.processPendingBatch();
@@ -1142,7 +1175,9 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
         async releaseAssistantMonthlyMediaQuota(input: Record<string, unknown>) {
           releaseCalls.push(input);
         }
-      } as never
+      } as never,
+      noopAsyncJobHandleState,
+      noopLiveTurnPresent
     );
 
     const processed = await service.processPendingBatch();
@@ -1246,7 +1281,9 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
         async releaseAssistantMonthlyMediaQuota(input: Record<string, unknown>) {
           releaseCalls.push(input);
         }
-      } as never
+      } as never,
+      noopAsyncJobHandleState,
+      noopLiveTurnPresent
     );
 
     const processed = await service.processPendingBatch();
@@ -1370,7 +1407,9 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
         async releaseAssistantMonthlyMediaQuota(input: Record<string, unknown>) {
           releaseCalls.push(input);
         }
-      } as never
+      } as never,
+      noopAsyncJobHandleState,
+      noopLiveTurnPresent
     );
 
     const processed = await service.processPendingBatch();
@@ -1536,7 +1575,9 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
         async releaseAssistantMonthlyMediaQuota(input: Record<string, unknown>) {
           releaseCalls.push(input);
         }
-      } as never
+      } as never,
+      noopAsyncJobHandleState,
+      noopLiveTurnPresent
     );
 
     const processed = await service.processPendingBatch();
@@ -1655,7 +1696,9 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
       } as never,
       noopRecordModelCostLedgerService,
       noopAssistantRepository,
-      noopTrackWorkspaceQuotaUsageService
+      noopTrackWorkspaceQuotaUsageService,
+      noopAsyncJobHandleState,
+      noopLiveTurnPresent
     );
 
     const processed = await service.processPendingBatch();
@@ -1754,7 +1797,9 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
       } as never,
       noopRecordModelCostLedgerService,
       noopAssistantRepository,
-      noopTrackWorkspaceQuotaUsageService
+      noopTrackWorkspaceQuotaUsageService,
+      noopAsyncJobHandleState,
+      noopLiveTurnPresent
     );
 
     const processed = await service.processPendingBatch();
@@ -1877,7 +1922,9 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
         async markAssistantMonthlyMediaQuotaReconciliationRequired(input: Record<string, unknown>) {
           reconcileCalls.push(input);
         }
-      } as never
+      } as never,
+      noopAsyncJobHandleState,
+      noopLiveTurnPresent
     );
 
     const processed = await service.processPendingBatch();
@@ -1969,7 +2016,9 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
       } as never,
       noopRecordModelCostLedgerService,
       noopAssistantRepository,
-      noopTrackWorkspaceQuotaUsageService
+      noopTrackWorkspaceQuotaUsageService,
+      noopAsyncJobHandleState,
+      noopLiveTurnPresent
     );
 
     const processed = await service.processPendingBatch();
@@ -2073,7 +2122,9 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
       } as never,
       noopRecordModelCostLedgerService,
       noopAssistantRepository,
-      noopTrackWorkspaceQuotaUsageService
+      noopTrackWorkspaceQuotaUsageService,
+      noopAsyncJobHandleState,
+      noopLiveTurnPresent
     );
 
     const processed = await service.processPendingBatch();
@@ -2087,5 +2138,192 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
     assert.equal(finalUpdates.at(-1)?.data?.lastErrorCode, "image_provider_safety_rejected");
     assert.ok(finalUpdates.at(-1)?.data?.deliveredAt instanceof Date);
     assert.equal(messageUpdates.length, 1);
+  });
+
+  test("ADR-165 D6.2: open USER_TURN present delivers + publishMedia, never settle-without-delivery", async () => {
+    const finalUpdates: Array<Record<string, unknown>> = [];
+    const deliverCalls: Array<{ messageId: string }> = [];
+    const publishMediaCalls: Array<Record<string, unknown>> = [];
+    const publishOpenJobsCalls: Array<Record<string, unknown>> = [];
+    const ensureCalls: Array<Record<string, unknown>> = [];
+    let settleWithoutDeliveryCalls = 0;
+    let claimInlineCalls = 0;
+
+    const openAttempt = {
+      assistantId: "assistant-1",
+      userId: "user-1",
+      chatId: "chat-1",
+      surfaceThreadKey: "web:chat-1",
+      clientTurnId: "client-turn-open-1",
+      userMessageId: "user-message-open-1",
+      assistantMessageId: "live-assistant-bubble-1"
+    };
+
+    const service = new AssistantMediaJobCompletionDeliveryService(
+      {
+        $transaction: async <T>(callback: (tx: Record<string, unknown>) => Promise<T>) =>
+          callback({
+            $queryRaw: async () => [
+              {
+                id: "job-open-turn-1",
+                assistantId: "assistant-1",
+                userId: "user-1",
+                workspaceId: "workspace-1",
+                chatId: "chat-1",
+                surface: "web",
+                kind: "image",
+                sourceUserMessageId: "user-message-open-1",
+                requestJson: {
+                  attachments: [],
+                  sourceUserMessageText: "draw a fox",
+                  sourceUserMessageCreatedAt: "2026-07-26T09:00:00.000Z",
+                  sourceToolCallId: "call-img-open-1",
+                  directToolExecution: {
+                    toolCode: "image_generate",
+                    request: {
+                      toolCode: "image_generate",
+                      prompt: "draw a fox",
+                      count: 1,
+                      filename: null,
+                      size: "1024x1024",
+                      background: "auto"
+                    }
+                  }
+                },
+                resultText: null,
+                artifactsJson: [{ artifactId: "artifact-open-1", kind: "image" }],
+                completionAssistantMessageId: null,
+                assistantAcknowledgementMessageId: "ack-should-not-pin",
+                attemptCount: 1,
+                maxAttempts: 5
+              }
+            ],
+            assistantMediaJob: {
+              update: async () => undefined
+            }
+          }),
+        assistantAsyncJobHandle: {
+          // Ordinary deferred handle — without open-turn this would settle-without-delivery.
+          findUnique: async () => ({
+            narrationOwner: "continuation",
+            narrationDecision: "notify_subscribed"
+          }),
+          findMany: async () => []
+        },
+        assistantMediaJob: {
+          count: async () => 1,
+          findFirst: async () => null,
+          findMany: async () => [],
+          updateMany: async (input: Record<string, unknown>) => {
+            finalUpdates.push(input);
+            return { count: 1 };
+          }
+        }
+      } as never,
+      {
+        createMessage: async () => {
+          throw new Error("open-turn must pin live bubble, not invent");
+        },
+        findMessageByIdForAssistant: async () => ({
+          id: "live-assistant-bubble-1",
+          content: "",
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          author: "assistant" as const,
+          createdAt: new Date(),
+          metadata: { inlineMediaPlacement: [] }
+        }),
+        updateMessageContent: async () => null,
+        mergeMessageMetadata: async () => undefined
+      } as never,
+      {
+        deliver: async (input: { messageId: string }) => {
+          deliverCalls.push({ messageId: input.messageId });
+          return {
+            attachments: [
+              {
+                id: "attachment-open-1",
+                originalFilename: "fox.png",
+                sizeBytes: 1024
+              }
+            ]
+          };
+        },
+        settleProducedArtifactsWithoutDelivery: async () => {
+          settleWithoutDeliveryCalls += 1;
+        }
+      } as never,
+      {
+        async deliverPersistedAssistantMessageBestEffort() {
+          throw new Error("telegram reply should not run for web jobs");
+        }
+      } as never,
+      {
+        async resolveByAssistantId() {
+          throw new Error("telegram config should not resolve for web jobs");
+        }
+      } as never,
+      {
+        async maybeFrame() {
+          return { text: null, usage: null };
+        }
+      } as never,
+      noopRecordModelCostLedgerService,
+      noopAssistantRepository,
+      noopTrackWorkspaceQuotaUsageService,
+      {
+        async prepareDelivery() {
+          return "skip_legacy_frame";
+        },
+        async recordCanonicalCompletion() {
+          return { decision: "skip_legacy_frame", state: "completed" };
+        }
+      } as never,
+      {
+        async findOpenUserTurnAttempt() {
+          return openAttempt;
+        },
+        async ensureOpenTurnAssistantMessage(input: {
+          attempt: { assistantMessageId: string | null };
+          preferredMessageId?: string | null;
+        }) {
+          ensureCalls.push(input as unknown as Record<string, unknown>);
+          return "live-assistant-bubble-1";
+        },
+        async claimInlineForOpenTurnPresent() {
+          claimInlineCalls += 1;
+          return true;
+        },
+        publishMedia(input: Record<string, unknown>) {
+          publishMediaCalls.push(input);
+        },
+        async publishOpenJobsSnapshot(input: Record<string, unknown>) {
+          publishOpenJobsCalls.push(input);
+        }
+      } as never
+    );
+
+    const processed = await service.processPendingBatch();
+
+    assert.equal(processed, 1);
+    assert.equal(settleWithoutDeliveryCalls, 0);
+    assert.equal(claimInlineCalls, 1);
+    assert.deepEqual(deliverCalls, [{ messageId: "live-assistant-bubble-1" }]);
+    assert.equal(publishMediaCalls.length, 1);
+    assert.equal(
+      (publishMediaCalls[0] as { assistantMessageId?: string }).assistantMessageId,
+      "live-assistant-bubble-1"
+    );
+    assert.equal(publishOpenJobsCalls.length, 1);
+    assert.equal(ensureCalls.length, 1);
+    assert.equal(
+      (ensureCalls[0] as { preferredMessageId?: string }).preferredMessageId,
+      "live-assistant-bubble-1"
+    );
+    assert.notEqual(
+      (ensureCalls[0] as { preferredMessageId?: string }).preferredMessageId,
+      "ack-should-not-pin"
+    );
+    assert.equal(finalUpdates.at(-1)?.data?.status, "delivered");
   });
 });

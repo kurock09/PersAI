@@ -3054,6 +3054,8 @@ describe("useChat", () => {
       );
       expect(live?.status).toBe("streaming");
       expect(live?.attachments?.map((attachment) => attachment.id)).toEqual([publishAttachment.id]);
+      // ADR-165 D6.2 — catch-up must not enter italic receipt mode.
+      expect(live?.liveInlineMediaReceipts).not.toBe(true);
     });
     expect(
       result.current.messages.some(
@@ -6254,6 +6256,95 @@ describe("useChat", () => {
           })
         })
       ]);
+
+      streamGate.release();
+      await act(async () => {
+        if (sendPromise !== undefined) await sendPromise;
+      });
+    });
+
+    it("ADR-165 D6.2: await tool-end / empty open-jobs leave thinking path (streamingTextActive false)", async () => {
+      const streamGate: { release: () => void } = { release: () => undefined };
+      assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
+        async (
+          _token: string,
+          _payload: unknown,
+          handlers: {
+            onHeadersOk?: () => void;
+            onStarted?: (payload: { chat: unknown; userMessage: unknown }) => void;
+            onDelta?: (payload: { delta: string }) => void;
+            onTool?: (payload: {
+              phase: "start" | "end";
+              toolName: string;
+              toolCallId: string;
+              isError: boolean;
+            }) => void;
+            onAsyncJobsOpen?: (payload: {
+              activeMediaJobs: unknown[];
+              activeDocumentJobs: unknown[];
+              activeSandboxJobs: unknown[];
+            }) => void;
+          }
+        ) => {
+          handlers.onHeadersOk?.();
+          handlers.onStarted?.({
+            chat: { id: "chat-think-1" },
+            userMessage: { id: "user-msg-think-1", chatId: "chat-think-1", attachments: [] }
+          });
+          handlers.onTool?.({
+            phase: "start",
+            toolName: "image_generate",
+            toolCallId: "tool-img-1",
+            isError: false
+          });
+          handlers.onDelta?.({ delta: "partial" });
+          handlers.onTool?.({
+            phase: "start",
+            toolName: "await",
+            toolCallId: "tool-await-1",
+            isError: false
+          });
+          handlers.onTool?.({
+            phase: "end",
+            toolName: "await",
+            toolCallId: "tool-await-1",
+            isError: false
+          });
+          handlers.onAsyncJobsOpen?.({
+            activeMediaJobs: [],
+            activeDocumentJobs: [],
+            activeSandboxJobs: []
+          });
+          await new Promise<void>((resolve) => {
+            streamGate.release = resolve;
+          });
+        }
+      );
+
+      const { result } = renderHook(() => useChat("thread-think-1"), {
+        wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+      });
+
+      let sendPromise: Promise<void> | undefined;
+      await act(async () => {
+        sendPromise = result.current.send("wait for image");
+        await Promise.resolve();
+      });
+
+      await waitFor(() => {
+        const assistant = result.current.messages.find((message) => message.role === "assistant");
+        expect(assistant?.status).toBe("streaming");
+        expect(assistant?.streamingTextActive).toBe(false);
+        expect(assistant?.liveInlineMediaReceipts).toBe(true);
+      });
+      expect(
+        result.current.entries.some(
+          (entry) =>
+            entry.kind === "activity" &&
+            "toolName" in entry.event &&
+            entry.event.toolName === "image_generate"
+        )
+      ).toBe(false);
 
       streamGate.release();
       await act(async () => {

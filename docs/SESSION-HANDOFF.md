@@ -1,5 +1,22 @@
 # SESSION-HANDOFF
 
+## 2026-07-27 — ADR-165 D6.2: DI + catch-up strip + status→thinking
+
+- **Baseline HEAD:** `dac8f1ef`. Independent Bugbot CLEAN after catch-up flag
+  strip + cold-restore receipts on ordinary USER_TURN.
+- **Root cause:** `@Optional() liveTurnPresent: Pick|null = null` Nest metadata
+  is `Object` → injects null → open-turn always settles without chat (workspace
+  file + `delivered`, zero attachments / SSE `media` / «Получено»).
+- **Landed:** required `@Inject(WebChatLiveTurnPresentService)` on media +
+  document completion delivery; open-turn pin to live bubble (not ack);
+  `liveInlineMediaReceipts` for USER_TURN italic receipts (incl. status
+  reattach) vs async-cont/catch-up classic strip; open-jobs / await clear →
+  `streamingTextActive: false` (thinking). ADR-165 D6.2 + changelog.
+- **Out of scope:** ADR-161/162 queue; sync image D1; document open-turn attach.
+- **Next:** wait Dev Image Publish pin **api+web** (+ runtime if rebuilt) →
+  live smoke: mid-await «Получено», image in strip after commit, catch-up
+  strip only, no blank status mid-loop.
+
 ## 2026-07-26 — live status slot: no jump on thinking↔activity
 
 - **Pushed tip:** `4cf717a7`. Baseline `91be72e7` / D6.1 `ac03c77a`.

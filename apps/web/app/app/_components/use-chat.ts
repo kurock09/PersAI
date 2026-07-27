@@ -120,6 +120,12 @@ export interface ChatMessage {
   inlineMediaPlacement?: Array<{ toolCallId: string; attachmentIds: string[] }>;
   /** Local-only streaming hint: true while text deltas are actively being appended. */
   streamingTextActive?: boolean;
+  /**
+   * ADR-165 D6.2 — ordinary USER_TURN live bubble only. When true, show italic
+   * media receipts and suppress the classic bottom strip while streaming.
+   * Catch-up / async-cont / committed history omit this (classic strip).
+   */
+  liveInlineMediaReceipts?: boolean;
 }
 export interface RecentAutoCompactionNotice {
   detectedAt: string;
@@ -922,7 +928,8 @@ function toActiveTurnOverlayMessages(activeTurn: WebChatActiveTurnState | null |
   }
   // ADR-162 P4: async-cont binds to ConversationalPublish id when known —
   // never invent a permanent active-assistant-* beside the publish row.
-  const assistantOverlay: ChatMessage =
+  // ADR-165 D6.2: ordinary USER_TURN live gets italic receipts; async-cont never.
+  const assistantOverlayBase: ChatMessage =
     assistantMessage !== null
       ? { ...assistantMessage, status: "streaming" }
       : boundPublishAssistantId !== null
@@ -938,6 +945,13 @@ function toActiveTurnOverlayMessages(activeTurn: WebChatActiveTurnState | null |
             content: "",
             status: "streaming"
           } satisfies ChatMessage);
+  const assistantOverlay: ChatMessage = isAsyncContinuation
+    ? (() => {
+        const next = { ...assistantOverlayBase };
+        delete next.liveInlineMediaReceipts;
+        return next;
+      })()
+    : { ...assistantOverlayBase, liveInlineMediaReceipts: true };
   const liveActivitiesByMessageId =
     activeTurn.currentActivity && activeTurn.currentActivity.phase === "start"
       ? {
@@ -2036,6 +2050,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
       markSandboxActive(targetThreadKey, payload.activeSandboxJobs.length > 0);
       // Job terminal emptied media Working rows — drop a stuck "Generating image" chip.
       if (payload.activeMediaJobs.length === 0) {
+        const clearedDeferredMediaMessageIds: string[] = [];
         applyThreadLiveActivities(targetThreadKey, (prev) => {
           let changed = false;
           const next: typeof prev = {};
@@ -2046,12 +2061,22 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
               isDeferredMediaLiveTool(activity.toolName)
             ) {
               changed = true;
+              clearedDeferredMediaMessageIds.push(messageId);
               continue;
             }
             next[messageId] = activity;
           }
           return changed ? next : prev;
         });
+        // Leave thinking-capable state (not a blank cursor-only pre-answer slot).
+        if (clearedDeferredMediaMessageIds.length > 0) {
+          const clearedIds = new Set(clearedDeferredMediaMessageIds);
+          applyThreadMessages(targetThreadKey, (prev) =>
+            prev.map((message) =>
+              clearedIds.has(message.id) ? { ...message, streamingTextActive: false } : message
+            )
+          );
+        }
       }
       if (currentThreadKeyRef.current !== targetThreadKey) {
         return;
@@ -2062,6 +2087,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
     },
     [
       applyThreadLiveActivities,
+      applyThreadMessages,
       markDocumentActive,
       markMediaActive,
       markSandboxActive,
@@ -3021,6 +3047,8 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
               statusAssistantMessage?.attachments ??
               committedPublishRow?.attachments)
             : undefined;
+        // ADR-165 D6.2 — ordinary USER_TURN live always enables italic receipts
+        // (including cold restore / status reattach). Async-cont / catch-up never.
         const liveAssistantMessage: ChatMessage = {
           ...fallbackAssistantMessage,
           id: nextAssistantId,
@@ -3037,8 +3065,12 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
             ? { attachments: preservedAttachments }
             : publishAssistantId !== null
               ? {}
-              : { attachments: undefined })
+              : { attachments: undefined }),
+          ...(isAsyncContinuation ? {} : { liveInlineMediaReceipts: true as const })
         };
+        if (isAsyncContinuation) {
+          delete liveAssistantMessage.liveInlineMediaReceipts;
+        }
         const currentActivity = status.currentActivity;
         const previousLiveAssistantIdForActivities =
           existingSnapshot?.liveAssistantMessageId ?? null;
@@ -3695,6 +3727,14 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                     delete next[assistantMessageId];
                     return next;
                   });
+                  // Fall back to thinking («Думаю»), not a blank cursor-only slot.
+                  applyThreadMessages(targetThreadKey, (prev) =>
+                    prev.map((message) =>
+                      message.id === assistantMessageId
+                        ? { ...message, streamingTextActive: false }
+                        : message
+                    )
+                  );
                   recordToolInvocation();
                   if (toolName === "todo_write") {
                     void refreshChatPlan();
@@ -4560,7 +4600,8 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
         status: "streaming",
         thought: "",
         thoughtStartedAt: null,
-        thoughtFinishedAt: null
+        thoughtFinishedAt: null,
+        liveInlineMediaReceipts: true
       };
       const initialSnapshot = {
         clientTurnId,
@@ -4949,6 +4990,12 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
               delete next[assistantMsgId];
               return next;
             });
+            // Fall back to thinking («Думаю»), not a blank cursor-only slot.
+            applyThreadMessages(sendThreadKey, (prev) =>
+              prev.map((message) =>
+                message.id === assistantMsgId ? { ...message, streamingTextActive: false } : message
+              )
+            );
             recordToolInvocation();
           } else {
             applyThreadLiveActivities(sendThreadKey, (prev) => ({
@@ -4965,6 +5012,13 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                 })
               )
             }));
+            applyThreadMessages(sendThreadKey, (prev) =>
+              prev.map((message) =>
+                message.id === assistantMsgId
+                  ? { ...message, status: "streaming", streamingTextActive: false }
+                  : message
+              )
+            );
           }
           if (toolName === "todo_write") {
             void refreshChatPlan();

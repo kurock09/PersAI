@@ -30,6 +30,24 @@ const noopTrackWorkspaceQuotaUsageService = {
   }
 } as never;
 
+const noopLiveTurnPresent = {
+  async findOpenUserTurnAttempt() {
+    return null;
+  },
+  async ensureOpenTurnAssistantMessage() {
+    return "assistant-message-open";
+  },
+  async claimInlineForOpenTurnPresent() {
+    return true;
+  },
+  publishMedia() {
+    return undefined;
+  },
+  async publishOpenJobsSnapshot() {
+    return undefined;
+  }
+} as never;
+
 describe("ADR-162 Phase 1 ConversationalPublish", () => {
   test("ordinary media completion: delivered + handle ready + zero chat message + null completionAssistantMessageId", async () => {
     const finalUpdates: Array<Record<string, unknown>> = [];
@@ -136,7 +154,8 @@ describe("ADR-162 Phase 1 ConversationalPublish", () => {
           handleCompletionCalls += 1;
           return { decision: "skip_legacy_frame", state: "ready" };
         }
-      } as never
+      } as never,
+      noopLiveTurnPresent
     );
 
     const processed = await service.processPendingBatch();
@@ -432,7 +451,8 @@ describe("ADR-162 Phase 1 ConversationalPublish", () => {
         async recordCanonicalCompletion() {
           return { decision: "skip_legacy_frame", state: "completed" };
         }
-      } as never
+      } as never,
+      noopLiveTurnPresent
     );
 
     const processed = await service.processPendingBatch();
@@ -558,7 +578,8 @@ describe("ADR-162 Phase 1 ConversationalPublish", () => {
           handleCompletionCalls += 1;
           return { decision: "skip_legacy_frame", state: "ready" };
         }
-      } as never
+      } as never,
+      noopLiveTurnPresent
     );
 
     await service.deliverReadyJob({
@@ -772,7 +793,8 @@ describe("ADR-162 Phase 1 ConversationalPublish", () => {
           handleCompletionCalls += 1;
           return { decision: "skip_legacy_frame", state: "failed" };
         }
-      } as never
+      } as never,
+      noopLiveTurnPresent
     );
 
     await (
@@ -910,7 +932,8 @@ describe("ADR-162 Phase 1 ConversationalPublish", () => {
           handleCompletionCalls += 1;
           return { decision: "skip_legacy_frame", state: "failed" };
         }
-      } as never
+      } as never,
+      noopLiveTurnPresent
     );
 
     const processed = await service.processPendingBatch();

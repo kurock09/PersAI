@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger, Optional } from "@nestjs/common";
+import { Inject, Injectable, Logger } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import type { RuntimeOutputArtifact, RuntimeUsageSnapshot } from "@persai/runtime-contract";
 import {
@@ -131,18 +131,15 @@ export class AssistantDocumentJobDeliveryService {
         state: "completed"
       })
     },
-    @Optional()
-    private readonly liveTurnPresent: Pick<
-      WebChatLiveTurnPresentService,
-      "findOpenUserTurnAttempt" | "publishOpenJobsSnapshot"
-    > | null = null
+    @Inject(WebChatLiveTurnPresentService)
+    private readonly liveTurnPresent: WebChatLiveTurnPresentService
   ) {}
 
   private async publishOpenJobsIfOpenTurn(
     job: Pick<ClaimedReadyDocumentJob, "assistantId" | "chatId" | "surface" | "providerStatusJson">,
     payload?: PersistedDeliveryPayload | Partial<PersistedDeliveryPayload> | null
   ): Promise<void> {
-    if (this.liveTurnPresent === null || job.surface !== "web") {
+    if (job.surface !== "web") {
       return;
     }
     const sourceUserMessageId = this.resolveOpenTurnSourceUserMessageId(job, payload);

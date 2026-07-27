@@ -1415,7 +1415,7 @@ describe("ChatMessageBubble — pre-response status", () => {
     ).toBeTruthy();
   });
 
-  it("ADR-165: live reply shows italic media receipt instead of inline preview", () => {
+  it("ADR-165: live USER_TURN shows italic media receipt instead of inline preview", () => {
     const image = {
       ...makeImageAttachment("att-inline-1"),
       inlineAfterToolCallId: "call-img-1",
@@ -1427,6 +1427,7 @@ describe("ChatMessageBubble — pre-response status", () => {
         message={makeAssistantMessage({
           status: "streaming",
           content: "",
+          liveInlineMediaReceipts: true,
           workingNotes: ["сейчас"],
           toolInvocations: [
             { name: "image_generate", iteration: 0, ok: true, toolCallId: "call-img-1" }
@@ -1443,7 +1444,34 @@ describe("ChatMessageBubble — pre-response status", () => {
     );
   });
 
-  it("ADR-165: live reply shows orphan media receipts when placement is missing", () => {
+  it("ADR-165 D6.2: catch-up streaming uses classic strip, no italic receipts", () => {
+    const image = {
+      ...makeImageAttachment("att-catchup-1"),
+      sizeBytes: 1024 * 1024
+    };
+    const { container } = render(
+      <ChatMessageBubble
+        chatId="chat-1"
+        message={makeAssistantMessage({
+          status: "streaming",
+          content: "",
+          workingNotes: ["догоняю"],
+          toolInvocations: [
+            { name: "image_generate", iteration: 0, ok: true, toolCallId: "call-img-1" }
+          ],
+          inlineMediaPlacement: [{ toolCallId: "call-img-1", attachmentIds: ["att-catchup-1"] }],
+          attachments: [image]
+        })}
+      />
+    );
+
+    expect(screen.queryByTestId("media-receipt-lines")).toBeNull();
+    const strips = screen.getAllByTestId("attachment-strip");
+    expect(strips).toHaveLength(1);
+    expect(container.querySelector('img[alt="photo.jpg"]')).not.toBeNull();
+  });
+
+  it("ADR-165: live USER_TURN shows orphan media receipts when placement is missing", () => {
     const image = {
       ...makeImageAttachment("att-orphan-1"),
       sizeBytes: 1024 * 1024
@@ -1454,6 +1482,7 @@ describe("ChatMessageBubble — pre-response status", () => {
         message={makeAssistantMessage({
           status: "streaming",
           content: "",
+          liveInlineMediaReceipts: true,
           workingNotes: ["жду"],
           toolInvocations: [
             { name: "image_generate", iteration: 0, ok: true, toolCallId: "call-img-1" }
