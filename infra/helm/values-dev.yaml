@@ -148,7 +148,7 @@ api:
     gcpServiceAccountEmail: api-runtime@project-44786b14-b7d7-4554-a8a.iam.gserviceaccount.com
   image:
     name: api
-    tag: ac03c77a65a80a89c7b60bb58baa8ddfb32c623f
+    tag: d4e5f9cb274aa6834e7b6fc30bb0869fce09d518
     pullPolicy: IfNotPresent
   cloudSqlProxy:
     enabled: true
@@ -324,7 +324,7 @@ web:
       maxSurge: 1
   image:
     name: web
-    tag: 4cf717a729e4e9d49ab163d7f567a77537cc386b
+    tag: d4e5f9cb274aa6834e7b6fc30bb0869fce09d518
     pullPolicy: IfNotPresent
   env:
     NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_live_Y2xlcmsucGVyc2FpLmRldiQ
