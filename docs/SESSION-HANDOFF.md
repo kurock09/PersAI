@@ -2,8 +2,9 @@
 
 ## 2026-07-27 — ADR-165 D6.2: DI + catch-up strip + status→thinking
 
-- **Baseline HEAD:** `dac8f1ef`. Independent Bugbot CLEAN after catch-up flag
-  strip + cold-restore receipts on ordinary USER_TURN.
+- **Pushed tip:** `d4e5f9cb` (rebased over GitOps pin `fe2e4f8d`; baseline
+  `dac8f1ef`). Independent Bugbot CLEAN after catch-up flag strip + cold-restore
+  receipts on ordinary USER_TURN.
 - **Root cause:** `@Optional() liveTurnPresent: Pick|null = null` Nest metadata
   is `Object` → injects null → open-turn always settles without chat (workspace
   file + `delivered`, zero attachments / SSE `media` / «Получено»).
