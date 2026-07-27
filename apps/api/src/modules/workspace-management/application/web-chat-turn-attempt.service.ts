@@ -174,7 +174,8 @@ export class WebChatTurnAttemptService {
   constructor(
     private readonly prisma: WorkspaceManagementPrismaService,
     private readonly resolveActiveAssistantService: ResolveActiveAssistantService,
-    @Optional() private readonly chatWakeCoordinator?: ChatWakeCoordinator,
+    /** ADR-166 — required for idle-pause origin on ordinary USER_TURN terminal. */
+    private readonly chatWakeCoordinator: ChatWakeCoordinator,
     @Optional()
     private readonly asyncJobHandleState?: AssistantAsyncJobHandleStateService
   ) {}
@@ -677,12 +678,7 @@ export class WebChatTurnAttemptService {
   private async recordUserTurnTerminalIfNeeded(
     prior: { chatId: string | null; surfaceClient: string | null } | null
   ): Promise<void> {
-    if (
-      prior === null ||
-      prior.chatId === null ||
-      prior.surfaceClient === "async_continuation" ||
-      this.chatWakeCoordinator === undefined
-    ) {
+    if (prior === null || prior.chatId === null || prior.surfaceClient === "async_continuation") {
       return;
     }
     await this.chatWakeCoordinator.recordUserTurnTerminal(prior.chatId);

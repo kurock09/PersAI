@@ -34,7 +34,7 @@ describe("WebChatLiveTurnPresentService", () => {
         listOpenJobsForWebChat: async () => []
       } as never,
       {
-        claimOpenTurnLivePresent: async () => true,
+        claimOpenTurnLivePresent: async () => "newly_claimed",
         listOpenSandboxJobsForWebChat: async () => []
       } as never,
       {

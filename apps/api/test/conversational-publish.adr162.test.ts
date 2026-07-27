@@ -38,7 +38,7 @@ const noopLiveTurnPresent = {
     return "assistant-message-open";
   },
   async claimInlineForOpenTurnPresent() {
-    return true;
+    return "newly_claimed";
   },
   publishMedia() {
     return undefined;
@@ -1063,10 +1063,167 @@ describe("ADR-162 Phase 1 ConversationalPublish", () => {
     assert.equal(attached.length, 2);
   });
 
-  test("retry after create+pin with failed attach reuses same messageId (no second create)", async () => {
+  test("ADR-166: create+pin then attach fail settles honest failure identity (no orphan blank; F5 durable)", async () => {
     let pinnedId: string | null = null;
     let createMessageCalls = 0;
     let deliverAttempts = 0;
+    let updatedContent: string | null = null;
+    let mergedMetadata: Record<string, unknown> | null = null;
+    const stampedHandleIds: string[] = [];
+    let messageContent = "";
+    let messageMetadata: Record<string, unknown> = {
+      wakeKind: "job_catchup",
+      conversationalPublish: true
+    };
+
+    const publish = new ConversationalPublishService(
+      {
+        assistantMediaJob: {
+          findUnique: async () => ({
+            id: "media-job-attach-fail",
+            assistantId: "assistant-1",
+            workspaceId: "workspace-1",
+            chatId: "chat-1",
+            surface: "web",
+            artifactsJson: [
+              { artifactId: "a-fail", kind: "image", storagePath: "/workspace/fail.png" }
+            ],
+            completionAssistantMessageId: pinnedId,
+            status: "delivered"
+          }),
+          updateMany: async (input: { data: { completionAssistantMessageId?: string } }) => {
+            if (typeof input.data.completionAssistantMessageId === "string") {
+              pinnedId = input.data.completionAssistantMessageId;
+            }
+            return { count: 1 };
+          }
+        },
+        assistantAsyncJobHandle: {
+          updateMany: async (input: {
+            where: { id: string };
+            data: { continuationAssistantMessageId?: string };
+          }) => {
+            if (typeof input.data.continuationAssistantMessageId === "string") {
+              stampedHandleIds.push(input.data.continuationAssistantMessageId);
+            }
+            return { count: 1 };
+          }
+        },
+        assistantDocumentRenderJob: {
+          findUnique: async () => null
+        }
+      } as never,
+      {
+        createMessage: async () => {
+          createMessageCalls += 1;
+          return {
+            id: "pinned-fail-msg-1",
+            chatId: "chat-1",
+            assistantId: "assistant-1",
+            content: "",
+            metadata: { ...messageMetadata },
+            createdAt: new Date()
+          };
+        },
+        updateMessageContent: async (messageId: string, _assistantId: string, content: string) => {
+          assert.equal(messageId, "pinned-fail-msg-1");
+          updatedContent = content;
+          messageContent = content;
+          return {
+            id: messageId,
+            chatId: "chat-1",
+            assistantId: "assistant-1",
+            content,
+            metadata: { ...messageMetadata },
+            createdAt: new Date()
+          };
+        },
+        mergeMessageMetadata: async (
+          messageId: string,
+          _assistantId: string,
+          patch: Record<string, unknown>
+        ) => {
+          assert.equal(messageId, "pinned-fail-msg-1");
+          mergedMetadata = patch;
+          messageMetadata = { ...messageMetadata, ...patch };
+          return {
+            id: messageId,
+            chatId: "chat-1",
+            assistantId: "assistant-1",
+            content: messageContent,
+            metadata: { ...messageMetadata },
+            createdAt: new Date()
+          };
+        },
+        findMessageByIdForAssistant: async (messageId: string) => {
+          if (messageId !== "pinned-fail-msg-1") return null;
+          return {
+            id: messageId,
+            chatId: "chat-1",
+            assistantId: "assistant-1",
+            content: messageContent,
+            metadata: { ...messageMetadata },
+            createdAt: new Date()
+          };
+        }
+      } as never,
+      {
+        listByMessageId: async () => []
+      } as never,
+      {
+        deliver: async () => {
+          deliverAttempts += 1;
+          return { attachments: [] };
+        }
+      } as never,
+      {
+        async resolveByAssistantId() {
+          throw new Error("web path should not resolve telegram");
+        }
+      } as never
+    );
+
+    const firstId = await publish.publishForCatchUp({
+      handleId: "handle-attach-fail",
+      kind: "media",
+      canonicalJobId: "media-job-attach-fail",
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      chatId: "chat-1",
+      channel: "web"
+    });
+    assert.equal(firstId, "pinned-fail-msg-1");
+    assert.equal(createMessageCalls, 1);
+    assert.equal(pinnedId, "pinned-fail-msg-1");
+    assert.equal(deliverAttempts, 1);
+    assert.ok(typeof updatedContent === "string" && updatedContent.length > 0);
+    assert.equal(mergedMetadata?.conversationalPublishAttachmentFailed, true);
+    assert.ok(stampedHandleIds.includes("pinned-fail-msg-1"));
+
+    // F5 / retry: same durable identity, no second create, no duplicate deliver.
+    const retriedId = await publish.publishForCatchUp({
+      handleId: "handle-attach-fail",
+      kind: "media",
+      canonicalJobId: "media-job-attach-fail",
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      chatId: "chat-1",
+      channel: "web"
+    });
+    assert.equal(retriedId, "pinned-fail-msg-1");
+    assert.equal(createMessageCalls, 1);
+    assert.equal(deliverAttempts, 1);
+  });
+
+  test("ADR-166: create+pin then attach throw settles same durable failure identity", async () => {
+    let pinnedId: string | null = null;
+    let createMessageCalls = 0;
+    let deliverAttempts = 0;
+    let messageContent = "";
+    let messageMetadata: Record<string, unknown> = {
+      wakeKind: "job_catchup",
+      conversationalPublish: true
+    };
 
     const publish = new ConversationalPublishService(
       {
@@ -1103,25 +1260,52 @@ describe("ADR-162 Phase 1 ConversationalPublish", () => {
             chatId: "chat-1",
             assistantId: "assistant-1",
             content: "",
+            metadata: { ...messageMetadata },
             createdAt: new Date()
           };
-        }
+        },
+        updateMessageContent: async (_id: string, _assistantId: string, content: string) => {
+          messageContent = content;
+          return {
+            id: "pinned-msg-1",
+            chatId: "chat-1",
+            assistantId: "assistant-1",
+            content,
+            metadata: { ...messageMetadata },
+            createdAt: new Date()
+          };
+        },
+        mergeMessageMetadata: async (
+          _id: string,
+          _assistantId: string,
+          patch: Record<string, unknown>
+        ) => {
+          messageMetadata = { ...messageMetadata, ...patch };
+          return {
+            id: "pinned-msg-1",
+            chatId: "chat-1",
+            assistantId: "assistant-1",
+            content: messageContent,
+            metadata: { ...messageMetadata },
+            createdAt: new Date()
+          };
+        },
+        findMessageByIdForAssistant: async () => ({
+          id: "pinned-msg-1",
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          content: messageContent,
+          metadata: { ...messageMetadata },
+          createdAt: new Date()
+        })
       } as never,
       {
         listByMessageId: async () => []
       } as never,
       {
-        deliver: async (input: { messageId: string }) => {
+        deliver: async () => {
           deliverAttempts += 1;
-          if (deliverAttempts === 1) {
-            throw new Error("attach crashed after pin");
-          }
-          assert.equal(input.messageId, "pinned-msg-1");
-          return {
-            attachments: [
-              { id: "att-retry", originalFilename: "retry.png", path: "/workspace/retry.png" }
-            ]
-          };
+          throw new Error("attach crashed after pin");
         }
       } as never,
       {
@@ -1131,21 +1315,21 @@ describe("ADR-162 Phase 1 ConversationalPublish", () => {
       } as never
     );
 
-    await assert.rejects(
-      () =>
-        publish.publishForCatchUp({
-          handleId: "handle-retry",
-          kind: "media",
-          canonicalJobId: "media-job-retry",
-          assistantId: "assistant-1",
-          workspaceId: "workspace-1",
-          chatId: "chat-1",
-          channel: "web"
-        }),
-      /attach crashed after pin/
-    );
+    const first = await publish.publishForCatchUp({
+      handleId: "handle-retry",
+      kind: "media",
+      canonicalJobId: "media-job-retry",
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      chatId: "chat-1",
+      channel: "web"
+    });
+    assert.equal(first, "pinned-msg-1");
     assert.equal(createMessageCalls, 1);
     assert.equal(pinnedId, "pinned-msg-1");
+    assert.equal(deliverAttempts, 1);
+    assert.ok(messageContent.length > 0);
+    assert.equal(messageMetadata.conversationalPublishAttachmentFailed, true);
 
     const retriedId = await publish.publishForCatchUp({
       handleId: "handle-retry",
@@ -1158,10 +1342,10 @@ describe("ADR-162 Phase 1 ConversationalPublish", () => {
     });
     assert.equal(retriedId, "pinned-msg-1");
     assert.equal(createMessageCalls, 1);
-    assert.equal(deliverAttempts, 2);
+    assert.equal(deliverAttempts, 1);
   });
 
-  test("stream-web and telegram scheduler always call required ConversationalPublish", async () => {
+  test("ADR-166 stream-web and telegram scheduler skip ConversationalPublish on pre-accept busy", async () => {
     const streamPublishCalls: string[] = [];
     const tgPublishCalls: string[] = [];
 
@@ -1194,6 +1378,9 @@ describe("ADR-162 Phase 1 ConversationalPublish", () => {
           streamPublishCalls.push(input.canonicalJobId);
           return null;
         }
+      } as never,
+      {
+        admitCatchUpAtBoundary: async () => ({ allowed: true as const })
       } as never
     );
 
@@ -1232,7 +1419,7 @@ describe("ADR-162 Phase 1 ConversationalPublish", () => {
         retryAt: () => new Date()
       }
     });
-    assert.deepEqual(streamPublishCalls, ["sandbox-job-1"]);
+    assert.deepEqual(streamPublishCalls, []);
 
     let executeCalled = false;
     const tgService = new AssistantAsyncJobContinuationSchedulerService(
@@ -1295,7 +1482,7 @@ describe("ADR-162 Phase 1 ConversationalPublish", () => {
       timeoutMs: 50
     });
     await internal.processClaim({ id: "handle-tg-pub", claimToken: "claim-tg-pub" });
-    assert.deepEqual(tgPublishCalls, ["media-job-tg-pub"]);
+    assert.deepEqual(tgPublishCalls, []);
     assert.equal(executeCalled, true);
   });
 });

@@ -30,9 +30,9 @@ export type ConversationalPublishInput = {
 };
 
 /**
- * ADR-162 Phase 1 — sole chat-row create + artifact attach for ordinary
- * deferred media/document jobs. Runs under catch-up eligibility
- * (after idle-pause / USER_TURN gate), before the narration runtime turn.
+ * ADR-162 / ADR-166 — sole chat-row create + artifact attach for ordinary
+ * deferred media/document catch-up. Callers must invoke only after queue
+ * admission and runtime acceptance; pre-accept busy/deny must leave no pin.
  */
 @Injectable()
 export class ConversationalPublishService {
@@ -88,6 +88,10 @@ export class ConversationalPublishService {
     let messageId = job.completionAssistantMessageId;
     let existingAttachmentCount = 0;
     if (messageId !== null) {
+      if (await this.isPinnedAttachFailureSettled(messageId, input.assistantId)) {
+        await this.stampHandleMessageIds(input.handleId, messageId);
+        return messageId;
+      }
       const existingAttachments = await this.attachmentRepository.listByMessageId(messageId);
       existingAttachmentCount = existingAttachments.length;
       // ADR-162 audit: any attachment is not "complete". Only skip deliver when
@@ -140,20 +144,34 @@ export class ConversationalPublishService {
       input.channel === "telegram"
         ? await this.resolveTelegramChannelTarget(input.assistantId, input.chatId)
         : undefined;
-    const delivered = await this.mediaDeliveryService.deliver({
-      artifacts: runtimeOutputArtifactsToMediaArtifacts(remainingArtifacts),
-      channel: input.channel,
-      assistantId: input.assistantId,
-      chatId: input.chatId,
-      messageId,
-      workspaceId: input.workspaceId,
-      settleQuota: false,
-      ...(channelTarget === undefined ? {} : { channelTarget })
-    });
-    if (delivered.attachments.length === 0) {
-      throw new Error(
-        `ConversationalPublish failed to attach media artifacts for ${input.canonicalJobId}`
-      );
+    try {
+      const delivered = await this.mediaDeliveryService.deliver({
+        artifacts: runtimeOutputArtifactsToMediaArtifacts(remainingArtifacts),
+        channel: input.channel,
+        assistantId: input.assistantId,
+        chatId: input.chatId,
+        messageId,
+        workspaceId: input.workspaceId,
+        settleQuota: false,
+        ...(channelTarget === undefined ? {} : { channelTarget })
+      });
+      if (delivered.attachments.length === 0) {
+        return this.settlePinnedAttachFailure({
+          handleId: input.handleId,
+          assistantId: input.assistantId,
+          messageId,
+          canonicalJobId: input.canonicalJobId,
+          reason: "zero_attachments"
+        });
+      }
+    } catch (error) {
+      return this.settlePinnedAttachFailure({
+        handleId: input.handleId,
+        assistantId: input.assistantId,
+        messageId,
+        canonicalJobId: input.canonicalJobId,
+        reason: error instanceof Error ? error.message : String(error)
+      });
     }
 
     await this.stampHandleMessageIds(input.handleId, messageId);
@@ -193,6 +211,10 @@ export class ConversationalPublishService {
     let workingPayload = workingBase;
     let existingAttachmentCount = 0;
     if (messageId !== null) {
+      if (await this.isPinnedAttachFailureSettled(messageId, input.assistantId)) {
+        await this.stampHandleMessageIds(input.handleId, messageId);
+        return messageId;
+      }
       const existingAttachments = await this.attachmentRepository.listByMessageId(messageId);
       existingAttachmentCount = existingAttachments.length;
       // ADR-162 audit: partial attach must retry remaining artifacts — do not
@@ -253,16 +275,27 @@ export class ConversationalPublishService {
       input.channel === "telegram"
         ? await this.resolveTelegramChannelTarget(input.assistantId, input.chatId)
         : undefined;
-    const delivered = await this.mediaDeliveryService.deliver({
-      artifacts: runtimeOutputArtifactsToMediaArtifacts(remainingArtifacts),
-      channel: input.channel,
-      assistantId: input.assistantId,
-      chatId: input.chatId,
-      messageId,
-      workspaceId: input.workspaceId,
-      settleQuota: false,
-      ...(channelTarget === undefined ? {} : { channelTarget })
-    });
+    let delivered;
+    try {
+      delivered = await this.mediaDeliveryService.deliver({
+        artifacts: runtimeOutputArtifactsToMediaArtifacts(remainingArtifacts),
+        channel: input.channel,
+        assistantId: input.assistantId,
+        chatId: input.chatId,
+        messageId,
+        workspaceId: input.workspaceId,
+        settleQuota: false,
+        ...(channelTarget === undefined ? {} : { channelTarget })
+      });
+    } catch (error) {
+      return this.settlePinnedAttachFailure({
+        handleId: input.handleId,
+        assistantId: input.assistantId,
+        messageId,
+        canonicalJobId: input.canonicalJobId,
+        reason: error instanceof Error ? error.message : String(error)
+      });
+    }
     const normalized = delivered.attachments
       .filter(
         (attachment) =>
@@ -276,9 +309,13 @@ export class ConversationalPublishService {
         mimeType: attachment.mimeType
       }));
     if (normalized.length === 0) {
-      throw new Error(
-        `ConversationalPublish failed to attach document artifacts for ${input.canonicalJobId}`
-      );
+      return this.settlePinnedAttachFailure({
+        handleId: input.handleId,
+        assistantId: input.assistantId,
+        messageId,
+        canonicalJobId: input.canonicalJobId,
+        reason: "zero_attachments"
+      });
     }
 
     await this.stampDocumentAttachments({
@@ -314,6 +351,62 @@ export class ConversationalPublishService {
         continuationAssistantMessageId: messageId
       }
     });
+  }
+
+  /**
+   * ADR-166 — after create+pin, attach throw/zero must not leave a blank unbound
+   * orphan. Project one honest failure on the pinned identity and return it so
+   * the attempt can bind; retries reuse the same id without re-deliver.
+   */
+  private async settlePinnedAttachFailure(input: {
+    handleId: string;
+    assistantId: string;
+    messageId: string;
+    canonicalJobId: string;
+    reason: string;
+  }): Promise<string> {
+    const failureText = "The file was ready, but attaching it to this chat message failed.";
+    try {
+      await this.assistantChatRepository.updateMessageContent(
+        input.messageId,
+        input.assistantId,
+        failureText
+      );
+      await this.assistantChatRepository.mergeMessageMetadata(input.messageId, input.assistantId, {
+        conversationalPublishAttachmentFailed: true,
+        conversationalPublishAttachmentError: input.reason.slice(0, 500)
+      });
+    } catch (error) {
+      this.logger.warn(
+        `conversational_publish_attach_failure_project_failed jobId=${input.canonicalJobId} messageId=${input.messageId}: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+    }
+    await this.stampHandleMessageIds(input.handleId, input.messageId);
+    this.logger.warn(
+      `conversational_publish_attach_failed jobId=${input.canonicalJobId} messageId=${input.messageId} reason=${input.reason}`
+    );
+    return input.messageId;
+  }
+
+  private async isPinnedAttachFailureSettled(
+    messageId: string,
+    assistantId: string
+  ): Promise<boolean> {
+    const finder = this.assistantChatRepository.findMessageByIdForAssistant;
+    if (typeof finder !== "function") {
+      return false;
+    }
+    const existing = await finder.call(this.assistantChatRepository, messageId, assistantId);
+    if (existing === null) return false;
+    const metadata =
+      existing.metadata !== null &&
+      typeof existing.metadata === "object" &&
+      !Array.isArray(existing.metadata)
+        ? (existing.metadata as Record<string, unknown>)
+        : null;
+    return metadata?.conversationalPublishAttachmentFailed === true;
   }
 
   /**

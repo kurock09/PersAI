@@ -26,7 +26,10 @@ import {
   buildAssistantMediaJobFailureMessage,
   inferAssistantMediaJobFailureLocale
 } from "./workspace-media-job-failure-copy.service";
-import { AssistantAsyncJobHandleStateService } from "./assistant-async-job-handle-state.service";
+import {
+  AssistantAsyncJobHandleStateService,
+  isOpenTurnLivePresentClaimAllowed
+} from "./assistant-async-job-handle-state.service";
 import {
   type OpenWebUserTurnAttempt,
   WebChatLiveTurnPresentService
@@ -391,21 +394,26 @@ export class AssistantMediaJobCompletionDeliveryService {
         kind: "media",
         canonicalJobId: job.id
       });
-      // ADR-165 — open USER_TURN supersedes ordinary defer settle-without-chat:
-      // attach into the live bubble + SSE media / open-jobs so receipts and the
-      // Working banner track job terminal truth while the loop is still alive.
+      // ADR-166 — open USER_TURN live present is claim-gated. Finding a running
+      // attempt is not authorization: only newly_claimed /
+      // already_current_turn_inline may attach/pin/SSE media. Denied owners
+      // (continuation / notify / legacy) take settle-without-chat / catch-up.
       const openTurnAttempt = job.surface === "web" ? await this.resolveOpenTurnAttempt(job) : null;
-      if (openTurnAttempt !== null) {
-        await this.liveTurnPresent.claimInlineForOpenTurnPresent({
-          kind: "media",
-          canonicalJobId: job.id
-        });
-      }
+      const openTurnClaimOutcome =
+        openTurnAttempt === null
+          ? ("denied" as const)
+          : await this.liveTurnPresent.claimInlineForOpenTurnPresent({
+              kind: "media",
+              canonicalJobId: job.id
+            });
+      const openTurnLivePresent = isOpenTurnLivePresentClaimAllowed(openTurnClaimOutcome)
+        ? openTurnAttempt
+        : null;
       // ADR-162 Phase 1 — ordinary deferred (owned handle, not await-inline)
-      // with no open USER_TURN: finalize + settle; chat invent waits for
-      // ConversationalPublish at catch-up present.
+      // or ADR-166 denied claim with a stale running attempt: finalize + settle;
+      // chat invent waits for ConversationalPublish at catch-up present.
       const deferChatPublish = await this.shouldDeferConversationalPublish(job.id);
-      if (deferChatPublish && openTurnAttempt === null) {
+      if (deferChatPublish && openTurnLivePresent === null) {
         await this.mediaDeliveryService.settleProducedArtifactsWithoutDelivery({
           assistantId: job.assistantId,
           workspaceId: job.workspaceId,
@@ -418,6 +426,10 @@ export class AssistantMediaJobCompletionDeliveryService {
           code: null,
           message: null
         });
+        // Working clears from durable terminal truth even when claim was denied.
+        if (openTurnAttempt !== null) {
+          await this.liveTurnPresent.publishOpenJobsSnapshot({ attempt: openTurnAttempt });
+        }
         return;
       }
 
@@ -445,13 +457,14 @@ export class AssistantMediaJobCompletionDeliveryService {
 
       // Attachment delivery is authoritative. In the missing-handle historical
       // contour, do not persist or publish legacy framing before this succeeds.
+      // Open-turn pin/attach only when the claim outcome allows live present.
       const messageId = await this.ensureCompletionMessage(
         job,
         {
           text: "",
           shouldUpdateExistingMessage: false
         },
-        { openTurnAttempt }
+        { openTurnAttempt: openTurnLivePresent }
       );
       const delivered = await this.mediaDeliveryService.deliver({
         artifacts: runtimeOutputArtifactsToMediaArtifacts(artifacts),
@@ -463,9 +476,9 @@ export class AssistantMediaJobCompletionDeliveryService {
       });
       deliveryState.loopResolved = true;
       await this.releaseUnproducedRemainderBestEffort(job, artifacts.length);
-      if (openTurnAttempt !== null && delivered.attachments.length > 0) {
+      if (openTurnLivePresent !== null && delivered.attachments.length > 0) {
         await this.publishOpenTurnMediaPresent({
-          attempt: openTurnAttempt,
+          attempt: openTurnLivePresent,
           job,
           messageId,
           artifacts,
@@ -526,6 +539,7 @@ export class AssistantMediaJobCompletionDeliveryService {
             ? "Generated media could not be delivered to the user-visible chat."
             : null
       });
+      // ADR-166 D5 — publish Working snapshot only after terminal state is durable.
       if (openTurnAttempt !== null) {
         await this.liveTurnPresent.publishOpenJobsSnapshot({ attempt: openTurnAttempt });
       }
@@ -775,6 +789,11 @@ export class AssistantMediaJobCompletionDeliveryService {
           message: "Job failed."
         }
       });
+    }
+    // ADR-166 D5 — failure terminal also refreshes Working after durable state.
+    const openTurnAttempt = await this.resolveOpenTurnAttempt(job);
+    if (openTurnAttempt !== null) {
+      await this.liveTurnPresent.publishOpenJobsSnapshot({ attempt: openTurnAttempt });
     }
   }
 

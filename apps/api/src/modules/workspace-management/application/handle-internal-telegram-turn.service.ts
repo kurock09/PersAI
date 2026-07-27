@@ -110,6 +110,8 @@ export class HandleInternalTelegramTurnService {
     private readonly recordModelCostLedgerService: RecordModelCostLedgerService,
     private readonly recordToolPathLedgerFromToolInvocationsService: RecordToolPathLedgerFromToolInvocationsService,
     private readonly webRuntimeSessionStateClientService: WebRuntimeSessionStateClientService,
+    /** ADR-166 — required; fail-closed USER_TURN admission for Telegram. */
+    private readonly chatWakeCoordinator: ChatWakeCoordinator,
     @Optional()
     private readonly quotaAdvisoryFollowUpService?: QuotaAdvisoryFollowUpService,
     @Optional()
@@ -127,9 +129,7 @@ export class HandleInternalTelegramTurnService {
         currentTurnPreserved: 0,
         currentTurnReleased: 0
       })
-    },
-    @Optional()
-    private readonly chatWakeCoordinator?: ChatWakeCoordinator
+    }
   ) {}
 
   async execute(input: TelegramAdapterTurnRequest): Promise<InternalTelegramTurnResult> {
@@ -288,9 +288,7 @@ export class HandleInternalTelegramTurnService {
         sourceClientTurnId: userMessage.id
       };
       // ADR-159 S2 — durable preparing window before runtime accept (receipt).
-      if (this.chatWakeCoordinator !== undefined) {
-        await this.chatWakeCoordinator.admitUserTurn(chat.id);
-      }
+      await this.chatWakeCoordinator.admitUserTurn(chat.id);
       trace.stage("user_message_saved");
 
       let enrichedMessage = input.message;
@@ -601,7 +599,7 @@ export class HandleInternalTelegramTurnService {
       throw error;
     } finally {
       // ADR-159 S2 — durable idle-pause origin after Telegram USER_TURN terminals.
-      if (sourceFinalizationContext !== null && this.chatWakeCoordinator !== undefined) {
+      if (sourceFinalizationContext !== null) {
         await this.chatWakeCoordinator.recordUserTurnTerminal(sourceFinalizationContext.chatId);
       }
     }

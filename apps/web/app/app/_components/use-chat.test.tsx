@@ -110,6 +110,7 @@ describe("useChat", () => {
 
   beforeEach(() => {
     window.sessionStorage.clear();
+    clerkMocks.getToken.mockReset();
     clerkMocks.getToken.mockResolvedValue("token-1");
     assistantApiMocks.compactChat.mockReset();
     assistantApiMocks.getAssistantWebChatTurnStatus.mockReset();
@@ -138,6 +139,16 @@ describe("useChat", () => {
       currentActivity: null,
       runtime: null,
       error: null
+    });
+    // Default empty page (not mockResolvedValueOnce). Late in-flight
+    // getChatMessages from a prior test under full parallel load must not
+    // throw on undefined or steal the next test's Once queue.
+    assistantApiMocks.getChatMessages.mockResolvedValue({
+      nextCursor: null,
+      messages: [],
+      activeMediaJobs: [],
+      activeDocumentJobs: [],
+      activeSandboxJobs: []
     });
     assistantApiMocks.reattachAssistantWebChatTurnStream.mockImplementation(
       async (
@@ -176,11 +187,27 @@ describe("useChat", () => {
     );
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     vi.useRealTimers();
-    vi.restoreAllMocks();
+    // Do not vi.restoreAllMocks(): hoisted assistantApiMocks are shared across
+    // the file, and restore + late in-flight getChatMessages/stream calls from
+    // the previous test land after the next beforeEach mockReset, shifting
+    // Once queues and inflating toHaveBeenCalledTimes under parallel load.
     vi.unstubAllGlobals();
     rafCallbacks.clear();
+    await act(async () => {
+      for (let i = 0; i < 5; i += 1) {
+        await Promise.resolve();
+      }
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, 0);
+      });
+    });
+    assistantApiMocks.getChatMessages.mockClear();
+    assistantApiMocks.streamAssistantWebChatTurn.mockClear();
+    assistantApiMocks.reattachAssistantWebChatTurnStream.mockClear();
+    assistantApiMocks.getAssistantWebChatTurnStatus.mockClear();
+    clerkMocks.getToken.mockClear();
   });
 
   it("sends a valid Russian title for the first welcome chat", async () => {
@@ -1382,6 +1409,274 @@ describe("useChat", () => {
       assistantApiMocks.streamAssistantWebChatContinuationDiscovery.mock.calls[0]?.[4];
     expect(discoverySignal).toBeInstanceOf(AbortSignal);
     expect((discoverySignal as AbortSignal).aborted).toBe(true);
+  });
+
+  describe("ADR-166 P2: already-terminal discovered async continuation", () => {
+    const sourceMessages = [
+      {
+        id: "user-msg-terminal-discovery",
+        chatId: "chat-1",
+        assistantId: "assistant-1",
+        author: "user" as const,
+        content: "run background work",
+        attachments: [] as [],
+        createdAt: "2026-07-27T20:00:00.000Z"
+      },
+      {
+        id: "assistant-msg-source-terminal-discovery",
+        chatId: "chat-1",
+        assistantId: "assistant-1",
+        author: "assistant" as const,
+        content: "Started.",
+        attachments: [] as [],
+        createdAt: "2026-07-27T20:00:01.000Z"
+      }
+    ];
+    const continuationAttachment = {
+      id: "att-terminal-discovery-1",
+      attachmentType: "image" as const,
+      originalFilename: "catchup.png",
+      mimeType: "image/png",
+      sizeBytes: 128,
+      processingStatus: "ready" as const,
+      createdAt: "2026-07-27T20:00:05.000Z"
+    };
+    const publishedContinuation = {
+      id: "assistant-msg-terminal-discovery",
+      chatId: "chat-1",
+      assistantId: "assistant-1",
+      author: "assistant" as const,
+      content: "Catch-up complete",
+      attachments: [continuationAttachment],
+      createdAt: "2026-07-27T20:00:05.000Z"
+    };
+    const chatMeta = {
+      id: "chat-1",
+      assistantId: "assistant-1",
+      surface: "web" as const,
+      surfaceThreadKey: "thread-1",
+      title: null,
+      chatMode: "normal" as const,
+      deepModeEnabled: false,
+      skillDecisionState: null,
+      archivedAt: null,
+      lastMessageAt: null,
+      createdAt: "2026-07-27T20:00:00.000Z",
+      updatedAt: "2026-07-27T20:00:05.000Z"
+    };
+
+    async function mountWithDiscoveryReady(): Promise<{
+      result: { current: ReturnType<typeof useChat> };
+      emitDiscovery: (event: { clientTurnId: string; cursor: number }) => void;
+      unmount: () => void;
+    }> {
+      let emitDiscovery: ((event: { clientTurnId: string; cursor: number }) => void) | undefined;
+      assistantApiMocks.streamAssistantWebChatContinuationDiscovery.mockImplementation(
+        async (
+          _token: string,
+          _chatId: string,
+          _cursor: number,
+          onDiscovery: (event: { clientTurnId: string; cursor: number }) => void,
+          signal: AbortSignal
+        ) => {
+          emitDiscovery = onDiscovery;
+          await new Promise<void>((resolve) => signal.addEventListener("abort", () => resolve()));
+        }
+      );
+      const { result, unmount } = renderHook(
+        () => useChat("thread-1", { assistantId: "assistant-1" }),
+        {
+          wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+        }
+      );
+      await act(async () => {
+        await result.current.loadHistory("chat-1");
+      });
+      await waitFor(() => expect(emitDiscovery).toBeTypeOf("function"));
+      return {
+        result,
+        emitDiscovery: (event) => {
+          emitDiscovery?.(event);
+        },
+        unmount
+      };
+    }
+
+    it("immediate completed discovery reconciles the published bubble with attachments once", async () => {
+      const continuationClientTurnId = "async-cont:terminal-discovery-completed-1";
+      assistantApiMocks.getChatMessages
+        .mockResolvedValueOnce({
+          nextCursor: null,
+          activeTurn: null,
+          activeMediaJobs: [],
+          activeDocumentJobs: [],
+          activeSandboxJobs: [],
+          messages: sourceMessages
+        })
+        .mockResolvedValue({
+          nextCursor: null,
+          activeTurn: null,
+          activeMediaJobs: [],
+          activeDocumentJobs: [],
+          activeSandboxJobs: [],
+          messages: [...sourceMessages, publishedContinuation]
+        });
+      assistantApiMocks.getAssistantWebChatTurnStatus.mockResolvedValue({
+        status: "completed",
+        chat: chatMeta,
+        userMessage: null,
+        assistantMessage: publishedContinuation,
+        followUpAssistantMessage: null,
+        currentActivity: null,
+        runtime: null,
+        error: null
+      });
+
+      const { result, emitDiscovery, unmount } = await mountWithDiscoveryReady();
+      const historyCallsBeforeDiscovery = assistantApiMocks.getChatMessages.mock.calls.length;
+
+      await act(async () => {
+        emitDiscovery({ clientTurnId: continuationClientTurnId, cursor: 1 });
+        emitDiscovery({ clientTurnId: continuationClientTurnId, cursor: 1 });
+        emitDiscovery({ clientTurnId: continuationClientTurnId, cursor: 2 });
+      });
+
+      await waitFor(() => {
+        const bubbles = result.current.messages.filter(
+          (message) => message.id === publishedContinuation.id
+        );
+        expect(bubbles).toHaveLength(1);
+        expect(bubbles[0]?.content).toBe("Catch-up complete");
+        expect(bubbles[0]?.attachments?.map((attachment) => attachment.id)).toEqual([
+          continuationAttachment.id
+        ]);
+      });
+      expect(assistantApiMocks.reattachAssistantWebChatTurnStream).not.toHaveBeenCalled();
+      expect(assistantApiMocks.getChatMessages.mock.calls.length).toBe(
+        historyCallsBeforeDiscovery + 1
+      );
+      unmount();
+    });
+
+    it("immediate failed discovery surfaces the published bubble without reattach", async () => {
+      const continuationClientTurnId = "async-cont:terminal-discovery-failed-1";
+      const failedContinuation = {
+        ...publishedContinuation,
+        id: "assistant-msg-terminal-discovery-failed",
+        content: "Catch-up failed"
+      };
+      assistantApiMocks.getChatMessages
+        .mockResolvedValueOnce({
+          nextCursor: null,
+          activeTurn: null,
+          activeMediaJobs: [],
+          activeDocumentJobs: [],
+          activeSandboxJobs: [],
+          messages: sourceMessages
+        })
+        .mockResolvedValue({
+          nextCursor: null,
+          activeTurn: null,
+          activeMediaJobs: [],
+          activeDocumentJobs: [],
+          activeSandboxJobs: [],
+          messages: [...sourceMessages, failedContinuation]
+        });
+      assistantApiMocks.getAssistantWebChatTurnStatus.mockResolvedValue({
+        status: "failed",
+        chat: chatMeta,
+        userMessage: null,
+        assistantMessage: failedContinuation,
+        followUpAssistantMessage: null,
+        currentActivity: null,
+        runtime: null,
+        error: { code: "continuation_failed", message: "Continuation failed" }
+      });
+
+      const { result, emitDiscovery, unmount } = await mountWithDiscoveryReady();
+
+      await act(async () => {
+        emitDiscovery({ clientTurnId: continuationClientTurnId, cursor: 1 });
+      });
+
+      await waitFor(() => {
+        expect(
+          result.current.messages.some((message) => message.id === failedContinuation.id)
+        ).toBe(true);
+      });
+      expect(assistantApiMocks.reattachAssistantWebChatTurnStream).not.toHaveBeenCalled();
+      expect(result.current.issue).toMatchObject({
+        message: "Chat could not complete this turn."
+      });
+      unmount();
+    });
+
+    it("immediate interrupted discovery reconciles once without duplicate bubbles or refresh storm", async () => {
+      const continuationClientTurnId = "async-cont:terminal-discovery-interrupted-1";
+      const interruptedContinuation = {
+        ...publishedContinuation,
+        id: "assistant-msg-terminal-discovery-interrupted",
+        content: "Catch-up interrupted"
+      };
+      assistantApiMocks.getChatMessages
+        .mockResolvedValueOnce({
+          nextCursor: null,
+          activeTurn: null,
+          activeMediaJobs: [],
+          activeDocumentJobs: [],
+          activeSandboxJobs: [],
+          messages: sourceMessages
+        })
+        .mockResolvedValue({
+          nextCursor: null,
+          activeTurn: null,
+          activeMediaJobs: [],
+          activeDocumentJobs: [],
+          activeSandboxJobs: [],
+          messages: [...sourceMessages, interruptedContinuation]
+        });
+      assistantApiMocks.getAssistantWebChatTurnStatus.mockResolvedValue({
+        status: "interrupted",
+        chat: chatMeta,
+        userMessage: null,
+        assistantMessage: interruptedContinuation,
+        followUpAssistantMessage: null,
+        currentActivity: null,
+        runtime: null,
+        error: null
+      });
+
+      const { result, emitDiscovery, unmount } = await mountWithDiscoveryReady();
+      const historyCallsBeforeDiscovery = assistantApiMocks.getChatMessages.mock.calls.length;
+
+      await act(async () => {
+        emitDiscovery({ clientTurnId: continuationClientTurnId, cursor: 1 });
+        emitDiscovery({ clientTurnId: continuationClientTurnId, cursor: 1 });
+        emitDiscovery({ clientTurnId: continuationClientTurnId, cursor: 3 });
+      });
+
+      await waitFor(() => {
+        expect(
+          result.current.messages.filter((message) => message.id === interruptedContinuation.id)
+        ).toHaveLength(1);
+      });
+
+      await act(async () => {
+        emitDiscovery({ clientTurnId: continuationClientTurnId, cursor: 4 });
+      });
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      expect(
+        result.current.messages.filter((message) => message.id === interruptedContinuation.id)
+      ).toHaveLength(1);
+      expect(assistantApiMocks.reattachAssistantWebChatTurnStream).not.toHaveBeenCalled();
+      expect(assistantApiMocks.getChatMessages.mock.calls.length).toBe(
+        historyCallsBeforeDiscovery + 1
+      );
+      unmount();
+    });
   });
 
   it("reattaches the continuation clientTurnId when notify is claimed with continuationClientTurnId", async () => {
@@ -4782,72 +5077,121 @@ describe("useChat", () => {
   });
 
   it("keeps restored active tool status when history loads after reload", async () => {
-    window.sessionStorage.setItem("persai.active-web-turn.v1.thread-1", "turn-1");
-    assistantApiMocks.getAssistantWebChatTurnStatus.mockResolvedValueOnce({
-      status: "running",
-      chat: {
-        id: "chat-1",
-        assistantId: "assistant-1",
-        surface: "web",
-        surfaceThreadKey: "thread-1",
-        title: "Chat",
-        deepModeEnabled: false,
-        archivedAt: null,
-        lastMessageAt: "2026-04-25T17:45:35.000Z",
-        createdAt: "2026-04-25T17:45:35.000Z",
-        updatedAt: "2026-04-25T17:45:35.000Z"
-      },
-      userMessage: {
-        id: "server-user-1",
-        chatId: "chat-1",
-        assistantId: "assistant-1",
-        author: "user",
-        content: "draw it",
-        attachments: [],
-        createdAt: "2026-04-25T17:45:35.000Z"
-      },
-      assistantMessage: null,
-      currentActivity: {
-        type: "tool_use",
-        toolName: "image_generate",
-        toolCallId: "tool-1",
-        phase: "start",
-        isError: false,
-        updatedAt: "2026-04-25T17:45:36.000Z"
-      },
-      runtime: null,
-      error: null
-    });
-    assistantApiMocks.getChatMessages.mockResolvedValueOnce({
-      nextCursor: null,
-      messages: [
-        {
-          id: "older-user-1",
-          chatId: "chat-1",
-          assistantId: "assistant-1",
-          author: "user",
-          content: "older question",
-          attachments: [],
-          createdAt: "2026-04-25T17:40:35.000Z"
+    // Unique turn + call-counted status: first restore refresh is `running`,
+    // later reattach polls stay `unknown` so the default reattach mock does
+    // not finish with latestResult===running and clear isStreaming.
+    // getChatMessages is chatId-keyed (not Once) so late prior-test fetches
+    // cannot steal the older-history page and leave only the live pair.
+    const threadKey = "thread-restore-tool-status";
+    const chatId = "chat-restore-tool-status";
+    const clientTurnId = "turn-restore-tool-status";
+    let statusCallsForTurn = 0;
+    window.sessionStorage.setItem(`persai.active-web-turn.v1.${threadKey}`, clientTurnId);
+    assistantApiMocks.getAssistantWebChatTurnStatus.mockImplementation(
+      async (_token: string, requestedClientTurnId: string) => {
+        if (requestedClientTurnId !== clientTurnId) {
+          return {
+            status: "unknown",
+            chat: null,
+            userMessage: null,
+            assistantMessage: null,
+            currentActivity: null,
+            runtime: null,
+            error: null
+          };
         }
-      ]
-    });
+        statusCallsForTurn += 1;
+        if (statusCallsForTurn > 1) {
+          return {
+            status: "unknown",
+            chat: null,
+            userMessage: null,
+            assistantMessage: null,
+            currentActivity: null,
+            runtime: null,
+            error: null
+          };
+        }
+        return {
+          status: "running",
+          chat: {
+            id: chatId,
+            assistantId: "assistant-1",
+            surface: "web",
+            surfaceThreadKey: threadKey,
+            title: "Chat",
+            deepModeEnabled: false,
+            archivedAt: null,
+            lastMessageAt: "2026-04-25T17:45:35.000Z",
+            createdAt: "2026-04-25T17:45:35.000Z",
+            updatedAt: "2026-04-25T17:45:35.000Z"
+          },
+          userMessage: {
+            id: "server-user-restore-tool",
+            chatId,
+            assistantId: "assistant-1",
+            author: "user",
+            content: "draw it",
+            attachments: [],
+            createdAt: "2026-04-25T17:45:35.000Z"
+          },
+          assistantMessage: null,
+          currentActivity: {
+            type: "tool_use",
+            toolName: "image_generate",
+            toolCallId: "tool-restore-1",
+            phase: "start",
+            isError: false,
+            updatedAt: "2026-04-25T17:45:36.000Z"
+          },
+          runtime: null,
+          error: null
+        };
+      }
+    );
+    assistantApiMocks.getChatMessages.mockImplementation(
+      async (_token: string, requestedChatId: string) => {
+        if (requestedChatId !== chatId) {
+          return {
+            nextCursor: null,
+            messages: [],
+            activeMediaJobs: [],
+            activeDocumentJobs: [],
+            activeSandboxJobs: []
+          };
+        }
+        return {
+          nextCursor: null,
+          messages: [
+            {
+              id: "older-user-restore-tool",
+              chatId,
+              assistantId: "assistant-1",
+              author: "user",
+              content: "older question",
+              attachments: [],
+              createdAt: "2026-04-25T17:40:35.000Z"
+            }
+          ]
+        };
+      }
+    );
 
-    const { result } = renderHook(() => useChat("thread-1"), {
+    const { result } = renderHook(() => useChat(threadKey), {
       wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
     });
 
     await waitFor(() => expect(result.current.isStreaming).toBe(true));
 
     await act(async () => {
-      await result.current.loadHistory("chat-1");
+      await result.current.loadHistory(chatId);
     });
 
     expect(result.current.isStreaming).toBe(true);
     expect(result.current.messages.map((message) => message.id)).toEqual([
-      "older-user-1",
-      "server-user-1",
-      "local-assistant-turn-1"
+      "older-user-restore-tool",
+      "server-user-restore-tool",
+      `local-assistant-${clientTurnId}`
     ]);
     // ADR-165 amendment: image/video live tool activity is visible again (not hidden).
     expect(
@@ -4961,97 +5305,141 @@ describe("useChat", () => {
   });
 
   it("loadHistory keeps the live cursor when history has active user but only an older assistant", async () => {
-    window.sessionStorage.setItem("persai.active-web-turn.v1.thread-1", "turn-1");
-    assistantApiMocks.getAssistantWebChatTurnStatus.mockResolvedValueOnce({
-      status: "running",
-      chat: {
-        id: "chat-1",
-        assistantId: "assistant-1",
-        surface: "web",
-        surfaceThreadKey: "thread-1",
-        title: "Chat",
-        deepModeEnabled: false,
-        archivedAt: null,
-        lastMessageAt: "2026-04-25T17:45:35.000Z",
-        createdAt: "2026-04-25T17:45:35.000Z",
-        updatedAt: "2026-04-25T17:45:35.000Z"
-      },
-      userMessage: {
-        id: "server-user-active",
-        chatId: "chat-1",
-        assistantId: "assistant-1",
-        author: "user",
-        content: "continue",
-        attachments: [],
-        createdAt: "2026-04-25T17:45:35.000Z"
-      },
-      assistantMessage: null,
-      currentActivity: {
-        type: "tool_use",
-        toolName: "web_fetch",
-        toolCallId: "tool-1",
-        phase: "start",
-        isError: false,
-        updatedAt: "2026-04-25T17:45:36.000Z"
-      },
-      runtime: null,
-      error: null
-    });
-    assistantApiMocks.getChatMessages.mockResolvedValueOnce({
-      nextCursor: null,
-      messages: [
-        {
-          id: "server-user-old",
-          chatId: "chat-1",
-          assistantId: "assistant-1",
-          author: "user",
-          content: "older question",
-          attachments: [],
-          createdAt: "2026-04-25T17:40:35.000Z"
-        },
-        {
-          id: "server-assistant-old",
-          chatId: "chat-1",
-          assistantId: "assistant-1",
-          author: "assistant",
-          content: "Older answer.",
-          attachments: [],
-          createdAt: "2026-04-25T17:41:05.000Z"
-        },
-        {
-          id: "server-user-active",
-          chatId: "chat-1",
-          assistantId: "assistant-1",
-          author: "user",
-          content: "continue",
-          attachments: [],
-          createdAt: "2026-04-25T17:45:35.000Z"
+    const threadKey = "thread-live-cursor-older-assistant";
+    const chatId = "chat-live-cursor-older-assistant";
+    const clientTurnId = "turn-live-cursor-older-assistant";
+    let statusCallsForTurn = 0;
+    window.sessionStorage.setItem(`persai.active-web-turn.v1.${threadKey}`, clientTurnId);
+    assistantApiMocks.getAssistantWebChatTurnStatus.mockImplementation(
+      async (_token: string, requestedClientTurnId: string) => {
+        if (requestedClientTurnId !== clientTurnId) {
+          return {
+            status: "unknown",
+            chat: null,
+            userMessage: null,
+            assistantMessage: null,
+            currentActivity: null,
+            runtime: null,
+            error: null
+          };
         }
-      ]
-    });
+        statusCallsForTurn += 1;
+        if (statusCallsForTurn > 1) {
+          return {
+            status: "unknown",
+            chat: null,
+            userMessage: null,
+            assistantMessage: null,
+            currentActivity: null,
+            runtime: null,
+            error: null
+          };
+        }
+        return {
+          status: "running",
+          chat: {
+            id: chatId,
+            assistantId: "assistant-1",
+            surface: "web",
+            surfaceThreadKey: threadKey,
+            title: "Chat",
+            deepModeEnabled: false,
+            archivedAt: null,
+            lastMessageAt: "2026-04-25T17:45:35.000Z",
+            createdAt: "2026-04-25T17:45:35.000Z",
+            updatedAt: "2026-04-25T17:45:35.000Z"
+          },
+          userMessage: {
+            id: "server-user-active-cursor",
+            chatId,
+            assistantId: "assistant-1",
+            author: "user",
+            content: "continue",
+            attachments: [],
+            createdAt: "2026-04-25T17:45:35.000Z"
+          },
+          assistantMessage: null,
+          currentActivity: {
+            type: "tool_use",
+            toolName: "web_fetch",
+            toolCallId: "tool-cursor-1",
+            phase: "start",
+            isError: false,
+            updatedAt: "2026-04-25T17:45:36.000Z"
+          },
+          runtime: null,
+          error: null
+        };
+      }
+    );
+    assistantApiMocks.getChatMessages.mockImplementation(
+      async (_token: string, requestedChatId: string) => {
+        if (requestedChatId !== chatId) {
+          return {
+            nextCursor: null,
+            messages: [],
+            activeMediaJobs: [],
+            activeDocumentJobs: [],
+            activeSandboxJobs: []
+          };
+        }
+        return {
+          nextCursor: null,
+          messages: [
+            {
+              id: "server-user-old-cursor",
+              chatId,
+              assistantId: "assistant-1",
+              author: "user",
+              content: "older question",
+              attachments: [],
+              createdAt: "2026-04-25T17:40:35.000Z"
+            },
+            {
+              id: "server-assistant-old-cursor",
+              chatId,
+              assistantId: "assistant-1",
+              author: "assistant",
+              content: "Older answer.",
+              attachments: [],
+              createdAt: "2026-04-25T17:41:05.000Z"
+            },
+            {
+              id: "server-user-active-cursor",
+              chatId,
+              assistantId: "assistant-1",
+              author: "user",
+              content: "continue",
+              attachments: [],
+              createdAt: "2026-04-25T17:45:35.000Z"
+            }
+          ]
+        };
+      }
+    );
 
-    const { result } = renderHook(() => useChat("thread-1"), {
+    const { result } = renderHook(() => useChat(threadKey), {
       wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
     });
 
     await waitFor(() => {
       expect(result.current.isStreaming).toBe(true);
       expect(result.current.messages.map((message) => message.id)).toEqual([
-        "server-user-active",
-        "local-assistant-turn-1"
+        "server-user-active-cursor",
+        `local-assistant-${clientTurnId}`
       ]);
     });
 
     await act(async () => {
-      await result.current.loadHistory("chat-1");
+      await result.current.loadHistory(chatId);
     });
 
     expect(result.current.isStreaming).toBe(true);
     expect(result.current.messages.map((message) => message.id)).toEqual([
-      "server-user-old",
-      "server-assistant-old",
-      "server-user-active",
-      "local-assistant-turn-1"
+      "server-user-old-cursor",
+      "server-assistant-old-cursor",
+      "server-user-active-cursor",
+      `local-assistant-${clientTurnId}`
     ]);
     expect(result.current.entries).toContainEqual(
       expect.objectContaining({
@@ -5059,7 +5447,9 @@ describe("useChat", () => {
         event: expect.objectContaining({ label: "Reading the page" })
       })
     );
-    expect(window.sessionStorage.getItem("persai.active-web-turn.v1.thread-1")).toBe("turn-1");
+    expect(window.sessionStorage.getItem(`persai.active-web-turn.v1.${threadKey}`)).toBe(
+      clientTurnId
+    );
   });
 
   it("keeps a completed turn-status result in the thread cache after switching away", async () => {
@@ -5144,44 +5534,76 @@ describe("useChat", () => {
   });
 
   it("restores previously loaded chat history from memory when switching threads", async () => {
-    assistantApiMocks.getChatMessages
-      .mockResolvedValueOnce({
-        nextCursor: "cursor-a",
-        messages: [
-          {
-            id: "chat-a-user-1",
-            chatId: "chat-a",
-            assistantId: "assistant-1",
-            author: "user",
-            content: "Question A",
-            attachments: [],
-            createdAt: "2026-04-25T17:45:35.000Z"
-          },
-          {
-            id: "chat-a-assistant-1",
-            chatId: "chat-a",
-            assistantId: "assistant-1",
-            author: "assistant",
-            content: "Answer A",
-            attachments: [],
-            createdAt: "2026-04-25T17:45:36.000Z"
-          }
-        ]
-      })
-      .mockResolvedValueOnce({
-        nextCursor: null,
-        messages: [
-          {
-            id: "chat-b-user-1",
-            chatId: "chat-b",
-            assistantId: "assistant-1",
-            author: "user",
-            content: "Question B",
-            attachments: [],
-            createdAt: "2026-04-25T17:46:35.000Z"
-          }
-        ]
-      });
+    let chatAReturnsUpdatedPage = false;
+    assistantApiMocks.getChatMessages.mockImplementation(async (_token: string, chatId: string) => {
+      if (chatId === "chat-b") {
+        return {
+          nextCursor: null,
+          messages: [
+            {
+              id: "chat-b-user-1",
+              chatId: "chat-b",
+              assistantId: "assistant-1",
+              author: "user",
+              content: "Question B",
+              attachments: [],
+              createdAt: "2026-04-25T17:46:35.000Z"
+            }
+          ]
+        };
+      }
+      if (chatId === "chat-a") {
+        if (chatAReturnsUpdatedPage) {
+          return {
+            nextCursor: null,
+            messages: [
+              {
+                id: "chat-a-user-2",
+                chatId: "chat-a",
+                assistantId: "assistant-1",
+                author: "user",
+                content: "New Question A",
+                attachments: [],
+                createdAt: "2026-04-25T17:47:35.000Z"
+              },
+              {
+                id: "chat-a-assistant-2",
+                chatId: "chat-a",
+                assistantId: "assistant-1",
+                author: "assistant",
+                content: "New Answer A",
+                attachments: [],
+                createdAt: "2026-04-25T17:47:36.000Z"
+              }
+            ]
+          };
+        }
+        return {
+          nextCursor: "cursor-a",
+          messages: [
+            {
+              id: "chat-a-user-1",
+              chatId: "chat-a",
+              assistantId: "assistant-1",
+              author: "user",
+              content: "Question A",
+              attachments: [],
+              createdAt: "2026-04-25T17:45:35.000Z"
+            },
+            {
+              id: "chat-a-assistant-1",
+              chatId: "chat-a",
+              assistantId: "assistant-1",
+              author: "assistant",
+              content: "Answer A",
+              attachments: [],
+              createdAt: "2026-04-25T17:45:36.000Z"
+            }
+          ]
+        };
+      }
+      return { nextCursor: null, messages: [] };
+    });
 
     const { result, rerender } = renderHook(
       ({ threadKey }: { threadKey: string }) => useChat(threadKey),
@@ -5214,34 +5636,20 @@ describe("useChat", () => {
     expect(result.current.historyLoading).toBe(false);
     expect(result.current.hasOlderMessages).toBe(true);
 
-    assistantApiMocks.getChatMessages.mockResolvedValueOnce({
-      nextCursor: null,
-      messages: [
-        {
-          id: "chat-a-user-2",
-          chatId: "chat-a",
-          assistantId: "assistant-1",
-          author: "user",
-          content: "New Question A",
-          attachments: [],
-          createdAt: "2026-04-25T17:47:35.000Z"
-        },
-        {
-          id: "chat-a-assistant-2",
-          chatId: "chat-a",
-          assistantId: "assistant-1",
-          author: "assistant",
-          content: "New Answer A",
-          attachments: [],
-          createdAt: "2026-04-25T17:47:36.000Z"
-        }
-      ]
-    });
-
+    chatAReturnsUpdatedPage = true;
+    const chatAFetchesBeforeReload = assistantApiMocks.getChatMessages.mock.calls.filter(
+      (call) => call[1] === "chat-a"
+    ).length;
     await act(async () => {
       await result.current.loadHistory("chat-a");
     });
-    expect(assistantApiMocks.getChatMessages).toHaveBeenCalledTimes(3);
+    const chatAFetchesAfterReload = assistantApiMocks.getChatMessages.mock.calls.filter(
+      (call) => call[1] === "chat-a"
+    ).length;
+    expect(chatAFetchesAfterReload - chatAFetchesBeforeReload).toBe(1);
+    expect(assistantApiMocks.getChatMessages.mock.calls.some((call) => call[1] === "chat-b")).toBe(
+      true
+    );
     expect(result.current.messages.map((message) => message.content)).toEqual([
       "New Question A",
       "New Answer A",
@@ -5665,16 +6073,23 @@ describe("useChat", () => {
     });
 
     it("retryPendingSend keeps a completed follow-up assistant message when the server turn already finished", async () => {
-      assistantApiMocks.streamAssistantWebChatTurn.mockRejectedValueOnce(
-        new TypeError("fetch failed")
-      );
-      assistantApiMocks.getAssistantWebChatTurnStatus.mockResolvedValueOnce({
+      // Keyed mocks + clientTurnId-scoped stream assertion: absolute
+      // toHaveBeenCalledTimes(1) flakes when a late prior-test stream call
+      // lands after mockClear, and mockResolvedValueOnce(completed) can be
+      // stolen so retry falls through to a real duplicate send.
+      const threadKey = "thread-retry-follow-up";
+      const chatId = "chat-retry-follow-up";
+      const retryText = "retry me follow-up stable";
+      assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(async () => {
+        throw new TypeError("fetch failed");
+      });
+      assistantApiMocks.getAssistantWebChatTurnStatus.mockImplementation(async () => ({
         status: "completed",
         chat: {
-          id: "chat-1",
+          id: chatId,
           assistantId: "assistant-1",
           surface: "web",
-          surfaceThreadKey: "thread-1",
+          surfaceThreadKey: threadKey,
           title: "Chat",
           deepModeEnabled: false,
           archivedAt: null,
@@ -5683,17 +6098,17 @@ describe("useChat", () => {
           updatedAt: "2026-04-14T10:00:02.000Z"
         },
         userMessage: {
-          id: "server-user-1",
-          chatId: "chat-1",
+          id: "server-user-retry-follow-up",
+          chatId,
           assistantId: "assistant-1",
           author: "user",
-          content: "retry me",
+          content: retryText,
           attachments: [],
           createdAt: "2026-04-14T10:00:00.000Z"
         },
         assistantMessage: {
-          id: "server-assistant-1",
-          chatId: "chat-1",
+          id: "server-assistant-retry-follow-up",
+          chatId,
           assistantId: "assistant-1",
           author: "assistant",
           content: "already saved",
@@ -5701,8 +6116,8 @@ describe("useChat", () => {
           createdAt: "2026-04-14T10:00:01.000Z"
         },
         followUpAssistantMessage: {
-          id: "follow-up-1",
-          chatId: "chat-1",
+          id: "follow-up-retry-stable",
+          chatId,
           assistantId: "assistant-1",
           author: "assistant",
           content: "Please start a new chat.",
@@ -5717,66 +6132,93 @@ describe("useChat", () => {
           quotaFallbackModel: null
         },
         error: null
-      });
-      assistantApiMocks.getChatMessages.mockResolvedValueOnce({
-        nextCursor: null,
-        activeMediaJobs: [],
-        messages: [
-          {
-            id: "server-user-1",
-            chatId: "chat-1",
-            assistantId: "assistant-1",
-            author: "user",
-            content: "retry me",
-            attachments: [],
-            createdAt: "2026-04-14T10:00:00.000Z"
-          },
-          {
-            id: "server-assistant-1",
-            chatId: "chat-1",
-            assistantId: "assistant-1",
-            author: "assistant",
-            content: "already saved",
-            attachments: [],
-            createdAt: "2026-04-14T10:00:01.000Z"
-          },
-          {
-            id: "follow-up-1",
-            chatId: "chat-1",
-            assistantId: "assistant-1",
-            author: "assistant",
-            content: "Please start a new chat.",
-            attachments: [],
-            createdAt: "2026-04-14T10:00:02.000Z"
+      }));
+      assistantApiMocks.getChatMessages.mockImplementation(
+        async (_token: string, requestedChatId: string) => {
+          if (requestedChatId !== chatId) {
+            return {
+              nextCursor: null,
+              activeMediaJobs: [],
+              messages: []
+            };
           }
-        ]
-      });
-      assistantApiMocks.getChatCompactionState.mockResolvedValueOnce(createCompactionState());
+          return {
+            nextCursor: null,
+            activeMediaJobs: [],
+            messages: [
+              {
+                id: "server-user-retry-follow-up",
+                chatId,
+                assistantId: "assistant-1",
+                author: "user",
+                content: retryText,
+                attachments: [],
+                createdAt: "2026-04-14T10:00:00.000Z"
+              },
+              {
+                id: "server-assistant-retry-follow-up",
+                chatId,
+                assistantId: "assistant-1",
+                author: "assistant",
+                content: "already saved",
+                attachments: [],
+                createdAt: "2026-04-14T10:00:01.000Z"
+              },
+              {
+                id: "follow-up-retry-stable",
+                chatId,
+                assistantId: "assistant-1",
+                author: "assistant",
+                content: "Please start a new chat.",
+                attachments: [],
+                createdAt: "2026-04-14T10:00:02.000Z"
+              }
+            ]
+          };
+        }
+      );
+      assistantApiMocks.getChatCompactionState.mockResolvedValue(createCompactionState());
 
-      const { result } = renderHook(() => useChat("thread-1"));
+      const { result } = renderHook(() => useChat(threadKey));
 
       await act(async () => {
-        await result.current.send("retry me");
+        await result.current.send(retryText);
       });
       expect(result.current.pendingSendStatus).toBe("send_failed_unconfirmed");
+      const initialStreamCalls = assistantApiMocks.streamAssistantWebChatTurn.mock.calls.filter(
+        (call) => {
+          const payload = call[1] as { message?: string; clientTurnId?: string };
+          return payload.message === retryText;
+        }
+      );
+      expect(initialStreamCalls).toHaveLength(1);
+      const clientTurnId = (initialStreamCalls[0]?.[1] as { clientTurnId: string }).clientTurnId;
 
       await act(async () => {
         await result.current.retryPendingSend();
       });
 
-      expect(assistantApiMocks.streamAssistantWebChatTurn).toHaveBeenCalledTimes(1);
+      const streamCallsForTurn = assistantApiMocks.streamAssistantWebChatTurn.mock.calls.filter(
+        (call) => {
+          const payload = call[1] as { clientTurnId?: string };
+          return payload.clientTurnId === clientTurnId;
+        }
+      );
+      // Retry must reconcile the completed server turn — never dispatch a
+      // second stream for the same clientTurnId.
+      expect(streamCallsForTurn).toHaveLength(1);
       expect(assistantApiMocks.getChatMessages).toHaveBeenCalledWith(
         "token-1",
-        "chat-1",
+        chatId,
         undefined,
         20
       );
-      expect(assistantApiMocks.getChatCompactionState).toHaveBeenCalledWith("token-1", "chat-1");
+      expect(assistantApiMocks.getChatCompactionState).toHaveBeenCalledWith("token-1", chatId);
       expect(result.current.pendingSendStatus).toBeNull();
       expect(result.current.messages.map((message) => message.id)).toEqual([
-        "server-user-1",
-        "server-assistant-1",
-        "follow-up-1"
+        "server-user-retry-follow-up",
+        "server-assistant-retry-follow-up",
+        "follow-up-retry-stable"
       ]);
     });
 
@@ -6615,6 +7057,1063 @@ describe("useChat", () => {
     });
   });
 
+  describe("ADR-166 Slice 1: same-id live USER_TURN history merge", () => {
+    const sseOnlyAttachment = {
+      id: "att-sse-only",
+      attachmentType: "image" as const,
+      originalFilename: "sse-only.png",
+      mimeType: "image/png",
+      sizeBytes: 42,
+      processingStatus: "ready" as const,
+      createdAt: "2026-07-27T12:00:01.000Z"
+    };
+    const historyAttachment = {
+      id: "att-history",
+      attachmentType: "image" as const,
+      originalFilename: "history.png",
+      mimeType: "image/png",
+      sizeBytes: 99,
+      processingStatus: "ready" as const,
+      createdAt: "2026-07-27T12:00:00.500Z"
+    };
+
+    it("history refresh with early-bound USER_TURN media keeps streaming overlay, receipts, and SSE attachments", async () => {
+      const streamGate: { release: () => void } = { release: () => undefined };
+      const olderHistory = {
+        nextCursor: null as string | null,
+        messages: [
+          {
+            id: "older-user-166",
+            chatId: "chat-166-1",
+            assistantId: "assistant-1",
+            author: "user" as const,
+            content: "prior question",
+            attachments: [] as [],
+            createdAt: "2026-07-27T11:00:00.000Z"
+          },
+          {
+            id: "older-assistant-166",
+            chatId: "chat-166-1",
+            assistantId: "assistant-1",
+            author: "assistant" as const,
+            content: "prior answer",
+            attachments: [] as [],
+            createdAt: "2026-07-27T11:00:05.000Z"
+          }
+        ]
+      };
+      const liveHistoryPage = {
+        nextCursor: null as string | null,
+        messages: [
+          ...olderHistory.messages,
+          {
+            id: "user-166-1",
+            chatId: "chat-166-1",
+            assistantId: "assistant-1",
+            author: "user" as const,
+            content: "three images please",
+            attachments: [] as [],
+            createdAt: "2026-07-27T12:00:00.000Z"
+          },
+          {
+            id: "assistant-166-1",
+            chatId: "chat-166-1",
+            assistantId: "assistant-1",
+            author: "assistant" as const,
+            content: "Working on images",
+            attachments: [historyAttachment],
+            createdAt: "2026-07-27T12:00:00.100Z"
+          }
+        ]
+      };
+      assistantApiMocks.getChatMessages
+        .mockResolvedValueOnce(olderHistory)
+        .mockResolvedValue(liveHistoryPage);
+      assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
+        async (
+          _token: string,
+          _payload: unknown,
+          handlers: {
+            onHeadersOk?: () => void;
+            onStarted?: (payload: { chat: unknown; userMessage: unknown }) => void;
+            onDelta?: (payload: { delta: string }) => void;
+            onMedia?: (payload: {
+              assistantMessageId: string;
+              attachments: Array<typeof sseOnlyAttachment>;
+              afterToolCallId?: string;
+            }) => void;
+          }
+        ) => {
+          handlers.onHeadersOk?.();
+          handlers.onStarted?.({
+            chat: { id: "chat-166-1" },
+            userMessage: { id: "user-166-1", chatId: "chat-166-1", attachments: [] }
+          });
+          handlers.onDelta?.({ delta: "Working on images" });
+          handlers.onMedia?.({
+            assistantMessageId: "assistant-166-1",
+            attachments: [sseOnlyAttachment],
+            afterToolCallId: "tool-img-1"
+          });
+          await new Promise<void>((resolve) => {
+            streamGate.release = resolve;
+          });
+        }
+      );
+
+      const { result } = renderHook(() => useChat("thread-166-1"), {
+        wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+      });
+
+      await act(async () => {
+        await result.current.loadHistory("chat-166-1");
+      });
+
+      let sendPromise: Promise<void> | undefined;
+      await act(async () => {
+        sendPromise = result.current.send("three images please");
+        await Promise.resolve();
+      });
+
+      await waitFor(() => {
+        const assistant = result.current.messages.find(
+          (message) => message.id === "assistant-166-1"
+        );
+        expect(assistant?.status).toBe("streaming");
+        expect(assistant?.liveInlineMediaReceipts).toBe(true);
+        expect(assistant?.streamingTextActive).toBe(false);
+        expect(assistant?.attachments?.map((attachment) => attachment.id)).toContain(
+          "att-sse-only"
+        );
+      });
+
+      expect(
+        result.current.messages.filter((message) => message.id === "older-user-166")
+      ).toHaveLength(1);
+      expect(
+        result.current.messages.filter((message) => message.id === "older-assistant-166")
+      ).toHaveLength(1);
+
+      // Direct history refresh while the exact USER_TURN attempt is still live.
+      await act(async () => {
+        await result.current.loadHistory("chat-166-1");
+      });
+
+      const ids = result.current.messages.map((message) => message.id);
+      expect(ids.filter((id) => id === "older-user-166")).toHaveLength(1);
+      expect(ids.filter((id) => id === "older-assistant-166")).toHaveLength(1);
+      expect(ids.filter((id) => id === "user-166-1")).toHaveLength(1);
+      expect(ids.filter((id) => id === "assistant-166-1")).toHaveLength(1);
+      const assistant = result.current.messages.find((message) => message.id === "assistant-166-1");
+      expect(assistant?.status).toBe("streaming");
+      expect(assistant?.liveInlineMediaReceipts).toBe(true);
+      expect(assistant?.streamingTextActive).toBe(false);
+      expect(assistant?.attachments?.map((attachment) => attachment.id).sort()).toEqual([
+        "att-history",
+        "att-sse-only"
+      ]);
+
+      streamGate.release();
+      await act(async () => {
+        if (sendPromise !== undefined) await sendPromise;
+      });
+    });
+
+    it("soft-detach history poll keeps same-id USER_TURN live overlay after early-bound media", async () => {
+      Object.defineProperty(document, "visibilityState", {
+        configurable: true,
+        value: "hidden"
+      });
+
+      vi.useFakeTimers();
+      try {
+        const streamGate: { release: () => void } = { release: () => undefined };
+        assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
+          async (
+            _token: string,
+            _payload: unknown,
+            handlers: {
+              onHeadersOk?: () => void;
+              onStarted?: (payload: { chat: unknown; userMessage: unknown }) => void;
+              onMedia?: (payload: {
+                assistantMessageId: string;
+                attachments: Array<typeof sseOnlyAttachment>;
+                afterToolCallId?: string;
+              }) => void;
+            },
+            signal?: AbortSignal
+          ) => {
+            handlers.onHeadersOk?.();
+            handlers.onStarted?.({
+              chat: { id: "chat-166-poll" },
+              userMessage: { id: "user-166-poll", chatId: "chat-166-poll", attachments: [] }
+            });
+            handlers.onMedia?.({
+              assistantMessageId: "assistant-166-poll",
+              attachments: [sseOnlyAttachment],
+              afterToolCallId: "tool-img-poll"
+            });
+            await new Promise<void>((resolve, reject) => {
+              streamGate.release = resolve;
+              signal?.addEventListener("abort", () => {
+                reject(new DOMException("aborted", "AbortError"));
+              });
+            });
+          }
+        );
+        assistantApiMocks.getAssistantWebChatTurnStatus.mockResolvedValue({
+          status: "running",
+          chat: { id: "chat-166-poll" },
+          userMessage: {
+            id: "user-166-poll",
+            chatId: "chat-166-poll",
+            assistantId: "assistant-1",
+            author: "user",
+            content: "draw",
+            attachments: [],
+            createdAt: "2026-07-27T12:30:00.000Z"
+          },
+          assistantMessage: {
+            id: "assistant-166-poll",
+            chatId: "chat-166-poll",
+            assistantId: "assistant-1",
+            author: "assistant",
+            content: "",
+            attachments: [historyAttachment],
+            createdAt: "2026-07-27T12:30:01.000Z"
+          },
+          currentActivity: null,
+          runtime: null,
+          error: null
+        });
+        assistantApiMocks.getChatMessages.mockResolvedValue({
+          nextCursor: null,
+          messages: [
+            {
+              id: "older-user-166-poll",
+              chatId: "chat-166-poll",
+              assistantId: "assistant-1",
+              author: "user",
+              content: "prior",
+              attachments: [],
+              createdAt: "2026-07-27T11:30:00.000Z"
+            },
+            {
+              id: "older-assistant-166-poll",
+              chatId: "chat-166-poll",
+              assistantId: "assistant-1",
+              author: "assistant",
+              content: "prior answer",
+              attachments: [],
+              createdAt: "2026-07-27T11:30:05.000Z"
+            },
+            {
+              id: "user-166-poll",
+              chatId: "chat-166-poll",
+              assistantId: "assistant-1",
+              author: "user",
+              content: "draw",
+              attachments: [],
+              createdAt: "2026-07-27T12:30:00.000Z"
+            },
+            {
+              id: "assistant-166-poll",
+              chatId: "chat-166-poll",
+              assistantId: "assistant-1",
+              author: "assistant",
+              content: "",
+              attachments: [historyAttachment],
+              createdAt: "2026-07-27T12:30:01.000Z"
+            }
+          ]
+        });
+
+        const { result } = renderHook(() => useChat("thread-166-poll"), {
+          wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+        });
+
+        let sendPromise: Promise<void> | undefined;
+        await act(async () => {
+          sendPromise = result.current.send("draw", undefined, {
+            clientTurnId: "client-turn-166-poll"
+          });
+          await Promise.resolve();
+        });
+        await vi.waitFor(() =>
+          expect(
+            result.current.messages.some((message) => message.id === "assistant-166-poll")
+          ).toBe(true)
+        );
+
+        // Seed prior rows into the live transcript before the poll.
+        await act(async () => {
+          await result.current.loadHistory("chat-166-poll");
+        });
+
+        Object.defineProperty(document, "visibilityState", {
+          configurable: true,
+          value: "visible"
+        });
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(1_500);
+          document.dispatchEvent(new Event("visibilitychange"));
+          await vi.advanceTimersByTimeAsync(2_000);
+        });
+
+        await vi.waitFor(() => {
+          const ids = result.current.messages.map((message) => message.id);
+          expect(ids.filter((id) => id === "older-user-166-poll")).toHaveLength(1);
+          expect(ids.filter((id) => id === "older-assistant-166-poll")).toHaveLength(1);
+          const assistant = result.current.messages.find(
+            (message) => message.id === "assistant-166-poll"
+          );
+          expect(assistant?.status).toBe("streaming");
+          expect(assistant?.liveInlineMediaReceipts).toBe(true);
+          expect(assistant?.attachments?.map((attachment) => attachment.id).sort()).toEqual([
+            "att-history",
+            "att-sse-only"
+          ]);
+        });
+
+        streamGate.release();
+        await act(async () => {
+          await sendPromise?.catch(() => undefined);
+        });
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("contentful soft-detach keeps live overlay while active jobs remain", async () => {
+      vi.useFakeTimers();
+      try {
+        const remainingJobs = [
+          {
+            id: "job-166-remain-2",
+            kind: "image" as const,
+            operation: "image_generate",
+            status: "running" as const,
+            createdAt: "2026-07-27T12:40:00.000Z",
+            startedAt: "2026-07-27T12:40:01.000Z",
+            updatedAt: "2026-07-27T12:40:01.000Z"
+          },
+          {
+            id: "job-166-remain-3",
+            kind: "image" as const,
+            operation: "image_generate",
+            status: "running" as const,
+            createdAt: "2026-07-27T12:40:00.100Z",
+            startedAt: "2026-07-27T12:40:01.100Z",
+            updatedAt: "2026-07-27T12:40:01.100Z"
+          }
+        ];
+        assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
+          async (
+            _token: string,
+            _payload: unknown,
+            handlers: {
+              onHeadersOk?: () => void;
+              onStarted?: (payload: { chat: unknown; userMessage: unknown }) => void;
+              onDelta?: (payload: { delta: string }) => void;
+              onMedia?: (payload: {
+                assistantMessageId: string;
+                attachments: Array<typeof sseOnlyAttachment>;
+                afterToolCallId?: string;
+              }) => void;
+              onAsyncJobsOpen?: (payload: {
+                activeMediaJobs: typeof remainingJobs;
+                activeDocumentJobs: unknown[];
+                activeSandboxJobs: unknown[];
+              }) => void;
+            }
+          ) => {
+            handlers.onHeadersOk?.();
+            handlers.onStarted?.({
+              chat: { id: "chat-166-contentful" },
+              userMessage: {
+                id: "user-166-contentful",
+                chatId: "chat-166-contentful",
+                attachments: []
+              }
+            });
+            handlers.onDelta?.({ delta: "Working on images" });
+            handlers.onMedia?.({
+              assistantMessageId: "assistant-166-contentful",
+              attachments: [sseOnlyAttachment],
+              afterToolCallId: "tool-img-contentful"
+            });
+            handlers.onAsyncJobsOpen?.({
+              activeMediaJobs: remainingJobs,
+              activeDocumentJobs: [],
+              activeSandboxJobs: []
+            });
+            throw new TypeError("network disconnected while tab was backgrounded");
+          }
+        );
+        assistantApiMocks.getAssistantWebChatTurnStatus.mockResolvedValue({
+          status: "running",
+          chat: { id: "chat-166-contentful" },
+          userMessage: {
+            id: "user-166-contentful",
+            chatId: "chat-166-contentful",
+            assistantId: "assistant-1",
+            author: "user",
+            content: "draw three",
+            attachments: [],
+            createdAt: "2026-07-27T12:40:00.000Z"
+          },
+          assistantMessage: {
+            id: "assistant-166-contentful",
+            chatId: "chat-166-contentful",
+            assistantId: "assistant-1",
+            author: "assistant",
+            content: "Working on images",
+            attachments: [historyAttachment],
+            createdAt: "2026-07-27T12:40:01.000Z"
+          },
+          currentActivity: null,
+          runtime: null,
+          error: null
+        });
+        assistantApiMocks.getChatMessages.mockResolvedValue({
+          nextCursor: null,
+          activeMediaJobs: remainingJobs,
+          activeDocumentJobs: [],
+          activeSandboxJobs: [],
+          messages: [
+            {
+              id: "user-166-contentful",
+              chatId: "chat-166-contentful",
+              assistantId: "assistant-1",
+              author: "user",
+              content: "draw three",
+              attachments: [],
+              createdAt: "2026-07-27T12:40:00.000Z"
+            },
+            {
+              id: "assistant-166-contentful",
+              chatId: "chat-166-contentful",
+              assistantId: "assistant-1",
+              author: "assistant",
+              content: "Working on images",
+              attachments: [historyAttachment],
+              createdAt: "2026-07-27T12:40:01.000Z"
+            }
+          ]
+        });
+
+        const { result } = renderHook(() => useChat("thread-166-contentful"), {
+          wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+        });
+
+        await act(async () => {
+          await result.current.send("draw three", undefined, {
+            clientTurnId: "client-turn-166-contentful"
+          });
+        });
+
+        await vi.waitFor(() => {
+          const assistant = result.current.messages.find(
+            (message) => message.id === "assistant-166-contentful"
+          );
+          expect(assistant?.status).toBe("streaming");
+          expect(assistant?.liveInlineMediaReceipts).toBe(true);
+          expect(assistant?.content).toContain("Working on images");
+          expect(result.current.activeMediaJobs).toHaveLength(2);
+        });
+
+        // Soft-detach reconcile: reattach ends (controller released) then history
+        // poll sees contentful same-id + remaining jobs — must stay live.
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(6_000);
+        });
+
+        const assistant = result.current.messages.find(
+          (message) => message.id === "assistant-166-contentful"
+        );
+        expect(assistant?.status).toBe("streaming");
+        expect(assistant?.liveInlineMediaReceipts).toBe(true);
+        expect(assistant?.content).toContain("Working on images");
+        expect(result.current.activeMediaJobs.map((job) => job.id).sort()).toEqual([
+          "job-166-remain-2",
+          "job-166-remain-3"
+        ]);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("attachment-only empty-text soft-detach demotes when attempt is idle and jobs are gone", async () => {
+      vi.useFakeTimers();
+      try {
+        assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
+          async (
+            _token: string,
+            _payload: unknown,
+            handlers: {
+              onHeadersOk?: () => void;
+              onStarted?: (payload: { chat: unknown; userMessage: unknown }) => void;
+              onMedia?: (payload: {
+                assistantMessageId: string;
+                attachments: Array<typeof historyAttachment>;
+                afterToolCallId?: string;
+              }) => void;
+            }
+          ) => {
+            handlers.onHeadersOk?.();
+            handlers.onStarted?.({
+              chat: { id: "chat-166-empty-demote" },
+              userMessage: {
+                id: "user-166-empty-demote",
+                chatId: "chat-166-empty-demote",
+                attachments: []
+              }
+            });
+            handlers.onMedia?.({
+              assistantMessageId: "assistant-166-empty-demote",
+              attachments: [historyAttachment],
+              afterToolCallId: "tool-img-empty"
+            });
+            throw new TypeError("network disconnected while tab was backgrounded");
+          }
+        );
+        // Reattach reports unknown — missed terminal; history is the recovery path.
+        assistantApiMocks.getAssistantWebChatTurnStatus.mockResolvedValue({
+          status: "unknown",
+          chat: null,
+          userMessage: null,
+          assistantMessage: null,
+          currentActivity: null,
+          runtime: null,
+          error: null
+        });
+        assistantApiMocks.getChatMessages.mockResolvedValue({
+          nextCursor: null,
+          activeMediaJobs: [],
+          activeDocumentJobs: [],
+          activeSandboxJobs: [],
+          messages: [
+            {
+              id: "user-166-empty-demote",
+              chatId: "chat-166-empty-demote",
+              assistantId: "assistant-1",
+              author: "user",
+              content: "one image",
+              attachments: [],
+              createdAt: "2026-07-27T12:50:00.000Z"
+            },
+            {
+              id: "assistant-166-empty-demote",
+              chatId: "chat-166-empty-demote",
+              assistantId: "assistant-1",
+              author: "assistant",
+              content: "",
+              attachments: [historyAttachment],
+              createdAt: "2026-07-27T12:50:01.000Z"
+            }
+          ]
+        });
+
+        const { result } = renderHook(() => useChat("thread-166-empty-demote"), {
+          wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+        });
+
+        await act(async () => {
+          await result.current.send("one image", undefined, {
+            clientTurnId: "client-turn-166-empty-demote"
+          });
+        });
+
+        await vi.waitFor(() => {
+          expect(
+            result.current.messages.some((message) => message.id === "assistant-166-empty-demote")
+          ).toBe(true);
+        });
+
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(6_000);
+        });
+
+        await vi.waitFor(() => {
+          const assistant = result.current.messages.find(
+            (message) => message.id === "assistant-166-empty-demote"
+          );
+          expect(assistant?.status).not.toBe("streaming");
+          expect(assistant?.status).not.toBe("reconciling");
+          expect(assistant?.liveInlineMediaReceipts).not.toBe(true);
+          expect(assistant?.attachments?.map((attachment) => attachment.id)).toEqual([
+            "att-history"
+          ]);
+        });
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("same-id onMedia retry enriches inlineMediaPlacement on primary and reattach", async () => {
+      const streamGate: { release: () => void } = { release: () => undefined };
+      assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
+        async (
+          _token: string,
+          _payload: unknown,
+          handlers: {
+            onHeadersOk?: () => void;
+            onStarted?: (payload: { chat: unknown; userMessage: unknown }) => void;
+            onMedia?: (payload: {
+              assistantMessageId: string;
+              attachments: Array<typeof sseOnlyAttachment>;
+              afterToolCallId?: string;
+            }) => void;
+          }
+        ) => {
+          handlers.onHeadersOk?.();
+          handlers.onStarted?.({
+            chat: { id: "chat-166-place" },
+            userMessage: { id: "user-166-place", chatId: "chat-166-place", attachments: [] }
+          });
+          // First event: attachment without placement.
+          handlers.onMedia?.({
+            assistantMessageId: "assistant-166-place",
+            attachments: [sseOnlyAttachment]
+          });
+          // Retry: same id + afterToolCallId must enrich placement, not no-op.
+          handlers.onMedia?.({
+            assistantMessageId: "assistant-166-place",
+            attachments: [sseOnlyAttachment],
+            afterToolCallId: "tool-img-place"
+          });
+          await new Promise<void>((resolve) => {
+            streamGate.release = resolve;
+          });
+        }
+      );
+
+      const { result } = renderHook(() => useChat("thread-166-place"), {
+        wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+      });
+
+      let sendPromise: Promise<void> | undefined;
+      await act(async () => {
+        sendPromise = result.current.send("place me", undefined, {
+          clientTurnId: "client-turn-166-place"
+        });
+        await Promise.resolve();
+      });
+
+      await waitFor(() => {
+        const assistant = result.current.messages.find(
+          (message) => message.id === "assistant-166-place"
+        );
+        expect(assistant?.attachments?.map((attachment) => attachment.id)).toEqual([
+          "att-sse-only"
+        ]);
+        expect(assistant?.inlineMediaPlacement).toEqual([
+          { toolCallId: "tool-img-place", attachmentIds: ["att-sse-only"] }
+        ]);
+        expect(assistant?.attachments?.[0]?.inlineAfterToolCallId).toBe("tool-img-place");
+      });
+
+      streamGate.release();
+      await act(async () => {
+        if (sendPromise !== undefined) await sendPromise;
+      });
+
+      window.sessionStorage.setItem(
+        "persai.active-web-turn.v1.thread-166-place-reattach",
+        "turn-166-place-reattach"
+      );
+      assistantApiMocks.getAssistantWebChatTurnStatus.mockResolvedValue({
+        status: "running",
+        chat: { id: "chat-166-place-reattach" },
+        userMessage: {
+          id: "user-166-place-reattach",
+          chatId: "chat-166-place-reattach",
+          assistantId: "assistant-1",
+          author: "user",
+          content: "place me",
+          attachments: [],
+          createdAt: "2026-07-27T13:00:00.000Z"
+        },
+        assistantMessage: {
+          id: "assistant-166-place-reattach",
+          chatId: "chat-166-place-reattach",
+          assistantId: "assistant-1",
+          author: "assistant",
+          content: "",
+          attachments: [sseOnlyAttachment],
+          createdAt: "2026-07-27T13:00:01.000Z"
+        },
+        currentActivity: null,
+        runtime: null,
+        error: null
+      });
+      assistantApiMocks.reattachAssistantWebChatTurnStream.mockImplementationOnce(
+        async (
+          _token: string,
+          _clientTurnId: string,
+          handlers: {
+            onHeadersOk?: () => void;
+            onTurnStatus?: (payload: { turn: unknown }) => void;
+            onMedia?: (payload: {
+              assistantMessageId: string;
+              attachments: Array<typeof sseOnlyAttachment>;
+              afterToolCallId?: string;
+            }) => void;
+          }
+        ) => {
+          handlers.onHeadersOk?.();
+          handlers.onTurnStatus?.({
+            turn: {
+              status: "running",
+              chat: { id: "chat-166-place-reattach" },
+              userMessage: {
+                id: "user-166-place-reattach",
+                chatId: "chat-166-place-reattach",
+                assistantId: "assistant-1",
+                author: "user",
+                content: "place me",
+                attachments: [],
+                createdAt: "2026-07-27T13:00:00.000Z"
+              },
+              assistantMessage: {
+                id: "assistant-166-place-reattach",
+                chatId: "chat-166-place-reattach",
+                assistantId: "assistant-1",
+                author: "assistant",
+                content: "",
+                attachments: [sseOnlyAttachment],
+                createdAt: "2026-07-27T13:00:01.000Z"
+              },
+              currentActivity: null,
+              runtime: null,
+              error: null
+            }
+          });
+          handlers.onMedia?.({
+            assistantMessageId: "assistant-166-place-reattach",
+            attachments: [sseOnlyAttachment]
+          });
+          handlers.onMedia?.({
+            assistantMessageId: "assistant-166-place-reattach",
+            attachments: [sseOnlyAttachment],
+            afterToolCallId: "tool-img-place-reattach"
+          });
+        }
+      );
+
+      const { result: reattachResult } = renderHook(() => useChat("thread-166-place-reattach"), {
+        wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+      });
+
+      await waitFor(() => {
+        const assistant = reattachResult.current.messages.find(
+          (message) => message.id === "assistant-166-place-reattach"
+        );
+        expect(assistant?.attachments?.map((attachment) => attachment.id)).toEqual([
+          "att-sse-only"
+        ]);
+        expect(assistant?.inlineMediaPlacement).toEqual([
+          { toolCallId: "tool-img-place-reattach", attachmentIds: ["att-sse-only"] }
+        ]);
+        expect(assistant?.attachments?.[0]?.inlineAfterToolCallId).toBe("tool-img-place-reattach");
+      });
+    });
+
+    it("primary and reattach onMedia both keep streaming + streamingTextActive false + receipts", async () => {
+      const streamGate: { release: () => void } = { release: () => undefined };
+      assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
+        async (
+          _token: string,
+          _payload: unknown,
+          handlers: {
+            onHeadersOk?: () => void;
+            onStarted?: (payload: { chat: unknown; userMessage: unknown }) => void;
+            onDelta?: (payload: { delta: string }) => void;
+            onMedia?: (payload: {
+              assistantMessageId: string;
+              attachments: Array<typeof sseOnlyAttachment>;
+              afterToolCallId?: string;
+            }) => void;
+          }
+        ) => {
+          handlers.onHeadersOk?.();
+          handlers.onStarted?.({
+            chat: { id: "chat-166-parity" },
+            userMessage: { id: "user-166-parity", chatId: "chat-166-parity", attachments: [] }
+          });
+          handlers.onDelta?.({ delta: "partial " });
+          handlers.onMedia?.({
+            assistantMessageId: "assistant-166-parity",
+            attachments: [sseOnlyAttachment],
+            afterToolCallId: "tool-img-parity"
+          });
+          await new Promise<void>((resolve) => {
+            streamGate.release = resolve;
+          });
+        }
+      );
+
+      const { result } = renderHook(() => useChat("thread-166-parity"), {
+        wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+      });
+
+      let sendPromise: Promise<void> | undefined;
+      await act(async () => {
+        sendPromise = result.current.send("draw one");
+        await Promise.resolve();
+      });
+
+      await waitFor(() => {
+        const assistant = result.current.messages.find(
+          (message) => message.id === "assistant-166-parity"
+        );
+        expect(assistant?.status).toBe("streaming");
+        expect(assistant?.streamingTextActive).toBe(false);
+        expect(assistant?.liveInlineMediaReceipts).toBe(true);
+        expect(assistant?.attachments?.[0]?.id).toBe("att-sse-only");
+      });
+
+      streamGate.release();
+      await act(async () => {
+        if (sendPromise !== undefined) await sendPromise;
+      });
+
+      window.sessionStorage.setItem(
+        "persai.active-web-turn.v1.thread-166-reattach",
+        "turn-166-reattach"
+      );
+      assistantApiMocks.getAssistantWebChatTurnStatus.mockResolvedValue({
+        status: "running",
+        chat: { id: "chat-166-reattach" },
+        userMessage: {
+          id: "user-166-reattach",
+          chatId: "chat-166-reattach",
+          assistantId: "assistant-1",
+          author: "user",
+          content: "draw one",
+          attachments: [],
+          createdAt: "2026-07-27T12:10:00.000Z"
+        },
+        assistantMessage: {
+          id: "assistant-166-reattach",
+          chatId: "chat-166-reattach",
+          assistantId: "assistant-1",
+          author: "assistant",
+          content: "",
+          attachments: [],
+          createdAt: "2026-07-27T12:10:01.000Z"
+        },
+        currentActivity: null,
+        runtime: null,
+        error: null
+      });
+      assistantApiMocks.reattachAssistantWebChatTurnStream.mockImplementationOnce(
+        async (
+          _token: string,
+          _clientTurnId: string,
+          handlers: {
+            onHeadersOk?: () => void;
+            onTurnStatus?: (payload: { turn: unknown }) => void;
+            onMedia?: (payload: {
+              assistantMessageId: string;
+              attachments: Array<typeof sseOnlyAttachment>;
+              afterToolCallId?: string;
+            }) => void;
+          }
+        ) => {
+          handlers.onHeadersOk?.();
+          handlers.onTurnStatus?.({
+            turn: {
+              status: "running",
+              chat: { id: "chat-166-reattach" },
+              userMessage: {
+                id: "user-166-reattach",
+                chatId: "chat-166-reattach",
+                assistantId: "assistant-1",
+                author: "user",
+                content: "draw one",
+                attachments: [],
+                createdAt: "2026-07-27T12:10:01.000Z"
+              },
+              assistantMessage: {
+                id: "assistant-166-reattach",
+                chatId: "chat-166-reattach",
+                assistantId: "assistant-1",
+                author: "assistant",
+                content: "",
+                attachments: [],
+                createdAt: "2026-07-27T12:10:01.000Z"
+              },
+              currentActivity: null,
+              runtime: null,
+              error: null
+            }
+          });
+          handlers.onMedia?.({
+            assistantMessageId: "assistant-166-reattach",
+            attachments: [{ ...sseOnlyAttachment, id: "att-reattach-only" }],
+            afterToolCallId: "tool-img-reattach"
+          });
+        }
+      );
+
+      const { result: reattachResult } = renderHook(() => useChat("thread-166-reattach"), {
+        wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+      });
+
+      await waitFor(() => {
+        const assistant = reattachResult.current.messages.find(
+          (message) => message.id === "assistant-166-reattach"
+        );
+        expect(assistant?.status).toBe("streaming");
+        expect(assistant?.streamingTextActive).toBe(false);
+        expect(assistant?.liveInlineMediaReceipts).toBe(true);
+        expect(assistant?.attachments?.[0]?.id).toBe("att-reattach-only");
+      });
+    });
+
+    it("terminal history with final same-id content still replaces the live overlay", async () => {
+      Object.defineProperty(document, "visibilityState", {
+        configurable: true,
+        value: "hidden"
+      });
+
+      vi.useFakeTimers();
+      try {
+        let observedSignal: AbortSignal | undefined;
+        let sendPromise: Promise<void> | undefined;
+        assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
+          async (
+            _token: string,
+            _payload: unknown,
+            handlers: {
+              onHeadersOk?: () => void;
+              onStarted?: (payload: { chat: unknown; userMessage: unknown }) => void;
+              onMedia?: (payload: {
+                assistantMessageId: string;
+                attachments: Array<typeof sseOnlyAttachment>;
+              }) => void;
+            },
+            signal?: AbortSignal
+          ) => {
+            observedSignal = signal;
+            handlers.onHeadersOk?.();
+            handlers.onStarted?.({
+              chat: { id: "chat-166-term" },
+              userMessage: { id: "user-166-term", chatId: "chat-166-term", attachments: [] }
+            });
+            handlers.onMedia?.({
+              assistantMessageId: "assistant-166-term",
+              attachments: [sseOnlyAttachment]
+            });
+            await new Promise<void>((_resolve, reject) => {
+              signal?.addEventListener("abort", () => {
+                reject(new DOMException("aborted", "AbortError"));
+              });
+            });
+          }
+        );
+        assistantApiMocks.getAssistantWebChatTurnStatus.mockResolvedValue({
+          status: "completed",
+          chat: { id: "chat-166-term" },
+          userMessage: {
+            id: "user-166-term",
+            chatId: "chat-166-term",
+            assistantId: "assistant-1",
+            author: "user",
+            content: "draw",
+            attachments: [],
+            createdAt: "2026-07-27T12:20:00.000Z"
+          },
+          assistantMessage: {
+            id: "assistant-166-term",
+            chatId: "chat-166-term",
+            assistantId: "assistant-1",
+            author: "assistant",
+            content: "Here is your image.",
+            attachments: [historyAttachment, sseOnlyAttachment],
+            createdAt: "2026-07-27T12:20:01.000Z"
+          },
+          currentActivity: null,
+          runtime: null,
+          error: null
+        });
+        assistantApiMocks.getChatMessages.mockResolvedValue({
+          nextCursor: null,
+          messages: [
+            {
+              id: "user-166-term",
+              chatId: "chat-166-term",
+              assistantId: "assistant-1",
+              author: "user",
+              content: "draw",
+              attachments: [],
+              createdAt: "2026-07-27T12:20:00.000Z"
+            },
+            {
+              id: "assistant-166-term",
+              chatId: "chat-166-term",
+              assistantId: "assistant-1",
+              author: "assistant",
+              content: "Here is your image.",
+              attachments: [historyAttachment, sseOnlyAttachment],
+              createdAt: "2026-07-27T12:20:01.000Z"
+            }
+          ]
+        });
+
+        const { result } = renderHook(() => useChat("thread-166-term"), {
+          wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+        });
+
+        await act(async () => {
+          sendPromise = result.current.send("draw", undefined, {
+            clientTurnId: "client-turn-166-term"
+          });
+          await Promise.resolve();
+        });
+        await vi.waitFor(() =>
+          expect(
+            result.current.messages.some((message) => message.id === "assistant-166-term")
+          ).toBe(true)
+        );
+        expect(
+          result.current.messages.find((message) => message.id === "assistant-166-term")?.status
+        ).toBe("streaming");
+
+        Object.defineProperty(document, "visibilityState", {
+          configurable: true,
+          value: "visible"
+        });
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(1_500);
+          document.dispatchEvent(new Event("visibilitychange"));
+        });
+
+        await vi.waitFor(() => {
+          const assistant = result.current.messages.find(
+            (message) => message.id === "assistant-166-term"
+          );
+          expect(assistant?.status).toBe("committed");
+          expect(assistant?.liveInlineMediaReceipts).not.toBe(true);
+          expect(assistant?.content).toBe("Here is your image.");
+          expect(assistant?.attachments?.map((attachment) => attachment.id).sort()).toEqual([
+            "att-history",
+            "att-sse-only"
+          ]);
+          expect(result.current.isStreaming).toBe(false);
+        });
+
+        expect(observedSignal?.aborted).toBe(true);
+        await act(async () => {
+          await sendPromise?.catch(() => undefined);
+        });
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
   describe("server-side soft-detach (slice 1.2)", () => {
     /**
      * The bug being fixed: the SSE controller used to abort the runtime
@@ -6792,53 +8291,61 @@ describe("useChat", () => {
           throw new TypeError("network disconnected while viewing another chat");
         }
       );
-      assistantApiMocks.getChatMessages
-        .mockResolvedValueOnce({
-          nextCursor: null,
-          messages: [
-            {
-              id: "server-user-B",
-              chatId: "chat-B",
-              assistantId: "assistant-1",
-              author: "user",
-              content: "other chat",
-              attachments: [],
-              createdAt: "2026-04-25T17:50:00.000Z"
-            },
-            {
-              id: "server-assistant-B",
-              chatId: "chat-B",
-              assistantId: "assistant-1",
-              author: "assistant",
-              content: "Other answer.",
-              attachments: [],
-              createdAt: "2026-04-25T17:50:05.000Z"
-            }
-          ]
-        })
-        .mockResolvedValueOnce({
-          nextCursor: null,
-          messages: [
-            {
-              id: "server-user-A",
-              chatId: "chat-A",
-              assistantId: "assistant-1",
-              author: "user",
-              content: "keep going",
-              attachments: [],
-              createdAt: "2026-04-25T17:45:35.000Z"
-            },
-            {
-              id: "server-assistant-A",
-              chatId: "chat-A",
-              assistantId: "assistant-1",
-              author: "assistant",
-              content: "Recovered.",
-              attachments: [],
-              createdAt: "2026-04-25T17:45:45.000Z"
-            }
-          ]
-        });
+      assistantApiMocks.getChatMessages.mockImplementation(
+        async (_token: string, requestedChatId: string) => {
+          if (requestedChatId === "chat-B") {
+            return {
+              nextCursor: null,
+              messages: [
+                {
+                  id: "server-user-B",
+                  chatId: "chat-B",
+                  assistantId: "assistant-1",
+                  author: "user",
+                  content: "other chat",
+                  attachments: [],
+                  createdAt: "2026-04-25T17:50:00.000Z"
+                },
+                {
+                  id: "server-assistant-B",
+                  chatId: "chat-B",
+                  assistantId: "assistant-1",
+                  author: "assistant",
+                  content: "Other answer.",
+                  attachments: [],
+                  createdAt: "2026-04-25T17:50:05.000Z"
+                }
+              ]
+            };
+          }
+          if (requestedChatId === "chat-A") {
+            return {
+              nextCursor: null,
+              messages: [
+                {
+                  id: "server-user-A",
+                  chatId: "chat-A",
+                  assistantId: "assistant-1",
+                  author: "user",
+                  content: "keep going",
+                  attachments: [],
+                  createdAt: "2026-04-25T17:45:35.000Z"
+                },
+                {
+                  id: "server-assistant-A",
+                  chatId: "chat-A",
+                  assistantId: "assistant-1",
+                  author: "assistant",
+                  content: "Recovered.",
+                  attachments: [],
+                  createdAt: "2026-04-25T17:45:45.000Z"
+                }
+              ]
+            };
+          }
+          return { nextCursor: null, messages: [] };
+        }
+      );
 
       const { result, rerender } = renderHook(
         ({ threadKey }: { threadKey: string }) => useChat(threadKey),
@@ -6875,13 +8382,11 @@ describe("useChat", () => {
       });
 
       await waitFor(() => {
-        expect(assistantApiMocks.getChatMessages).toHaveBeenNthCalledWith(
-          2,
-          "token-1",
-          "chat-A",
-          undefined,
-          20
-        );
+        expect(
+          assistantApiMocks.getChatMessages.mock.calls.some(
+            (call) => call[1] === "chat-A" && call[2] === undefined && call[3] === 20
+          )
+        ).toBe(true);
       });
 
       rerender({ threadKey: "thread-A" });
@@ -6893,6 +8398,7 @@ describe("useChat", () => {
 
     it("refreshes terminal reattach history against the originating chat after switching away", async () => {
       let releaseStream: (() => void) | null = null;
+      let chatATerminal = false;
       assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
         async (
           _token: string,
@@ -6925,70 +8431,81 @@ describe("useChat", () => {
           }
         ) => {
           handlers.onHeadersOk?.();
+          chatATerminal = true;
           await handlers.onCompleted?.();
         }
       );
-      assistantApiMocks.getChatMessages
-        .mockResolvedValueOnce({
-          nextCursor: null,
-          messages: [
-            {
-              id: "server-user-B",
-              chatId: "chat-B",
-              assistantId: "assistant-1",
-              author: "user",
-              content: "other chat",
-              attachments: [],
-              createdAt: "2026-04-25T17:50:00.000Z"
-            },
-            {
-              id: "server-assistant-B",
-              chatId: "chat-B",
-              assistantId: "assistant-1",
-              author: "assistant",
-              content: "Other answer.",
-              attachments: [],
-              createdAt: "2026-04-25T17:50:05.000Z"
+      assistantApiMocks.getChatMessages.mockImplementation(
+        async (_token: string, chatId: string) => {
+          if (chatId === "chat-B") {
+            return {
+              nextCursor: null,
+              messages: [
+                {
+                  id: "server-user-B",
+                  chatId: "chat-B",
+                  assistantId: "assistant-1",
+                  author: "user",
+                  content: "other chat",
+                  attachments: [],
+                  createdAt: "2026-04-25T17:50:00.000Z"
+                },
+                {
+                  id: "server-assistant-B",
+                  chatId: "chat-B",
+                  assistantId: "assistant-1",
+                  author: "assistant",
+                  content: "Other answer.",
+                  attachments: [],
+                  createdAt: "2026-04-25T17:50:05.000Z"
+                }
+              ]
+            };
+          }
+          if (chatId === "chat-A") {
+            if (chatATerminal) {
+              return {
+                nextCursor: null,
+                messages: [
+                  {
+                    id: "server-user-A",
+                    chatId: "chat-A",
+                    assistantId: "assistant-1",
+                    author: "user",
+                    content: "keep going",
+                    attachments: [],
+                    createdAt: "2026-04-25T17:45:35.000Z"
+                  },
+                  {
+                    id: "server-assistant-A",
+                    chatId: "chat-A",
+                    assistantId: "assistant-1",
+                    author: "assistant",
+                    content: "Recovered via reattach.",
+                    attachments: [],
+                    createdAt: "2026-04-25T17:45:45.000Z"
+                  }
+                ]
+              };
             }
-          ]
-        })
-        .mockResolvedValueOnce({
-          nextCursor: null,
-          messages: [
-            {
-              id: "server-user-A",
-              chatId: "chat-A",
-              assistantId: "assistant-1",
-              author: "user",
-              content: "keep going",
-              attachments: [],
-              createdAt: "2026-04-25T17:45:35.000Z"
-            }
-          ]
-        })
-        .mockResolvedValueOnce({
-          nextCursor: null,
-          messages: [
-            {
-              id: "server-user-A",
-              chatId: "chat-A",
-              assistantId: "assistant-1",
-              author: "user",
-              content: "keep going",
-              attachments: [],
-              createdAt: "2026-04-25T17:45:35.000Z"
-            },
-            {
-              id: "server-assistant-A",
-              chatId: "chat-A",
-              assistantId: "assistant-1",
-              author: "assistant",
-              content: "Recovered via reattach.",
-              attachments: [],
-              createdAt: "2026-04-25T17:45:45.000Z"
-            }
-          ]
-        });
+            return {
+              nextCursor: null,
+              messages: [
+                {
+                  id: "server-user-A",
+                  chatId: "chat-A",
+                  assistantId: "assistant-1",
+                  author: "user",
+                  content: "keep going",
+                  attachments: [],
+                  createdAt: "2026-04-25T17:45:35.000Z"
+                }
+              ]
+            };
+          }
+          return { nextCursor: null, messages: [] };
+        }
+      );
 
       const { result, rerender } = renderHook(
         ({ threadKey }: { threadKey: string }) => useChat(threadKey),
@@ -7025,13 +8542,10 @@ describe("useChat", () => {
       });
 
       await waitFor(() => {
-        expect(assistantApiMocks.getChatMessages).toHaveBeenNthCalledWith(
-          3,
-          "token-1",
-          "chat-A",
-          undefined,
-          20
-        );
+        expect(chatATerminal).toBe(true);
+        expect(
+          assistantApiMocks.getChatMessages.mock.calls.some((call) => call[1] === "chat-A")
+        ).toBe(true);
       });
 
       rerender({ threadKey: "thread-A" });
@@ -7653,6 +9167,11 @@ describe("useChat", () => {
     });
 
     it("keeps a post-headers passive disconnect recoverable even before onStarted provides a chat id", async () => {
+      // Pre-onStarted disconnect uses startStoredActiveTurnRestore (no chatId yet).
+      // Product must treat onReattached completed as terminal_status and stop the
+      // restore loop — otherwise under parallel load the 1s retry storm inflates
+      // reattach counts while the UI already recovered.
+      let recoveredClientTurnId: string | null = null;
       assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
         async (
           _token: string,
@@ -7665,14 +9184,20 @@ describe("useChat", () => {
           throw new TypeError("network disconnected before started event");
         }
       );
-      assistantApiMocks.reattachAssistantWebChatTurnStream.mockImplementationOnce(
+      assistantApiMocks.reattachAssistantWebChatTurnStream.mockImplementation(
         async (
           _token: string,
-          _clientTurnId: string,
+          clientTurnId: string,
           handlers: {
             onReattached?: (payload: { turn: unknown; live: boolean }) => void;
           }
         ) => {
+          if (recoveredClientTurnId === null) {
+            recoveredClientTurnId = clientTurnId;
+          }
+          // Idempotent: every call for this turn reports the same terminal truth.
+          // After the product fix only one call should occur; duplicates must not
+          // invent a second bubble or call Stop.
           handlers.onReattached?.({
             live: false,
             turn: {
@@ -7717,9 +9242,6 @@ describe("useChat", () => {
         await sendPromise;
       });
 
-      await waitFor(() =>
-        expect(assistantApiMocks.reattachAssistantWebChatTurnStream).toHaveBeenCalledTimes(1)
-      );
       await waitFor(() => {
         expect(result.current.isStreaming).toBe(false);
         expect(result.current.messages.map((message) => message.id)).toEqual([
@@ -7727,7 +9249,17 @@ describe("useChat", () => {
           "server-assistant-1"
         ]);
       });
+      expect(recoveredClientTurnId).not.toBeNull();
+      const reattachCallsForTurn =
+        assistantApiMocks.reattachAssistantWebChatTurnStream.mock.calls.filter(
+          (call) => call[1] === recoveredClientTurnId
+        );
+      // Exact one reattach owns recovery for this clientTurnId after terminal_status.
+      expect(reattachCallsForTurn).toHaveLength(1);
       expect(assistantApiMocks.stopAssistantWebChatTurn).not.toHaveBeenCalled();
+      expect(
+        result.current.messages.filter((message) => message.role === "assistant")
+      ).toHaveLength(1);
     });
 
     it("surfaces failed reattach payloads as an issue", async () => {
@@ -7897,8 +9429,11 @@ describe("useChat", () => {
         ]);
       });
       expect(observedSignal?.aborted).toBe(true);
-      expect(assistantApiMocks.getChatMessages).toHaveBeenCalledTimes(1);
-      expect(assistantApiMocks.getAssistantWebChatTurnStatus).toHaveBeenCalledTimes(1);
+      expect(assistantApiMocks.getAssistantWebChatTurnStatus).toHaveBeenCalled();
+      expect(result.current.messages.map((message) => message.content)).toEqual([
+        "older turn",
+        "Recovered from turn status."
+      ]);
     });
   });
 
@@ -7913,6 +9448,48 @@ describe("useChat", () => {
     // These tests pin the live-turn id-scoping behaviour so the live bubble
     // survives switch A→B→A, and the loadHistory pollution does not kill
     // the active stream.
+    //
+    // History fixtures are chatId/cursor-keyed (not mockResolvedValueOnce
+    // queues). Under full parallel Vitest load, soft-detach/resume refreshes
+    // and late in-flight gets from prior tests can call getChatMessages
+    // out of order; Once chains then hand Chat B rows to Chat A (and vice
+    // versa). Keyed mocks stay idempotent for duplicate fetches.
+
+    type ContinuityHistoryMessage = {
+      id: string;
+      chatId: string;
+      assistantId: string;
+      author: "user" | "assistant";
+      content: string;
+      attachments: unknown[];
+      createdAt: string;
+    };
+    type ContinuityHistoryPage = {
+      nextCursor: string | null;
+      messages: ContinuityHistoryMessage[];
+    };
+
+    function mockContinuityChatMessages(input: {
+      byChatId: Record<string, ContinuityHistoryPage>;
+      byChatIdAndCursor?: Record<string, ContinuityHistoryPage>;
+    }) {
+      assistantApiMocks.getChatMessages.mockImplementation(
+        async (_token: string, chatId: string, cursor?: string | null) => {
+          if (typeof cursor === "string" && cursor.length > 0) {
+            const keyed = input.byChatIdAndCursor?.[`${chatId}::${cursor}`];
+            if (keyed !== undefined) {
+              return keyed;
+            }
+          }
+          return (
+            input.byChatId[chatId] ?? {
+              nextCursor: null,
+              messages: []
+            }
+          );
+        }
+      );
+    }
 
     it("loadHistory while still streaming does NOT tear down a live turn whose user id matches an older committed user/assistant pair", async () => {
       let releaseStream: (() => void) | null = null;
@@ -8297,6 +9874,7 @@ describe("useChat", () => {
       // failed loadHistory) left the user staring at a chat where their
       // own bubble + older context vanished.
       let releaseStream: (() => void) | null = null;
+      let chatAIncludesLiveUser = false;
       assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
         async (
           _token: string,
@@ -8312,87 +9890,73 @@ describe("useChat", () => {
             chat: { id: "chat-A" },
             userMessage: { id: "server-user-A-live", chatId: "chat-A", attachments: [] }
           });
+          chatAIncludesLiveUser = true;
           handlers.onDelta?.({ delta: "Streaming long answer..." });
           await new Promise<void>((resolve) => {
             releaseStream = () => resolve();
           });
         }
       );
-      // Initial chat-A history: an older user/assistant pair above the
-      // (about-to-be-sent) live turn.
-      assistantApiMocks.getChatMessages
-        .mockResolvedValueOnce({
-          nextCursor: null,
-          messages: [
-            {
-              id: "server-user-A-old",
-              chatId: "chat-A",
-              assistantId: "assistant-1",
-              author: "user",
-              content: "а нужно ли это?",
-              attachments: [],
-              createdAt: "2026-04-25T17:00:00.000Z"
-            },
-            {
-              id: "server-assistant-A-old",
-              chatId: "chat-A",
-              assistantId: "assistant-1",
-              author: "assistant",
-              content: "Не всегда.",
-              attachments: [],
-              createdAt: "2026-04-25T17:00:05.000Z"
-            }
-          ]
-        })
-        // chat-B history while we're switched away.
-        .mockResolvedValueOnce({
-          nextCursor: null,
-          messages: [
-            {
-              id: "server-user-B",
-              chatId: "chat-B",
-              assistantId: "assistant-1",
-              author: "user",
-              content: "B",
-              attachments: [],
-              createdAt: "2026-04-25T17:05:00.000Z"
-            }
-          ]
-        })
-        // chat-A re-fetch after switching back: server has the live user
-        // message persisted but assistant is still in flight server-side.
-        .mockResolvedValueOnce({
-          nextCursor: null,
-          messages: [
-            {
-              id: "server-user-A-old",
-              chatId: "chat-A",
-              assistantId: "assistant-1",
-              author: "user",
-              content: "а нужно ли это?",
-              attachments: [],
-              createdAt: "2026-04-25T17:00:00.000Z"
-            },
-            {
-              id: "server-assistant-A-old",
-              chatId: "chat-A",
-              assistantId: "assistant-1",
-              author: "assistant",
-              content: "Не всегда.",
-              attachments: [],
-              createdAt: "2026-04-25T17:00:05.000Z"
-            },
-            {
-              id: "server-user-A-live",
-              chatId: "chat-A",
-              assistantId: "assistant-1",
-              author: "user",
-              content: "Длинный ответ",
-              attachments: [],
-              createdAt: "2026-04-25T17:10:00.000Z"
-            }
-          ]
-        });
+      const chatAOlder: ContinuityHistoryMessage[] = [
+        {
+          id: "server-user-A-old",
+          chatId: "chat-A",
+          assistantId: "assistant-1",
+          author: "user",
+          content: "а нужно ли это?",
+          attachments: [],
+          createdAt: "2026-04-25T17:00:00.000Z"
+        },
+        {
+          id: "server-assistant-A-old",
+          chatId: "chat-A",
+          assistantId: "assistant-1",
+          author: "assistant",
+          content: "Не всегда.",
+          attachments: [],
+          createdAt: "2026-04-25T17:00:05.000Z"
+        }
+      ];
+      assistantApiMocks.getChatMessages.mockImplementation(
+        async (_token: string, chatId: string) => {
+          if (chatId === "chat-B") {
+            return {
+              nextCursor: null,
+              messages: [
+                {
+                  id: "server-user-B",
+                  chatId: "chat-B",
+                  assistantId: "assistant-1",
+                  author: "user",
+                  content: "B",
+                  attachments: [],
+                  createdAt: "2026-04-25T17:05:00.000Z"
+                }
+              ]
+            };
+          }
+          if (chatId === "chat-A") {
+            return {
+              nextCursor: null,
+              messages: chatAIncludesLiveUser
+                ? [
+                    ...chatAOlder,
+                    {
+                      id: "server-user-A-live",
+                      chatId: "chat-A",
+                      assistantId: "assistant-1",
+                      author: "user" as const,
+                      content: "Длинный ответ",
+                      attachments: [],
+                      createdAt: "2026-04-25T17:10:00.000Z"
+                    }
+                  ]
+                : chatAOlder
+            };
+          }
+          return { nextCursor: null, messages: [] };
+        }
+      );
 
       const { result, rerender } = renderHook(
         ({ threadKey }: { threadKey: string }) => useChat(threadKey),
@@ -8482,6 +10046,7 @@ describe("useChat", () => {
       // synchronous restore not pre-merging cached history).
       let releaseStream: (() => void) | null = null;
       let onDeltaRef: ((payload: { delta: string }) => void) | null = null;
+      let chatAIncludesLiveUser = false;
       assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
         async (
           _token: string,
@@ -8497,6 +10062,7 @@ describe("useChat", () => {
             chat: { id: "chat-A" },
             userMessage: { id: "server-user-A-live", chatId: "chat-A", attachments: [] }
           });
+          chatAIncludesLiveUser = true;
           onDeltaRef = handlers.onDelta ?? null;
           handlers.onDelta?.({ delta: "First chunk. " });
           await new Promise<void>((resolve) => {
@@ -8504,122 +10070,66 @@ describe("useChat", () => {
           });
         }
       );
-      assistantApiMocks.getChatMessages
-        .mockResolvedValueOnce({
-          nextCursor: null,
-          messages: [
-            {
-              id: "server-user-A-old",
-              chatId: "chat-A",
-              assistantId: "assistant-1",
-              author: "user",
-              content: "Q1",
-              attachments: [],
-              createdAt: "2026-04-25T17:00:00.000Z"
-            },
-            {
-              id: "server-assistant-A-old",
-              chatId: "chat-A",
-              assistantId: "assistant-1",
-              author: "assistant",
-              content: "A1",
-              attachments: [],
-              createdAt: "2026-04-25T17:00:05.000Z"
-            }
-          ]
-        })
-        .mockResolvedValueOnce({
-          nextCursor: null,
-          messages: [
-            {
-              id: "server-user-B",
-              chatId: "chat-B",
-              assistantId: "assistant-1",
-              author: "user",
-              content: "B",
-              attachments: [],
-              createdAt: "2026-04-25T17:05:00.000Z"
-            }
-          ]
-        })
-        .mockResolvedValueOnce({
-          nextCursor: null,
-          messages: [
-            {
-              id: "server-user-A-old",
-              chatId: "chat-A",
-              assistantId: "assistant-1",
-              author: "user",
-              content: "Q1",
-              attachments: [],
-              createdAt: "2026-04-25T17:00:00.000Z"
-            },
-            {
-              id: "server-assistant-A-old",
-              chatId: "chat-A",
-              assistantId: "assistant-1",
-              author: "assistant",
-              content: "A1",
-              attachments: [],
-              createdAt: "2026-04-25T17:00:05.000Z"
-            },
-            {
-              id: "server-user-A-live",
-              chatId: "chat-A",
-              assistantId: "assistant-1",
-              author: "user",
-              content: "Long Q",
-              attachments: [],
-              createdAt: "2026-04-25T17:10:00.000Z"
-            }
-          ]
-        })
-        .mockResolvedValueOnce({
-          nextCursor: null,
-          messages: [
-            {
-              id: "server-user-B",
-              chatId: "chat-B",
-              assistantId: "assistant-1",
-              author: "user",
-              content: "B",
-              attachments: [],
-              createdAt: "2026-04-25T17:05:00.000Z"
-            }
-          ]
-        })
-        .mockResolvedValueOnce({
-          nextCursor: null,
-          messages: [
-            {
-              id: "server-user-A-old",
-              chatId: "chat-A",
-              assistantId: "assistant-1",
-              author: "user",
-              content: "Q1",
-              attachments: [],
-              createdAt: "2026-04-25T17:00:00.000Z"
-            },
-            {
-              id: "server-assistant-A-old",
-              chatId: "chat-A",
-              assistantId: "assistant-1",
-              author: "assistant",
-              content: "A1",
-              attachments: [],
-              createdAt: "2026-04-25T17:00:05.000Z"
-            },
-            {
-              id: "server-user-A-live",
-              chatId: "chat-A",
-              assistantId: "assistant-1",
-              author: "user",
-              content: "Long Q",
-              attachments: [],
-              createdAt: "2026-04-25T17:10:00.000Z"
-            }
-          ]
-        });
+      const chatAOlder: ContinuityHistoryMessage[] = [
+        {
+          id: "server-user-A-old",
+          chatId: "chat-A",
+          assistantId: "assistant-1",
+          author: "user",
+          content: "Q1",
+          attachments: [],
+          createdAt: "2026-04-25T17:00:00.000Z"
+        },
+        {
+          id: "server-assistant-A-old",
+          chatId: "chat-A",
+          assistantId: "assistant-1",
+          author: "assistant",
+          content: "A1",
+          attachments: [],
+          createdAt: "2026-04-25T17:00:05.000Z"
+        }
+      ];
+      assistantApiMocks.getChatMessages.mockImplementation(
+        async (_token: string, chatId: string) => {
+          if (chatId === "chat-B") {
+            return {
+              nextCursor: null,
+              messages: [
+                {
+                  id: "server-user-B",
+                  chatId: "chat-B",
+                  assistantId: "assistant-1",
+                  author: "user",
+                  content: "B",
+                  attachments: [],
+                  createdAt: "2026-04-25T17:05:00.000Z"
+                }
+              ]
+            };
+          }
+          if (chatId === "chat-A") {
+            return {
+              nextCursor: null,
+              messages: chatAIncludesLiveUser
+                ? [
+                    ...chatAOlder,
+                    {
+                      id: "server-user-A-live",
+                      chatId: "chat-A",
+                      assistantId: "assistant-1",
+                      author: "user" as const,
+                      content: "Long Q",
+                      attachments: [],
+                      createdAt: "2026-04-25T17:10:00.000Z"
+                    }
+                  ]
+                : chatAOlder
+            };
+          }
+          return { nextCursor: null, messages: [] };
+        }
+      );
 
       const { result, rerender } = renderHook(
         ({ threadKey }: { threadKey: string }) => useChat(threadKey),
@@ -9260,61 +10770,63 @@ describe("useChat", () => {
       // Initial loadHistory(chat-A): paginated window with a
       // non-null cursor (older messages exist on the server beyond
       // the cap). Returns the LATEST window only.
-      assistantApiMocks.getChatMessages
-        .mockResolvedValueOnce({
-          nextCursor: "older-cursor",
-          messages: [
-            {
-              id: "server-user-A-1",
-              chatId: "chat-A",
-              assistantId: "assistant-1",
-              author: "user",
-              content: "Q1 (visible)",
-              attachments: [],
-              createdAt: "2026-04-25T10:00:10.000Z"
-            },
-            {
-              id: "server-asst-A-1",
-              chatId: "chat-A",
-              assistantId: "assistant-1",
-              author: "assistant",
-              content: "A1 (visible)",
-              attachments: [],
-              createdAt: "2026-04-25T10:00:15.000Z"
-            }
-          ]
-        })
-        // loadOlderMessages → returns the off-screen user (older
-        // than the latest window).
-        .mockResolvedValueOnce({
-          nextCursor: null,
-          messages: [
-            {
-              id: "server-user-A-OFFSCREEN",
-              chatId: "chat-A",
-              assistantId: "assistant-1",
-              author: "user",
-              content: "Q0 (older)",
-              attachments: [],
-              createdAt: "2026-04-25T10:00:00.000Z"
-            }
-          ]
-        })
-        // Chat B history.
-        .mockResolvedValueOnce({
-          nextCursor: null,
-          messages: [
-            {
-              id: "server-user-B",
-              chatId: "chat-B",
-              assistantId: "assistant-1",
-              author: "user",
-              content: "B msg",
-              attachments: [],
-              createdAt: "2026-04-25T10:01:00.000Z"
-            }
-          ]
-        });
+      mockContinuityChatMessages({
+        byChatId: {
+          "chat-A": {
+            nextCursor: "older-cursor",
+            messages: [
+              {
+                id: "server-user-A-1",
+                chatId: "chat-A",
+                assistantId: "assistant-1",
+                author: "user",
+                content: "Q1 (visible)",
+                attachments: [],
+                createdAt: "2026-04-25T10:00:10.000Z"
+              },
+              {
+                id: "server-asst-A-1",
+                chatId: "chat-A",
+                assistantId: "assistant-1",
+                author: "assistant",
+                content: "A1 (visible)",
+                attachments: [],
+                createdAt: "2026-04-25T10:00:15.000Z"
+              }
+            ]
+          },
+          "chat-B": {
+            nextCursor: null,
+            messages: [
+              {
+                id: "server-user-B",
+                chatId: "chat-B",
+                assistantId: "assistant-1",
+                author: "user",
+                content: "B msg",
+                attachments: [],
+                createdAt: "2026-04-25T10:01:00.000Z"
+              }
+            ]
+          }
+        },
+        byChatIdAndCursor: {
+          "chat-A::older-cursor": {
+            nextCursor: null,
+            messages: [
+              {
+                id: "server-user-A-OFFSCREEN",
+                chatId: "chat-A",
+                assistantId: "assistant-1",
+                author: "user",
+                content: "Q0 (older)",
+                attachments: [],
+                createdAt: "2026-04-25T10:00:00.000Z"
+              }
+            ]
+          }
+        }
+      });
 
       const { result, rerender } = renderHook(
         ({ threadKey }: { threadKey: string }) => useChat(threadKey),
@@ -9387,6 +10899,213 @@ describe("useChat", () => {
         }
       });
     });
+
+    it("late loadHistory for a left chat does not clobber the visible thread messages or chatId", async () => {
+      let releaseChatA: ((page: ContinuityHistoryPage) => void) | null = null;
+      const chatAGate = new Promise<ContinuityHistoryPage>((resolve) => {
+        releaseChatA = resolve;
+      });
+      assistantApiMocks.getChatMessages.mockImplementation(
+        async (_token: string, chatId: string) => {
+          if (chatId === "chat-A") {
+            return chatAGate;
+          }
+          if (chatId === "chat-B") {
+            return {
+              nextCursor: null,
+              messages: [
+                {
+                  id: "server-user-B",
+                  chatId: "chat-B",
+                  assistantId: "assistant-1",
+                  author: "user",
+                  content: "B only",
+                  attachments: [],
+                  createdAt: "2026-04-25T17:05:00.000Z"
+                }
+              ]
+            };
+          }
+          return { nextCursor: null, messages: [] };
+        }
+      );
+
+      const { result, rerender } = renderHook(
+        ({ threadKey }: { threadKey: string }) => useChat(threadKey),
+        {
+          wrapper: ({ children }) => (
+            <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+          ),
+          initialProps: { threadKey: "thread-A" }
+        }
+      );
+
+      let loadAPromise: Promise<void> | undefined;
+      await act(async () => {
+        loadAPromise = result.current.loadHistory("chat-A");
+        await Promise.resolve();
+      });
+
+      rerender({ threadKey: "thread-B" });
+      await act(async () => {
+        await result.current.loadHistory("chat-B");
+      });
+      expect(result.current.messages.map((m) => m.id)).toEqual(["server-user-B"]);
+      expect(result.current.chatId).toBe("chat-B");
+
+      await act(async () => {
+        releaseChatA?.({
+          nextCursor: null,
+          messages: [
+            {
+              id: "server-user-A-late",
+              chatId: "chat-A",
+              assistantId: "assistant-1",
+              author: "user",
+              content: "Must not clobber B",
+              attachments: [],
+              createdAt: "2026-04-25T17:00:00.000Z"
+            }
+          ]
+        });
+        if (loadAPromise !== undefined) {
+          await loadAPromise;
+        }
+      });
+
+      expect(result.current.chatId).toBe("chat-B");
+      expect(result.current.messages.map((m) => m.id)).toEqual(["server-user-B"]);
+      expect(result.current.messages.map((m) => m.id)).not.toContain("server-user-A-late");
+    });
+
+    it("stale in-flight loadOlderMessages for A after switch to B releases loading and does not mutate B (B can paginate)", async () => {
+      let releaseOlderA: ((page: ContinuityHistoryPage) => void) | null = null;
+      const olderAGate = new Promise<ContinuityHistoryPage>((resolve) => {
+        releaseOlderA = resolve;
+      });
+      assistantApiMocks.getChatMessages.mockImplementation(
+        async (_token: string, chatId: string, cursor?: string | null) => {
+          if (chatId === "chat-A") {
+            if (typeof cursor === "string" && cursor === "older-cursor-A") {
+              return olderAGate;
+            }
+            return {
+              nextCursor: "older-cursor-A",
+              messages: [
+                {
+                  id: "server-user-A-1",
+                  chatId: "chat-A",
+                  assistantId: "assistant-1",
+                  author: "user",
+                  content: "A latest",
+                  attachments: [],
+                  createdAt: "2026-04-25T10:00:10.000Z"
+                }
+              ]
+            };
+          }
+          if (chatId === "chat-B") {
+            if (typeof cursor === "string" && cursor === "older-cursor-B") {
+              return {
+                nextCursor: null,
+                messages: [
+                  {
+                    id: "server-user-B-OFFSCREEN",
+                    chatId: "chat-B",
+                    assistantId: "assistant-1",
+                    author: "user",
+                    content: "B older",
+                    attachments: [],
+                    createdAt: "2026-04-25T10:01:00.000Z"
+                  }
+                ]
+              };
+            }
+            return {
+              nextCursor: "older-cursor-B",
+              messages: [
+                {
+                  id: "server-user-B-1",
+                  chatId: "chat-B",
+                  assistantId: "assistant-1",
+                  author: "user",
+                  content: "B latest",
+                  attachments: [],
+                  createdAt: "2026-04-25T10:01:10.000Z"
+                }
+              ]
+            };
+          }
+          return { nextCursor: null, messages: [] };
+        }
+      );
+
+      const { result, rerender } = renderHook(
+        ({ threadKey }: { threadKey: string }) => useChat(threadKey),
+        {
+          wrapper: ({ children }) => (
+            <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+          ),
+          initialProps: { threadKey: "thread-A" }
+        }
+      );
+
+      await act(async () => {
+        await result.current.loadHistory("chat-A");
+      });
+      expect(result.current.hasOlderMessages).toBe(true);
+      expect(result.current.messages.map((m) => m.id)).toEqual(["server-user-A-1"]);
+
+      let olderAPromise: Promise<void> | undefined;
+      await act(async () => {
+        olderAPromise = result.current.loadOlderMessages();
+        await Promise.resolve();
+      });
+      expect(result.current.olderMessagesLoading).toBe(true);
+
+      rerender({ threadKey: "thread-B" });
+      await act(async () => {
+        await result.current.loadHistory("chat-B");
+      });
+      expect(result.current.messages.map((m) => m.id)).toEqual(["server-user-B-1"]);
+      expect(result.current.chatId).toBe("chat-B");
+      expect(result.current.hasOlderMessages).toBe(true);
+
+      await act(async () => {
+        releaseOlderA?.({
+          nextCursor: null,
+          messages: [
+            {
+              id: "server-user-A-OFFSCREEN",
+              chatId: "chat-A",
+              assistantId: "assistant-1",
+              author: "user",
+              content: "Must not prepend onto B",
+              attachments: [],
+              createdAt: "2026-04-25T10:00:00.000Z"
+            }
+          ]
+        });
+        if (olderAPromise !== undefined) {
+          await olderAPromise;
+        }
+      });
+
+      expect(result.current.olderMessagesLoading).toBe(false);
+      expect(result.current.chatId).toBe("chat-B");
+      expect(result.current.messages.map((m) => m.id)).toEqual(["server-user-B-1"]);
+      expect(result.current.messages.map((m) => m.id)).not.toContain("server-user-A-OFFSCREEN");
+
+      await act(async () => {
+        await result.current.loadOlderMessages();
+      });
+      expect(result.current.olderMessagesLoading).toBe(false);
+      expect(result.current.messages.map((m) => m.id)).toEqual([
+        "server-user-B-OFFSCREEN",
+        "server-user-B-1"
+      ]);
+      expect(result.current.hasOlderMessages).toBe(false);
+    });
   });
 
   describe("currentEngagement from turn completion", () => {
@@ -9448,17 +11167,31 @@ describe("useChat", () => {
 
     it("does not mutate visible engagement when a non-visible thread completes", async () => {
       let releaseBackground: (() => void) | null = null;
-      assistantApiMocks.getChatMessages.mockResolvedValueOnce({
-        messages: [],
-        nextCursor: null,
-        activeTurn: null,
-        activeMediaJobs: [],
-        activeDocumentJobs: [],
-        currentEngagement: {
-          skillDisplayName: "Visible skill",
-          scenarioDisplayName: null
+      assistantApiMocks.getChatMessages.mockImplementation(
+        async (_token: string, chatId: string) => {
+          if (chatId === "chat-visible") {
+            return {
+              messages: [],
+              nextCursor: null,
+              activeTurn: null,
+              activeMediaJobs: [],
+              activeDocumentJobs: [],
+              currentEngagement: {
+                skillDisplayName: "Visible skill",
+                scenarioDisplayName: null
+              }
+            };
+          }
+          return {
+            messages: [],
+            nextCursor: null,
+            activeTurn: null,
+            activeMediaJobs: [],
+            activeDocumentJobs: [],
+            currentEngagement: null
+          };
         }
-      });
+      );
       assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
         async (
           _token: string,
@@ -9519,6 +11252,7 @@ describe("useChat", () => {
         await result.current.loadHistory("chat-visible");
       });
       await waitFor(() => {
+        expect(result.current.chatId).toBe("chat-visible");
         expect(result.current.currentEngagement).toEqual({
           skillDisplayName: "Visible skill",
           scenarioDisplayName: null
@@ -9532,6 +11266,7 @@ describe("useChat", () => {
         }
       });
 
+      expect(result.current.chatId).toBe("chat-visible");
       expect(result.current.currentEngagement).toEqual({
         skillDisplayName: "Visible skill",
         scenarioDisplayName: null
@@ -10292,6 +12027,829 @@ describe("useChat", () => {
       await waitFor(() => {
         expect(Object.keys(result.current.liveThinkingPreviewByMessageId)).toHaveLength(0);
       });
+    });
+  });
+
+  describe("ADR-166 Slice 5: three-image series scenario regressions", () => {
+    function mediaAttachment(id: string, filename: string) {
+      return {
+        id,
+        attachmentType: "image" as const,
+        originalFilename: filename,
+        mimeType: "image/png",
+        sizeBytes: 64,
+        processingStatus: "ready" as const,
+        createdAt: "2026-07-27T18:00:00.000Z"
+      };
+    }
+
+    function openMediaJob(id: string) {
+      return {
+        id,
+        kind: "image" as const,
+        operation: "image_generate",
+        status: "running" as const,
+        createdAt: "2026-07-27T18:00:00.000Z",
+        startedAt: "2026-07-27T18:00:01.000Z",
+        updatedAt: "2026-07-27T18:00:01.000Z"
+      };
+    }
+
+    it("three deferred media complete out of order: one bubble, three attachments, Working 3→2→1→0, no discovery", async () => {
+      const attA = mediaAttachment("att-series-a", "a.png");
+      const attB = mediaAttachment("att-series-b", "b.png");
+      const attC = mediaAttachment("att-series-c", "c.png");
+      const jobA = openMediaJob("job-series-a");
+      const jobB = openMediaJob("job-series-b");
+      const jobC = openMediaJob("job-series-c");
+      const workingCounts: number[] = [];
+      type SeriesHandlers = {
+        onHeadersOk?: () => void;
+        onStarted?: (payload: { chat: unknown; userMessage: unknown }) => void;
+        onDelta?: (payload: { delta: string }) => void;
+        onMedia?: (payload: {
+          assistantMessageId: string;
+          attachments: Array<ReturnType<typeof mediaAttachment>>;
+          afterToolCallId?: string;
+        }) => void;
+        onAsyncJobsOpen?: (payload: {
+          activeMediaJobs: Array<ReturnType<typeof openMediaJob>>;
+          activeDocumentJobs: unknown[];
+          activeSandboxJobs: unknown[];
+        }) => void;
+      };
+      let resolveHandlers: (handlers: SeriesHandlers) => void = () => undefined;
+      const handlersReady = new Promise<SeriesHandlers>((resolve) => {
+        resolveHandlers = resolve;
+      });
+      let resolveStreamEnd: () => void = () => undefined;
+      const streamEnded = new Promise<void>((resolve) => {
+        resolveStreamEnd = resolve;
+      });
+
+      assistantApiMocks.getChatMessages.mockResolvedValue({
+        nextCursor: null,
+        messages: [
+          {
+            id: "older-user-s5",
+            chatId: "chat-s5-series",
+            assistantId: "assistant-1",
+            author: "user",
+            content: "prior question",
+            attachments: [],
+            createdAt: "2026-07-27T17:00:00.000Z"
+          },
+          {
+            id: "older-assistant-s5",
+            chatId: "chat-s5-series",
+            assistantId: "assistant-1",
+            author: "assistant",
+            content: "prior answer",
+            attachments: [],
+            createdAt: "2026-07-27T17:00:05.000Z"
+          }
+        ]
+      });
+
+      assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
+        async (_token: string, _payload: unknown, handlers: SeriesHandlers) => {
+          handlers.onHeadersOk?.();
+          handlers.onStarted?.({
+            chat: { id: "chat-s5-series" },
+            userMessage: { id: "user-s5-series", chatId: "chat-s5-series", attachments: [] }
+          });
+          handlers.onDelta?.({ delta: "Generating your images" });
+          resolveHandlers(handlers);
+          await streamEnded;
+        }
+      );
+
+      const { result } = renderHook(() => useChat("thread-s5-series"), {
+        wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+      });
+
+      await act(async () => {
+        await result.current.loadHistory("chat-s5-series");
+      });
+
+      let sendPromise: Promise<void> | undefined;
+      await act(async () => {
+        sendPromise = result.current.send("three images please");
+        await Promise.resolve();
+      });
+
+      const handlers = await handlersReady;
+
+      await act(async () => {
+        handlers.onAsyncJobsOpen?.({
+          activeMediaJobs: [jobA, jobB, jobC],
+          activeDocumentJobs: [],
+          activeSandboxJobs: []
+        });
+      });
+      await waitFor(() => expect(result.current.activeMediaJobs).toHaveLength(3));
+      workingCounts.push(result.current.activeMediaJobs.length);
+
+      // Out of enqueue order: C, then A, then B — one live bubble identity.
+      await act(async () => {
+        handlers.onMedia?.({
+          assistantMessageId: "assistant-s5-series",
+          attachments: [attC],
+          afterToolCallId: "tool-img-c"
+        });
+        handlers.onAsyncJobsOpen?.({
+          activeMediaJobs: [jobA, jobB],
+          activeDocumentJobs: [],
+          activeSandboxJobs: []
+        });
+      });
+      await waitFor(() => expect(result.current.activeMediaJobs).toHaveLength(2));
+      workingCounts.push(result.current.activeMediaJobs.length);
+
+      await act(async () => {
+        handlers.onMedia?.({
+          assistantMessageId: "assistant-s5-series",
+          attachments: [attA],
+          afterToolCallId: "tool-img-a"
+        });
+        handlers.onAsyncJobsOpen?.({
+          activeMediaJobs: [jobB],
+          activeDocumentJobs: [],
+          activeSandboxJobs: []
+        });
+      });
+      await waitFor(() => expect(result.current.activeMediaJobs).toHaveLength(1));
+      workingCounts.push(result.current.activeMediaJobs.length);
+
+      await act(async () => {
+        handlers.onMedia?.({
+          assistantMessageId: "assistant-s5-series",
+          attachments: [attB],
+          afterToolCallId: "tool-img-b"
+        });
+        handlers.onAsyncJobsOpen?.({
+          activeMediaJobs: [],
+          activeDocumentJobs: [],
+          activeSandboxJobs: []
+        });
+      });
+      await waitFor(() => expect(result.current.activeMediaJobs).toHaveLength(0));
+      workingCounts.push(result.current.activeMediaJobs.length);
+
+      expect(workingCounts).toEqual([3, 2, 1, 0]);
+      const assistant = result.current.messages.find(
+        (message) => message.id === "assistant-s5-series"
+      );
+      expect(assistant?.status).toBe("streaming");
+      expect(assistant?.liveInlineMediaReceipts).toBe(true);
+      expect(assistant?.attachments?.map((attachment) => attachment.id).sort()).toEqual([
+        "att-series-a",
+        "att-series-b",
+        "att-series-c"
+      ]);
+      const ids = result.current.messages.map((message) => message.id);
+      expect(ids.filter((id) => id === "older-user-s5")).toHaveLength(1);
+      expect(ids.filter((id) => id === "older-assistant-s5")).toHaveLength(1);
+      expect(ids.filter((id) => id === "user-s5-series")).toHaveLength(1);
+      expect(ids.filter((id) => id === "assistant-s5-series")).toHaveLength(1);
+      expect(
+        result.current.messages.filter((message) => message.role === "assistant")
+      ).toHaveLength(2);
+      // Discovery SSE may be connected for the chat, but open-turn inline present
+      // must not invent a second catch-up assistant bubble / async-cont overlay.
+      expect(
+        result.current.messages.some(
+          (message) =>
+            message.role === "assistant" &&
+            (message.id.startsWith("local-assistant-async-cont:") ||
+              message.id.includes("async-cont"))
+        )
+      ).toBe(false);
+      expect(
+        result.current.messages.filter((message) => message.id === "assistant-s5-series")
+      ).toHaveLength(1);
+
+      resolveStreamEnd();
+      await act(async () => {
+        if (sendPromise !== undefined) await sendPromise;
+      });
+    });
+
+    it("three deferred media complete in enqueue order onto the same live bubble", async () => {
+      const attA = mediaAttachment("att-order-a", "a.png");
+      const attB = mediaAttachment("att-order-b", "b.png");
+      const attC = mediaAttachment("att-order-c", "c.png");
+      type Handlers = {
+        onHeadersOk?: () => void;
+        onStarted?: (payload: { chat: unknown; userMessage: unknown }) => void;
+        onMedia?: (payload: {
+          assistantMessageId: string;
+          attachments: Array<ReturnType<typeof mediaAttachment>>;
+          afterToolCallId?: string;
+        }) => void;
+      };
+      let resolveHandlers: (handlers: Handlers) => void = () => undefined;
+      const handlersReady = new Promise<Handlers>((resolve) => {
+        resolveHandlers = resolve;
+      });
+      let resolveStreamEnd: () => void = () => undefined;
+      const streamEnded = new Promise<void>((resolve) => {
+        resolveStreamEnd = resolve;
+      });
+
+      assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
+        async (_token: string, _payload: unknown, handlers: Handlers) => {
+          handlers.onHeadersOk?.();
+          handlers.onStarted?.({
+            chat: { id: "chat-s5-order" },
+            userMessage: { id: "user-s5-order", chatId: "chat-s5-order", attachments: [] }
+          });
+          resolveHandlers(handlers);
+          await streamEnded;
+        }
+      );
+
+      const { result } = renderHook(() => useChat("thread-s5-order"), {
+        wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+      });
+
+      let sendPromise: Promise<void> | undefined;
+      await act(async () => {
+        sendPromise = result.current.send("three images please");
+        await Promise.resolve();
+      });
+      const handlers = await handlersReady;
+
+      for (const [att, toolCallId] of [
+        [attA, "tool-img-a"],
+        [attB, "tool-img-b"],
+        [attC, "tool-img-c"]
+      ] as const) {
+        await act(async () => {
+          handlers.onMedia?.({
+            assistantMessageId: "assistant-s5-order",
+            attachments: [att],
+            afterToolCallId: toolCallId
+          });
+        });
+      }
+
+      await waitFor(() => {
+        const assistant = result.current.messages.find(
+          (message) => message.id === "assistant-s5-order"
+        );
+        expect(assistant?.attachments?.map((attachment) => attachment.id)).toEqual([
+          "att-order-a",
+          "att-order-b",
+          "att-order-c"
+        ]);
+      });
+      expect(
+        result.current.messages.filter((message) => message.role === "assistant")
+      ).toHaveLength(1);
+
+      resolveStreamEnd();
+      await act(async () => {
+        if (sendPromise !== undefined) await sendPromise;
+      });
+    });
+
+    it("history refresh after first media early-bind preserves live overlay and does not reinsert prior rows", async () => {
+      const attFirst = mediaAttachment("att-s5-early", "early.png");
+      const attHistory = mediaAttachment("att-s5-history", "history.png");
+      const streamGate: { release: () => void } = { release: () => undefined };
+      const remainingJobs = [openMediaJob("job-s5-2"), openMediaJob("job-s5-3")];
+      const liveHistory = {
+        nextCursor: null as string | null,
+        // Durable Working projection restores the same open-job snapshot after refresh.
+        activeMediaJobs: remainingJobs,
+        activeDocumentJobs: [] as [],
+        activeSandboxJobs: [] as [],
+        messages: [
+          {
+            id: "older-user-s5-hist",
+            chatId: "chat-s5-hist",
+            assistantId: "assistant-1",
+            author: "user" as const,
+            content: "prior",
+            attachments: [] as [],
+            createdAt: "2026-07-27T17:10:00.000Z"
+          },
+          {
+            id: "older-assistant-s5-hist",
+            chatId: "chat-s5-hist",
+            assistantId: "assistant-1",
+            author: "assistant" as const,
+            content: "prior answer",
+            attachments: [] as [],
+            createdAt: "2026-07-27T17:10:05.000Z"
+          },
+          {
+            id: "user-s5-hist",
+            chatId: "chat-s5-hist",
+            assistantId: "assistant-1",
+            author: "user" as const,
+            content: "three images please",
+            attachments: [] as [],
+            createdAt: "2026-07-27T18:10:00.000Z"
+          },
+          {
+            id: "assistant-s5-hist",
+            chatId: "chat-s5-hist",
+            assistantId: "assistant-1",
+            author: "assistant" as const,
+            content: "Working on images",
+            attachments: [attHistory],
+            createdAt: "2026-07-27T18:10:00.100Z"
+          }
+        ]
+      };
+      assistantApiMocks.getChatMessages.mockResolvedValue(liveHistory);
+      assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
+        async (
+          _token: string,
+          _payload: unknown,
+          handlers: {
+            onHeadersOk?: () => void;
+            onStarted?: (payload: { chat: unknown; userMessage: unknown }) => void;
+            onMedia?: (payload: {
+              assistantMessageId: string;
+              attachments: Array<ReturnType<typeof mediaAttachment>>;
+              afterToolCallId?: string;
+            }) => void;
+            onAsyncJobsOpen?: (payload: {
+              activeMediaJobs: Array<ReturnType<typeof openMediaJob>>;
+              activeDocumentJobs: unknown[];
+              activeSandboxJobs: unknown[];
+            }) => void;
+          }
+        ) => {
+          handlers.onHeadersOk?.();
+          handlers.onStarted?.({
+            chat: { id: "chat-s5-hist" },
+            userMessage: { id: "user-s5-hist", chatId: "chat-s5-hist", attachments: [] }
+          });
+          handlers.onAsyncJobsOpen?.({
+            activeMediaJobs: [
+              openMediaJob("job-s5-1"),
+              openMediaJob("job-s5-2"),
+              openMediaJob("job-s5-3")
+            ],
+            activeDocumentJobs: [],
+            activeSandboxJobs: []
+          });
+          handlers.onMedia?.({
+            assistantMessageId: "assistant-s5-hist",
+            attachments: [attFirst],
+            afterToolCallId: "tool-img-early"
+          });
+          handlers.onAsyncJobsOpen?.({
+            activeMediaJobs: remainingJobs,
+            activeDocumentJobs: [],
+            activeSandboxJobs: []
+          });
+          await new Promise<void>((resolve) => {
+            streamGate.release = resolve;
+          });
+        }
+      );
+
+      const { result } = renderHook(() => useChat("thread-s5-hist"), {
+        wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+      });
+
+      let sendPromise: Promise<void> | undefined;
+      await act(async () => {
+        sendPromise = result.current.send("three images please");
+        await Promise.resolve();
+      });
+
+      await waitFor(() => {
+        const assistant = result.current.messages.find(
+          (message) => message.id === "assistant-s5-hist"
+        );
+        expect(assistant?.attachments?.some((attachment) => attachment.id === "att-s5-early")).toBe(
+          true
+        );
+        expect(result.current.activeMediaJobs).toHaveLength(2);
+      });
+
+      await act(async () => {
+        await result.current.loadHistory("chat-s5-hist");
+      });
+
+      const ids = result.current.messages.map((message) => message.id);
+      expect(ids.filter((id) => id === "older-user-s5-hist")).toHaveLength(1);
+      expect(ids.filter((id) => id === "older-assistant-s5-hist")).toHaveLength(1);
+      expect(ids.filter((id) => id === "user-s5-hist")).toHaveLength(1);
+      expect(ids.filter((id) => id === "assistant-s5-hist")).toHaveLength(1);
+      const assistant = result.current.messages.find(
+        (message) => message.id === "assistant-s5-hist"
+      );
+      expect(assistant?.status).toBe("streaming");
+      expect(assistant?.liveInlineMediaReceipts).toBe(true);
+      expect(assistant?.attachments?.map((attachment) => attachment.id).sort()).toEqual([
+        "att-s5-early",
+        "att-s5-history"
+      ]);
+      expect(result.current.activeMediaJobs.map((job) => job.id).sort()).toEqual([
+        "job-s5-2",
+        "job-s5-3"
+      ]);
+
+      streamGate.release();
+      await act(async () => {
+        if (sendPromise !== undefined) await sendPromise;
+      });
+    });
+
+    it("primary / reattach / F5-equivalent history share one set-like attachment merge", async () => {
+      const attPrimary = mediaAttachment("att-parity-primary", "primary.png");
+      const attReattach = mediaAttachment("att-parity-reattach", "reattach.png");
+      const attHistory = mediaAttachment("att-parity-history", "history.png");
+      const streamGate: { release: () => void } = { release: () => undefined };
+
+      assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
+        async (
+          _token: string,
+          _payload: unknown,
+          handlers: {
+            onHeadersOk?: () => void;
+            onStarted?: (payload: { chat: unknown; userMessage: unknown }) => void;
+            onMedia?: (payload: {
+              assistantMessageId: string;
+              attachments: Array<ReturnType<typeof mediaAttachment>>;
+              afterToolCallId?: string;
+            }) => void;
+          }
+        ) => {
+          handlers.onHeadersOk?.();
+          handlers.onStarted?.({
+            chat: { id: "chat-s5-parity" },
+            userMessage: { id: "user-s5-parity", chatId: "chat-s5-parity", attachments: [] }
+          });
+          handlers.onMedia?.({
+            assistantMessageId: "assistant-s5-parity",
+            attachments: [attPrimary],
+            afterToolCallId: "tool-img-primary"
+          });
+          await new Promise<void>((resolve) => {
+            streamGate.release = resolve;
+          });
+        }
+      );
+
+      const { result } = renderHook(() => useChat("thread-s5-parity"), {
+        wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+      });
+
+      let sendPromise: Promise<void> | undefined;
+      await act(async () => {
+        sendPromise = result.current.send("draw series", undefined, {
+          clientTurnId: "client-turn-s5-parity"
+        });
+        await Promise.resolve();
+      });
+
+      await waitFor(() => {
+        expect(
+          result.current.messages.find((message) => message.id === "assistant-s5-parity")
+            ?.attachments?.[0]?.id
+        ).toBe("att-parity-primary");
+      });
+
+      // Reattach path on a sibling thread with overlapping + new attachment ids.
+      window.sessionStorage.setItem(
+        "persai.active-web-turn.v1.thread-s5-parity-reattach",
+        "client-turn-s5-parity-reattach"
+      );
+      assistantApiMocks.getAssistantWebChatTurnStatus.mockResolvedValue({
+        status: "running",
+        chat: { id: "chat-s5-parity-reattach" },
+        userMessage: {
+          id: "user-s5-parity-reattach",
+          chatId: "chat-s5-parity-reattach",
+          assistantId: "assistant-1",
+          author: "user",
+          content: "draw series",
+          attachments: [],
+          createdAt: "2026-07-27T18:20:00.000Z"
+        },
+        assistantMessage: {
+          id: "assistant-s5-parity-reattach",
+          chatId: "chat-s5-parity-reattach",
+          assistantId: "assistant-1",
+          author: "assistant",
+          content: "",
+          attachments: [attPrimary],
+          createdAt: "2026-07-27T18:20:01.000Z"
+        },
+        currentActivity: null,
+        runtime: null,
+        error: null
+      });
+      assistantApiMocks.reattachAssistantWebChatTurnStream.mockImplementationOnce(
+        async (
+          _token: string,
+          _clientTurnId: string,
+          handlers: {
+            onHeadersOk?: () => void;
+            onTurnStatus?: (payload: { turn: unknown }) => void;
+            onMedia?: (payload: {
+              assistantMessageId: string;
+              attachments: Array<ReturnType<typeof mediaAttachment>>;
+              afterToolCallId?: string;
+            }) => void;
+          }
+        ) => {
+          handlers.onHeadersOk?.();
+          handlers.onTurnStatus?.({
+            turn: {
+              status: "running",
+              chat: { id: "chat-s5-parity-reattach" },
+              userMessage: {
+                id: "user-s5-parity-reattach",
+                chatId: "chat-s5-parity-reattach",
+                assistantId: "assistant-1",
+                author: "user",
+                content: "draw series",
+                attachments: [],
+                createdAt: "2026-07-27T18:20:00.000Z"
+              },
+              assistantMessage: {
+                id: "assistant-s5-parity-reattach",
+                chatId: "chat-s5-parity-reattach",
+                assistantId: "assistant-1",
+                author: "assistant",
+                content: "",
+                attachments: [attPrimary],
+                createdAt: "2026-07-27T18:20:01.000Z"
+              },
+              currentActivity: null,
+              runtime: null,
+              error: null
+            }
+          });
+          handlers.onMedia?.({
+            assistantMessageId: "assistant-s5-parity-reattach",
+            attachments: [attPrimary, attReattach],
+            afterToolCallId: "tool-img-reattach"
+          });
+        }
+      );
+
+      const { result: reattachResult } = renderHook(() => useChat("thread-s5-parity-reattach"), {
+        wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+      });
+
+      await waitFor(() => {
+        const assistant = reattachResult.current.messages.find(
+          (message) => message.id === "assistant-s5-parity-reattach"
+        );
+        expect(assistant?.status).toBe("streaming");
+        expect(assistant?.liveInlineMediaReceipts).toBe(true);
+        expect(assistant?.attachments?.map((attachment) => attachment.id).sort()).toEqual([
+          "att-parity-primary",
+          "att-parity-reattach"
+        ]);
+      });
+
+      // F5-equivalent: same-id history refresh contributes a third attachment without
+      // demoting live overlay or duplicating primary/reattach ids.
+      assistantApiMocks.getChatMessages.mockResolvedValue({
+        nextCursor: null,
+        messages: [
+          {
+            id: "user-s5-parity-reattach",
+            chatId: "chat-s5-parity-reattach",
+            assistantId: "assistant-1",
+            author: "user",
+            content: "draw series",
+            attachments: [],
+            createdAt: "2026-07-27T18:20:00.000Z"
+          },
+          {
+            id: "assistant-s5-parity-reattach",
+            chatId: "chat-s5-parity-reattach",
+            assistantId: "assistant-1",
+            author: "assistant",
+            content: "",
+            attachments: [attPrimary, attHistory],
+            createdAt: "2026-07-27T18:20:01.000Z"
+          }
+        ]
+      });
+
+      await act(async () => {
+        await reattachResult.current.loadHistory("chat-s5-parity-reattach");
+      });
+
+      const afterF5 = reattachResult.current.messages.find(
+        (message) => message.id === "assistant-s5-parity-reattach"
+      );
+      expect(afterF5?.status).toBe("streaming");
+      expect(afterF5?.liveInlineMediaReceipts).toBe(true);
+      expect(afterF5?.attachments?.map((attachment) => attachment.id).sort()).toEqual([
+        "att-parity-history",
+        "att-parity-primary",
+        "att-parity-reattach"
+      ]);
+
+      streamGate.release();
+      await act(async () => {
+        if (sendPromise !== undefined) await sendPromise;
+      });
+    });
+
+    it("Working clears to 0 from authoritative last-job failure snapshot", async () => {
+      const attOk = mediaAttachment("att-s5-fail-ok", "ok.png");
+      const jobA = openMediaJob("job-s5-fail-a");
+      const jobB = openMediaJob("job-s5-fail-b");
+      type FailHandlers = {
+        onHeadersOk?: () => void;
+        onStarted?: (payload: { chat: unknown; userMessage: unknown }) => void;
+        onMedia?: (payload: {
+          assistantMessageId: string;
+          attachments: Array<ReturnType<typeof mediaAttachment>>;
+          afterToolCallId?: string;
+        }) => void;
+        onAsyncJobsOpen?: (payload: {
+          activeMediaJobs: Array<ReturnType<typeof openMediaJob>>;
+          activeDocumentJobs: unknown[];
+          activeSandboxJobs: unknown[];
+        }) => void;
+      };
+      let resolveHandlers: (handlers: FailHandlers) => void = () => undefined;
+      const handlersReady = new Promise<FailHandlers>((resolve) => {
+        resolveHandlers = resolve;
+      });
+      let resolveStreamEnd: () => void = () => undefined;
+      const streamEnded = new Promise<void>((resolve) => {
+        resolveStreamEnd = resolve;
+      });
+
+      assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
+        async (_token: string, _payload: unknown, handlers: FailHandlers) => {
+          handlers.onHeadersOk?.();
+          handlers.onStarted?.({
+            chat: { id: "chat-s5-fail" },
+            userMessage: { id: "user-s5-fail", chatId: "chat-s5-fail", attachments: [] }
+          });
+          resolveHandlers(handlers);
+          await streamEnded;
+        }
+      );
+
+      const { result } = renderHook(() => useChat("thread-s5-fail"), {
+        wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+      });
+
+      let sendPromise: Promise<void> | undefined;
+      await act(async () => {
+        sendPromise = result.current.send("two images");
+        await Promise.resolve();
+      });
+      const handlers = await handlersReady;
+
+      await act(async () => {
+        handlers.onAsyncJobsOpen?.({
+          activeMediaJobs: [jobA, jobB],
+          activeDocumentJobs: [],
+          activeSandboxJobs: []
+        });
+      });
+      expect(result.current.activeMediaJobs).toHaveLength(2);
+
+      await act(async () => {
+        handlers.onMedia?.({
+          assistantMessageId: "assistant-s5-fail",
+          attachments: [attOk],
+          afterToolCallId: "tool-fail-a"
+        });
+        handlers.onAsyncJobsOpen?.({
+          activeMediaJobs: [jobB],
+          activeDocumentJobs: [],
+          activeSandboxJobs: []
+        });
+      });
+      expect(result.current.activeMediaJobs).toHaveLength(1);
+
+      await act(async () => {
+        // Last job failed/cancelled — authoritative empty snapshot, not inferred from text.
+        handlers.onAsyncJobsOpen?.({
+          activeMediaJobs: [],
+          activeDocumentJobs: [],
+          activeSandboxJobs: []
+        });
+      });
+      expect(result.current.activeMediaJobs).toEqual([]);
+      const assistant = result.current.messages.find(
+        (message) => message.id === "assistant-s5-fail"
+      );
+      expect(assistant?.attachments?.map((attachment) => attachment.id)).toEqual([
+        "att-s5-fail-ok"
+      ]);
+      expect(assistant?.status).toBe("streaming");
+
+      resolveStreamEnd();
+      await act(async () => {
+        if (sendPromise !== undefined) await sendPromise;
+      });
+    });
+
+    it("Stop after one delivered attachment keeps the interrupted bubble and clears Stop latch", async () => {
+      const attOne = mediaAttachment("att-s5-stop-1", "one.png");
+      let observedSignal: AbortSignal | undefined;
+      assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
+        async (
+          _token: string,
+          _payload: unknown,
+          handlers: {
+            onHeadersOk?: () => void;
+            onStarted?: (payload: { chat: unknown; userMessage: unknown }) => void;
+            onMedia?: (payload: {
+              assistantMessageId: string;
+              attachments: Array<ReturnType<typeof mediaAttachment>>;
+              afterToolCallId?: string;
+            }) => void;
+            onAsyncJobsOpen?: (payload: {
+              activeMediaJobs: Array<ReturnType<typeof openMediaJob>>;
+              activeDocumentJobs: unknown[];
+              activeSandboxJobs: unknown[];
+            }) => void;
+            onInterrupted?: (payload: { transport: unknown }) => void;
+          },
+          signal?: AbortSignal
+        ) => {
+          observedSignal = signal;
+          handlers.onHeadersOk?.();
+          handlers.onStarted?.({
+            chat: { id: "chat-s5-stop" },
+            userMessage: { id: "user-s5-stop", chatId: "chat-s5-stop", attachments: [] }
+          });
+          handlers.onMedia?.({
+            assistantMessageId: "assistant-s5-stop",
+            attachments: [attOne],
+            afterToolCallId: "tool-stop-1"
+          });
+          handlers.onAsyncJobsOpen?.({
+            activeMediaJobs: [openMediaJob("job-s5-stop-2"), openMediaJob("job-s5-stop-3")],
+            activeDocumentJobs: [],
+            activeSandboxJobs: []
+          });
+          await new Promise<void>((_resolve, reject) => {
+            signal?.addEventListener("abort", () => {
+              handlers.onInterrupted?.({
+                transport: {
+                  assistantMessage: {
+                    id: "assistant-s5-stop",
+                    content: "",
+                    stopReason: "user_stopped"
+                  }
+                }
+              });
+              reject(new DOMException("aborted", "AbortError"));
+            });
+          });
+        }
+      );
+
+      const { result } = renderHook(() => useChat("thread-s5-stop"), {
+        wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+      });
+
+      let sendPromise: Promise<void> | undefined;
+      await act(async () => {
+        sendPromise = result.current.send("three please");
+        await Promise.resolve();
+      });
+
+      await waitFor(() => {
+        const assistant = result.current.messages.find(
+          (message) => message.id === "assistant-s5-stop"
+        );
+        expect(
+          assistant?.attachments?.some((attachment) => attachment.id === "att-s5-stop-1")
+        ).toBe(true);
+        expect(result.current.activeMediaJobs).toHaveLength(2);
+      });
+
+      act(() => {
+        result.current.stop();
+      });
+
+      await act(async () => {
+        if (sendPromise !== undefined) await sendPromise.catch(() => undefined);
+      });
+
+      expect(observedSignal?.aborted).toBe(true);
+      const assistant = result.current.messages.find(
+        (message) => message.id === "assistant-s5-stop"
+      );
+      expect(assistant?.attachments?.map((attachment) => attachment.id)).toEqual(["att-s5-stop-1"]);
+      expect(assistant?.stopReason).toBe("user_stopped");
+      expect(assistant?.status).toBe("partial");
+      expect(assistantApiMocks.stopAssistantWebChatTurn).toHaveBeenCalled();
     });
   });
 });

@@ -91,6 +91,15 @@ function noopConversationalPublish(calls?: string[]) {
   } as never;
 }
 
+function allowCatchUpWake(calls?: string[]) {
+  return {
+    admitCatchUpAtBoundary: async () => {
+      calls?.push("admit");
+      return { allowed: true as const };
+    }
+  } as never;
+}
+
 function stopDispatchMock(options?: {
   onRegister?: () => void;
   onRelease?: () => void;
@@ -183,7 +192,7 @@ describe("StreamWebAsyncContinuationService", () => {
       }),
       stopDispatchMock(),
       noopConversationalPublish(),
-      undefined
+      allowCatchUpWake()
     );
     const run = service.processWebClaim({
       claim: { id: "handle-lock-loss", claimToken: "claim-lock-loss" },
@@ -299,7 +308,7 @@ describe("StreamWebAsyncContinuationService", () => {
         }
       }),
       noopConversationalPublish(),
-      undefined,
+      allowCatchUpWake(),
       {
         publishReady: async (input: { clientTurnId: string }) => {
           discoveryPublishedAfterRegistration =
@@ -353,7 +362,8 @@ describe("StreamWebAsyncContinuationService", () => {
       } as never,
       streamRegistryMock(),
       stopDispatchMock(),
-      noopConversationalPublish()
+      noopConversationalPublish(),
+      allowCatchUpWake()
     );
 
     await service.processWebClaim({
@@ -389,7 +399,8 @@ describe("StreamWebAsyncContinuationService", () => {
         }
       }),
       stopDispatchMock(),
-      noopConversationalPublish()
+      noopConversationalPublish(),
+      allowCatchUpWake()
     );
 
     await service.processWebClaim({
@@ -435,7 +446,8 @@ describe("StreamWebAsyncContinuationService", () => {
         }
       }),
       stopDispatchMock(),
-      noopConversationalPublish()
+      noopConversationalPublish(),
+      allowCatchUpWake()
     );
 
     await service.processWebClaim({
@@ -476,7 +488,8 @@ describe("StreamWebAsyncContinuationService", () => {
         }
       }),
       stopDispatchMock({ wasUserStopped: () => true }),
-      noopConversationalPublish()
+      noopConversationalPublish(),
+      allowCatchUpWake()
     );
 
     await service.processWebClaim({
@@ -519,7 +532,8 @@ describe("StreamWebAsyncContinuationService", () => {
         }
       }),
       stopDispatchMock(),
-      noopConversationalPublish()
+      noopConversationalPublish(),
+      allowCatchUpWake()
     );
 
     await assert.rejects(
@@ -565,7 +579,8 @@ describe("StreamWebAsyncContinuationService", () => {
         }
       }),
       stopDispatchMock(),
-      noopConversationalPublish()
+      noopConversationalPublish(),
+      allowCatchUpWake()
     );
 
     const callbacks = {
@@ -634,7 +649,8 @@ describe("StreamWebAsyncContinuationService", () => {
       attemptMock([]),
       streamRegistryMock(),
       stopDispatchMock(),
-      noopConversationalPublish()
+      noopConversationalPublish(),
+      allowCatchUpWake()
     );
 
     await service.processWebClaim({
@@ -673,7 +689,8 @@ describe("StreamWebAsyncContinuationService", () => {
         }
       }),
       stopDispatchMock(),
-      noopConversationalPublish()
+      noopConversationalPublish(),
+      allowCatchUpWake()
     );
 
     await assert.rejects(
@@ -722,7 +739,8 @@ describe("StreamWebAsyncContinuationService", () => {
         }
       }),
       stopDispatchMock(),
-      noopConversationalPublish()
+      noopConversationalPublish(),
+      allowCatchUpWake()
     );
 
     await service.processWebClaim({
@@ -766,7 +784,8 @@ describe("StreamWebAsyncContinuationService", () => {
         }
       }),
       stopDispatchMock(),
-      noopConversationalPublish()
+      noopConversationalPublish(),
+      allowCatchUpWake()
     );
 
     const callbacks = {
@@ -825,7 +844,8 @@ describe("StreamWebAsyncContinuationService", () => {
         }
       }),
       stopDispatchMock(),
-      noopConversationalPublish()
+      noopConversationalPublish(),
+      allowCatchUpWake()
     );
 
     await service.processWebClaim({
@@ -870,7 +890,8 @@ describe("StreamWebAsyncContinuationService", () => {
       attemptMock(attemptCalls),
       streamRegistryMock(),
       stopDispatchMock(),
-      noopConversationalPublish()
+      noopConversationalPublish(),
+      allowCatchUpWake()
     );
 
     await service.processWebClaim({
@@ -911,7 +932,8 @@ describe("StreamWebAsyncContinuationService", () => {
       attemptMock(attemptCalls),
       streamRegistryMock(),
       stopDispatchMock(),
-      noopConversationalPublish()
+      noopConversationalPublish(),
+      allowCatchUpWake()
     );
 
     await service.processWebClaim({
@@ -963,5 +985,355 @@ describe("StreamWebAsyncContinuationService", () => {
     assert.ok(attemptCalls.includes("abandonPreAcceptanceAttempt"));
     assert.ok(callbackCalls.includes("busy"));
     assert.ok(!callbackCalls.includes("markDispatched"));
+  });
+
+  test("ADR-166: pre-accept busy never publishes, binds, or discovers", async () => {
+    const order: string[] = [];
+    const callbackCalls: string[] = [];
+    const service = new StreamWebAsyncContinuationService(
+      {
+        stream: async () => {
+          order.push("stream");
+          return { mode: "outcome", result: { outcome: "busy" } };
+        }
+      } as never,
+      attemptMock([]),
+      streamRegistryMock(),
+      stopDispatchMock(),
+      {
+        publishForCatchUp: async () => {
+          order.push("publish");
+          return "should-not-publish";
+        }
+      } as never,
+      {
+        admitCatchUpAtBoundary: async () => {
+          order.push("admit");
+          return { allowed: true as const };
+        }
+      } as never,
+      {
+        publishReady: async () => {
+          order.push("discovery");
+        }
+      } as never
+    );
+
+    await service.processWebClaim({
+      claim: { id: "handle-busy-pub", claimToken: "claim-busy-pub" },
+      context: baseContext({ continuationClientTurnId: "async-cont:busy-pub" }),
+      request: { requestId: "req-busy-pub", idempotencyKey: "async-cont:busy-pub" } as never,
+      timeoutMs: 30_000,
+      callbacks: baseCallbacks(callbackCalls)
+    });
+
+    assert.deepEqual(order, ["admit", "stream"]);
+    assert.ok(callbackCalls.includes("busy"));
+    assert.ok(!callbackCalls.includes("markDispatched"));
+  });
+
+  test("ADR-166: pre-accept clear error emits no discovery", async () => {
+    const order: string[] = [];
+    const callbackCalls: string[] = [];
+    const service = new StreamWebAsyncContinuationService(
+      {
+        stream: async () => {
+          order.push("stream");
+          throw new Error("runtime continuation client is not configured");
+        }
+      } as never,
+      attemptMock([]),
+      streamRegistryMock(),
+      stopDispatchMock(),
+      {
+        publishForCatchUp: async () => {
+          order.push("publish");
+          return "should-not-publish";
+        }
+      } as never,
+      {
+        admitCatchUpAtBoundary: async () => {
+          order.push("admit");
+          return { allowed: true as const };
+        }
+      } as never,
+      {
+        publishReady: async () => {
+          order.push("discovery");
+        }
+      } as never
+    );
+
+    await assert.rejects(
+      service.processWebClaim({
+        claim: { id: "handle-clear-disc", claimToken: "claim-clear-disc" },
+        context: baseContext({ continuationClientTurnId: "async-cont:clear-disc" }),
+        request: { requestId: "req-clear-disc", idempotencyKey: "async-cont:clear-disc" } as never,
+        timeoutMs: 30_000,
+        callbacks: baseCallbacks(callbackCalls)
+      }),
+      (error: unknown) =>
+        error instanceof Error && error.message === "runtime continuation client is not configured"
+    );
+
+    assert.deepEqual(order, ["admit", "stream"]);
+    assert.ok(callbackCalls.includes("busy"));
+    assert.ok(!callbackCalls.includes("markDispatched"));
+  });
+
+  test("ADR-166: admission denial skips discovery and publish", async () => {
+    const order: string[] = [];
+    const callbackCalls: string[] = [];
+    const service = new StreamWebAsyncContinuationService(
+      {
+        stream: async () => {
+          order.push("stream");
+          throw new Error("must not stream");
+        }
+      } as never,
+      attemptMock([]),
+      streamRegistryMock(),
+      stopDispatchMock(),
+      {
+        publishForCatchUp: async () => {
+          order.push("publish");
+          return "msg";
+        }
+      } as never,
+      {
+        admitCatchUpAtBoundary: async () => {
+          order.push("admit");
+          return { allowed: false as const, reason: "user_turn_active" };
+        }
+      } as never,
+      {
+        publishReady: async () => {
+          order.push("discovery");
+        }
+      } as never
+    );
+
+    await service.processWebClaim({
+      claim: { id: "handle-deny-disc", claimToken: "claim-deny-disc" },
+      context: baseContext({ continuationClientTurnId: "async-cont:deny-disc" }),
+      request: { requestId: "req-deny-disc", idempotencyKey: "async-cont:deny-disc" } as never,
+      timeoutMs: 30_000,
+      callbacks: baseCallbacks(callbackCalls)
+    });
+
+    assert.deepEqual(order, ["admit"]);
+    assert.ok(callbackCalls.includes("busy"));
+  });
+
+  test("ADR-166: accepted path is admit→accept→markDispatched→publish+bind→discovery→events", async () => {
+    const order: string[] = [];
+    const published: Array<{ event: string; payload: unknown }> = [];
+    const attemptCalls: string[] = [];
+    const callbackCalls: string[] = [];
+    const attempt = attemptMock(attemptCalls);
+    attempt.bindAssistantMessageId = async () => {
+      order.push("bind");
+      attemptCalls.push("bindAssistantMessageId");
+    };
+    const service = new StreamWebAsyncContinuationService(
+      {
+        stream: async () => {
+          order.push("stream_accept");
+          return {
+            mode: "events",
+            events: (async function* () {
+              order.push("first_event");
+              yield {
+                type: "started",
+                requestId: "req-accept-bind",
+                sessionId: "session-1"
+              };
+              yield {
+                type: "text_delta",
+                requestId: "req-accept-bind",
+                sessionId: "session-1",
+                delta: "Hello",
+                accumulatedText: "Hello",
+                source: "assistant"
+              };
+              yield {
+                type: "completed",
+                result: {
+                  requestId: "req-accept-bind",
+                  sessionId: "session-1",
+                  assistantText: "done",
+                  answerText: "done",
+                  respondedAt: "2026-07-27T00:00:00.000Z",
+                  artifacts: [],
+                  usage: null
+                }
+              };
+            })()
+          };
+        }
+      } as never,
+      attempt,
+      streamRegistryMock({
+        onPublish: (input) => {
+          order.push(`sse:${input.event}`);
+          published.push({ event: input.event, payload: input.payload });
+        }
+      }),
+      stopDispatchMock(),
+      {
+        publishForCatchUp: async () => {
+          order.push("publish");
+          return "catchup-msg-1";
+        }
+      } as never,
+      {
+        admitCatchUpAtBoundary: async () => {
+          order.push("admit");
+          return { allowed: true as const };
+        }
+      } as never,
+      {
+        publishReady: async () => {
+          order.push("discovery");
+        }
+      } as never
+    );
+
+    await service.processWebClaim({
+      claim: { id: "handle-accept-bind", claimToken: "claim-accept-bind" },
+      context: baseContext({ continuationClientTurnId: "async-cont:accept-bind" }),
+      request: {
+        requestId: "req-accept-bind",
+        idempotencyKey: "async-cont:accept-bind"
+      } as never,
+      timeoutMs: 30_000,
+      callbacks: {
+        ...baseCallbacks(callbackCalls),
+        markDispatched: async () => {
+          order.push("markDispatched");
+          callbackCalls.push("markDispatched");
+          return true;
+        }
+      }
+    });
+
+    assert.deepEqual(order.slice(0, 7), [
+      "admit",
+      "stream_accept",
+      "markDispatched",
+      "publish",
+      "bind",
+      "discovery",
+      "first_event"
+    ]);
+    assert.ok(order.indexOf("discovery") < order.indexOf("sse:started"));
+    assert.ok(order.indexOf("discovery") < order.indexOf("sse:delta"));
+    assert.ok(attemptCalls.includes("bindAssistantMessageId"));
+    const started = published.find((row) => row.event === "started");
+    assert.ok(started !== undefined);
+    assert.equal(
+      (started?.payload as { assistantMessageId?: string }).assistantMessageId,
+      "catchup-msg-1"
+    );
+    assert.ok(callbackCalls.includes("markDispatched"));
+    assert.ok(callbackCalls.includes("persist"));
+  });
+
+  test("ADR-166 Slice 5: pre-accept busy then accepted retry publishes only a fresh post-accept identity", async () => {
+    const publishCalls: string[] = [];
+    const bindCalls: string[] = [];
+    const abandonCalls: string[] = [];
+    const callbackCalls: string[] = [];
+    let acceptNext = false;
+
+    const attempt = attemptMock([]);
+    const originalBind = attempt.bindAssistantMessageId;
+    attempt.bindAssistantMessageId = async (input?: { assistantMessageId?: string }) => {
+      bindCalls.push(input?.assistantMessageId ?? "missing");
+      return originalBind();
+    };
+    attempt.abandonPreAcceptanceAttempt = async () => {
+      abandonCalls.push("abandon");
+    };
+
+    const service = new StreamWebAsyncContinuationService(
+      {
+        stream: async () => {
+          if (!acceptNext) {
+            return { mode: "outcome", result: { outcome: "busy" } };
+          }
+          return {
+            mode: "events",
+            events: (async function* () {
+              yield {
+                type: "started",
+                requestId: "req-s5-retry",
+                sessionId: "session-1"
+              };
+              yield {
+                type: "completed",
+                result: {
+                  requestId: "req-s5-retry",
+                  sessionId: "session-1",
+                  assistantText: "catch-up after interleave",
+                  answerText: "catch-up after interleave",
+                  respondedAt: "2026-07-27T18:30:00.000Z",
+                  artifacts: [],
+                  usage: null
+                }
+              };
+            })()
+          };
+        }
+      } as never,
+      attempt,
+      streamRegistryMock(),
+      stopDispatchMock(),
+      {
+        publishForCatchUp: async () => {
+          // Fresh bottom identity only after acceptance — never a pre-busy pin.
+          const id = "fresh-catchup-after-user-interleave";
+          publishCalls.push(id);
+          return id;
+        }
+      } as never,
+      {
+        admitCatchUpAtBoundary: async () => ({ allowed: true as const })
+      } as never,
+      {
+        publishReady: async () => undefined
+      } as never
+    );
+
+    await service.processWebClaim({
+      claim: { id: "handle-s5-busy", claimToken: "claim-s5-busy" },
+      context: baseContext({ continuationClientTurnId: "async-cont:s5-busy" }),
+      request: { requestId: "req-s5-busy", idempotencyKey: "async-cont:s5-busy" } as never,
+      timeoutMs: 30_000,
+      callbacks: baseCallbacks(callbackCalls)
+    });
+
+    assert.deepEqual(publishCalls, []);
+    assert.deepEqual(bindCalls, []);
+    assert.ok(callbackCalls.includes("busy"));
+    assert.deepEqual(abandonCalls, ["abandon"]);
+    // User interleave happens outside this seam; durable truth is: no publish pin
+    // exists above that later user message because busy never invented one.
+    assert.equal(publishCalls.length, 0);
+
+    acceptNext = true;
+    const retryCallbacks: string[] = [];
+    await service.processWebClaim({
+      claim: { id: "handle-s5-retry", claimToken: "claim-s5-retry" },
+      context: baseContext({ continuationClientTurnId: "async-cont:s5-retry" }),
+      request: { requestId: "req-s5-retry", idempotencyKey: "async-cont:s5-retry" } as never,
+      timeoutMs: 30_000,
+      callbacks: baseCallbacks(retryCallbacks)
+    });
+
+    assert.deepEqual(publishCalls, ["fresh-catchup-after-user-interleave"]);
+    assert.deepEqual(bindCalls, ["fresh-catchup-after-user-interleave"]);
+    assert.ok(retryCallbacks.includes("markDispatched"));
+    assert.ok(!retryCallbacks.includes("busy"));
   });
 });

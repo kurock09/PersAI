@@ -5,6 +5,27 @@
 
 ## 2026-07-27
 
+- **ADR-166 unified live presentation state machine (local CLEAN).** One open
+  USER_TURN now owns a media series without duplicate narration or reinserted
+  prior rows: same-id history/soft-detach preserves the live overlay;
+  attachments and tool placement merge set-like; explicit handle claim outcomes
+  gate open-turn present; Working clears from durable terminal full snapshots.
+  Catch-up becomes visible only after admission + runtime acceptance +
+  ConversationalPublish bind, so pre-accept busy/gate paths leave no ghost row.
+  Stop preserves already-delivered inline media without a second wake.
+  Terminal-first discovery and post-accept publish failure reconcile to one
+  durable identity. Removed the fixed `8.75rem` empty thinking/activity reserve
+  in favor of a compact accessible live rail. A per-message progressive height
+  high-water starts without blank space, grows with real live content, and
+  never shrinks across long-loop status swaps or terminal commit. Three-image
+  order/out-of-order, Working `3→2→1→0`, history/F5, retry, failure, discovery,
+  and mobile height-stability regressions landed. Late cross-thread history and
+  pagination cannot clobber the visible chat, stale pagination releases its
+  loading latch, terminal reattach stops restore retry, and same-tick shell
+  progress/status stays coherent. Independent re-audits and full CI-like gates
+  are green; founder authorized commit + push. Deploy/live acceptance remain
+  open.
+
 - **ADR-165 D6.2: open-turn DI + catch-up classic strip + status clear→thinking.**
   Media/document completion delivery now require `@Inject(WebChatLiveTurnPresentService)`
   (Nest no longer nulls the Optional `Pick|null` and skip live present). Open-turn

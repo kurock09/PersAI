@@ -1139,6 +1139,109 @@ describe("ChatArea", () => {
     }
   });
 
+  it("does not force downward scroll compensation when attachment-only patches land while scrolled away", async () => {
+    let resizeCallback: ResizeObserverCallback | null = null;
+    const OriginalResizeObserver = globalThis.ResizeObserver;
+    class CaptureResizeObserver {
+      constructor(callback: ResizeObserverCallback) {
+        resizeCallback = callback;
+      }
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    }
+    Object.defineProperty(globalThis, "ResizeObserver", {
+      configurable: true,
+      writable: true,
+      value: CaptureResizeObserver
+    });
+
+    try {
+      const baseMessages: ChatMessage[] = [
+        { id: "user-1", role: "user", content: "draw three", status: "committed" },
+        {
+          id: "assistant-1",
+          role: "assistant",
+          content: "Working…",
+          status: "streaming",
+          liveInlineMediaReceipts: true
+        }
+      ];
+      const { container, rerender } = render(
+        <ChatArea chat={createChat("Working…", { isStreaming: true, messages: baseMessages })} />
+      );
+      const scrollContainer = container.querySelector(".overflow-y-auto") as HTMLDivElement;
+      let scrollTopValue = 200;
+      const scrollHeight = 1400;
+      Object.defineProperty(scrollContainer, "scrollHeight", {
+        configurable: true,
+        get: () => scrollHeight
+      });
+      Object.defineProperty(scrollContainer, "clientHeight", {
+        configurable: true,
+        get: () => 500
+      });
+      Object.defineProperty(scrollContainer, "scrollTop", {
+        configurable: true,
+        get: () => scrollTopValue,
+        set: (value: number) => {
+          scrollTopValue = value;
+        }
+      });
+
+      // Clear the initial programmatic bottom-anchor before marking scrolled-away.
+      await act(async () => {
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+      });
+      scrollTopValue = 200;
+      fireEvent.wheel(scrollContainer, { deltaY: -80 });
+      fireEvent.scroll(scrollContainer);
+      expect(scrollTopValue).toBe(200);
+
+      rerender(
+        <ChatArea
+          chat={createChat("Working…", {
+            isStreaming: true,
+            messages: [
+              baseMessages[0]!,
+              {
+                ...baseMessages[1]!,
+                attachments: [
+                  {
+                    id: "att-1",
+                    path: "/workspace/assistants/a/sessions/s/one.png",
+                    thumbnailStoragePath: null,
+                    posterStoragePath: null,
+                    attachmentType: "image",
+                    originalFilename: "one.png",
+                    mimeType: "image/png",
+                    sizeBytes: 12,
+                    processingStatus: "ready",
+                    createdAt: "2026-07-27T12:00:00.000Z"
+                  }
+                ]
+              }
+            ]
+          })}
+        />
+      );
+
+      await act(async () => {
+        resizeCallback?.([], {} as ResizeObserver);
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+      });
+
+      // High-water / attachment-only patches must not yank a scrolled-away user down.
+      expect(scrollTopValue).toBe(200);
+    } finally {
+      Object.defineProperty(globalThis, "ResizeObserver", {
+        configurable: true,
+        writable: true,
+        value: OriginalResizeObserver
+      });
+    }
+  });
+
   it("jumps to the bottom again when switching to another loaded chat", async () => {
     const { container, rerender } = render(
       <ChatArea chat={createChat(["Old", "Current"], { chatId: "chat-1", isStreaming: false })} />

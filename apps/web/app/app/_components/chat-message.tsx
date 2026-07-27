@@ -395,12 +395,82 @@ function normalizeLiveThinkingPreview(preview: string): string {
   return preview.replace(/\s+/g, " ").trim();
 }
 
-/** ~6–8 lines at text-sm/leading-5 — fixed reserve so thought growth does not jump scroll. */
+/** ~4 lines at text-sm/leading-5 — compact bound while thought text exists (ADR-166 D6). */
 const LIVE_THINKING_FADE_MS = 220;
 
 /**
- * Top-first under the status label. Short text sits at the top of the reserve;
- * when the buffer overflows, pin to the end so oldest lines leave upward.
+ * ADR-166 D6 progressive high-water: measure the live Assistant body and keep a
+ * monotonic minHeight for the lifetime of this message id. Thought fade, status
+ * swaps, cursor-only, and a short terminal answer must not shrink the bubble.
+ * No up-front blank reserve — minHeight applies only after real content height.
+ * Remount via `key={messageId}` so a new message starts fresh.
+ */
+function AssistantBodyHighWater({
+  messageId,
+  className,
+  children
+}: {
+  messageId: string;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  const measureRef = useRef<HTMLDivElement>(null);
+  const highWaterRef = useRef(0);
+  const [highWaterPx, setHighWaterPx] = useState(0);
+
+  useLayoutEffect(() => {
+    const el = measureRef.current;
+    if (el === null) {
+      return;
+    }
+
+    const recordHeight = (height: number) => {
+      if (!Number.isFinite(height) || height <= 0) {
+        return;
+      }
+      const next = Math.ceil(height);
+      if (next <= highWaterRef.current) {
+        return;
+      }
+      highWaterRef.current = next;
+      setHighWaterPx(next);
+    };
+
+    recordHeight(el.getBoundingClientRect().height);
+
+    if (typeof ResizeObserver === "undefined") {
+      return;
+    }
+
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const borderBox = entry.borderBoxSize?.[0]?.blockSize;
+        const height = typeof borderBox === "number" ? borderBox : entry.contentRect.height;
+        recordHeight(height);
+      }
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [messageId]);
+
+  return (
+    <div
+      data-testid="assistant-body-high-water"
+      data-message-id={messageId}
+      className={className}
+      style={highWaterPx > 0 ? { minHeight: highWaterPx } : undefined}
+    >
+      <div ref={measureRef} data-testid="assistant-body-measure">
+        {children}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Top-first under the status label. Short text sizes the rail; when the buffer
+ * overflows the ~4-line max, pin to the end so oldest lines leave upward.
+ * Mount only while displayed (or fading) thought text exists — no empty reserve.
  */
 function LiveThinkingPreviewRail({ text, opaque }: { text: string; opaque: boolean }) {
   const railRef = useRef<HTMLSpanElement>(null);
@@ -416,7 +486,7 @@ function LiveThinkingPreviewRail({ text, opaque }: { text: string; opaque: boole
     <span
       ref={railRef}
       className={cn(
-        "block h-full w-full overflow-x-hidden overflow-y-hidden whitespace-normal break-words transition-opacity duration-200 ease-out motion-reduce:transition-none",
+        "block w-full overflow-x-hidden overflow-y-hidden whitespace-normal break-words transition-opacity duration-200 ease-out motion-reduce:transition-none",
         opaque ? "opacity-100" : "opacity-0"
       )}
     >
@@ -450,8 +520,8 @@ function InlineStreamingStatus({
   const awaitDeadlineMs =
     awaitDeadlineMatch?.[1] === undefined ? null : Number(awaitDeadlineMatch[1]);
   const [nowMs, setNowMs] = useState(() => Date.now());
-  // Hold last text + opacity so clear does not snap; the ~7-line slot itself
-  // stays reserved for the whole pre-answer status lifetime (thinking↔activity).
+  // Hold last text + opacity for a short fade; unmount the rail once empty so
+  // tool/await progress sits directly under the label (ADR-166 D6).
   const [displayedThinkingPreview, setDisplayedThinkingPreview] = useState(thinkingPreview);
   const [thinkingPreviewOpaque, setThinkingPreviewOpaque] = useState(thinkingPreview.length > 0);
 
@@ -475,7 +545,7 @@ function InlineStreamingStatus({
       }, LIVE_THINKING_FADE_MS);
       return () => window.clearTimeout(timer);
     }
-    // Activity / tool status: fade thought text, keep the reserved slot height.
+    // Activity / tool status: fade thought text, then drop the rail entirely.
     setThinkingPreviewOpaque(false);
     const timer = window.setTimeout(() => {
       setDisplayedThinkingPreview("");
@@ -497,10 +567,20 @@ function InlineStreamingStatus({
       : t("awaitCountdown", {
           seconds: Math.max(0, Math.ceil((awaitDeadlineMs - nowMs) / 1000))
         });
+  const showThinkingRail = displayedThinkingPreview.length > 0;
 
   return (
-    <span className="animate-fade-in-inline-status inline-flex w-full max-w-full items-start gap-2 text-sm text-text-muted/78 italic motion-reduce:animate-none">
-      <span className="mt-[0.2em] inline-block h-4 w-1.5 shrink-0 animate-pulse rounded-sm bg-accent/65" />
+    <span
+      role="status"
+      aria-live="polite"
+      aria-atomic="true"
+      data-testid="inline-streaming-status"
+      className="animate-fade-in-inline-status inline-flex w-full max-w-full items-start gap-2 text-sm text-text-muted/78 italic motion-reduce:animate-none"
+    >
+      <span
+        className="mt-[0.2em] inline-block h-4 w-1.5 shrink-0 animate-pulse rounded-sm bg-accent/65"
+        aria-hidden="true"
+      />
       <span className="inline-flex min-w-0 flex-1 flex-col items-stretch gap-0.5">
         <span className="inline-flex max-w-full items-baseline gap-1.5 leading-5">
           <span className="shrink-0">{label}</span>
@@ -513,18 +593,22 @@ function InlineStreamingStatus({
             <span className="text-text-subtle/62 not-italic">{statusParts.detail}</span>
           ) : null}
         </span>
-        <span
-          data-testid="live-thinking-preview"
-          className={cn(
-            // Fixed ~7-line reserve under every pre-answer status label so
-            // thinking↔activity swaps do not resize the bubble / jump scroll.
-            // 7 × leading-5 (1.25rem) = 8.75rem. Thought text fades inside;
-            // empty slot stays while tools/await run.
-            "relative flex w-full min-h-[8.75rem] max-h-[8.75rem] flex-col overflow-hidden text-sm leading-5 text-text-subtle/55 italic"
-          )}
-        >
-          <LiveThinkingPreviewRail text={displayedThinkingPreview} opaque={thinkingPreviewOpaque} />
-        </span>
+        {showThinkingRail ? (
+          <span
+            data-testid="live-thinking-preview"
+            aria-hidden="true"
+            className={cn(
+              // Compact ~4-line bound only while thought text exists (or is fading).
+              // 4 × leading-5 (1.25rem) = 5rem. No permanent min-height reserve.
+              "relative flex w-full max-h-[5rem] flex-col overflow-hidden text-sm leading-5 text-text-subtle/55 italic"
+            )}
+          >
+            <LiveThinkingPreviewRail
+              text={displayedThinkingPreview}
+              opaque={thinkingPreviewOpaque}
+            />
+          </span>
+        ) : null}
         {statusParts.shellProgressLines && statusParts.shellProgressLines.length > 0 ? (
           <span className="font-mono text-xs leading-4 text-text-subtle/55 not-italic tracking-tight">
             {statusParts.shellProgressLines.map((line, index) => (
@@ -1507,7 +1591,14 @@ function MediaReceiptLines({ attachments }: { attachments: ChatAttachment[] }) {
     return null;
   }
   return (
-    <div className="space-y-1" data-testid="media-receipt-lines">
+    <div
+      className="space-y-1"
+      data-testid="media-receipt-lines"
+      role="status"
+      aria-live="polite"
+      aria-atomic="false"
+      aria-relevant="additions"
+    >
       {attachments.map((attachment) => (
         <div
           key={attachment.id}
@@ -2595,7 +2686,11 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
             )}
           </>
         ) : (
-          <div className="prose-invert min-w-0 max-w-full text-sm break-words text-text [overflow-wrap:anywhere]">
+          <AssistantBodyHighWater
+            key={message.id}
+            messageId={message.id}
+            className="prose-invert min-w-0 max-w-full text-sm break-words text-text [overflow-wrap:anywhere]"
+          >
             <ThoughtBlock message={message} />
             <IterationBlocks blocks={assistantSegments.iterationBlocks} />
             {isStreaming ? (
@@ -2607,17 +2702,7 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
                   />
                 ) : null}
                 {(showInlineStreamingStatus || showCursorOnlyStatus) && (
-                  <div
-                    className={cn(
-                      "mt-2 flex items-start gap-2",
-                      // Cursor-only path (no InlineStreamingStatus): keep the same
-                      // ~7-line footprint until answer text lands. When the status
-                      // chip is mounted it already owns that reserve internally.
-                      !hasVisibleAnswerText &&
-                        !showInlineStreamingStatus &&
-                        "min-h-[8.75rem] transition-[min-height] duration-300 ease-out motion-reduce:transition-none"
-                    )}
-                  >
+                  <div className="mt-2 flex items-start gap-2">
                     {showInlineStreamingStatus ? (
                       <InlineStreamingStatus
                         preResponseStatus={preResponseStatus}
@@ -2686,7 +2771,7 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
                 {t("stoppedByUser")}
               </p>
             ) : null}
-          </div>
+          </AssistantBodyHighWater>
         )}
 
         {/* Message actions (assistant only, on hover) */}

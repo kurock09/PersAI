@@ -2,6 +2,15 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { WebChatTurnAttemptService } from "../src/modules/workspace-management/application/web-chat-turn-attempt.service";
 
+const noopChatWakeCoordinator = {
+  async admitUserTurn() {
+    return undefined;
+  },
+  async recordUserTurnTerminal() {
+    return undefined;
+  }
+} as never;
+
 describe("WebChatTurnAttemptService", () => {
   test("returns current tool activity only for active web turns", async () => {
     const attempt = {
@@ -66,7 +75,8 @@ describe("WebChatTurnAttemptService", () => {
       prisma as never,
       {
         execute: async () => ({ assistantId: "assistant-1" })
-      } as never
+      } as never,
+      noopChatWakeCoordinator
     );
 
     const status = await service.getStatusForUser("user-1", "turn-1");
@@ -117,7 +127,8 @@ describe("WebChatTurnAttemptService", () => {
       prisma as never,
       {
         execute: async () => ({ assistantId: "assistant-1" })
-      } as never
+      } as never,
+      noopChatWakeCoordinator
     );
 
     await service.markCompleted({
@@ -248,7 +259,8 @@ describe("WebChatTurnAttemptService", () => {
         admitUserTurn: async () => {
           throw new Error("markRunning must not admit USER_TURN");
         }
-      } as never
+      } as never,
+      noopChatWakeCoordinator
     );
     await service.markRunning({
       assistantId: "assistant-1",
@@ -278,7 +290,8 @@ describe("WebChatTurnAttemptService", () => {
       prisma as never,
       {
         execute: async () => ({ assistantId: "assistant-2" })
-      } as never
+      } as never,
+      noopChatWakeCoordinator
     );
 
     const status = await service.getStatusForUser("user-1", "turn-1");

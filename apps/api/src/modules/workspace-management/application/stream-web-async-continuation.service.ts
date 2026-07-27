@@ -86,11 +86,12 @@ export type StreamWebAsyncContinuationCallbacks = {
 };
 
 /**
- * ADR-152 / ADR-159 — web notify continuation uses the same ADR-149 turn-attempt /
- * stream-registry / Stop path as ordinary web chat. Dispatch proof
- * (`markDispatched`) is deferred until the runtime session lease is acquired
- * and the web attempt is running. Telegram keeps the blocking execute path on
- * the scheduler.
+ * ADR-152 / ADR-159 / ADR-166 — web notify continuation uses the same ADR-149
+ * turn-attempt / stream-registry / Stop path as ordinary web chat. Dispatch
+ * proof (`markDispatched`) is deferred until the runtime session lease is
+ * acquired and the web attempt is running. Discovery and ConversationalPublish
+ * run only after acceptance + markDispatched; Telegram keeps the blocking
+ * execute path on the scheduler with the same post-accept publish rule.
  */
 @Injectable()
 export class StreamWebAsyncContinuationService {
@@ -102,7 +103,8 @@ export class StreamWebAsyncContinuationService {
     private readonly webChatTurnStreamRegistry: WebChatTurnStreamRegistry,
     private readonly webChatTurnStopDispatchService: WebChatTurnStopDispatchService,
     private readonly conversationalPublish: ConversationalPublishService,
-    @Optional() private readonly chatWakeCoordinator?: ChatWakeCoordinator,
+    /** ADR-166 — required; fail-closed USER_TURN exclusion before discovery/publish. */
+    private readonly chatWakeCoordinator: ChatWakeCoordinator,
     @Optional()
     private readonly continuationDiscovery?: WebChatContinuationDiscoveryService
   ) {}
@@ -199,13 +201,6 @@ export class StreamWebAsyncContinuationService {
         controller: abortController
       });
       await this.webChatTurnStreamRegistry.register(registryIdentity);
-      // The exact per-turn Redis stream now exists. Only now may the chat-level
-      // discovery channel tell an already-open browser to attach to it.
-      await this.continuationDiscovery?.publishReady({
-        ...registryIdentity,
-        chatId: context.handle.chatId,
-        threadKey
-      });
     } catch (error) {
       await this.webChatTurnAttemptService.abandonPreAcceptanceAttempt({
         assistantId: context.handle.assistantId,
@@ -294,6 +289,64 @@ export class StreamWebAsyncContinuationService {
       });
       dispatched = marked;
       return marked;
+    };
+
+    /**
+     * ADR-166 D4 — invent/bind catch-up bubble only after runtime acceptance.
+     * Idempotent resume reuses an existing pin; pre-accept busy never reaches here.
+     */
+    const publishAndBindCatchUpIdentity = async (): Promise<string | null> => {
+      let publishedAssistantMessageId: string | null = null;
+      try {
+        publishedAssistantMessageId = await this.conversationalPublish.publishForCatchUp({
+          handleId: context.handle.id,
+          kind: context.handle.kind,
+          canonicalJobId: context.handle.canonicalJobId,
+          assistantId: context.handle.assistantId,
+          workspaceId: context.handle.workspaceId,
+          chatId: context.handle.chatId,
+          channel: context.handle.channel
+        });
+      } catch (error) {
+        this.logger.warn(
+          `web_async_continuation_conversational_publish_failed id=${claim.id}: ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
+        throw error;
+      }
+      if (publishedAssistantMessageId !== null) {
+        await this.webChatTurnAttemptService.bindAssistantMessageId({
+          ...attemptIdentity,
+          assistantMessageId: publishedAssistantMessageId
+        });
+      }
+      return publishedAssistantMessageId;
+    };
+
+    /**
+     * ADR-166 D4 — discovery only after accept + markDispatched + publish/bind.
+     * The per-turn Redis stream already exists from register(); clients that
+     * attach after discovery replay that buffer (ADR-158), so events published
+     * after this point cannot be lost to a pre-accept ghost attach.
+     */
+    const emitContinuationDiscovery = async (): Promise<void> => {
+      if (this.continuationDiscovery === undefined) return;
+      try {
+        await this.continuationDiscovery.publishReady({
+          ...registryIdentity,
+          chatId: context.handle.chatId,
+          threadKey
+        });
+      } catch (error) {
+        // Post-accept: identity is already bound; discovery is best-effort for
+        // open browsers. Reattach / F5 still use the turn stream buffer.
+        this.logger.warn(
+          `web_async_continuation_discovery_failed id=${claim.id}: ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
+      }
     };
 
     const reconcileCoordinationLoss = async (): Promise<void> => {
@@ -416,51 +469,22 @@ export class StreamWebAsyncContinuationService {
         await releaseBusyPreDispatch();
         return;
       }
-      // ADR-159 Slice 1 — durable CAS is the USER_TURN/JOB_CATCHUP admission
-      // boundary immediately before runtime acceptance (not only lock/head claim).
-      if (this.chatWakeCoordinator !== undefined) {
-        const gate = await this.chatWakeCoordinator.admitCatchUpAtBoundary({
-          chatId: context.handle.chatId,
-          assistantId: context.handle.assistantId,
-          userId: context.handle.userId,
-          surfaceThreadKey: threadKey
-        });
-        if (!gate.allowed) {
-          this.logger.log(
-            `web_async_continuation_pre_runtime_gate id=${claim.id} reason=${gate.reason}`
-          );
-          await releaseBusyPreDispatch();
-          return;
-        }
-      }
-
-      // ADR-162 Phase 1 — ConversationalPublish before narration stream (required).
-      let publishedAssistantMessageId: string | null = null;
-      try {
-        publishedAssistantMessageId = await this.conversationalPublish.publishForCatchUp({
-          handleId: context.handle.id,
-          kind: context.handle.kind,
-          canonicalJobId: context.handle.canonicalJobId,
-          assistantId: context.handle.assistantId,
-          workspaceId: context.handle.workspaceId,
-          chatId: context.handle.chatId,
-          channel: context.handle.channel
-        });
-      } catch (error) {
-        this.logger.warn(
-          `web_async_continuation_conversational_publish_failed id=${claim.id}: ${
-            error instanceof Error ? error.message : String(error)
-          }`
+      // ADR-166 D4 — durable USER_TURN exclusion before discovery or visible publish.
+      const gate = await this.chatWakeCoordinator.admitCatchUpAtBoundary({
+        chatId: context.handle.chatId,
+        assistantId: context.handle.assistantId,
+        userId: context.handle.userId,
+        surfaceThreadKey: threadKey
+      });
+      if (!gate.allowed) {
+        this.logger.log(
+          `web_async_continuation_pre_runtime_gate id=${claim.id} reason=${gate.reason}`
         );
         await releaseBusyPreDispatch();
         return;
       }
-      if (publishedAssistantMessageId !== null) {
-        await this.webChatTurnAttemptService.bindAssistantMessageId({
-          ...attemptIdentity,
-          assistantMessageId: publishedAssistantMessageId
-        });
-      }
+
+      let publishedAssistantMessageId: string | null = null;
 
       let started;
       try {
@@ -494,6 +518,7 @@ export class StreamWebAsyncContinuationService {
         }
         if (started.result.outcome === "busy") {
           // Runtime reported the session busy before accepting this continuation.
+          // ADR-166 — no ConversationalPublish pin/row / discovery exists yet.
           await releaseBusyPreDispatch();
           return;
         }
@@ -506,6 +531,23 @@ export class StreamWebAsyncContinuationService {
           return;
         }
         if (!(await ensureDispatched())) return;
+        try {
+          publishedAssistantMessageId = await publishAndBindCatchUpIdentity();
+        } catch {
+          await this.failOrSettleDelivered({
+            claim,
+            context,
+            threadKey,
+            continuationClientTurnId,
+            attemptIdentity,
+            callbacks,
+            publish,
+            code: "conversational_publish_failed",
+            message: "Catch-up conversational publish failed after runtime acceptance."
+          });
+          return;
+        }
+        await emitContinuationDiscovery();
         await this.handleOutcome({
           claim,
           context,
@@ -526,6 +568,26 @@ export class StreamWebAsyncContinuationService {
         return;
       }
       if (!(await ensureDispatched())) return;
+
+      // ADR-166 D4 — visible catch-up identity only after acceptance; bind before
+      // discovery and event iteration so SSE started/turn_status carry the same id.
+      try {
+        publishedAssistantMessageId = await publishAndBindCatchUpIdentity();
+      } catch {
+        await this.failOrSettleDelivered({
+          claim,
+          context,
+          threadKey,
+          continuationClientTurnId,
+          attemptIdentity,
+          callbacks,
+          publish,
+          code: "conversational_publish_failed",
+          message: "Catch-up conversational publish failed after runtime acceptance."
+        });
+        return;
+      }
+      await emitContinuationDiscovery();
 
       let terminal: RuntimeTurnResult | null = null;
       let failedCode: string | null = null;

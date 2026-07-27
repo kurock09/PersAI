@@ -1,5 +1,49 @@
 # SESSION-HANDOFF
 
+## 2026-07-27 — ADR-166 unified live presentation state machine (local CLEAN)
+
+- **Baseline:** `1f2512a8e0e2e50cade98f1b5fee6e0475dd3bc7`; founder authorized
+  this entry's commit + push. Deploy/live acceptance remain open.
+- **Founder symptom closed locally:** in a three-image series, the first ready
+  image no longer causes a second narration wake or reinserts 2–3 previous
+  transcript rows. One open USER_TURN bubble receives unique receipts/files;
+  Working follows full snapshots `3→2→1→0`.
+- **Web:** same-id history/F5/soft-detach preserves the exact live overlay until
+  authoritative terminal truth; attachment + placement merge is set-like;
+  terminal-first continuation discovery forces one history reconcile; primary
+  and reattach media semantics match. The permanent `8.75rem` blank
+  thinking/activity reserve is removed; the compact rail and receipts are
+  polite live regions. A per-message progressive height high-water starts at
+  zero, grows only after real thought/activity content appears, and never
+  shrinks for that bubble across status swaps or terminal commit, preventing
+  long-loop transcript bounce. Late history/older-page responses update only
+  their owning thread cache; they cannot clobber the visible chat. Stale
+  pagination always releases its loading latch; `terminal_status` stops
+  pre-chat-id restore; same-tick tool progress/status merges through a
+  synchronous live-activity ref.
+- **API/open turn:** explicit `newly_claimed |
+  already_current_turn_inline | denied` ownership gates live attach. A stale
+  `running` attempt with continuation ownership cannot pin/publish media.
+  Terminal success/failure snapshots clear Working after durable state.
+- **Queue:** accepted web order is admission → runtime acceptance →
+  `markDispatched` → ConversationalPublish+bind → discovery → buffered stream.
+  Pre-accept busy/gate/clear creates no row/discovery. Post-accept attachment
+  failure binds one durable honest failure identity. Delivered
+  `current_turn_inline` media survives Stop without ready/requeue.
+- **Audits:** independent audits first returned DIRTY (soft-detach/placement/
+  a11y, pre-accept discovery, publish-failure/terminal recovery, pagination
+  latch, and same-tick live activity); every finding was repaired. Targeted
+  re-audits: CLEAN, no remaining P0/P1/P2.
+- **Full gate:** recursive lint; `format:check`; full workspace typecheck; full
+  recursive `pnpm test`; final `test:step2` (web 86 files / 1115 tests); full
+  production build; `git diff --check` — all pass. Earlier parallel-web reds
+  exposed and closed real thread-ownership/restore races plus Once-queue test
+  pollution; the final default-parallel run is green.
+- **Next:** push this founder-authorized commit → wait exact API/web image pins
+  → authenticated live web smoke with three image jobs finishing in and out of
+  order, Stop, reconnect/F5, long-loop height stability, and Working
+  `3→2→1→0`.
+
 ## 2026-07-27 — ADR-165 D6.2: DI + catch-up strip + status→thinking
 
 - **Pushed tip:** `d4e5f9cb` (rebased over GitOps pin `fe2e4f8d`; baseline

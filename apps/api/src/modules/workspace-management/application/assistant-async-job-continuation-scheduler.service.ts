@@ -337,7 +337,7 @@ export class AssistantAsyncJobContinuationSchedulerService
         return;
       }
       // ADR-159 Slice 1 — durable CAS is the USER_TURN/JOB_CATCHUP admission
-      // boundary immediately before runtime acceptance.
+      // boundary before runtime acceptance (ADR-166: before publish).
       const preRuntimeGate = await this.chatWakeCoordinator.admitCatchUpAtBoundary({
         chatId: context.handle.chatId,
         assistantId: context.handle.assistantId,
@@ -347,36 +347,6 @@ export class AssistantAsyncJobContinuationSchedulerService
       if (!preRuntimeGate.allowed) {
         this.logger.log(
           `async_continuation_pre_runtime_gate id=${claim.id} reason=${preRuntimeGate.reason}`
-        );
-        await this.handleState.releaseClaimToReady({
-          ...claim,
-          retryAt: this.retryAt(context.handle.retryCount)
-        });
-        return;
-      }
-      if (!isCatchUpLockHeld()) {
-        await this.handleState.releaseClaimToReady({
-          ...claim,
-          retryAt: this.retryAt(context.handle.retryCount)
-        });
-        return;
-      }
-      // ADR-162 Phase 1 — ConversationalPublish before blocking execute (required).
-      try {
-        await this.conversationalPublish.publishForCatchUp({
-          handleId: context.handle.id,
-          kind: context.handle.kind,
-          canonicalJobId: context.handle.canonicalJobId,
-          assistantId: context.handle.assistantId,
-          workspaceId: context.handle.workspaceId,
-          chatId: context.handle.chatId,
-          channel: context.handle.channel
-        });
-      } catch (error) {
-        this.logger.warn(
-          `async_continuation_conversational_publish_failed id=${claim.id}: ${
-            error instanceof Error ? error.message : String(error)
-          }`
         );
         await this.handleState.releaseClaimToReady({
           ...claim,
@@ -444,6 +414,7 @@ export class AssistantAsyncJobContinuationSchedulerService
         throw error;
       }
       if (outcome.outcome === "busy") {
+        // ADR-166 — no ConversationalPublish pin/row before acceptance.
         await this.handleState.releaseClaimToReady({
           ...claim,
           retryAt: this.retryAt(context.handle.retryCount)
@@ -460,6 +431,34 @@ export class AssistantAsyncJobContinuationSchedulerService
       }
       const marked = await markDispatched(dispatch.request.requestId);
       if (!marked) return;
+      // ADR-166 D4 — invent/bind catch-up bubble only after runtime acceptance.
+      try {
+        await this.conversationalPublish.publishForCatchUp({
+          handleId: context.handle.id,
+          kind: context.handle.kind,
+          canonicalJobId: context.handle.canonicalJobId,
+          assistantId: context.handle.assistantId,
+          workspaceId: context.handle.workspaceId,
+          chatId: context.handle.chatId,
+          channel: context.handle.channel
+        });
+      } catch (error) {
+        this.logger.warn(
+          `async_continuation_conversational_publish_failed id=${claim.id}: ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
+        await this.finalizeContinuationChildren(context, "failed");
+        await this.failClaimVisibly(claim, {
+          errorCode: "conversational_publish_failed",
+          errorMessage: "Catch-up conversational publish failed after runtime acceptance."
+        });
+        return;
+      }
+      if (!isCatchUpLockHeld() || coordinationSignal?.aborted) {
+        await this.reconcileLockLostClaim(claim, context, dispatch);
+        return;
+      }
       if (outcome.outcome === "failed") {
         await this.finalizeContinuationChildren(context, "failed");
         await this.failClaimVisibly(claim, {
@@ -779,6 +778,9 @@ export class AssistantAsyncJobContinuationSchedulerService
             ? { chatId: input.chatId, catchUpWaveId: input.catchUpWaveId }
             : {
                 chatId: input.chatId,
+                // ADR-166 — never mix distinct sourceUserMessageId waves in the
+                // chat-wide fallback join.
+                sourceUserMessageId: input.originatingUserMessageId,
                 OR: [{ state: { in: ["ready", "claimed", "dispatched"] } }, { id: input.handleId }]
               },
         select: {

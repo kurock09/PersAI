@@ -991,6 +991,120 @@ function isOptimisticLocalMessage(message: ChatMessage): boolean {
 function isActiveAssistantLifecycleStatus(status: ChatMessageStatus): boolean {
   return status === "streaming" || status === "reconciling";
 }
+
+/**
+ * ADR-166 D1 — attachments merge set-like by id. Live/SSE fields win on the
+ * same id so history refresh never strips SSE-only attachments or placement.
+ */
+function mergeAttachmentsById(
+  live: ChatAttachment[] | undefined,
+  committed: ChatAttachment[] | undefined
+): ChatAttachment[] | undefined {
+  if (
+    (live === undefined || live.length === 0) &&
+    (committed === undefined || committed.length === 0)
+  ) {
+    return undefined;
+  }
+  const byId = new Map<string, ChatAttachment>();
+  for (const attachment of committed ?? []) {
+    byId.set(attachment.id, attachment);
+  }
+  for (const attachment of live ?? []) {
+    const existing = byId.get(attachment.id);
+    byId.set(attachment.id, existing !== undefined ? { ...existing, ...attachment } : attachment);
+  }
+  return Array.from(byId.values());
+}
+
+function mergeInlineMediaPlacementByToolCallId(
+  live: ChatMessage["inlineMediaPlacement"],
+  committed: ChatMessage["inlineMediaPlacement"]
+): ChatMessage["inlineMediaPlacement"] {
+  if (
+    (live === undefined || live.length === 0) &&
+    (committed === undefined || committed.length === 0)
+  ) {
+    return undefined;
+  }
+  const byToolCallId = new Map<string, { toolCallId: string; attachmentIds: string[] }>();
+  for (const entry of committed ?? []) {
+    byToolCallId.set(entry.toolCallId, {
+      toolCallId: entry.toolCallId,
+      attachmentIds: [...entry.attachmentIds]
+    });
+  }
+  for (const entry of live ?? []) {
+    const existing = byToolCallId.get(entry.toolCallId);
+    if (existing === undefined) {
+      byToolCallId.set(entry.toolCallId, {
+        toolCallId: entry.toolCallId,
+        attachmentIds: [...entry.attachmentIds]
+      });
+      continue;
+    }
+    const ids = new Set(existing.attachmentIds);
+    for (const attachmentId of entry.attachmentIds) {
+      ids.add(attachmentId);
+    }
+    byToolCallId.set(entry.toolCallId, {
+      toolCallId: entry.toolCallId,
+      attachmentIds: Array.from(ids)
+    });
+  }
+  return Array.from(byToolCallId.values());
+}
+
+/**
+ * ADR-166 D1 — while the exact attempt is live, same-id history may contribute
+ * durable createdAt/attachments/content but must preserve live lifecycle
+ * status, receipts, streamingTextActive, and thought/working/tool state.
+ */
+function mergeLiveAssistantWithCommittedHistory(
+  live: ChatMessage,
+  committed: ChatMessage
+): ChatMessage {
+  const nextAttachments = mergeAttachmentsById(live.attachments, committed.attachments);
+  const nextPlacement = mergeInlineMediaPlacementByToolCallId(
+    live.inlineMediaPlacement,
+    committed.inlineMediaPlacement
+  );
+  const nextCreatedAt = live.createdAt ?? committed.createdAt;
+  const nextContent =
+    committed.content.length > live.content.length ? committed.content : live.content;
+  return {
+    ...live,
+    ...(nextCreatedAt !== undefined ? { createdAt: nextCreatedAt } : {}),
+    content: nextContent,
+    ...(nextAttachments !== undefined && nextAttachments.length > 0
+      ? { attachments: nextAttachments }
+      : {}),
+    ...(nextPlacement !== undefined && nextPlacement.length > 0
+      ? { inlineMediaPlacement: nextPlacement }
+      : {})
+  };
+}
+
+/** Terminal same-id absorb: committed row wins; keep union of attachments. */
+function mergeTerminalAssistantWithLiveAttachments(
+  committed: ChatMessage,
+  live: ChatMessage
+): ChatMessage {
+  const nextAttachments = mergeAttachmentsById(live.attachments, committed.attachments);
+  const nextPlacement = mergeInlineMediaPlacementByToolCallId(
+    live.inlineMediaPlacement,
+    committed.inlineMediaPlacement
+  );
+  return {
+    ...committed,
+    ...(nextAttachments !== undefined && nextAttachments.length > 0
+      ? { attachments: nextAttachments }
+      : {}),
+    ...(nextPlacement !== undefined && nextPlacement.length > 0
+      ? { inlineMediaPlacement: nextPlacement }
+      : {})
+  };
+}
 function isTransientActiveAssistantMessage(message: ChatMessage): boolean {
   return (
     message.role === "assistant" &&
@@ -1221,6 +1335,123 @@ function asyncContPublishHistoryHasFinalContent(
   return committed !== undefined && committed.content.trim().length > 0;
 }
 
+/**
+ * ADR-166 D1: ordinary USER_TURN same-id history must not treat non-empty
+ * content as terminal while the attempt may still be open or jobs remain.
+ * Missed-terminal recovery demotes only attachment-only empty-text rows when
+ * the local stream is dead and no open jobs remain. Authoritative
+ * turn_status / reattach owns contentful terminals (no content polling storm).
+ */
+function ordinarySameIdMissedTerminalAttachmentOnly(
+  loaded: ChatMessage[],
+  liveAssistantMessageId: string
+): boolean {
+  if (isLocalScopedAssistantId(liveAssistantMessageId)) {
+    return false;
+  }
+  const committed = loaded.find(
+    (message) =>
+      message.role === "assistant" &&
+      message.id === liveAssistantMessageId &&
+      !isLocalScopedAssistantId(message.id)
+  );
+  if (committed === undefined) {
+    return false;
+  }
+  return committed.content.trim().length === 0 && (committed.attachments?.length ?? 0) > 0;
+}
+
+function isOrdinarySameIdHistoryTerminal(input: {
+  loaded: ChatMessage[];
+  liveAssistantMessageId: string;
+  localStreamDead: boolean;
+  hasOpenBackgroundJobs: boolean;
+  attemptKnownTerminal?: boolean;
+  attemptKnownRunning?: boolean;
+}): boolean {
+  if (!input.localStreamDead || isLocalScopedAssistantId(input.liveAssistantMessageId)) {
+    return false;
+  }
+  if (input.hasOpenBackgroundJobs || input.attemptKnownRunning === true) {
+    return false;
+  }
+  if (input.attemptKnownTerminal === true) {
+    return input.loaded.some(
+      (message) =>
+        message.role === "assistant" &&
+        message.id === input.liveAssistantMessageId &&
+        !isLocalScopedAssistantId(message.id)
+    );
+  }
+  return ordinarySameIdMissedTerminalAttachmentOnly(input.loaded, input.liveAssistantMessageId);
+}
+
+/**
+ * ADR-166 D3/D7 — set-like media merge for primary + reattach onMedia.
+ * Same attachment id on retry still enriches `inlineMediaPlacement` /
+ * `inlineAfterToolCallId` when a later event supplies `afterToolCallId`.
+ */
+function mergeMediaEventIntoAssistantMessage(
+  message: ChatMessage,
+  input: {
+    attachments: ChatHistoryAttachment[];
+    afterToolCallId?: string;
+  }
+): ChatMessage {
+  if (input.attachments.length === 0) {
+    return message;
+  }
+  const existing = message.attachments ?? [];
+  const existingIds = new Set(existing.map((attachment) => attachment.id));
+  const incomingIds = input.attachments.map((attachment) => attachment.id);
+  const newAttachments: ChatAttachment[] = input.attachments
+    .filter((attachment) => !existingIds.has(attachment.id))
+    .map((attachment) => ({
+      ...attachment,
+      ...(input.afterToolCallId === undefined
+        ? {}
+        : { inlineAfterToolCallId: input.afterToolCallId })
+    }));
+  if (newAttachments.length === 0 && input.afterToolCallId === undefined) {
+    return message;
+  }
+  let nextAttachments: ChatAttachment[] = [...existing, ...newAttachments];
+  if (input.afterToolCallId !== undefined) {
+    const enrichIds = new Set(incomingIds);
+    nextAttachments = nextAttachments.map((attachment) =>
+      enrichIds.has(attachment.id)
+        ? { ...attachment, inlineAfterToolCallId: input.afterToolCallId }
+        : attachment
+    );
+  }
+  const nextPlacement =
+    input.afterToolCallId === undefined
+      ? message.inlineMediaPlacement
+      : [
+          ...(message.inlineMediaPlacement ?? []).filter(
+            (entry) => entry.toolCallId !== input.afterToolCallId
+          ),
+          {
+            toolCallId: input.afterToolCallId,
+            attachmentIds: Array.from(
+              new Set([
+                ...((message.inlineMediaPlacement ?? []).find(
+                  (entry) => entry.toolCallId === input.afterToolCallId
+                )?.attachmentIds ?? []),
+                ...incomingIds
+              ])
+            )
+          }
+        ];
+  return {
+    ...message,
+    status: "streaming",
+    streamingTextActive: false,
+    attachments: nextAttachments,
+    ...(nextPlacement !== undefined ? { inlineMediaPlacement: nextPlacement } : {})
+  };
+}
+
 function committedHistoryHasActiveTurnResult(
   loaded: ChatMessage[],
   activeTurn: WebChatActiveTurnState,
@@ -1265,7 +1496,8 @@ function isLocalScopedAssistantId(id: string): boolean {
 function remapChatMessagesAssistantId(
   messages: ChatMessage[],
   fromId: string,
-  toId: string
+  toId: string,
+  options?: { liveInlineMediaReceipts?: boolean }
 ): ChatMessage[] {
   if (fromId === toId) {
     return messages;
@@ -1287,6 +1519,7 @@ function remapChatMessagesAssistantId(
     next.push(message);
   }
   if (!injected) {
+    // ADR-166: ordinary USER_TURN cold remap must keep italic receipt mode.
     next.push({
       id: toId,
       role: "assistant",
@@ -1294,7 +1527,10 @@ function remapChatMessagesAssistantId(
       status: "streaming",
       thought: "",
       thoughtStartedAt: null,
-      thoughtFinishedAt: null
+      thoughtFinishedAt: null,
+      ...(options?.liveInlineMediaReceipts === true
+        ? { liveInlineMediaReceipts: true as const }
+        : {})
     });
   }
   return next;
@@ -1415,8 +1651,22 @@ function mergeCommittedHistoryWithActiveTurn(input: {
   baseMessages?: ChatMessage[] | undefined;
   /** True when this thread has no open local SSE/attempt for the snapshot turn. */
   localStreamDead?: boolean;
+  /** Open media/document/sandbox jobs from the history page (or cache). */
+  hasOpenBackgroundJobs?: boolean;
+  /** Authoritative turn-attempt terminal from turn_status (not content). */
+  attemptKnownTerminal?: boolean;
+  /** Authoritative turn-attempt still running/accepted from turn_status. */
+  attemptKnownRunning?: boolean;
 }): { messages: ChatMessage[]; replacedActiveTurn: boolean } {
-  const { loaded, activeSnapshot, baseMessages, localStreamDead = false } = input;
+  const {
+    loaded,
+    activeSnapshot,
+    baseMessages,
+    localStreamDead = false,
+    hasOpenBackgroundJobs = false,
+    attemptKnownTerminal = false,
+    attemptKnownRunning = false
+  } = input;
   if (activeSnapshot === undefined) {
     return {
       messages:
@@ -1502,10 +1752,25 @@ function mergeCommittedHistoryWithActiveTurn(input: {
     isAsyncContinuation &&
     localStreamDead &&
     asyncContPublishHistoryHasFinalContent(loaded, liveAssistantId);
+  // ADR-166 D1: ordinary USER_TURN same-id presence is overlay while the
+  // attempt is live — not terminal replacement. Do not use non-empty content
+  // as terminal truth; require authoritative attempt terminal or missed-
+  // terminal attachment-only empty text with no open jobs.
+  const ordinarySameIdTerminal =
+    !isAsyncContinuation &&
+    loadedHasLiveAssistantId &&
+    isOrdinarySameIdHistoryTerminal({
+      loaded,
+      liveAssistantMessageId: liveAssistantId,
+      localStreamDead,
+      hasOpenBackgroundJobs,
+      attemptKnownTerminal,
+      attemptKnownRunning
+    });
   const shouldReplaceActiveTurn = isAsyncContinuation
     ? loadedHasContinuationAssistant || asyncContSameIdTerminal
     : loadedHasAssistantAfterActiveUser ||
-      loadedHasLiveAssistantId ||
+      ordinarySameIdTerminal ||
       loadedIntroducedCommittedTurnTail;
   if (!shouldReplaceActiveTurn) {
     // Filter optimistic / transient ids out of `loaded` here too. The
@@ -1526,11 +1791,30 @@ function mergeCommittedHistoryWithActiveTurn(input: {
     const liveSnapshotMessages = activeSnapshot.messages.filter(
       (message) => liveTurnIds.has(message.id) || message.id === terminalReplacementAssistantId
     );
+    const merged = mergeChatMessagesById(sanitizedLoaded, liveSnapshotMessages);
+    // ADR-166 D1: same-id live overlay must keep lifecycle/receipts and
+    // set-like-merge durable attachments from the committed row.
+    const liveAssistantMessage = liveSnapshotMessages.find(
+      (message) => message.id === liveAssistantId
+    );
+    const committedAssistantMessage = sanitizedLoaded.find(
+      (message) => message.id === liveAssistantId
+    );
+    const messagesWithLiveMerge =
+      liveAssistantMessage !== undefined &&
+      committedAssistantMessage !== undefined &&
+      isActiveAssistantLifecycleStatus(liveAssistantMessage.status)
+        ? merged.map((message) =>
+            message.id === liveAssistantId
+              ? mergeLiveAssistantWithCommittedHistory(
+                  liveAssistantMessage,
+                  committedAssistantMessage
+                )
+              : message
+          )
+        : merged;
     return {
-      messages: dropSupersededLiveAssistantPlaceholder(
-        mergeChatMessagesById(sanitizedLoaded, liveSnapshotMessages),
-        activeSnapshot
-      ),
+      messages: dropSupersededLiveAssistantPlaceholder(messagesWithLiveMerge, activeSnapshot),
       replacedActiveTurn: false
     };
   }
@@ -1596,6 +1880,14 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
   const [liveActivitiesByMessageId, setLiveActivitiesByMessageId] = useState<
     Record<string, LiveActivityEvent>
   >({});
+  /** Authoritative visible-thread live activities. React setState updaters are
+   * deferred; back-to-back SSE handlers (tool_progress → turn_status) must read
+   * the same map synchronously via this ref + activeTurnSnapshotsRef. */
+  const liveActivitiesByMessageIdRef = useRef<Record<string, LiveActivityEvent>>({});
+  const replaceVisibleLiveActivities = useCallback((next: Record<string, LiveActivityEvent>) => {
+    liveActivitiesByMessageIdRef.current = next;
+    setLiveActivitiesByMessageId(next);
+  }, []);
   const [liveThinkingPreviewByMessageId, setLiveThinkingPreviewByMessageId] = useState<
     Record<string, string>
   >({});
@@ -1645,6 +1937,10 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
     useRef<Map<string, { controller: AbortController; clientTurnId: string }>>(new Map());
   const hardStoppedClientTurnIdsRef = useRef<Set<string>>(new Set());
   const softDetachedClientTurnIdsRef = useRef<Set<string>>(new Set());
+  /** ADR-166 — authoritative attempt terminal from turn_status (not content). */
+  const knownTerminalAttemptClientTurnIdsRef = useRef<Set<string>>(new Set());
+  /** ADR-166 — authoritative non-terminal attempt from turn_status / reattach. */
+  const knownRunningAttemptClientTurnIdsRef = useRef<Set<string>>(new Set());
   const activeTurnSnapshotsRef = useRef<Map<string, ActiveTurnSnapshot>>(new Map());
   const cachedThreadHistorySnapshotsRef = useRef<Map<string, CachedThreadHistorySnapshot>>(
     new Map()
@@ -1661,6 +1957,12 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
   const continuationReattachStartedRef = useRef<Set<string>>(new Set());
   const continuationDiscoveryCursorByChatRef = useRef<Map<string, number>>(new Map());
   const discoveredContinuationIdsRef = useRef<Set<string>>(new Set());
+  /**
+   * ADR-166 P2 — one exact-thread history reconcile per already-terminal
+   * discovered async continuation. Prevents refresh storms when discovery
+   * reconnects or status is reapplied after the bubble is still missing.
+   */
+  const terminalDiscoveryHistoryReconciledRef = useRef<Set<string>>(new Set());
   const turnReattachInFlightByKeyRef = useRef<
     Map<string, Promise<"running" | "terminal" | "terminal_status" | "unknown">>
   >(new Map());
@@ -1817,27 +2119,25 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
       targetThreadKey: string,
       updater: (prev: Record<string, LiveActivityEvent>) => Record<string, LiveActivityEvent>
     ) => {
-      const commitLiveActivities = (prev: Record<string, LiveActivityEvent>) => {
-        const next = updater(prev);
-        const snapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
-        if (snapshot !== undefined) {
-          activeTurnSnapshotsRef.current.set(targetThreadKey, {
-            ...snapshot,
-            liveActivitiesByMessageId: next
-          });
-        }
-        return next;
-      };
-      if (currentThreadKeyRef.current === targetThreadKey) {
-        setLiveActivitiesByMessageId(commitLiveActivities);
-        return;
-      }
       const snapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
+      const isVisible = currentThreadKeyRef.current === targetThreadKey;
+      // Visible path: prefer the sync ref (same-tick SSE coherence). Snapshot is
+      // the authoritative base for non-visible threads.
+      const prev = isVisible
+        ? liveActivitiesByMessageIdRef.current
+        : (snapshot?.liveActivitiesByMessageId ?? {});
+      const next = updater(prev);
       if (snapshot !== undefined) {
-        commitLiveActivities(snapshot.liveActivitiesByMessageId);
+        activeTurnSnapshotsRef.current.set(targetThreadKey, {
+          ...snapshot,
+          liveActivitiesByMessageId: next
+        });
+      }
+      if (isVisible) {
+        replaceVisibleLiveActivities(next);
       }
     },
-    []
+    [replaceVisibleLiveActivities]
   );
   const setThreadLiveThinkingPreview = useCallback(
     (targetThreadKey: string, assistantMessageId: string, preview: string | null) => {
@@ -2146,10 +2446,12 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
         cacheThreadHistorySnapshot(targetThreadKey, cleanedSnapshot);
         clearStoredActiveTurnClientTurnId(targetThreadKey, snapshot.clientTurnId);
         softDetachedClientTurnIdsRef.current.delete(snapshot.clientTurnId);
+        knownTerminalAttemptClientTurnIdsRef.current.delete(snapshot.clientTurnId);
+        knownRunningAttemptClientTurnIdsRef.current.delete(snapshot.clientTurnId);
         continuationReattachStartedRef.current.delete(snapshot.clientTurnId);
       }
       if (currentThreadKeyRef.current === targetThreadKey) {
-        setLiveActivitiesByMessageId({});
+        replaceVisibleLiveActivities({});
         setLiveThinkingPreviewByMessageId({});
         setMessages((prev) => finalizeActiveTurnMessages(prev, terminalKind, liveTurnIds));
       } else if (snapshot !== undefined) {
@@ -2173,7 +2475,12 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
         abortControllersByThreadRef.current.delete(targetThreadKey);
       }
     },
-    [cacheThreadHistorySnapshot, clearSoftDetachReconcileTimer, markStreaming]
+    [
+      cacheThreadHistorySnapshot,
+      clearSoftDetachReconcileTimer,
+      markStreaming,
+      replaceVisibleLiveActivities
+    ]
   );
   if (prevThreadKeyRef.current !== assistantScopedThreadKey) {
     const outgoingThreadKey = prevThreadKeyRef.current;
@@ -2319,7 +2626,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
       auditActiveTurnSnapshotMessages("swap-back-restore", assistantScopedThreadKey, nextSnapshot);
     }
     setActivities([]);
-    setLiveActivitiesByMessageId(liveSnapshot?.liveActivitiesByMessageId ?? {});
+    replaceVisibleLiveActivities(liveSnapshot?.liveActivitiesByMessageId ?? {});
     setShadowRoutingLabelsByMessageId(liveSnapshot?.shadowRoutingLabelsByMessageId ?? {});
     setChatId(restoredSnapshot?.chatId ?? null);
     setIssue(null);
@@ -2480,12 +2787,17 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
   const refreshLatestHistory = useCallback(
     async (
       targetChatId: string,
-      options?: { clearIssueOnReconcile?: boolean; targetThreadKey?: string | undefined }
+      options?: {
+        clearIssueOnReconcile?: boolean;
+        targetThreadKey?: string | undefined;
+        /** Bypass post-hydrate quiet window (ADR-166 terminal discovery). */
+        force?: boolean;
+      }
     ): Promise<boolean> => {
       const targetThreadKey = options?.targetThreadKey ?? currentThreadKeyRef.current;
       const refreshKey = `${targetThreadKey}:${targetChatId}:${
         options?.clearIssueOnReconcile === true ? "clear" : "keep"
-      }`;
+      }:${options?.force === true ? "force" : "quiet"}`;
       const existingRefresh = historyRefreshInFlightByKeyRef.current.get(refreshKey);
       if (existingRefresh !== undefined) {
         return existingRefresh;
@@ -2506,7 +2818,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
           activeMediaJobsRef.current.length > 0 ||
           activeDocumentJobsRef.current.length > 0 ||
           activeSandboxJobsRef.current.length > 0;
-        if (quietAfterHydrate && !hasLiveTurn && !hasBackgroundJobs) {
+        if (options?.force !== true && quietAfterHydrate && !hasLiveTurn && !hasBackgroundJobs) {
           return false;
         }
         const token = await getToken({ skipCache: true });
@@ -2630,13 +2942,35 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
             const isAsyncContinuation =
               activeSnapshot !== undefined &&
               isAsyncContinuationClientTurnId(activeSnapshot.clientTurnId);
+            const hasOpenBackgroundJobs =
+              nextActiveMediaJobs.length > 0 ||
+              nextActiveDocumentJobs.length > 0 ||
+              nextActiveSandboxJobs.length > 0;
+            const attemptKnownTerminal =
+              activeSnapshot !== undefined &&
+              knownTerminalAttemptClientTurnIdsRef.current.has(activeSnapshot.clientTurnId);
+            const attemptKnownRunning =
+              activeSnapshot !== undefined &&
+              knownRunningAttemptClientTurnIdsRef.current.has(activeSnapshot.clientTurnId);
             const asyncContSameIdTerminal =
               isAsyncContinuation &&
               activeSnapshot !== undefined &&
               localStreamDead &&
               asyncContPublishHistoryHasFinalContent(loaded, activeSnapshot.liveAssistantMessageId);
+            const ordinarySameIdTerminal =
+              !isAsyncContinuation &&
+              activeSnapshot !== undefined &&
+              isOrdinarySameIdHistoryTerminal({
+                loaded,
+                liveAssistantMessageId: activeSnapshot.liveAssistantMessageId,
+                localStreamDead,
+                hasOpenBackgroundJobs,
+                attemptKnownTerminal,
+                attemptKnownRunning
+              });
             const shouldReplaceActiveTurn =
               asyncContSameIdTerminal ||
+              ordinarySameIdTerminal ||
               (!isAsyncContinuation &&
                 ((loadedHasActiveUserMessage && loadedHasAssistantMessageAfterActiveUser) ||
                   loadedIntroducedCommittedTurnTail ||
@@ -2644,60 +2978,31 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
             if (shouldReplaceActiveTurn) {
               reconciledOptimisticTurn = true;
             }
+            // ADR-166 D1: ordinary USER_TURN same-id live merge matches async-cont —
+            // history must not demote streaming/reconciling or wipe receipts/SSE media.
             const liveAssistantIdForOverlay =
-              isAsyncContinuation && activeSnapshot !== undefined && !asyncContSameIdTerminal
+              activeSnapshot !== undefined &&
+              !asyncContSameIdTerminal &&
+              !ordinarySameIdTerminal &&
+              !shouldReplaceActiveTurn
                 ? activeSnapshot.liveAssistantMessageId
                 : null;
             const next: ChatMessage[] = prev.flatMap((message): ChatMessage[] => {
               const replacement = loadedById.get(message.id);
               if (replacement !== undefined) {
-                // ADR-162 P4: when live stream is bound to the publish id,
-                // history refresh must not demote that row out of streaming or
-                // wipe longer live thought/content. Merge attachments from the
-                // committed publish row onto the live overlay instead.
-                // When the stream is dead/missed and history already has final
-                // content on the same id, take the committed row (clear overlay).
                 if (
                   liveAssistantIdForOverlay !== null &&
                   message.id === liveAssistantIdForOverlay &&
                   isActiveAssistantLifecycleStatus(message.status)
                 ) {
-                  const nextAttachments =
-                    message.attachments !== undefined && message.attachments.length > 0
-                      ? message.attachments
-                      : replacement.attachments;
-                  const nextCreatedAt = message.createdAt ?? replacement.createdAt;
-                  return [
-                    {
-                      ...message,
-                      ...(nextCreatedAt !== undefined ? { createdAt: nextCreatedAt } : {}),
-                      content:
-                        replacement.content.length > message.content.length
-                          ? replacement.content
-                          : message.content,
-                      ...(nextAttachments !== undefined && nextAttachments.length > 0
-                        ? { attachments: nextAttachments }
-                        : {})
-                    }
-                  ];
+                  return [mergeLiveAssistantWithCommittedHistory(message, replacement)];
                 }
                 if (
-                  asyncContSameIdTerminal &&
+                  (asyncContSameIdTerminal || ordinarySameIdTerminal) &&
                   activeSnapshot !== undefined &&
                   message.id === activeSnapshot.liveAssistantMessageId
                 ) {
-                  const nextAttachments =
-                    replacement.attachments !== undefined && replacement.attachments.length > 0
-                      ? replacement.attachments
-                      : message.attachments;
-                  return [
-                    {
-                      ...replacement,
-                      ...(nextAttachments !== undefined && nextAttachments.length > 0
-                        ? { attachments: nextAttachments }
-                        : {})
-                    }
-                  ];
+                  return [mergeTerminalAssistantWithLiveAttachments(replacement, message)];
                 }
                 return [replacement];
               }
@@ -2724,6 +3029,8 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
             // pagination window that omitted the live turn entirely.
             // Async-cont has no live user row: absorb new committed assistants
             // (not the live optimistic placeholder) so completion can land.
+            // ADR-166 D1: never reinsert arbitrary prior user/assistant rows
+            // near the live tail while the attempt is still open.
             let missingToAbsorb = missing;
             if (activeSnapshot !== undefined && !shouldReplaceActiveTurn) {
               if (isAsyncContinuation) {
@@ -2746,7 +3053,13 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                   const afterLiveIds = new Set(
                     loaded.slice(liveUserIndexInLoaded + 1).map((message) => message.id)
                   );
-                  missingToAbsorb = missing.filter((message) => afterLiveIds.has(message.id));
+                  missingToAbsorb = missing.filter(
+                    (message) =>
+                      afterLiveIds.has(message.id) &&
+                      // Prior transcript rows must not reappear beside the live tail.
+                      message.id !== liveUserIdForAbsorb &&
+                      message.id !== activeSnapshot.liveAssistantMessageId
+                  );
                 } else {
                   missingToAbsorb = [];
                 }
@@ -2763,6 +3076,11 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                   (message) => message.role === "assistant" && !isLocalScopedAssistantId(message.id)
                 );
               }
+            } else if (shouldReplaceActiveTurn && activeSnapshot !== undefined) {
+              // Terminal replace: absorb only the authoritative loaded page tail
+              // for this turn — do not re-append older rows already represented
+              // in `next` via same-id replacement.
+              missingToAbsorb = missing;
             }
             let merged: ChatMessage[];
             if (activeSnapshot === undefined && !shouldReplaceActiveTurn) {
@@ -2823,8 +3141,8 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
             }
             return merged;
           });
-          olderCursorRef.current = page.nextCursor;
           if (currentThreadKeyRef.current === targetThreadKey) {
+            olderCursorRef.current = page.nextCursor;
             activeChatIdRef.current = targetChatId;
             setHasOlderMessages(page.nextCursor !== null);
             replaceActiveMediaJobs(nextActiveMediaJobs);
@@ -2941,6 +3259,8 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
         ? toCommittedChatMessage(status.followUpAssistantMessage)
         : null;
       if (status.status === "accepted" || status.status === "running") {
+        knownTerminalAttemptClientTurnIdsRef.current.delete(clientTurnId);
+        knownRunningAttemptClientTurnIdsRef.current.add(clientTurnId);
         // Continuations have no new user row (server markRunning userMessageId=null).
         // Do not require a user message for live heuristics.
         if (
@@ -3074,7 +3394,12 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
         const currentActivity = status.currentActivity;
         const previousLiveAssistantIdForActivities =
           existingSnapshot?.liveAssistantMessageId ?? null;
-        const existingLiveActivities = existingSnapshot?.liveActivitiesByMessageId ?? {};
+        // Visible thread: prefer the sync ref so same-tick tool_progress is not
+        // lost when turn_status rebuilds the chip map from a stale snapshot.
+        const existingLiveActivities =
+          currentThreadKeyRef.current === targetThreadKey
+            ? liveActivitiesByMessageIdRef.current
+            : (existingSnapshot?.liveActivitiesByMessageId ?? {});
         // Bind chips only to the current live assistant; drop orphans from a
         // prior bubble when a continuation (or remapped id) starts.
         const scopedExistingLiveActivities =
@@ -3209,7 +3534,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
         markStreaming(targetThreadKey, true);
         if (currentThreadKeyRef.current === targetThreadKey) {
           setMessages(reconcileWithLiveTurn);
-          setLiveActivitiesByMessageId(nextLiveActivities);
+          replaceVisibleLiveActivities(nextLiveActivities);
           setShadowRoutingLabelsByMessageId(existingSnapshot?.shadowRoutingLabelsByMessageId ?? {});
           if (status.chat?.id) {
             setChatId(status.chat.id);
@@ -3224,6 +3549,8 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
         status.status === "failed" ||
         status.status === "interrupted"
       ) {
+        knownRunningAttemptClientTurnIdsRef.current.delete(clientTurnId);
+        knownTerminalAttemptClientTurnIdsRef.current.add(clientTurnId);
         const terminalKind: "committed" | "partial" =
           status.status === "completed" ? "committed" : "partial";
         // Discovery replay / post-hydrate restore of a settled turn must not
@@ -3240,11 +3567,64 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
           const historyAlreadyHydrated = chatKey !== null && historyLoadedRef.current.has(chatKey);
           const assistantAlreadyPresent =
             assistantMessage !== null &&
-            (messages.some((message) => message.id === assistantMessage.id) ||
+            (localMessages.some((message) => message.id === assistantMessage.id) ||
+              messages.some((message) => message.id === assistantMessage.id) ||
               (cachedSnapshot?.messages.some((message) => message.id === assistantMessage.id) ??
                 false));
-          if (historyAlreadyHydrated || assistantAlreadyPresent) {
+          if (assistantAlreadyPresent) {
             clearStoredActiveTurnClientTurnId(targetThreadKey, clientTurnId);
+            if (status.status === "failed" && status.error?.message) {
+              setIssue(
+                toWebChatUxIssue({
+                  code: status.error.code ?? undefined,
+                  message: status.error.message
+                })
+              );
+            }
+            return "terminal_status";
+          }
+          // ADR-166 P2: newly discovered already-terminal async continuation —
+          // do not merely clear the id. Trigger one exact-thread history
+          // reconcile so the published bubble (attachments included) appears
+          // immediately, even inside the post-hydrate quiet window.
+          if (isAsyncContinuation && chatKey !== null) {
+            if (!terminalDiscoveryHistoryReconciledRef.current.has(clientTurnId)) {
+              terminalDiscoveryHistoryReconciledRef.current.add(clientTurnId);
+              while (terminalDiscoveryHistoryReconciledRef.current.size > 64) {
+                const oldest = terminalDiscoveryHistoryReconciledRef.current.values().next()
+                  .value as string | undefined;
+                if (oldest === undefined) break;
+                terminalDiscoveryHistoryReconciledRef.current.delete(oldest);
+              }
+              void refreshLatestHistory(chatKey, {
+                // Preserve a failed-status issue set below; this refresh only
+                // surfaces the already-published bubble / attachments.
+                clearIssueOnReconcile: false,
+                targetThreadKey,
+                force: true
+              });
+            }
+            clearStoredActiveTurnClientTurnId(targetThreadKey, clientTurnId);
+            if (status.status === "failed" && status.error?.message) {
+              setIssue(
+                toWebChatUxIssue({
+                  code: status.error.code ?? undefined,
+                  message: status.error.message
+                })
+              );
+            }
+            return "terminal_status";
+          }
+          if (historyAlreadyHydrated) {
+            clearStoredActiveTurnClientTurnId(targetThreadKey, clientTurnId);
+            if (status.status === "failed" && status.error?.message) {
+              setIssue(
+                toWebChatUxIssue({
+                  code: status.error.code ?? undefined,
+                  message: status.error.message
+                })
+              );
+            }
             return "terminal_status";
           }
         }
@@ -3255,9 +3635,9 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
         // finalizeAfterTerminal (history absorb drops the local slot).
         if (isAsyncContinuation && assistantMessage === null) {
           markStreaming(targetThreadKey, false);
-          setLiveActivitiesByMessageId((prev) =>
-            currentThreadKeyRef.current === targetThreadKey ? {} : prev
-          );
+          if (currentThreadKeyRef.current === targetThreadKey) {
+            replaceVisibleLiveActivities({});
+          }
           if (status.status === "failed" && status.error?.message) {
             setIssue(
               toWebChatUxIssue({
@@ -3312,9 +3692,9 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
           demoteIds.size > 0 ? demoteIds : undefined
         );
         clearStoredActiveTurnClientTurnId(targetThreadKey, clientTurnId);
-        setLiveActivitiesByMessageId((prev) =>
-          currentThreadKeyRef.current === targetThreadKey ? {} : prev
-        );
+        if (currentThreadKeyRef.current === targetThreadKey) {
+          replaceVisibleLiveActivities({});
+        }
         const controllerEntry = abortControllersByThreadRef.current.get(targetThreadKey);
         if (controllerEntry === undefined || controllerEntry.clientTurnId === clientTurnId) {
           controllerEntry?.controller.abort();
@@ -3350,7 +3730,14 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
       }
       return "unknown";
     },
-    [applyThreadMessages, cacheThreadHistorySnapshot, markStreaming, messages]
+    [
+      applyThreadMessages,
+      cacheThreadHistorySnapshot,
+      markStreaming,
+      messages,
+      refreshLatestHistory,
+      replaceVisibleLiveActivities
+    ]
   );
   const refreshTurnStatus = useCallback(
     async (
@@ -3600,7 +3987,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                   );
                   if (currentThreadKeyRef.current === targetThreadKey) {
                     setMessages(reconcileBound);
-                    setLiveActivitiesByMessageId(remappedActivities);
+                    replaceVisibleLiveActivities(remappedActivities);
                   }
                 }
                 promoteLiveAssistantStreaming((message) => message);
@@ -3786,7 +4173,10 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                   const nextMessages = remapChatMessagesAssistantId(
                     baseMessages,
                     currentLiveId,
-                    serverAssistantMessageId
+                    serverAssistantMessageId,
+                    {
+                      liveInlineMediaReceipts: !isAsyncContinuationClientTurnId(clientTurnId)
+                    }
                   );
                   const previousActivities = snapshot?.liveActivitiesByMessageId ?? {};
                   const remappedActivities =
@@ -3820,45 +4210,10 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                     if (message.id !== assistantMessageId) {
                       return message;
                     }
-                    const existing = message.attachments ?? [];
-                    const existingIds = new Set(existing.map((attachment) => attachment.id));
-                    const incoming: ChatAttachment[] = attachments
-                      .filter((attachment) => !existingIds.has(attachment.id))
-                      .map((attachment) => ({
-                        ...attachment,
-                        ...(afterToolCallId === undefined
-                          ? {}
-                          : { inlineAfterToolCallId: afterToolCallId })
-                      }));
-                    if (incoming.length === 0) {
-                      return message;
-                    }
-                    const nextPlacement =
-                      afterToolCallId === undefined
-                        ? message.inlineMediaPlacement
-                        : [
-                            ...(message.inlineMediaPlacement ?? []).filter(
-                              (entry) => entry.toolCallId !== afterToolCallId
-                            ),
-                            {
-                              toolCallId: afterToolCallId,
-                              attachmentIds: [
-                                ...((message.inlineMediaPlacement ?? []).find(
-                                  (entry) => entry.toolCallId === afterToolCallId
-                                )?.attachmentIds ?? []),
-                                ...incoming.map((attachment) => attachment.id)
-                              ]
-                            }
-                          ];
-                    return {
-                      ...message,
-                      status: "streaming",
-                      streamingTextActive: false,
-                      attachments: [...existing, ...incoming],
-                      ...(nextPlacement !== undefined
-                        ? { inlineMediaPlacement: nextPlacement }
-                        : {})
-                    };
+                    return mergeMediaEventIntoAssistantMessage(message, {
+                      attachments,
+                      ...(afterToolCallId === undefined ? {} : { afterToolCallId })
+                    });
                   })
                 );
               },
@@ -4094,6 +4449,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
       refreshChatPlan,
       refreshLatestHistory,
       resolveKnownChatIdForThread,
+      replaceVisibleLiveActivities,
       setThreadLiveThinkingPreview,
       t,
       upsertAcceptedAsyncJob
@@ -4224,7 +4580,20 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
           hasSeenRunning = true;
           statusResult = await startTurnReattach(targetThreadKey, clientTurnId);
         }
-        if (statusResult === "terminal") {
+        // `terminal_status` is a durable recovery (onReattached/onTurnStatus
+        // already applied the committed pair). Treat it like `terminal` so the
+        // pre-chatId restore loop does not keep opening new reattach streams.
+        if (statusResult === "terminal" || statusResult === "terminal_status") {
+          clearActiveTurnRestoreTimer(restoreKey);
+          return;
+        }
+        // Ownership may have been torn down by the reattach handlers above even
+        // when the stream returned a non-terminal code — stop rather than storm.
+        const snapshotAfterAttempt = activeTurnSnapshotsRef.current.get(targetThreadKey);
+        if (
+          snapshotAfterAttempt?.clientTurnId !== clientTurnId &&
+          readStoredActiveTurnClientTurnId(targetThreadKey) !== clientTurnId
+        ) {
           clearActiveTurnRestoreTimer(restoreKey);
           return;
         }
@@ -5045,7 +5414,9 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
             const previousId = assistantMsgId;
             assistantMsgId = serverAssistantMessageId;
             applyThreadMessages(sendThreadKey, (prev) =>
-              remapChatMessagesAssistantId(prev, previousId, serverAssistantMessageId)
+              remapChatMessagesAssistantId(prev, previousId, serverAssistantMessageId, {
+                liveInlineMediaReceipts: true
+              })
             );
             applyThreadLiveActivities(sendThreadKey, (prev) => {
               const previous = prev[previousId];
@@ -5073,7 +5444,8 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                 messages: remapChatMessagesAssistantId(
                   snapshot.messages,
                   previousId,
-                  serverAssistantMessageId
+                  serverAssistantMessageId,
+                  { liveInlineMediaReceipts: true }
                 )
               });
             }
@@ -5090,41 +5462,10 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
               if (message.id !== assistantMsgId) {
                 return message;
               }
-              const existing = message.attachments ?? [];
-              const existingIds = new Set(existing.map((attachment) => attachment.id));
-              const incoming: ChatAttachment[] = attachments
-                .filter((attachment) => !existingIds.has(attachment.id))
-                .map((attachment) => ({
-                  ...attachment,
-                  ...(afterToolCallId === undefined
-                    ? {}
-                    : { inlineAfterToolCallId: afterToolCallId })
-                }));
-              if (incoming.length === 0) {
-                return message;
-              }
-              const nextPlacement =
-                afterToolCallId === undefined
-                  ? message.inlineMediaPlacement
-                  : [
-                      ...(message.inlineMediaPlacement ?? []).filter(
-                        (entry) => entry.toolCallId !== afterToolCallId
-                      ),
-                      {
-                        toolCallId: afterToolCallId,
-                        attachmentIds: [
-                          ...((message.inlineMediaPlacement ?? []).find(
-                            (entry) => entry.toolCallId === afterToolCallId
-                          )?.attachmentIds ?? []),
-                          ...incoming.map((attachment) => attachment.id)
-                        ]
-                      }
-                    ];
-              return {
-                ...message,
-                attachments: [...existing, ...incoming],
-                ...(nextPlacement !== undefined ? { inlineMediaPlacement: nextPlacement } : {})
-              };
+              return mergeMediaEventIntoAssistantMessage(message, {
+                attachments,
+                ...(afterToolCallId === undefined ? {} : { afterToolCallId })
+              });
             })
           );
         },
@@ -6435,10 +6776,21 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
             activeSnapshot === undefined ||
             cachedControllerEntry === undefined ||
             cachedControllerEntry.clientTurnId !== activeSnapshot.clientTurnId;
+          const cachedHasOpenBackgroundJobs =
+            cachedHistory.activeMediaJobs.length > 0 ||
+            cachedHistory.activeDocumentJobs.length > 0 ||
+            (cachedHistory.activeSandboxJobs?.length ?? 0) > 0;
           const merged = mergeCommittedHistoryWithActiveTurn({
             loaded: cachedHistory.messages,
             activeSnapshot,
-            localStreamDead: cachedLocalStreamDead
+            localStreamDead: cachedLocalStreamDead,
+            hasOpenBackgroundJobs: cachedHasOpenBackgroundJobs,
+            attemptKnownTerminal:
+              activeSnapshot !== undefined &&
+              knownTerminalAttemptClientTurnIdsRef.current.has(activeSnapshot.clientTurnId),
+            attemptKnownRunning:
+              activeSnapshot !== undefined &&
+              knownRunningAttemptClientTurnIdsRef.current.has(activeSnapshot.clientTurnId)
           });
           if (merged.replacedActiveTurn && activeSnapshot !== undefined) {
             clearStoredActiveTurnClientTurnId(targetThreadKey, activeSnapshot.clientTurnId);
@@ -6446,7 +6798,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
             abortControllersByThreadRef.current.get(targetThreadKey)?.controller.abort();
             abortControllersByThreadRef.current.delete(targetThreadKey);
             markStreaming(targetThreadKey, false);
-            setLiveActivitiesByMessageId({});
+            replaceVisibleLiveActivities({});
             setThreadPendingSend(targetThreadKey, null);
           } else if (activeSnapshot !== undefined) {
             const nextSnapshot = {
@@ -6473,9 +6825,16 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
         }
         const token = await getToken();
         if (!token) return;
-        setHistoryLoading(cachedHistory === undefined);
+        // After awaits, only the still-visible thread may own loading chrome /
+        // message surface. Background hydrate must still update that thread's
+        // cache so A→B→A restore stays authoritative.
+        const applyVisibleHistory = () => currentThreadKeyRef.current === targetThreadKey;
+        if (applyVisibleHistory()) {
+          setHistoryLoading(cachedHistory === undefined);
+        }
         try {
           const page = await getChatMessages(token, targetChatId, undefined, 20);
+          const stillVisible = applyVisibleHistory();
           const nextActiveMediaJobs = page.activeMediaJobs ?? [];
           const nextActiveDocumentJobs = page.activeDocumentJobs ?? [];
           const nextActiveSandboxJobs = page.activeSandboxJobs ?? [];
@@ -6556,12 +6915,22 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
               const authoritativeLocalStreamDead =
                 authoritativeControllerEntry === undefined ||
                 authoritativeControllerEntry.clientTurnId !== currentActiveSnapshot.clientTurnId;
+              const authoritativeHasOpenBackgroundJobs =
+                nextActiveMediaJobs.length > 0 ||
+                nextActiveDocumentJobs.length > 0 ||
+                nextActiveSandboxJobs.length > 0;
               const merged = mergeCommittedHistoryWithActiveTurn({
                 loaded,
                 activeSnapshot: currentActiveSnapshot,
-                baseMessages:
-                  currentThreadKeyRef.current === targetThreadKey ? messages : undefined,
-                localStreamDead: authoritativeLocalStreamDead
+                baseMessages: stillVisible ? messages : undefined,
+                localStreamDead: authoritativeLocalStreamDead,
+                hasOpenBackgroundJobs: authoritativeHasOpenBackgroundJobs,
+                attemptKnownTerminal: knownTerminalAttemptClientTurnIdsRef.current.has(
+                  currentActiveSnapshot.clientTurnId
+                ),
+                attemptKnownRunning: knownRunningAttemptClientTurnIdsRef.current.has(
+                  currentActiveSnapshot.clientTurnId
+                )
               });
               messagesForCache = merged.messages;
               if (merged.replacedActiveTurn) {
@@ -6573,7 +6942,9 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                 abortControllersByThreadRef.current.get(targetThreadKey)?.controller.abort();
                 abortControllersByThreadRef.current.delete(targetThreadKey);
                 markStreaming(targetThreadKey, false);
-                setLiveActivitiesByMessageId({});
+                if (stillVisible) {
+                  replaceVisibleLiveActivities({});
+                }
                 setThreadPendingSend(targetThreadKey, null);
               } else {
                 const nextSnapshot = {
@@ -6588,8 +6959,10 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                   nextSnapshot
                 );
               }
-              setMessages(merged.messages);
-            } else if (currentThreadKeyRef.current === targetThreadKey) {
+              if (stillVisible) {
+                setMessages(merged.messages);
+              }
+            } else if (stillVisible) {
               if (hasAuthoritativeActiveTurn) {
                 setMessages(messagesForCache);
               } else {
@@ -6610,7 +6983,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                 });
               }
             }
-          } else if (currentThreadKeyRef.current === targetThreadKey) {
+          } else if (stillVisible) {
             setMessages(messagesForCache);
           }
           if (shouldClearAuthoritativeActiveTurn) {
@@ -6626,10 +6999,10 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
             activeTurnSnapshotsRef.current.delete(targetThreadKey);
             abortControllersByThreadRef.current.get(targetThreadKey)?.controller.abort();
             abortControllersByThreadRef.current.delete(targetThreadKey);
-            setLiveActivitiesByMessageId({});
             markStreaming(targetThreadKey, false);
             setThreadPendingSend(targetThreadKey, null);
-            if (currentThreadKeyRef.current === targetThreadKey) {
+            if (stillVisible) {
+              replaceVisibleLiveActivities({});
               setMessages(messagesForCache);
             }
           }
@@ -6653,8 +7026,10 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
               nextSnapshot
             );
             writeStoredActiveTurnClientTurnId(targetThreadKey, projectedActiveTurn.clientTurnId);
-            setLiveActivitiesByMessageId(activeOverlay.liveActivitiesByMessageId);
             markStreaming(targetThreadKey, true);
+            if (stillVisible) {
+              replaceVisibleLiveActivities(activeOverlay.liveActivitiesByMessageId);
+            }
           } else if (
             rawActiveTurn !== null &&
             hasAuthoritativeActiveTurn &&
@@ -6664,8 +7039,10 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
             softDetachedClientTurnIdsRef.current.delete(rawActiveTurn.clientTurnId);
             clearStoredActiveTurnClientTurnId(targetThreadKey, rawActiveTurn.clientTurnId);
             activeTurnSnapshotsRef.current.delete(targetThreadKey);
-            setLiveActivitiesByMessageId({});
             markStreaming(targetThreadKey, false);
+            if (stillVisible) {
+              replaceVisibleLiveActivities({});
+            }
           } else if (
             hasAuthoritativeActiveTurn &&
             rawActiveTurn === null &&
@@ -6675,17 +7052,6 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
           ) {
             clearStoredActiveTurnClientTurnId(targetThreadKey);
           }
-          olderCursorRef.current = page.nextCursor;
-          activeChatIdRef.current = targetChatId;
-          setHasOlderMessages(page.nextCursor !== null);
-          replaceActiveMediaJobs(nextActiveMediaJobs);
-          replaceActiveDocumentJobs(nextActiveDocumentJobs);
-          replaceActiveSandboxJobs(nextActiveSandboxJobs);
-          if (currentThreadKeyRef.current === targetThreadKey) {
-            setCurrentEngagement(page.currentEngagement ?? null);
-            applyPendingBrowserLoginForThread(targetThreadKey, page.pendingBrowserLogin ?? null);
-          }
-          setChatId(targetChatId);
           cachedThreadHistorySnapshotsRef.current.set(targetThreadKey, {
             clientTurnId:
               projectedActiveTurn?.clientTurnId ?? localActiveSnapshot?.clientTurnId ?? "",
@@ -6714,14 +7080,27 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
             activeSandboxJobs: nextActiveSandboxJobs
           });
           cachedThreadKeyByChatIdRef.current.set(targetChatId, targetThreadKey);
-          void refreshCompactionState(targetChatId);
-          void refreshChatPlan();
           historyLoadedRef.current.add(targetChatId);
-          lastHistoryCommitAtRef.current = Date.now();
+          void refreshCompactionState(targetChatId);
+          if (stillVisible) {
+            olderCursorRef.current = page.nextCursor;
+            activeChatIdRef.current = targetChatId;
+            setHasOlderMessages(page.nextCursor !== null);
+            replaceActiveMediaJobs(nextActiveMediaJobs);
+            replaceActiveDocumentJobs(nextActiveDocumentJobs);
+            replaceActiveSandboxJobs(nextActiveSandboxJobs);
+            setCurrentEngagement(page.currentEngagement ?? null);
+            applyPendingBrowserLoginForThread(targetThreadKey, page.pendingBrowserLogin ?? null);
+            setChatId(targetChatId);
+            void refreshChatPlan();
+            lastHistoryCommitAtRef.current = Date.now();
+          }
         } catch {
           /* non-critical */
         }
-        setHistoryLoading(false);
+        if (applyVisibleHistory()) {
+          setHistoryLoading(false);
+        }
       })();
       historyLoadInFlightByChatIdRef.current.set(targetChatId, loadPromise);
       try {
@@ -6739,18 +7118,28 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
       messages,
       refreshCompactionState,
       refreshChatPlan,
+      replaceVisibleLiveActivities,
       setThreadPendingSend
     ]
   );
   const loadOlderMessages = useCallback(async () => {
     const cursor = olderCursorRef.current;
     const targetChatId = activeChatIdRef.current;
+    const targetThreadKey = currentThreadKeyRef.current;
     if (!cursor || !targetChatId || olderMessagesLoading) return;
     const token = await getToken();
     if (!token) return;
     setOlderMessagesLoading(true);
     try {
       const page = await getChatMessages(token, targetChatId, cursor, 20);
+      // Stale older-page responses must not prepend into a different chat after
+      // A→B while the prior scroll fetch is still in flight.
+      if (
+        currentThreadKeyRef.current !== targetThreadKey ||
+        activeChatIdRef.current !== targetChatId
+      ) {
+        return;
+      }
       const loaded: ChatMessage[] = page.messages
         .map(toCommittedChatMessage)
         .filter((message): message is ChatMessage => message !== null);
@@ -6765,8 +7154,11 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
       setHasOlderMessages(page.nextCursor !== null);
     } catch {
       /* non-critical */
+    } finally {
+      // Always release the latch — including stale A→B early returns — so the
+      // newly visible thread can paginate older history afterward.
+      setOlderMessagesLoading(false);
     }
-    setOlderMessagesLoading(false);
   }, [getToken, olderMessagesLoading]);
   useEffect(() => {
     if (
@@ -6820,6 +7212,8 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
   // churns after applyTurnStatusState updates messages.
   const startTurnReattachRef = useRef(startTurnReattach);
   startTurnReattachRef.current = startTurnReattach;
+  const applyTurnStatusStateRef = useRef(applyTurnStatusState);
+  applyTurnStatusStateRef.current = applyTurnStatusState;
   const finalizeReconciledDetachedTurnRef = useRef(finalizeReconciledDetachedTurn);
   finalizeReconciledDetachedTurnRef.current = finalizeReconciledDetachedTurn;
   const markStreamingRef = useRef(markStreaming);
@@ -6967,7 +7361,24 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
             status.status === "failed" ||
             status.status === "interrupted"
           ) {
-            clearStoredActiveTurnClientTurnId(targetThreadKey, clientTurnId);
+            // ADR-166 P2: already-terminal discovery must reconcile history once
+            // so the published bubble appears immediately. applyTurnStatusState
+            // owns the one-shot refresh + stale-safe clear (no reattach stream).
+            if (stopped) return;
+            if (currentThreadKeyRef.current !== targetThreadKey) {
+              clearStoredActiveTurnClientTurnId(targetThreadKey, clientTurnId);
+              return;
+            }
+            const statusChatId = status.chat?.id ?? discoveryChatId;
+            if (
+              activeChatIdRef.current !== null &&
+              statusChatId !== activeChatIdRef.current &&
+              statusChatId !== discoveryChatId
+            ) {
+              clearStoredActiveTurnClientTurnId(targetThreadKey, clientTurnId);
+              return;
+            }
+            applyTurnStatusStateRef.current(targetThreadKey, clientTurnId, status);
             return;
           }
           if (status.status !== "accepted" && status.status !== "running") {

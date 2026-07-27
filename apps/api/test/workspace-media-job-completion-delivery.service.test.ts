@@ -37,7 +37,7 @@ const noopLiveTurnPresent = {
     return "assistant-message-open";
   },
   async claimInlineForOpenTurnPresent() {
-    return true;
+    return "newly_claimed";
   },
   publishMedia() {
     return undefined;
@@ -2140,7 +2140,7 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
     assert.equal(messageUpdates.length, 1);
   });
 
-  test("ADR-165 D6.2: open USER_TURN present delivers + publishMedia, never settle-without-delivery", async () => {
+  test("ADR-166: newly_claimed open USER_TURN present delivers + publishMedia, never settle-without-delivery", async () => {
     const finalUpdates: Array<Record<string, unknown>> = [];
     const deliverCalls: Array<{ messageId: string }> = [];
     const publishMediaCalls: Array<Record<string, unknown>> = [];
@@ -2148,6 +2148,10 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
     const ensureCalls: Array<Record<string, unknown>> = [];
     let settleWithoutDeliveryCalls = 0;
     let claimInlineCalls = 0;
+    let handleNarration = {
+      narrationOwner: null as string | null,
+      narrationDecision: null as string | null
+    };
 
     const openAttempt = {
       assistantId: "assistant-1",
@@ -2203,11 +2207,7 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
             }
           }),
         assistantAsyncJobHandle: {
-          // Ordinary deferred handle — without open-turn this would settle-without-delivery.
-          findUnique: async () => ({
-            narrationOwner: "continuation",
-            narrationDecision: "notify_subscribed"
-          }),
+          findUnique: async () => handleNarration,
           findMany: async () => []
         },
         assistantMediaJob: {
@@ -2292,7 +2292,11 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
         },
         async claimInlineForOpenTurnPresent() {
           claimInlineCalls += 1;
-          return true;
+          handleNarration = {
+            narrationOwner: "current_turn",
+            narrationDecision: "current_turn_inline"
+          };
+          return "newly_claimed";
         },
         publishMedia(input: Record<string, unknown>) {
           publishMediaCalls.push(input);
@@ -2325,5 +2329,739 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
       "ack-should-not-pin"
     );
     assert.equal(finalUpdates.at(-1)?.data?.status, "delivered");
+  });
+
+  test("ADR-166: denied claim with stale running attempt settles without live attach/SSE", async () => {
+    const finalUpdates: Array<Record<string, unknown>> = [];
+    const deliverCalls: Array<{ messageId: string }> = [];
+    const publishMediaCalls: Array<Record<string, unknown>> = [];
+    const publishOpenJobsCalls: Array<Record<string, unknown>> = [];
+    const ensureCalls: Array<Record<string, unknown>> = [];
+    let settleWithoutDeliveryCalls = 0;
+    let claimInlineCalls = 0;
+    let createMessageCalls = 0;
+
+    const openAttempt = {
+      assistantId: "assistant-1",
+      userId: "user-1",
+      chatId: "chat-1",
+      surfaceThreadKey: "web:chat-1",
+      clientTurnId: "client-turn-stale-1",
+      userMessageId: "user-message-stale-1",
+      assistantMessageId: "stale-assistant-bubble-1"
+    };
+
+    const service = new AssistantMediaJobCompletionDeliveryService(
+      {
+        $transaction: async <T>(callback: (tx: Record<string, unknown>) => Promise<T>) =>
+          callback({
+            $queryRaw: async () => [
+              {
+                id: "job-denied-claim-1",
+                assistantId: "assistant-1",
+                userId: "user-1",
+                workspaceId: "workspace-1",
+                chatId: "chat-1",
+                surface: "web",
+                kind: "image",
+                sourceUserMessageId: "user-message-stale-1",
+                requestJson: {
+                  attachments: [],
+                  sourceUserMessageText: "draw a fox",
+                  sourceUserMessageCreatedAt: "2026-07-26T09:00:00.000Z",
+                  sourceToolCallId: "call-img-denied-1",
+                  directToolExecution: {
+                    toolCode: "image_generate",
+                    request: {
+                      toolCode: "image_generate",
+                      prompt: "draw a fox",
+                      count: 1,
+                      filename: null,
+                      size: "1024x1024",
+                      background: "auto"
+                    }
+                  }
+                },
+                resultText: null,
+                artifactsJson: [{ artifactId: "artifact-denied-1", kind: "image" }],
+                completionAssistantMessageId: null,
+                assistantAcknowledgementMessageId: "ack-denied-1",
+                attemptCount: 1,
+                maxAttempts: 5
+              }
+            ],
+            assistantMediaJob: {
+              update: async () => undefined
+            }
+          }),
+        assistantAsyncJobHandle: {
+          // Source finalization already assigned continuation while attempt still running.
+          findUnique: async () => ({
+            narrationOwner: "continuation",
+            narrationDecision: "notify_subscribed"
+          }),
+          findMany: async () => []
+        },
+        assistantMediaJob: {
+          count: async () => 1,
+          findFirst: async () => null,
+          findMany: async () => [],
+          updateMany: async (input: Record<string, unknown>) => {
+            finalUpdates.push(input);
+            return { count: 1 };
+          }
+        }
+      } as never,
+      {
+        createMessage: async () => {
+          createMessageCalls += 1;
+          throw new Error("denied claim must not invent or pin chat rows");
+        },
+        findMessageByIdForAssistant: async () => null,
+        updateMessageContent: async () => null,
+        mergeMessageMetadata: async () => undefined
+      } as never,
+      {
+        deliver: async (input: { messageId: string }) => {
+          deliverCalls.push({ messageId: input.messageId });
+          return { attachments: [] };
+        },
+        settleProducedArtifactsWithoutDelivery: async () => {
+          settleWithoutDeliveryCalls += 1;
+        }
+      } as never,
+      {
+        async deliverPersistedAssistantMessageBestEffort() {
+          throw new Error("telegram reply should not run for web jobs");
+        }
+      } as never,
+      {
+        async resolveByAssistantId() {
+          throw new Error("telegram config should not resolve for web jobs");
+        }
+      } as never,
+      {
+        async maybeFrame() {
+          return { text: null, usage: null };
+        }
+      } as never,
+      noopRecordModelCostLedgerService,
+      noopAssistantRepository,
+      noopTrackWorkspaceQuotaUsageService,
+      {
+        async prepareDelivery() {
+          return "skip_legacy_frame";
+        },
+        async recordCanonicalCompletion() {
+          return { decision: "skip_legacy_frame", state: "ready" };
+        }
+      } as never,
+      {
+        async findOpenUserTurnAttempt() {
+          return openAttempt;
+        },
+        async ensureOpenTurnAssistantMessage(input: Record<string, unknown>) {
+          ensureCalls.push(input);
+          return "stale-assistant-bubble-1";
+        },
+        async claimInlineForOpenTurnPresent() {
+          claimInlineCalls += 1;
+          return "denied";
+        },
+        publishMedia(input: Record<string, unknown>) {
+          publishMediaCalls.push(input);
+        },
+        async publishOpenJobsSnapshot(input: Record<string, unknown>) {
+          publishOpenJobsCalls.push(input);
+        }
+      } as never
+    );
+
+    const processed = await service.processPendingBatch();
+
+    assert.equal(processed, 1);
+    assert.equal(claimInlineCalls, 1);
+    assert.equal(settleWithoutDeliveryCalls, 1);
+    assert.equal(deliverCalls.length, 0);
+    assert.equal(publishMediaCalls.length, 0);
+    assert.equal(ensureCalls.length, 0);
+    assert.equal(createMessageCalls, 0);
+    assert.equal(finalUpdates.at(-1)?.data?.status, "delivered");
+    assert.equal(finalUpdates.at(-1)?.data?.completionAssistantMessageId, undefined);
+    // Working snapshot still publishes so the open turn clears the job row.
+    assert.equal(publishOpenJobsCalls.length, 1);
+  });
+
+  test("ADR-166: already_current_turn_inline idempotent retry reuses one bubble/attachment set", async () => {
+    const finalUpdates: Array<Record<string, unknown>> = [];
+    const deliverCalls: Array<{ messageId: string }> = [];
+    const publishMediaCalls: Array<Record<string, unknown>> = [];
+    const publishOpenJobsCalls: Array<Record<string, unknown>> = [];
+    const ensureCalls: Array<Record<string, unknown>> = [];
+    let settleWithoutDeliveryCalls = 0;
+    let claimInlineCalls = 0;
+
+    const openAttempt = {
+      assistantId: "assistant-1",
+      userId: "user-1",
+      chatId: "chat-1",
+      surfaceThreadKey: "web:chat-1",
+      clientTurnId: "client-turn-retry-1",
+      userMessageId: "user-message-retry-1",
+      assistantMessageId: "live-assistant-bubble-retry-1"
+    };
+
+    const service = new AssistantMediaJobCompletionDeliveryService(
+      {
+        $transaction: async <T>(callback: (tx: Record<string, unknown>) => Promise<T>) =>
+          callback({
+            $queryRaw: async () => [
+              {
+                id: "job-retry-inline-1",
+                assistantId: "assistant-1",
+                userId: "user-1",
+                workspaceId: "workspace-1",
+                chatId: "chat-1",
+                surface: "web",
+                kind: "image",
+                sourceUserMessageId: "user-message-retry-1",
+                requestJson: {
+                  attachments: [],
+                  sourceUserMessageText: "draw a fox again",
+                  sourceUserMessageCreatedAt: "2026-07-26T09:00:00.000Z",
+                  sourceToolCallId: "call-img-retry-1",
+                  directToolExecution: {
+                    toolCode: "image_generate",
+                    request: {
+                      toolCode: "image_generate",
+                      prompt: "draw a fox again",
+                      count: 1,
+                      filename: null,
+                      size: "1024x1024",
+                      background: "auto"
+                    }
+                  }
+                },
+                resultText: null,
+                artifactsJson: [{ artifactId: "artifact-retry-1", kind: "image" }],
+                completionAssistantMessageId: "live-assistant-bubble-retry-1",
+                assistantAcknowledgementMessageId: "ack-retry-should-not-pin",
+                attemptCount: 2,
+                maxAttempts: 5
+              }
+            ],
+            assistantMediaJob: {
+              update: async () => undefined
+            }
+          }),
+        assistantAsyncJobHandle: {
+          findUnique: async () => ({
+            narrationOwner: "current_turn",
+            narrationDecision: "current_turn_inline"
+          }),
+          findMany: async () => []
+        },
+        assistantMediaJob: {
+          count: async () => 1,
+          findFirst: async () => null,
+          findMany: async () => [],
+          updateMany: async (input: Record<string, unknown>) => {
+            finalUpdates.push(input);
+            return { count: 1 };
+          }
+        }
+      } as never,
+      {
+        createMessage: async () => {
+          throw new Error("idempotent retry must reuse pinned live bubble");
+        },
+        findMessageByIdForAssistant: async () => ({
+          id: "live-assistant-bubble-retry-1",
+          content: "",
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          author: "assistant" as const,
+          createdAt: new Date(),
+          metadata: {
+            inlineMediaPlacement: [
+              {
+                toolCallId: "call-img-retry-1",
+                attachmentIds: ["attachment-retry-1"]
+              }
+            ]
+          }
+        }),
+        updateMessageContent: async () => null,
+        mergeMessageMetadata: async () => undefined
+      } as never,
+      {
+        deliver: async (input: { messageId: string }) => {
+          deliverCalls.push({ messageId: input.messageId });
+          return {
+            attachments: [
+              {
+                id: "attachment-retry-1",
+                originalFilename: "fox.png",
+                sizeBytes: 1024
+              }
+            ]
+          };
+        },
+        settleProducedArtifactsWithoutDelivery: async () => {
+          settleWithoutDeliveryCalls += 1;
+        }
+      } as never,
+      {
+        async deliverPersistedAssistantMessageBestEffort() {
+          throw new Error("telegram reply should not run for web jobs");
+        }
+      } as never,
+      {
+        async resolveByAssistantId() {
+          throw new Error("telegram config should not resolve for web jobs");
+        }
+      } as never,
+      {
+        async maybeFrame() {
+          return { text: null, usage: null };
+        }
+      } as never,
+      noopRecordModelCostLedgerService,
+      noopAssistantRepository,
+      noopTrackWorkspaceQuotaUsageService,
+      {
+        async prepareDelivery() {
+          return "skip_legacy_frame";
+        },
+        async recordCanonicalCompletion() {
+          return { decision: "skip_legacy_frame", state: "completed" };
+        }
+      } as never,
+      {
+        async findOpenUserTurnAttempt() {
+          return openAttempt;
+        },
+        async ensureOpenTurnAssistantMessage(input: Record<string, unknown>) {
+          ensureCalls.push(input);
+          return "live-assistant-bubble-retry-1";
+        },
+        async claimInlineForOpenTurnPresent() {
+          claimInlineCalls += 1;
+          return "already_current_turn_inline";
+        },
+        publishMedia(input: Record<string, unknown>) {
+          publishMediaCalls.push(input);
+        },
+        async publishOpenJobsSnapshot(input: Record<string, unknown>) {
+          publishOpenJobsCalls.push(input);
+        }
+      } as never
+    );
+
+    const processed = await service.processPendingBatch();
+
+    assert.equal(processed, 1);
+    assert.equal(claimInlineCalls, 1);
+    assert.equal(settleWithoutDeliveryCalls, 0);
+    assert.deepEqual(deliverCalls, [{ messageId: "live-assistant-bubble-retry-1" }]);
+    assert.equal(publishMediaCalls.length, 1);
+    assert.equal(
+      (publishMediaCalls[0] as { assistantMessageId?: string }).assistantMessageId,
+      "live-assistant-bubble-retry-1"
+    );
+    assert.equal(publishOpenJobsCalls.length, 1);
+    assert.equal(ensureCalls.length, 0);
+    assert.equal(finalUpdates.at(-1)?.data?.status, "delivered");
+  });
+
+  test("ADR-166: failure terminal publishes async_jobs_open after durable failed state", async () => {
+    const finalUpdates: Array<Record<string, unknown>> = [];
+    const publishOpenJobsCalls: Array<Record<string, unknown>> = [];
+    const publishMediaCalls: Array<Record<string, unknown>> = [];
+    let handleCompletionCalls = 0;
+
+    const openAttempt = {
+      assistantId: "assistant-1",
+      userId: "user-1",
+      chatId: "chat-1",
+      surfaceThreadKey: "web:chat-1",
+      clientTurnId: "client-turn-fail-1",
+      userMessageId: "user-message-fail-1",
+      assistantMessageId: "live-assistant-bubble-fail-1"
+    };
+
+    const service = new AssistantMediaJobCompletionDeliveryService(
+      {
+        $transaction: async <T>(callback: (tx: Record<string, unknown>) => Promise<T>) =>
+          callback({
+            $queryRaw: async () => [
+              {
+                id: "job-fail-open-1",
+                assistantId: "assistant-1",
+                userId: "user-1",
+                workspaceId: "workspace-1",
+                chatId: "chat-1",
+                surface: "web",
+                kind: "image",
+                sourceUserMessageId: "user-message-fail-1",
+                requestJson: {
+                  attachments: [],
+                  sourceUserMessageText: "draw a fox",
+                  sourceUserMessageCreatedAt: "2026-07-26T09:00:00.000Z",
+                  directToolExecution: {
+                    toolCode: "image_generate",
+                    request: {
+                      toolCode: "image_generate",
+                      prompt: "draw a fox",
+                      count: 1,
+                      filename: null,
+                      size: "1024x1024",
+                      background: "auto"
+                    }
+                  }
+                },
+                resultText: null,
+                artifactsJson: [{ artifactId: "artifact-fail-1", kind: "image" }],
+                completionAssistantMessageId: "live-assistant-bubble-fail-1",
+                assistantAcknowledgementMessageId: null,
+                attemptCount: 5,
+                maxAttempts: 5
+              }
+            ],
+            assistantMediaJob: {
+              update: async () => undefined
+            }
+          }),
+        assistantAsyncJobHandle: {
+          findUnique: async () => ({
+            narrationOwner: "current_turn",
+            narrationDecision: "current_turn_inline"
+          }),
+          findMany: async () => []
+        },
+        assistantMediaJob: {
+          count: async () => 1,
+          findFirst: async () => null,
+          findMany: async () => [],
+          updateMany: async (input: Record<string, unknown>) => {
+            finalUpdates.push(input);
+            return { count: 1 };
+          }
+        }
+      } as never,
+      {
+        createMessage: async () => {
+          throw new Error("failure path should update existing message");
+        },
+        findMessageByIdForAssistant: async () => ({
+          id: "live-assistant-bubble-fail-1",
+          content: "",
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          author: "assistant" as const,
+          createdAt: new Date(),
+          metadata: {}
+        }),
+        updateMessageContent: async () => null,
+        mergeMessageMetadata: async () => undefined
+      } as never,
+      {
+        deliver: async () => {
+          throw new Error("provider delivery failed permanently");
+        },
+        settleProducedArtifactsWithoutDelivery: async () => {
+          throw new Error("failure path should not settle-without-delivery");
+        }
+      } as never,
+      {
+        async deliverPersistedAssistantMessageBestEffort() {
+          throw new Error("telegram reply should not run for web jobs");
+        }
+      } as never,
+      {
+        async resolveByAssistantId() {
+          throw new Error("telegram config should not resolve for web jobs");
+        }
+      } as never,
+      {
+        async maybeFrame() {
+          return { text: null, usage: null };
+        },
+        async maybeFrameFailure() {
+          return null;
+        }
+      } as never,
+      noopRecordModelCostLedgerService,
+      noopAssistantRepository,
+      noopTrackWorkspaceQuotaUsageService,
+      {
+        async prepareDelivery() {
+          return "skip_legacy_frame";
+        },
+        async recordCanonicalCompletion() {
+          handleCompletionCalls += 1;
+          return { decision: "skip_legacy_frame", state: "failed" };
+        }
+      } as never,
+      {
+        async findOpenUserTurnAttempt() {
+          return openAttempt;
+        },
+        async ensureOpenTurnAssistantMessage() {
+          return "live-assistant-bubble-fail-1";
+        },
+        async claimInlineForOpenTurnPresent() {
+          return "already_current_turn_inline";
+        },
+        publishMedia(input: Record<string, unknown>) {
+          publishMediaCalls.push(input);
+        },
+        async publishOpenJobsSnapshot(input: Record<string, unknown>) {
+          // Snapshot must land only after the failed terminal update is applied.
+          assert.equal(finalUpdates.at(-1)?.data?.status, "failed");
+          assert.equal(handleCompletionCalls, 1);
+          publishOpenJobsCalls.push(input);
+        }
+      } as never
+    );
+
+    const processed = await service.processPendingBatch();
+
+    assert.equal(processed, 1);
+    assert.equal(finalUpdates.at(-1)?.data?.status, "failed");
+    assert.equal(handleCompletionCalls, 1);
+    assert.equal(publishMediaCalls.length, 0);
+    assert.equal(publishOpenJobsCalls.length, 1);
+  });
+
+  test("ADR-166 Slice 5: three open-turn media jobs complete out of order onto one bubble with Working 3→2→1→0", async () => {
+    const openAttempt = {
+      assistantId: "assistant-1",
+      userId: "user-1",
+      chatId: "chat-1",
+      surfaceThreadKey: "web:chat-1",
+      clientTurnId: "client-turn-series-1",
+      userMessageId: "user-message-series-1",
+      assistantMessageId: "live-assistant-bubble-series-1"
+    };
+    // Out-of-order completion: C, then A, then B.
+    const pendingJobIds = ["job-series-c", "job-series-a", "job-series-b"];
+    const openJobIds = new Set(["job-series-a", "job-series-b", "job-series-c"]);
+    const publishMediaCalls: Array<{
+      assistantMessageId?: string;
+      attachments?: Array<{ id: string }>;
+      afterToolCallId?: string;
+    }> = [];
+    const openJobsSnapshotCounts: number[] = [];
+    const claimOutcomes: string[] = [];
+    let createMessageCalls = 0;
+    let settleWithoutDeliveryCalls = 0;
+    let deliverIndex = 0;
+    const deliveredOrder = ["job-series-c", "job-series-a", "job-series-b"];
+    const attachmentByJob: Record<string, string> = {
+      "job-series-a": "att-series-a",
+      "job-series-b": "att-series-b",
+      "job-series-c": "att-series-c"
+    };
+    const handleNarrationByJob = new Map<
+      string,
+      { narrationOwner: string | null; narrationDecision: string | null }
+    >();
+
+    function jobRow(id: string, toolCallId: string, artifactId: string) {
+      return {
+        id,
+        assistantId: "assistant-1",
+        userId: "user-1",
+        workspaceId: "workspace-1",
+        chatId: "chat-1",
+        surface: "web",
+        kind: "image",
+        sourceUserMessageId: "user-message-series-1",
+        requestJson: {
+          attachments: [],
+          sourceUserMessageText: "three images please",
+          sourceUserMessageCreatedAt: "2026-07-27T18:00:00.000Z",
+          sourceToolCallId: toolCallId,
+          directToolExecution: {
+            toolCode: "image_generate",
+            request: {
+              toolCode: "image_generate",
+              prompt: "draw",
+              count: 1,
+              filename: null,
+              size: "1024x1024",
+              background: "auto"
+            }
+          }
+        },
+        resultText: null,
+        artifactsJson: [{ artifactId, kind: "image" }],
+        completionAssistantMessageId: null,
+        assistantAcknowledgementMessageId: null,
+        attemptCount: 1,
+        maxAttempts: 5
+      };
+    }
+
+    const jobById: Record<string, ReturnType<typeof jobRow>> = {
+      "job-series-a": jobRow("job-series-a", "call-img-a", "artifact-a"),
+      "job-series-b": jobRow("job-series-b", "call-img-b", "artifact-b"),
+      "job-series-c": jobRow("job-series-c", "call-img-c", "artifact-c")
+    };
+
+    const service = new AssistantMediaJobCompletionDeliveryService(
+      {
+        $transaction: async <T>(callback: (tx: Record<string, unknown>) => Promise<T>) =>
+          callback({
+            $queryRaw: async () => {
+              const nextId = pendingJobIds.shift();
+              return nextId === undefined ? [] : [jobById[nextId]];
+            },
+            assistantMediaJob: {
+              update: async () => undefined
+            }
+          }),
+        assistantAsyncJobHandle: {
+          findUnique: async (input: {
+            where: { kind_canonicalJobId: { canonicalJobId: string } };
+          }) => {
+            const jobId = input.where.kind_canonicalJobId.canonicalJobId;
+            return (
+              handleNarrationByJob.get(jobId) ?? {
+                narrationOwner: null,
+                narrationDecision: null
+              }
+            );
+          },
+          findMany: async () => []
+        },
+        assistantMediaJob: {
+          count: async () => openJobIds.size,
+          findFirst: async () => null,
+          findMany: async () => [],
+          updateMany: async (input: { where?: { id?: string }; data?: { status?: string } }) => {
+            const jobId = input.where?.id;
+            if (typeof jobId === "string" && input.data?.status === "delivered") {
+              openJobIds.delete(jobId);
+            }
+            return { count: 1 };
+          }
+        }
+      } as never,
+      {
+        createMessage: async () => {
+          createMessageCalls += 1;
+          throw new Error("open-turn series must not invent catch-up bubbles");
+        },
+        findMessageByIdForAssistant: async () => ({
+          id: "live-assistant-bubble-series-1",
+          content: "",
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          author: "assistant" as const,
+          createdAt: new Date(),
+          metadata: { inlineMediaPlacement: [] }
+        }),
+        updateMessageContent: async () => null,
+        mergeMessageMetadata: async () => undefined
+      } as never,
+      {
+        deliver: async (input: { messageId: string }) => {
+          assert.equal(input.messageId, "live-assistant-bubble-series-1");
+          const jobId = deliveredOrder[deliverIndex++]!;
+          return {
+            attachments: [
+              {
+                id: attachmentByJob[jobId],
+                originalFilename: `${jobId}.png`,
+                sizeBytes: 1024
+              }
+            ]
+          };
+        },
+        settleProducedArtifactsWithoutDelivery: async () => {
+          settleWithoutDeliveryCalls += 1;
+        }
+      } as never,
+      {
+        async deliverPersistedAssistantMessageBestEffort() {
+          throw new Error("telegram reply should not run for web jobs");
+        }
+      } as never,
+      {
+        async resolveByAssistantId() {
+          throw new Error("telegram config should not resolve for web jobs");
+        }
+      } as never,
+      {
+        async maybeFrame() {
+          return { text: null, usage: null };
+        }
+      } as never,
+      noopRecordModelCostLedgerService,
+      noopAssistantRepository,
+      noopTrackWorkspaceQuotaUsageService,
+      {
+        async prepareDelivery() {
+          return "skip_legacy_frame";
+        },
+        async recordCanonicalCompletion() {
+          return { decision: "skip_legacy_frame", state: "completed" };
+        }
+      } as never,
+      {
+        async findOpenUserTurnAttempt() {
+          return openAttempt;
+        },
+        async ensureOpenTurnAssistantMessage() {
+          return "live-assistant-bubble-series-1";
+        },
+        async claimInlineForOpenTurnPresent(input: { canonicalJobId: string }) {
+          handleNarrationByJob.set(input.canonicalJobId, {
+            narrationOwner: "current_turn",
+            narrationDecision: "current_turn_inline"
+          });
+          claimOutcomes.push("newly_claimed");
+          return "newly_claimed";
+        },
+        publishMedia(input: {
+          assistantMessageId?: string;
+          attachments?: Array<{ id: string }>;
+          afterToolCallId?: string;
+        }) {
+          publishMediaCalls.push(input);
+        },
+        async publishOpenJobsSnapshot() {
+          openJobsSnapshotCounts.push(openJobIds.size);
+        }
+      } as never
+    );
+
+    assert.equal(await service.processPendingBatch(1), 1);
+    assert.equal(await service.processPendingBatch(1), 1);
+    assert.equal(await service.processPendingBatch(1), 1);
+
+    assert.deepEqual(claimOutcomes, ["newly_claimed", "newly_claimed", "newly_claimed"]);
+    assert.equal(settleWithoutDeliveryCalls, 0);
+    assert.equal(createMessageCalls, 0);
+    assert.equal(publishMediaCalls.length, 3);
+    assert.ok(
+      publishMediaCalls.every(
+        (call) => call.assistantMessageId === "live-assistant-bubble-series-1"
+      )
+    );
+    assert.deepEqual(
+      publishMediaCalls.map((call) => call.attachments?.[0]?.id),
+      ["att-series-c", "att-series-a", "att-series-b"]
+    );
+    assert.deepEqual(
+      [...new Set(publishMediaCalls.map((call) => call.attachments?.[0]?.id))],
+      ["att-series-c", "att-series-a", "att-series-b"]
+    );
+    // Initial open set (3) is durable enqueue truth; each terminal publishes a
+    // full snapshot of remaining open jobs: 2 → 1 → 0.
+    assert.deepEqual([3, ...openJobsSnapshotCounts], [3, 2, 1, 0]);
+    assert.equal(openJobIds.size, 0);
   });
 });

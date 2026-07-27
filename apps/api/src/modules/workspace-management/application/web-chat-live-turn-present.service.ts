@@ -4,7 +4,10 @@ import {
   type AssistantChatRepository
 } from "../domain/assistant-chat.repository";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
-import { AssistantAsyncJobHandleStateService } from "./assistant-async-job-handle-state.service";
+import {
+  AssistantAsyncJobHandleStateService,
+  type OpenTurnLivePresentClaimOutcome
+} from "./assistant-async-job-handle-state.service";
 import { AssistantDocumentJobReadService } from "./assistant-document-job-read.service";
 import type {
   AssistantWebChatActiveDocumentJobState,
@@ -15,6 +18,8 @@ import type {
 import { WebChatTurnAttemptService } from "./web-chat-turn-attempt.service";
 import { WebChatTurnStreamRegistry } from "./web-chat-turn-stream-registry.service";
 import { AssistantMediaJobService } from "./workspace-media-job.service";
+
+export type { OpenTurnLivePresentClaimOutcome };
 
 export type OpenWebUserTurnAttempt = {
   assistantId: string;
@@ -152,7 +157,7 @@ export class WebChatLiveTurnPresentService {
   async claimInlineForOpenTurnPresent(input: {
     kind: "media" | "document";
     canonicalJobId: string;
-  }): Promise<boolean> {
+  }): Promise<OpenTurnLivePresentClaimOutcome> {
     return this.asyncJobHandleState.claimOpenTurnLivePresent(input);
   }
 

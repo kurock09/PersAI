@@ -1149,6 +1149,33 @@ describe("ChatMessageBubble — pre-response status", () => {
     );
 
     expect(screen.getByText("preResponseThinking")).toBeInTheDocument();
+    const status = screen.getByTestId("inline-streaming-status");
+    expect(status).toHaveAttribute("role", "status");
+    expect(status).toHaveAttribute("aria-live", "polite");
+  });
+
+  it("exposes compact activity status as a polite live region without wrapping the transcript", () => {
+    render(
+      <ChatMessageBubble
+        chatId="chat-1"
+        message={makeAssistantMessage()}
+        preResponseStatus={{
+          kind: "activity",
+          event: {
+            id: "activity-1",
+            type: "tool_use",
+            label: "knowledge_search_finished"
+          }
+        }}
+      />
+    );
+
+    const status = screen.getByTestId("inline-streaming-status");
+    expect(status).toHaveAttribute("role", "status");
+    expect(status).toHaveAttribute("aria-live", "polite");
+    expect(status).toHaveAttribute("aria-atomic", "true");
+    // Bounded rail only — transcript answer container is not a live region.
+    expect(screen.queryByRole("log")).not.toBeInTheDocument();
   });
 
   it("shows live thinking full-width under Думаю with newest text kept in view", () => {
@@ -1165,14 +1192,15 @@ describe("ChatMessageBubble — pre-response status", () => {
     const preview = screen.getByTestId("live-thinking-preview");
     expect(preview).toHaveClass("w-full");
     expect(preview).not.toHaveClass("max-w-[min(28rem,70vw)]");
-    // Fixed ~7-line reserve — growth/fade must not resize the chat layout.
-    expect(preview.className).toMatch(/min-h-\[8\.75rem\]/);
+    // Compact ~4-line bound while thought exists — no permanent empty reserve.
+    expect(preview.className).toMatch(/max-h-\[5rem\]/);
+    expect(preview.className).not.toMatch(/min-h-\[8\.75rem\]/);
     // Top-first rail (not justify-end on the outer slot) — short text under status.
     expect(preview).not.toHaveClass("justify-end");
     expect(preview.textContent).toContain("word39");
   });
 
-  it("reserves the live-thinking rail before the first thought token arrives", () => {
+  it("does not render the live-thinking rail before the first thought token arrives", () => {
     render(
       <ChatMessageBubble
         chatId="chat-1"
@@ -1181,9 +1209,8 @@ describe("ChatMessageBubble — pre-response status", () => {
       />
     );
 
-    const preview = screen.getByTestId("live-thinking-preview");
-    expect(preview.className).toMatch(/min-h-\[8\.75rem\]/);
-    expect(preview.textContent?.trim()).toBe("");
+    expect(screen.getByText("preResponseThinking")).toBeInTheDocument();
+    expect(screen.queryByTestId("live-thinking-preview")).not.toBeInTheDocument();
   });
 
   it("shows the live activity label while work is active before text starts", () => {
@@ -1203,11 +1230,37 @@ describe("ChatMessageBubble — pre-response status", () => {
     );
 
     expect(screen.getByText("activityKnowledgeSearchDone")).toBeInTheDocument();
-    // Same ~7-line reserve as «Думаю» — activity must not collapse the slot.
-    expect(screen.getByTestId("live-thinking-preview").className).toMatch(/min-h-\[8\.75rem\]/);
+    // No empty live-thinking rail during activity when there is no thought text.
+    expect(screen.queryByTestId("live-thinking-preview")).not.toBeInTheDocument();
   });
 
-  it("keeps the reserved status slot when switching thinking → activity", () => {
+  it("places shell progress immediately under the activity label without an empty rail", () => {
+    render(
+      <ChatMessageBubble
+        chatId="chat-1"
+        message={makeAssistantMessage()}
+        preResponseStatus={{
+          kind: "activity",
+          event: {
+            id: "activity-shell-1",
+            type: "tool_use",
+            label: "shell_started",
+            shellCommand: "npm test",
+            shellProgressLines: ["Collecting requests", "Running suite"]
+          }
+        }}
+      />
+    );
+
+    expect(screen.getByText("activityShellStart")).toBeInTheDocument();
+    expect(screen.getByText("Collecting requests")).toBeInTheDocument();
+    expect(screen.getByText("Running suite")).toBeInTheDocument();
+    expect(screen.queryByTestId("live-thinking-preview")).not.toBeInTheDocument();
+    expect(document.body.innerHTML).not.toMatch(/min-h-\[8\.75rem\]/);
+  });
+
+  it("fades thinking text then removes the empty rail when switching to activity", () => {
+    vi.useFakeTimers();
     const { rerender } = render(
       <ChatMessageBubble
         chatId="chat-1"
@@ -1216,7 +1269,10 @@ describe("ChatMessageBubble — pre-response status", () => {
       />
     );
 
-    expect(screen.getByTestId("live-thinking-preview").className).toMatch(/min-h-\[8\.75rem\]/);
+    const preview = screen.getByTestId("live-thinking-preview");
+    expect(preview.textContent).toContain("planning next step");
+    expect(preview.className).not.toMatch(/min-h-\[8\.75rem\]/);
+    expect(preview.className).toMatch(/max-h-\[5rem\]/);
 
     rerender(
       <ChatMessageBubble
@@ -1227,14 +1283,25 @@ describe("ChatMessageBubble — pre-response status", () => {
           event: {
             id: "activity-1",
             type: "tool_use",
-            label: "knowledge_search_finished"
+            label: "shell_started",
+            shellProgressLines: ["pip install deps"]
           }
         }}
       />
     );
 
-    expect(screen.getByText("activityKnowledgeSearchDone")).toBeInTheDocument();
-    expect(screen.getByTestId("live-thinking-preview").className).toMatch(/min-h-\[8\.75rem\]/);
+    expect(screen.getByText("activityShellStart")).toBeInTheDocument();
+    expect(screen.getByText("pip install deps")).toBeInTheDocument();
+    // Short fade retains thought text briefly without a permanent empty reserve.
+    expect(screen.getByTestId("live-thinking-preview").textContent).toContain("planning next step");
+
+    act(() => {
+      vi.advanceTimersByTime(220);
+    });
+
+    expect(screen.queryByTestId("live-thinking-preview")).not.toBeInTheDocument();
+    expect(screen.getByText("pip install deps")).toBeInTheDocument();
+    expect(document.body.innerHTML).not.toMatch(/min-h-\[8\.75rem\]/);
   });
 
   it("keeps the inline cursor status below visible streaming text", () => {
@@ -1265,6 +1332,15 @@ describe("ChatMessageBubble — pre-response status", () => {
     expect(screen.getByText("Hello")).toBeInTheDocument();
     expect(screen.getByTestId("streaming-cursor")).toBeInTheDocument();
     expect(screen.queryByText("preResponseThinking")).not.toBeInTheDocument();
+    expect(document.body.innerHTML).not.toMatch(/min-h-\[8\.75rem\]/);
+  });
+
+  it("does not reserve empty height for the cursor-only pre-answer path", () => {
+    render(<ChatMessageBubble chatId="chat-1" message={makeAssistantMessage()} />);
+
+    expect(screen.getByTestId("streaming-cursor")).toBeInTheDocument();
+    expect(screen.queryByTestId("live-thinking-preview")).not.toBeInTheDocument();
+    expect(document.body.innerHTML).not.toMatch(/min-h-\[8\.75rem\]/);
   });
 
   it("shows only the empty cursor while text deltas are active even with prior activity", () => {
@@ -1442,6 +1518,10 @@ describe("ChatMessageBubble — pre-response status", () => {
     expect(screen.getByTestId("media-receipt-lines")).toHaveTextContent(
       /Получено изображение.*генерация.*1\.0 MB/
     );
+    const receipts = screen.getByTestId("media-receipt-lines");
+    expect(receipts).toHaveAttribute("role", "status");
+    expect(receipts).toHaveAttribute("aria-live", "polite");
+    expect(receipts).toHaveAttribute("aria-relevant", "additions");
   });
 
   it("ADR-165 D6.2: catch-up streaming uses classic strip, no italic receipts", () => {
@@ -1800,6 +1880,252 @@ describe("ChatMessageBubble — pre-response status", () => {
     );
 
     expect(screen.queryByTestId("engagement-annotation")).not.toBeInTheDocument();
+  });
+});
+
+describe("ChatMessageBubble — progressive high-water mark (ADR-166 D6)", () => {
+  let resizeCallback: ResizeObserverCallback | null = null;
+  const OriginalResizeObserver = globalThis.ResizeObserver;
+
+  function installResizeObserverCapture(): void {
+    resizeCallback = null;
+    class CaptureResizeObserver {
+      constructor(callback: ResizeObserverCallback) {
+        resizeCallback = callback;
+      }
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    }
+    Object.defineProperty(globalThis, "ResizeObserver", {
+      configurable: true,
+      writable: true,
+      value: CaptureResizeObserver
+    });
+  }
+
+  function restoreResizeObserver(): void {
+    Object.defineProperty(globalThis, "ResizeObserver", {
+      configurable: true,
+      writable: true,
+      value: OriginalResizeObserver
+    });
+    resizeCallback = null;
+  }
+
+  function setMeasureHeight(heightPx: number): HTMLElement {
+    const measure = screen.getByTestId("assistant-body-measure");
+    vi.spyOn(measure, "getBoundingClientRect").mockReturnValue({
+      x: 0,
+      y: 0,
+      top: 0,
+      left: 0,
+      right: 320,
+      bottom: heightPx,
+      width: 320,
+      height: heightPx,
+      toJSON: () => ({})
+    } as DOMRect);
+    return measure;
+  }
+
+  function fireMeasuredHeight(heightPx: number): void {
+    const measure = setMeasureHeight(heightPx);
+    act(() => {
+      resizeCallback?.(
+        [
+          {
+            target: measure,
+            contentRect: {
+              x: 0,
+              y: 0,
+              top: 0,
+              left: 0,
+              right: 320,
+              bottom: heightPx,
+              width: 320,
+              height: heightPx,
+              toJSON: () => ({})
+            } as DOMRectReadOnly,
+            borderBoxSize: [{ blockSize: heightPx, inlineSize: 320 }],
+            contentBoxSize: [{ blockSize: heightPx, inlineSize: 320 }],
+            devicePixelContentBoxSize: [{ blockSize: heightPx, inlineSize: 320 }]
+          } as ResizeObserverEntry
+        ],
+        {} as ResizeObserver
+      );
+    });
+  }
+
+  beforeEach(() => {
+    installResizeObserverCapture();
+  });
+
+  afterEach(() => {
+    restoreResizeObserver();
+  });
+
+  it("starts with no blank minHeight reserve before real content height is recorded", () => {
+    render(
+      <ChatMessageBubble
+        chatId="chat-1"
+        message={makeAssistantMessage()}
+        preResponseStatus={{ kind: "thinking" }}
+      />
+    );
+
+    const shell = screen.getByTestId("assistant-body-high-water");
+    expect(shell.style.minHeight).toBe("");
+    expect(document.body.innerHTML).not.toMatch(/min-h-\[8\.75rem\]/);
+  });
+
+  it("records height after four-line thought content occupies the bubble", () => {
+    const longThought = Array.from({ length: 40 }, (_, i) => `word${String(i)}`).join(" ");
+    render(
+      <ChatMessageBubble
+        chatId="chat-1"
+        message={makeAssistantMessage()}
+        preResponseStatus={{ kind: "thinking", thinkingPreview: longThought }}
+      />
+    );
+
+    // 4 × leading-5 (1.25rem) ≈ 80px thought rail + status label footprint.
+    fireMeasuredHeight(96);
+
+    const shell = screen.getByTestId("assistant-body-high-water");
+    expect(shell.style.minHeight).toBe("96px");
+    expect(screen.getByTestId("live-thinking-preview").className).toMatch(/max-h-\[5rem\]/);
+  });
+
+  it("retains the max after shorter activity, await, and cursor-only swaps", () => {
+    const { rerender } = render(
+      <ChatMessageBubble
+        chatId="chat-1"
+        message={makeAssistantMessage()}
+        preResponseStatus={{ kind: "thinking", thinkingPreview: "planning next step" }}
+      />
+    );
+    fireMeasuredHeight(96);
+    expect(screen.getByTestId("assistant-body-high-water").style.minHeight).toBe("96px");
+
+    rerender(
+      <ChatMessageBubble
+        chatId="chat-1"
+        message={makeAssistantMessage()}
+        preResponseStatus={{
+          kind: "activity",
+          event: {
+            id: "activity-1",
+            type: "tool_use",
+            label: "shell_started",
+            shellProgressLines: ["pip install"]
+          }
+        }}
+      />
+    );
+    fireMeasuredHeight(40);
+    expect(screen.getByTestId("assistant-body-high-water").style.minHeight).toBe("96px");
+
+    rerender(
+      <ChatMessageBubble
+        chatId="chat-1"
+        message={makeAssistantMessage()}
+        preResponseStatus={{
+          kind: "activity",
+          event: {
+            id: "activity-await-1",
+            type: "tool_use",
+            label: "await_started",
+            detail: "await-deadline:9999999999999"
+          }
+        }}
+      />
+    );
+    fireMeasuredHeight(28);
+    expect(screen.getByTestId("assistant-body-high-water").style.minHeight).toBe("96px");
+
+    rerender(
+      <ChatMessageBubble
+        chatId="chat-1"
+        message={makeAssistantMessage({ content: "Hi", streamingTextActive: true })}
+      />
+    );
+    fireMeasuredHeight(24);
+    expect(screen.getByTestId("assistant-body-high-water").style.minHeight).toBe("96px");
+    expect(screen.getByTestId("streaming-cursor")).toBeInTheDocument();
+  });
+
+  it("retains the max through terminal commit so a short final answer cannot shrink the bubble", () => {
+    const { rerender } = render(
+      <ChatMessageBubble
+        chatId="chat-1"
+        message={makeAssistantMessage()}
+        preResponseStatus={{ kind: "thinking", thinkingPreview: "long planning thought" }}
+      />
+    );
+    fireMeasuredHeight(112);
+    expect(screen.getByTestId("assistant-body-high-water").style.minHeight).toBe("112px");
+
+    rerender(
+      <ChatMessageBubble
+        chatId="chat-1"
+        message={makeAssistantMessage({ status: "committed", content: "OK." })}
+      />
+    );
+    fireMeasuredHeight(20);
+    expect(screen.getByTestId("assistant-body-high-water").style.minHeight).toBe("112px");
+  });
+
+  it("increases the high-water when later content is taller", () => {
+    const { rerender } = render(
+      <ChatMessageBubble
+        chatId="chat-1"
+        message={makeAssistantMessage()}
+        preResponseStatus={{ kind: "thinking", thinkingPreview: "short" }}
+      />
+    );
+    fireMeasuredHeight(48);
+    expect(screen.getByTestId("assistant-body-high-water").style.minHeight).toBe("48px");
+
+    rerender(
+      <ChatMessageBubble
+        chatId="chat-1"
+        message={makeAssistantMessage({
+          content: "A much longer final answer that grows the bubble past the prior thought height."
+        })}
+        preResponseStatus={{ kind: "thinking" }}
+      />
+    );
+    fireMeasuredHeight(160);
+    expect(screen.getByTestId("assistant-body-high-water").style.minHeight).toBe("160px");
+  });
+
+  it("starts fresh with no reserve when the message id changes", () => {
+    const { rerender } = render(
+      <ChatMessageBubble
+        chatId="chat-1"
+        message={makeAssistantMessage({ id: "assistant-1" })}
+        preResponseStatus={{ kind: "thinking", thinkingPreview: "first turn thought" }}
+      />
+    );
+    fireMeasuredHeight(96);
+    expect(screen.getByTestId("assistant-body-high-water").style.minHeight).toBe("96px");
+    expect(screen.getByTestId("assistant-body-high-water")).toHaveAttribute(
+      "data-message-id",
+      "assistant-1"
+    );
+
+    rerender(
+      <ChatMessageBubble
+        chatId="chat-1"
+        message={makeAssistantMessage({ id: "assistant-2" })}
+        preResponseStatus={{ kind: "thinking" }}
+      />
+    );
+
+    const shell = screen.getByTestId("assistant-body-high-water");
+    expect(shell).toHaveAttribute("data-message-id", "assistant-2");
+    expect(shell.style.minHeight).toBe("");
   });
 });
 

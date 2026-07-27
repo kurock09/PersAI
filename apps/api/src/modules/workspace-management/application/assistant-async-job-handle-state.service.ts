@@ -51,6 +51,22 @@ export type AsyncJobTerminalStatus = "completed" | "failed" | "cancelled";
 export type AsyncJobNarrationOwner = "current_turn" | "continuation" | "legacy";
 export type AsyncJobDeliveryDecision = "legacy_frame" | "skip_legacy_frame";
 
+/**
+ * ADR-166 — explicit open-turn live-present claim outcome.
+ * Callers must gate attach/pin/SSE on allowed outcomes and must not treat a
+ * running attempt alone as authorization.
+ */
+export type OpenTurnLivePresentClaimOutcome =
+  | "newly_claimed"
+  | "already_current_turn_inline"
+  | "denied";
+
+export function isOpenTurnLivePresentClaimAllowed(
+  outcome: OpenTurnLivePresentClaimOutcome
+): boolean {
+  return outcome === "newly_claimed" || outcome === "already_current_turn_inline";
+}
+
 export type SandboxTerminalResult = {
   toolCode: "shell" | "exec";
   exitCode: number | null;
@@ -589,6 +605,7 @@ export class AssistantAsyncJobHandleStateService {
           id: true,
           state: true,
           narrationOwner: true,
+          narrationDecision: true,
           continuationDepth: true,
           continuationClientTurnId: true,
           terminalSnapshotJson: true
@@ -596,8 +613,20 @@ export class AssistantAsyncJobHandleStateService {
       });
       let autoSubscribed = 0;
       let currentTurnReleased = 0;
+      let currentTurnPreservedInline = 0;
       for (const row of toSubscribe) {
         const wasCurrentTurn = row.narrationOwner === "current_turn";
+        const deliveredCurrentTurnInline =
+          wasCurrentTurn &&
+          row.narrationDecision === "current_turn_inline" &&
+          row.terminalSnapshotJson !== null &&
+          (row.state === "completed" || row.state === "failed" || row.state === "cancelled");
+        // ADR-166 D3 — already presented on the interrupted live bubble; do not
+        // release to ready/continuation or wake catch-up on that identity.
+        if (deliveredCurrentTurnInline) {
+          currentTurnPreservedInline += 1;
+          continue;
+        }
         if (row.continuationDepth >= MAX_ASYNC_CONTINUATION_DEPTH) {
           await tx.assistantAsyncJobHandle.update({
             where: { id: row.id },
@@ -661,7 +690,7 @@ export class AssistantAsyncJobHandleStateService {
       }
       const preserved =
         input.outcome !== "persisted"
-          ? 0
+          ? currentTurnPreservedInline
           : await tx.assistantAsyncJobHandle.count({
               where: {
                 assistantId: input.assistantId,
@@ -693,19 +722,30 @@ export class AssistantAsyncJobHandleStateService {
   }
 
   /**
-   * ADR-165 — when artifacts land while the source USER_TURN is still open,
+   * ADR-166 — when artifacts land while the source USER_TURN is still open,
    * claim current-turn inline narration so completion can attach into the live
    * bubble and ADR-162 catch-up does not invent a second present for the same
-   * job. No-op when already owned (including continuation).
+   * job. Returns an explicit outcome: newly claimed, already owned by this
+   * canonical handle as current_turn_inline (idempotent retry), or denied
+   * (continuation / notify / legacy / missing handle).
    */
   async claimOpenTurnLivePresent(input: {
     kind: "media" | "document";
     canonicalJobId: string;
-  }): Promise<boolean> {
+  }): Promise<OpenTurnLivePresentClaimOutcome> {
     return this.prisma.$transaction(async (tx) => {
       const row = await this.lockCanonical(tx, input);
-      if (row === null || row.narrationOwner !== null) {
-        return false;
+      if (row === null) {
+        return "denied";
+      }
+      if (
+        row.narrationOwner === "current_turn" &&
+        row.narrationDecision === "current_turn_inline"
+      ) {
+        return "already_current_turn_inline";
+      }
+      if (row.narrationOwner !== null) {
+        return "denied";
       }
       const now = new Date();
       await tx.assistantAsyncJobHandle.update({
@@ -716,7 +756,7 @@ export class AssistantAsyncJobHandleStateService {
           narrationDecisionAt: now
         }
       });
-      return true;
+      return "newly_claimed";
     });
   }
 
@@ -1887,10 +1927,9 @@ export class AssistantAsyncJobHandleStateService {
   }
 
   /**
-   * ADR-159 — stamp durable catch-up ordinal/total when a handle becomes ready.
-   * Joins an open wave (any ready/claimed/dispatched sibling with a wave id) or
-   * starts a new wave; bumps catchUpWaveTotal on all members so sequential
-   * dispatches keep the same N (1/2 then 2/2, not 1/1).
+   * ADR-159 / ADR-166 — stamp durable catch-up ordinal/total when a handle becomes ready.
+   * Joins an open wave for the same sourceUserMessageId (or both-null) sibling with a
+   * wave id, or starts a new wave. Never mixes distinct source user-message waves.
    */
   private async stampCatchUpQueueMarkersInTx(
     tx: Prisma.TransactionClient,
@@ -1902,6 +1941,7 @@ export class AssistantAsyncJobHandleStateService {
         catchUpOrdinal: number | null;
         catchUpWaveId: string | null;
         catchUpWaveTotal: number | null;
+        sourceUserMessageId: string | null;
       } | null>;
       findFirst?: (args: unknown) => Promise<{ catchUpWaveId: string } | null>;
       findMany?: (args: unknown) => Promise<Array<{ id: string; catchUpOrdinal: number | null }>>;
@@ -1929,7 +1969,8 @@ export class AssistantAsyncJobHandleStateService {
         id: true,
         catchUpOrdinal: true,
         catchUpWaveId: true,
-        catchUpWaveTotal: true
+        catchUpWaveTotal: true,
+        sourceUserMessageId: true
       }
     });
     if (self === null || self.catchUpOrdinal !== null) {
@@ -1938,6 +1979,7 @@ export class AssistantAsyncJobHandleStateService {
     const open = await handles.findFirst({
       where: {
         chatId: input.chatId,
+        sourceUserMessageId: self.sourceUserMessageId,
         state: { in: ["ready", "claimed", "dispatched"] },
         catchUpWaveId: { not: null },
         NOT: { id: input.handleId }

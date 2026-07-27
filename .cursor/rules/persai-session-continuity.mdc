@@ -67,6 +67,21 @@ alwaysApply: true
   on + PDF-only strip; usage `cached_tokens`; secret `kimi/api-key`. Parent
   orchestrates/audits/commits; impl + audits **only**
   `cursor-grok-4.5-high-fast`. Keep ADR-163 commits separate from ADR-161/162.
+- **ADR-166** unified live presentation state machine is a founder-directed
+  repair program (local CLEAN 2026-07-27 on baseline `1f2512a8`;
+  founder-authorized commit + push in this entry; deploy/live acceptance
+  pending). Source of truth:
+  `docs/ADR/166-unified-live-presentation-state-machine.md`. One live USER_TURN
+  owns a media series; same-id history cannot demote it; open-turn present is
+  explicit-claim-gated; catch-up becomes visible only after runtime acceptance
+  plus publish bind; terminal full snapshots clear Working; delivered inline
+  media never requeues after Stop; compact status replaces the `8.75rem` blank
+  reserve, and a per-message progressive height high-water prevents long-loop
+  shrink/bounce without up-front empty space. Three-image order/out-of-order,
+  reconnect/failure, mobile height-stability, and cross-thread history/restore
+  regressions, independent re-audits, and full CI-like local gates are CLEAN. Parent
+  orchestrates/audits/commits; implementation subagents use only
+  `cursor-grok-4.5-high-fast`.
 
 - Treat `docs/SESSION-HANDOFF.md` as the source of truth for the latest completed checkpoint and the user's next stated priority.
 - Treat `docs/CHANGELOG.md` as the source of truth for what has actually landed.

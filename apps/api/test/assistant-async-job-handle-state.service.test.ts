@@ -686,6 +686,7 @@ describe("AssistantAsyncJobHandleStateService", () => {
       catchUpOrdinal: number | null;
       catchUpWaveTotal: number | null;
       catchUpWaveId: string | null;
+      sourceUserMessageId: string | null;
       narrationOwner: string | null;
       narrationDecision: string | null;
       continuationClientTurnId: string | null;
@@ -697,6 +698,7 @@ describe("AssistantAsyncJobHandleStateService", () => {
       narrationDecisionAt?: Date | null;
     };
     const chatId = owned.chatId;
+    const sourceUserMessageId = "00000000-0000-4000-8000-0000000000aa";
     const rows: StampRow[] = [
       {
         id: "00000000-0000-4000-8000-0000000000a1",
@@ -705,6 +707,7 @@ describe("AssistantAsyncJobHandleStateService", () => {
         catchUpOrdinal: null,
         catchUpWaveTotal: null,
         catchUpWaveId: null,
+        sourceUserMessageId,
         narrationOwner: "continuation",
         narrationDecision: "notify_subscribed",
         continuationClientTurnId: "async-cont:a1",
@@ -717,6 +720,7 @@ describe("AssistantAsyncJobHandleStateService", () => {
         catchUpOrdinal: null,
         catchUpWaveTotal: null,
         catchUpWaveId: null,
+        sourceUserMessageId,
         narrationOwner: "continuation",
         narrationDecision: "notify_subscribed",
         continuationClientTurnId: "async-cont:a2",
@@ -740,6 +744,7 @@ describe("AssistantAsyncJobHandleStateService", () => {
         }: {
           where: {
             chatId: string;
+            sourceUserMessageId?: string | null;
             state?: { in: string[] };
             catchUpWaveId?: { not: null };
             NOT?: { id: string };
@@ -750,6 +755,7 @@ describe("AssistantAsyncJobHandleStateService", () => {
             rows.find(
               (row) =>
                 row.chatId === where.chatId &&
+                row.sourceUserMessageId === where.sourceUserMessageId &&
                 row.catchUpWaveId !== null &&
                 states.includes(row.state) &&
                 row.id !== where.NOT?.id
@@ -1495,5 +1501,248 @@ describe("AssistantAsyncJobHandleStateService", () => {
       refreshed.map((job) => job.jobRef),
       ["jr1.sandbox.queued"]
     );
+  });
+
+  test("ADR-166 claimOpenTurnLivePresent returns newly_claimed, already_current_turn_inline, or denied", async () => {
+    const claimable = fixture();
+    assert.equal(
+      await claimable.service.claimOpenTurnLivePresent({
+        kind: "media",
+        canonicalJobId: claimable.row.canonicalJobId
+      }),
+      "newly_claimed"
+    );
+    assert.equal(claimable.row.narrationOwner, "current_turn");
+    assert.equal(claimable.row.narrationDecision, "current_turn_inline");
+
+    assert.equal(
+      await claimable.service.claimOpenTurnLivePresent({
+        kind: "media",
+        canonicalJobId: claimable.row.canonicalJobId
+      }),
+      "already_current_turn_inline"
+    );
+
+    const denied = fixture({
+      narrationOwner: "continuation",
+      narrationDecision: "notify_subscribed"
+    });
+    assert.equal(
+      await denied.service.claimOpenTurnLivePresent({
+        kind: "media",
+        canonicalJobId: denied.row.canonicalJobId
+      }),
+      "denied"
+    );
+    assert.equal(denied.row.narrationOwner, "continuation");
+    assert.equal(denied.row.narrationDecision, "notify_subscribed");
+
+    const legacy = fixture({
+      narrationOwner: "legacy",
+      narrationDecision: "legacy_completion"
+    });
+    assert.equal(
+      await legacy.service.claimOpenTurnLivePresent({
+        kind: "media",
+        canonicalJobId: legacy.row.canonicalJobId
+      }),
+      "denied"
+    );
+  });
+
+  test("ADR-166 Stop after current_turn_inline delivered media preserves terminal without requeue", async () => {
+    const delivered = fixture({
+      narrationOwner: "current_turn",
+      narrationDecision: "current_turn_inline",
+      state: "completed",
+      terminalSnapshotJson: { status: "completed", message: "Inline delivered." },
+      sourceFinalizedAt: null
+    });
+    const result = await delivered.service.finalizeSourceTurn({
+      assistantId: owned.assistantId,
+      chatId: owned.chatId,
+      sourceClientTurnId: "turn-1",
+      outcome: "stopped"
+    });
+    assert.equal(result.currentTurnPreserved, 1);
+    assert.equal(result.currentTurnReleased, 0);
+    assert.equal(result.autoSubscribed, 0);
+    assert.equal(delivered.row.narrationOwner, "current_turn");
+    assert.equal(delivered.row.narrationDecision, "current_turn_inline");
+    assert.equal(delivered.row.state, "completed");
+    assert.notEqual(delivered.row.state, "ready");
+  });
+
+  test("ADR-166 Slice 5: current_turn_inline completion stays completed (not ready) so catch-up does not wake", async () => {
+    const inline = fixture({
+      narrationOwner: null,
+      narrationDecision: null,
+      state: "none",
+      sourceFinalizedAt: null
+    });
+    assert.equal(
+      await inline.service.claimOpenTurnLivePresent({
+        kind: "media",
+        canonicalJobId: inline.row.canonicalJobId
+      }),
+      "newly_claimed"
+    );
+    const result = await inline.service.recordCanonicalCompletion({
+      kind: "media",
+      canonicalJobId: inline.row.canonicalJobId,
+      terminalStatus: "completed",
+      terminalSnapshot: { status: "completed", message: "Inline series item delivered." }
+    });
+    assert.equal(result.state, "completed");
+    assert.equal(inline.row.narrationOwner, "current_turn");
+    assert.equal(inline.row.narrationDecision, "current_turn_inline");
+    assert.equal(inline.row.state, "completed");
+    assert.notEqual(inline.row.state, "ready");
+  });
+
+  test("ADR-166 catch-up wave stamp does not join distinct sourceUserMessageId waves", async () => {
+    type StampRow = {
+      id: string;
+      chatId: string;
+      state: string;
+      catchUpOrdinal: number | null;
+      catchUpWaveTotal: number | null;
+      catchUpWaveId: string | null;
+      sourceUserMessageId: string | null;
+      narrationOwner: string | null;
+      narrationDecision: string | null;
+      continuationClientTurnId: string | null;
+      maxRetries: number;
+      terminalSnapshotJson?: unknown;
+      readyAt?: Date | null;
+      nextRetryAt?: Date | null;
+      terminalObservedAt?: Date | null;
+      narrationDecisionAt?: Date | null;
+    };
+    const chatId = owned.chatId;
+    const rows: StampRow[] = [
+      {
+        id: "00000000-0000-4000-8000-0000000000b1",
+        chatId,
+        state: "ready",
+        catchUpOrdinal: 1,
+        catchUpWaveTotal: 1,
+        catchUpWaveId: "wave-source-a",
+        sourceUserMessageId: "00000000-0000-4000-8000-0000000000c1",
+        narrationOwner: "continuation",
+        narrationDecision: "notify_subscribed",
+        continuationClientTurnId: "async-cont:b1",
+        maxRetries: 8
+      },
+      {
+        id: "00000000-0000-4000-8000-0000000000b2",
+        chatId,
+        state: "subscribed",
+        catchUpOrdinal: null,
+        catchUpWaveTotal: null,
+        catchUpWaveId: null,
+        sourceUserMessageId: "00000000-0000-4000-8000-0000000000c2",
+        narrationOwner: "continuation",
+        narrationDecision: "notify_subscribed",
+        continuationClientTurnId: "async-cont:b2",
+        maxRetries: 8
+      }
+    ];
+    const tx = {
+      $queryRaw: async (query: unknown) => {
+        const sql = String((query as { strings?: readonly string[] }).strings?.join("") ?? "");
+        if (sql.includes("assistant_chats")) {
+          return [{ id: chatId }];
+        }
+        return [rows.find((entry) => entry.state === "subscribed") ?? rows[1]];
+      },
+      assistantAsyncJobHandle: {
+        findUnique: async ({ where }: { where: { id: string } }) =>
+          rows.find((row) => row.id === where.id) ?? null,
+        findFirst: async ({
+          where
+        }: {
+          where: {
+            chatId?: string;
+            id?: string;
+            canonicalJobId?: string;
+            sourceUserMessageId?: string | null;
+            state?: { in: string[] };
+            catchUpWaveId?: { not: null };
+            NOT?: { id: string };
+          };
+        }) => {
+          if (typeof where.canonicalJobId === "string") {
+            return rows.find((row) => row.id.endsWith("b2")) ?? null;
+          }
+          if (typeof where.id === "string") {
+            return rows.find((row) => row.id === where.id) ?? null;
+          }
+          const states = where.state?.in ?? [];
+          return (
+            rows.find(
+              (row) =>
+                row.chatId === where.chatId &&
+                row.sourceUserMessageId === where.sourceUserMessageId &&
+                row.catchUpWaveId !== null &&
+                states.includes(row.state) &&
+                row.id !== where.NOT?.id
+            ) ?? null
+          );
+        },
+        findMany: async ({ where }: { where: { chatId: string; catchUpWaveId: string } }) =>
+          rows.filter(
+            (row) => row.chatId === where.chatId && row.catchUpWaveId === where.catchUpWaveId
+          ),
+        update: async ({
+          where,
+          data
+        }: {
+          where: { id: string };
+          data: Record<string, unknown>;
+        }) => {
+          const row = rows.find((entry) => entry.id === where.id);
+          if (row === undefined) return null;
+          Object.assign(row, data);
+          return row;
+        },
+        updateMany: async ({
+          where,
+          data
+        }: {
+          where: { chatId: string; catchUpWaveId: string };
+          data: Record<string, unknown>;
+        }) => {
+          let count = 0;
+          for (const row of rows) {
+            if (row.chatId === where.chatId && row.catchUpWaveId === where.catchUpWaveId) {
+              Object.assign(row, data);
+              count += 1;
+            }
+          }
+          return { count };
+        }
+      },
+      assistantMediaJob: {
+        findUnique: async () => ({ status: "completed", lastErrorCode: null })
+      },
+      assistantDocumentRenderJob: { findUnique: async () => null }
+    };
+    const service = new AssistantAsyncJobHandleStateService({
+      $transaction: async <T>(callback: (value: typeof tx) => Promise<T>) => callback(tx)
+    } as never);
+
+    const result = await service.recordCanonicalCompletion({
+      kind: "media",
+      canonicalJobId: "job-b2",
+      terminalStatus: "completed",
+      terminalSnapshot: { status: "completed" }
+    });
+    assert.equal(result.state, "ready");
+    assert.equal(rows[1]?.catchUpOrdinal, 1);
+    assert.equal(rows[1]?.catchUpWaveTotal, 1);
+    assert.notEqual(rows[1]?.catchUpWaveId, "wave-source-a");
+    assert.equal(rows[0]?.catchUpWaveId, "wave-source-a");
+    assert.equal(rows[0]?.catchUpWaveTotal, 1);
   });
 });
