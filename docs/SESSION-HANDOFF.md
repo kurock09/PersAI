@@ -2,8 +2,8 @@
 
 ## 2026-07-27 — ADR-166 unified live presentation state machine (local CLEAN)
 
-- **Baseline:** `1f2512a8e0e2e50cade98f1b5fee6e0475dd3bc7`; founder authorized
-  this entry's commit + push. Deploy/live acceptance remain open.
+- **Pushed implementation tip:** `edb948f4` (rebased over bot GitOps pin
+  `e3f36e2b`; baseline `1f2512a8`). Deploy/live acceptance remain open.
 - **Founder symptom closed locally:** in a three-image series, the first ready
   image no longer causes a second narration wake or reinserts 2–3 previous
   transcript rows. One open USER_TURN bubble receives unique receipts/files;
@@ -39,10 +39,9 @@
   production build; `git diff --check` — all pass. Earlier parallel-web reds
   exposed and closed real thread-ownership/restore races plus Once-queue test
   pollution; the final default-parallel run is green.
-- **Next:** push this founder-authorized commit → wait exact API/web image pins
-  → authenticated live web smoke with three image jobs finishing in and out of
-  order, Stop, reconnect/F5, long-loop height stability, and Working
-  `3→2→1→0`.
+- **Next:** wait exact API/web image pins → authenticated live web smoke with
+  three image jobs finishing in and out of order, Stop, reconnect/F5,
+  long-loop height stability, and Working `3→2→1→0`.
 
 ## 2026-07-27 — ADR-165 D6.2: DI + catch-up strip + status→thinking
 

@@ -2,8 +2,8 @@
 
 ## Status
 
-**Local implementation CLEAN 2026-07-27; founder-authorized commit + push in
-this entry; not deployed or live-accepted.** Founder-directed repair program opened on baseline
+**Implementation CLEAN and pushed 2026-07-27 as `edb948f4`; not deployed or
+live-accepted.** Founder-directed repair program opened on baseline
 `1f2512a8e0e2e50cade98f1b5fee6e0475dd3bc7`.
 
 All five slices are implemented locally. The implementation preserves an open

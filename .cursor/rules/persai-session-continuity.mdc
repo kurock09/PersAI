@@ -68,9 +68,8 @@ alwaysApply: true
   orchestrates/audits/commits; impl + audits **only**
   `cursor-grok-4.5-high-fast`. Keep ADR-163 commits separate from ADR-161/162.
 - **ADR-166** unified live presentation state machine is a founder-directed
-  repair program (local CLEAN 2026-07-27 on baseline `1f2512a8`;
-  founder-authorized commit + push in this entry; deploy/live acceptance
-  pending). Source of truth:
+  repair program (implementation CLEAN and pushed 2026-07-27 as `edb948f4` on
+  baseline `1f2512a8`; deploy/live acceptance pending). Source of truth:
   `docs/ADR/166-unified-live-presentation-state-machine.md`. One live USER_TURN
   owns a media series; same-id history cannot demote it; open-turn present is
   explicit-claim-gated; catch-up becomes visible only after runtime acceptance

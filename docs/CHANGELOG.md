@@ -23,8 +23,8 @@
   pagination cannot clobber the visible chat, stale pagination releases its
   loading latch, terminal reattach stops restore retry, and same-tick shell
   progress/status stays coherent. Independent re-audits and full CI-like gates
-  are green; founder authorized commit + push. Deploy/live acceptance remain
-  open.
+  are green; implementation pushed as `edb948f4`. Deploy/live acceptance
+  remain open.
 
 - **ADR-165 D6.2: open-turn DI + catch-up classic strip + status clear→thinking.**
   Media/document completion delivery now require `@Inject(WebChatLiveTurnPresentService)`
