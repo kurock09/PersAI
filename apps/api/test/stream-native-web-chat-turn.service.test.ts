@@ -234,6 +234,7 @@ describe("WebRuntimeStreamClientService", () => {
           media: [
             {
               source: "persai_object_storage",
+              artifactId: "artifact-1",
               objectKey: `${WEB_SESSION_ROOT}/stream.png`,
               type: "image",
               mimeType: "image/png",
@@ -713,6 +714,7 @@ describe("WebRuntimeStreamClientService", () => {
           media: [
             {
               source: "persai_object_storage",
+              artifactId: "artifact-degraded-1",
               objectKey: `${WEB_SESSION_ROOT}/degraded.png`,
               type: "image",
               mimeType: "image/png",

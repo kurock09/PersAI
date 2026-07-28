@@ -3983,6 +3983,9 @@ export class TurnExecutionService {
           channel: acceptedTurn.session.conversation.channel,
           chatId: currentChatId,
           externalThreadKey: this.resolveSurfaceThreadKey(acceptedTurn.session.conversation),
+          // Prefer a known open assistant message id when turn context carries
+          // one; otherwise API executeFromRuntime binds the open USER_TURN
+          // assistant bubble (ADR-167 D1).
           messageId: null,
           sourceUserMessageText: input.message.text,
           sourceUserMessageCreatedAt: new Date().toISOString()
@@ -6273,6 +6276,9 @@ export class TurnExecutionService {
           channel,
           chatId: input.turnState.currentChatId,
           externalThreadKey,
+          // Open assistant message id is resolved on the API when omitted
+          // (ADR-167 D1 open USER_TURN bind). Prefer a known id if turn context
+          // ever carries one.
           messageId: null
         });
         recordTurnDeliveryFactsFromToolOutcome({
@@ -6281,6 +6287,15 @@ export class TurnExecutionService {
           payload: result.payload,
           isError: result.isError
         });
+        if (
+          !result.isError &&
+          result.payload !== null &&
+          typeof result.payload === "object" &&
+          !Array.isArray(result.payload) &&
+          (result.payload as { action?: unknown }).action === "already_delivered"
+        ) {
+          continue;
+        }
         if (result.isError || result.artifacts === undefined || result.artifacts.length === 0) {
           const reason =
             result.payload !== null &&

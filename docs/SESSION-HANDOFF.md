@@ -1,6 +1,44 @@
 # SESSION-HANDOFF
 
-## 2026-07-29 — ADR-167 CI regression follow-up (local CLEAN, uncommitted)
+## 2026-07-29 — ADR-167 delivery-flow cleanup audit (CLEAN, dirty tree)
+
+- **Role:** independent auditor+fixer on API delivery path after ADRs
+  162/165/166/167. No new architecture.
+- **Fixed:** MediaDelivery peeks ADR-167 identity before download/register/
+  adapter/settle; ConversationalPublish residual selection uses the same
+  identity matcher (renamed storagePath no longer false-remaining);
+  dead `AssistantChatMessageAttachmentRepository.create` removed;
+  `liveSyncMediaPresent.deliveredIdentities` documented as process-local
+  POST optimization beside durable deliver-once (kept).
+- **Focused tests:** deliver-once, media-delivery (+ video settle +
+  derivative), register-chat-attachment, conversational-publish — 31 pass.
+  API typecheck green. No commit.
+- **Next:** full AGENTS.md gate + CI-like tests except SQL; commit/push;
+  deploy + authenticated mixed image/PDF live smoke.
+
+## 2026-07-29 — ADR-167 deliver-once + unified timeline amend (ready to push)
+
+- **Baseline tip before amend:** `548febf3`.
+- **Purpose:** founder live repro after ADR-167: duplicate attachment after
+  worker + `files.attach`, separate receipt rail outside «Выполнено», technical
+  «Получено…» on attachment-only async continuations. No new ADR — amend
+  ADR-167 D4/D5/D6.
+- **Landed:** one create path `DeliverChatAttachmentOnceService`; runtime
+  `files.attach` → register-once → model-visible `already_delivered`; media
+  early-skip on already-delivered identity; ConversationalPublish residual
+  selection by identity; dead `attachmentRepository.create` removed; web
+  receipts only inside one process-badge timeline; async-cont suppress survives
+  live→terminal absorb; docs reconciled. Independent API/web delivery audits
+  returned CLEAN after cleanup.
+- **Gate (no SQL):** recursive lint, `format:check`, API/web/runtime typecheck,
+  API suite with SQL probes skipped via unreachable
+  `PERSAI_POSTGRES_INTEGRATION_URL`, runtime tests, web `86/1134`, API
+  `test:step2`, provider-gateway/sandbox tests, API+web production builds.
+- **Next:** commit/push this amend, watch GitHub CI, deploy, then authenticated
+  mixed image/PDF live smoke (worker then same-identity attach, timeline inside
+  Выполнено, Working N→0, no technical Получено on attachment-only cont).
+
+## 2026-07-29 — ADR-167 CI regression follow-up (pushed `548febf3`)
 
 - **Baseline:** pushed ADR-167 tip `52c1e606`; GitHub CI then exposed an
   ADR-149 test-contract gap, not a passing full gate.
@@ -15,8 +53,6 @@
   passes with PostgreSQL probes explicitly unavailable, per founder request;
   the local port-5432 database is stale (201 migrations unapplied) and must
   not be used as CI proof. Focused ADR-167 web coverage passes.
-- **Next:** run formatting/typecheck for this follow-up, commit/push it, then
-  inspect the new GitHub CI run before claiming green.
 
 ## 2026-07-28 — ADR-167 stable receipts / cross-pod Working (local CLEAN, uncommitted)
 

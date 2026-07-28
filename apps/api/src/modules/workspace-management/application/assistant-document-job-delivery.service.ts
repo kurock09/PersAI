@@ -922,6 +922,11 @@ export class AssistantDocumentJobDeliveryService {
       chatId: job.chatId,
       messageId: completionAssistantMessageId,
       workspaceId: job.workspaceId,
+      deliveryIdentity: {
+        kind: "document",
+        docId: job.docId,
+        versionId: job.versionId
+      },
       ...(channelTarget ? { channelTarget } : {})
     });
     const normalized = delivered.attachments

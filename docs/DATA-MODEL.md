@@ -155,6 +155,15 @@ durable catch-up backlog. Serialization moves to a `ChatWakeCoordinator`:
   same `assistant_chat_messages` row. Concurrent losing candidate rows are
   discarded before attachment/presentation; terminal updates cannot overwrite
   a previously bound winner.
+- **ADR-167 deliver-once attachment identity:** assistant chat attachments are
+  created only through the deliver-once coordinator under message-row
+  serialization. The attachment repository has no create path — only
+  read/projection/delete. Canonical keys live in attachment
+  `metadata.deliveryIdentity` (`canonicalKey` + `aliases`): media uses artifact
+  id and workspace path aliases; documents use `docId` + version id/number.
+  Same identity on the same message returns the existing row
+  (`alreadyDelivered`) and MediaDelivery skips download/adapter/settle on that
+  hit; no second attachment table or migration is introduced.
 - **Admission linearization (Slice 1):** non-null
   `assistant_chats.catch_up_admission_fence` defaults to `0`. A catch-up
   increments it only through a conditional update that rechecks the durable

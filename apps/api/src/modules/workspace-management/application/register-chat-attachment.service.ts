@@ -1,14 +1,11 @@
-import { BadRequestException, Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
-import type { AttachmentType, Prisma } from "@prisma/client";
+import { BadRequestException, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import type { AttachmentType } from "@prisma/client";
 import {
   PERSAI_RUNTIME_CHANNELS,
   type PersaiRuntimeChannel,
   type RuntimeBillingFacts
 } from "@persai/runtime-contract";
-import {
-  ASSISTANT_CHAT_MESSAGE_ATTACHMENT_REPOSITORY,
-  type AssistantChatMessageAttachmentRepository
-} from "../domain/assistant-chat-message-attachment.repository";
+import type { AssistantChatMessageAttachment } from "../domain/assistant-chat-message-attachment.entity";
 import type { AssistantChatSurface } from "../domain/assistant-chat.entity";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import { AssistantDocumentJobService } from "./assistant-document-job.service";
@@ -19,6 +16,11 @@ import {
   type WorkspaceFileMicroDescriptionSourceKind
 } from "./workspace-file-micro-description-job.service";
 import { normalizeActiveWorkspaceFilePath } from "./workspace-visible-paths";
+import {
+  DeliverChatAttachmentOnceService,
+  type ChatAttachmentDeliveryIdentity
+} from "./deliver-chat-attachment-once.service";
+import { WebChatLiveTurnPresentService } from "./web-chat-live-turn-present.service";
 
 export type RegisterChatAttachmentKind =
   | "user_upload"
@@ -51,11 +53,15 @@ export type RegisterChatAttachmentInput = {
   billingFacts?: RuntimeBillingFacts | null;
   thumbnailStoragePath?: string | null;
   posterStoragePath?: string | null;
+  deliveryIdentity?: ChatAttachmentDeliveryIdentity;
 };
 
 export type RegisterChatAttachmentOutcome = {
   attachmentId: string;
   storagePath: string;
+  alreadyDelivered: boolean;
+  attachment: Pick<AssistantChatMessageAttachment, "id" | "storagePath" | "metadata">;
+  delivery: { kind: "new" | "existing"; canonicalKey: string };
 };
 
 type FilesAttachDocumentLinkContext = {
@@ -86,11 +92,11 @@ export class RegisterChatAttachmentService {
 
   constructor(
     private readonly prisma: WorkspaceManagementPrismaService,
-    @Inject(ASSISTANT_CHAT_MESSAGE_ATTACHMENT_REPOSITORY)
-    private readonly attachmentRepository: AssistantChatMessageAttachmentRepository,
     private readonly workspaceFileMetadataService: WorkspaceFileMetadataService,
     private readonly assistantDocumentJobService: AssistantDocumentJobService,
-    private readonly workspaceFileMicroDescriptionJobService: WorkspaceFileMicroDescriptionJobService
+    private readonly workspaceFileMicroDescriptionJobService: WorkspaceFileMicroDescriptionJobService,
+    private readonly deliverChatAttachmentOnceService: DeliverChatAttachmentOnceService,
+    private readonly webChatLiveTurnPresentService: WebChatLiveTurnPresentService
   ) {}
 
   parseRuntimeInput(value: unknown): RegisterChatAttachmentFromRuntimeInput {
@@ -198,7 +204,7 @@ export class RegisterChatAttachmentService {
     if (storagePath.length === 0) {
       throw new BadRequestException("storagePath is required.");
     }
-    this.assertStoragePathAllowed(storagePath);
+    const isWorkspaceStoragePath = this.assertStoragePathAllowed(storagePath);
     const filesAttachDocumentLinkContext =
       input.kind === "files.attach"
         ? await this.prepareFilesAttachDocumentLinkContext({
@@ -207,19 +213,36 @@ export class RegisterChatAttachmentService {
             storagePath
           })
         : null;
+    const documentLink =
+      filesAttachDocumentLinkContext === null
+        ? null
+        : await this.resolveFilesAttachDocumentLink(filesAttachDocumentLinkContext);
     const attachmentMetadata = {
       ...(input.metadata ?? {}),
-      kind: input.kind
+      kind: input.kind,
+      ...(documentLink === null ? {} : { documentLink })
     };
-    const priorMetadata = await this.workspaceFileMetadataService.get({
-      workspaceId: input.workspaceId,
-      path: storagePath
-    });
+    const priorMetadata = isWorkspaceStoragePath
+      ? await this.workspaceFileMetadataService.get({
+          workspaceId: input.workspaceId,
+          path: storagePath
+        })
+      : null;
     const shouldInvalidateSummary = this.shouldInvalidateManifestShortDescription(
       input,
       priorMetadata
     );
-    const attachment = await this.attachmentRepository.create({
+    const deliveryIdentity =
+      input.deliveryIdentity ??
+      (documentLink === null
+        ? { kind: "media" as const, workspaceArtifactPath: storagePath }
+        : {
+            kind: "document" as const,
+            docId: documentLink.docId,
+            versionId: documentLink.versionId,
+            versionNumber: documentLink.versionNumber
+          });
+    const delivered = await this.deliverChatAttachmentOnceService.execute({
       messageId: input.messageId,
       chatId: input.chatId,
       assistantId: input.assistantId,
@@ -234,49 +257,45 @@ export class RegisterChatAttachmentService {
       durationMs: input.durationMs ?? null,
       width: input.width ?? null,
       height: input.height ?? null,
-      processingStatus: "ready",
       transcription: input.transcription ?? null,
       billingFacts: input.billingFacts ?? null,
       metadata: attachmentMetadata,
       clientTurnId: input.clientTurnId ?? null,
-      clientAttachmentId: input.clientAttachmentId ?? null
+      clientAttachmentId: input.clientAttachmentId ?? null,
+      deliveryIdentity
     });
 
-    await this.workspaceFileMetadataService.upsert({
-      workspaceId: input.workspaceId,
-      path: storagePath,
-      mimeType: input.mimeType,
-      sizeBytes: input.sizeBytes,
-      originChatId: input.chatId,
-      originAssistantId: input.assistantId,
-      ...(input.shortDescription !== undefined && input.shortDescription !== null
-        ? { shortDescription: input.shortDescription }
-        : shouldInvalidateSummary
-          ? { shortDescription: null }
-          : {})
-    });
-
-    if (filesAttachDocumentLinkContext !== null) {
-      await this.attachDocumentLinkBestEffort({
-        attachmentId: attachment.id,
-        baseMetadata: attachmentMetadata,
-        context: filesAttachDocumentLinkContext
+    if (!delivered.alreadyDelivered && isWorkspaceStoragePath) {
+      await this.workspaceFileMetadataService.upsert({
+        workspaceId: input.workspaceId,
+        path: storagePath,
+        mimeType: input.mimeType,
+        sizeBytes: input.sizeBytes,
+        originChatId: input.chatId,
+        originAssistantId: input.assistantId,
+        ...(input.shortDescription !== undefined && input.shortDescription !== null
+          ? { shortDescription: input.shortDescription }
+          : shouldInvalidateSummary
+            ? { shortDescription: null }
+            : {})
+      });
+      void this.enqueueMicroDescriptionBestEffort({
+        workspaceId: input.workspaceId,
+        path: storagePath,
+        assistantId: input.assistantId,
+        chatId: input.chatId,
+        kind: input.kind,
+        metadata: attachmentMetadata,
+        forceRefresh: shouldInvalidateSummary
       });
     }
 
-    void this.enqueueMicroDescriptionBestEffort({
-      workspaceId: input.workspaceId,
-      path: storagePath,
-      assistantId: input.assistantId,
-      chatId: input.chatId,
-      kind: input.kind,
-      metadata: attachmentMetadata,
-      forceRefresh: shouldInvalidateSummary
-    });
-
     return {
-      attachmentId: attachment.id,
-      storagePath
+      attachmentId: delivered.attachment.id,
+      storagePath: delivered.attachment.storagePath ?? storagePath,
+      alreadyDelivered: delivered.alreadyDelivered,
+      attachment: delivered.attachment,
+      delivery: delivered.delivery
     };
   }
 
@@ -341,12 +360,16 @@ export class RegisterChatAttachmentService {
     );
   }
 
-  private assertStoragePathAllowed(storagePath: string): void {
+  private assertStoragePathAllowed(storagePath: string): boolean {
     if (normalizeActiveWorkspaceFilePath(storagePath) === null) {
+      if (storagePath.startsWith("external-download/")) {
+        return false;
+      }
       throw new BadRequestException(
         'storagePath must be an active hierarchical "/workspace/..." file path.'
       );
     }
+    return true;
   }
 
   private resolveSurface(channel: PersaiRuntimeChannel): AssistantChatSurface {
@@ -358,12 +381,33 @@ export class RegisterChatAttachmentService {
 
   private async resolveRuntimeMessageId(
     input: RegisterChatAttachmentFromRuntimeInput,
-    _chatId: string
+    chatId: string
   ): Promise<string> {
-    if (input.messageId !== null && input.messageId !== undefined) {
-      return input.messageId;
+    if (typeof input.messageId === "string" && input.messageId.trim().length > 0) {
+      return input.messageId.trim();
     }
-    throw new NotFoundException("chat_message_not_found");
+    // ADR-167 — bind to the open ordinary USER_TURN assistant bubble (D1).
+    // Never fall back to the user message id.
+    const attempt = await this.webChatLiveTurnPresentService.findOpenOrdinaryUserTurnAttemptForChat(
+      {
+        assistantId: input.assistantId,
+        chatId
+      }
+    );
+    if (attempt === null) {
+      throw new NotFoundException("open_assistant_message_not_found");
+    }
+    try {
+      return await this.webChatLiveTurnPresentService.ensureOpenTurnAssistantMessage({
+        attempt
+      });
+    } catch (error) {
+      throw new NotFoundException(
+        error instanceof Error && error.message.trim().length > 0
+          ? error.message
+          : "open_assistant_message_not_found"
+      );
+    }
   }
 
   private requiredString(value: unknown, field: string): string {
@@ -408,38 +452,5 @@ export class RegisterChatAttachmentService {
         outputPath: input.storagePath
       });
     return currentDocumentLink.status === "ready" ? currentDocumentLink.link : null;
-  }
-
-  private async attachDocumentLinkBestEffort(input: {
-    attachmentId: string;
-    baseMetadata: Record<string, unknown>;
-    context: FilesAttachDocumentLinkContext;
-  }): Promise<void> {
-    try {
-      const documentLink = await this.resolveFilesAttachDocumentLink(input.context);
-      if (documentLink === null) {
-        return;
-      }
-      await this.prisma.assistantChatMessageAttachment.update({
-        where: {
-          id: input.attachmentId
-        },
-        data: {
-          metadata: {
-            ...input.baseMetadata,
-            documentLink
-          } as unknown as Prisma.InputJsonValue
-        }
-      });
-    } catch (error) {
-      // ADR-132 repair slice: document identity/inspection/link metadata is
-      // best-effort enrichment after attachment creation and must never block
-      // successful current-turn delivery of an existing file.
-      this.logger.warn(
-        `Document attachment ${input.context.storagePath} delivered without metadata enrichment: ${
-          error instanceof Error ? error.message : String(error)
-        }`
-      );
-    }
   }
 }

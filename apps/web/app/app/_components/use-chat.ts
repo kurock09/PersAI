@@ -88,7 +88,7 @@ export type PendingSendStatus =
 export type ChatAttachment = ChatHistoryAttachment & {
   localPreviewUrl?: string | undefined;
   uploadProgressPercent?: number | undefined;
-  /** ADR-165 — live stream: place a media-receipt line after this tool call. */
+  /** ADR-165/167 — place this attachment after a tool call in the process timeline. */
   inlineAfterToolCallId?: string | undefined;
 };
 export type ChatPlatformNotice = {
@@ -115,10 +115,15 @@ export interface ChatMessage {
   /** Sanitized tool calls emitted by the runtime, used to interleave process badges with working notes. */
   toolInvocations?: RuntimeTurnToolInvocation[];
   /**
-   * ADR-165 — which attachments belong after which tool call for live media-receipt
-   * lines. Committed UI still uses the classic bottom attachment strip.
+   * ADR-165/167 — which attachments belong after which tool call for process-timeline
+   * receipt events. Committed UI still uses the classic bottom attachment strip.
    */
   inlineMediaPlacement?: Array<{ toolCallId: string; attachmentIds: string[] }>;
+  /**
+   * ADR-167 — async-continuation bubbles must not project technical «Получено…»
+   * receipt lines for ConversationalPublish attachment delivery alone.
+   */
+  suppressMediaReceipts?: boolean;
   /** Local-only streaming hint: true while text deltas are actively being appended. */
   streamingTextActive?: boolean;
 }
@@ -993,7 +998,13 @@ function toActiveTurnOverlayMessages(activeTurn: WebChatActiveTurnState | null |
       : {};
   if (isAsyncContinuation || userMessage === null) {
     return {
-      messages: [{ ...assistantOverlay, status: "streaming" }],
+      messages: [
+        {
+          ...assistantOverlay,
+          status: "streaming",
+          ...(isAsyncContinuation ? { suppressMediaReceipts: true } : {})
+        }
+      ],
       liveActivitiesByMessageId,
       liveUserMessageId: null,
       liveAssistantMessageId: assistantOverlay.id
@@ -1126,8 +1137,30 @@ function mergeTerminalAssistantWithLiveAttachments(
       : {}),
     ...(nextPlacement !== undefined && nextPlacement.length > 0
       ? { inlineMediaPlacement: nextPlacement }
+      : {}),
+    // ADR-167: async-cont technical «Получено…» suppression is client-only and
+    // must survive live → terminal absorb (history rows do not carry the flag).
+    ...(live.suppressMediaReceipts === true || committed.suppressMediaReceipts === true
+      ? { suppressMediaReceipts: true }
       : {})
   };
+}
+
+function stampSuppressMediaReceiptsFromLive(
+  messages: ChatMessage[],
+  liveMessages: ChatMessage[]
+): ChatMessage[] {
+  const suppressIds = new Set(
+    liveMessages
+      .filter((message) => message.suppressMediaReceipts === true)
+      .map((message) => message.id)
+  );
+  if (suppressIds.size === 0) {
+    return messages;
+  }
+  return messages.map((message) =>
+    suppressIds.has(message.id) ? { ...message, suppressMediaReceipts: true } : message
+  );
 }
 function isTransientActiveAssistantMessage(message: ChatMessage): boolean {
   return (
@@ -1861,7 +1894,10 @@ function mergeCommittedHistoryWithActiveTurn(input: {
     (message) => !isOptimisticLocalMessage(message) && !isTransientActiveAssistantMessage(message)
   );
   return {
-    messages: mergeChatMessagesById(baseWithoutActive, sanitizedLoadedForReplace),
+    messages: stampSuppressMediaReceiptsFromLive(
+      mergeChatMessagesById(baseWithoutActive, sanitizedLoadedForReplace),
+      activeSnapshot.messages
+    ),
     replacedActiveTurn: true
   };
 }
@@ -3101,7 +3137,13 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                 ) {
                   return [mergeTerminalAssistantWithLiveAttachments(replacement, message)];
                 }
-                return [replacement];
+                // Preserve client-only async-cont receipt suppression across
+                // same-id history replacement after the live snapshot tears down.
+                return [
+                  message.suppressMediaReceipts === true
+                    ? { ...replacement, suppressMediaReceipts: true }
+                    : replacement
+                ];
               }
               if (
                 shouldReplaceActiveTurn &&
@@ -3479,6 +3521,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
               }),
           content: nextContent,
           status: assistantLifecycleStatus,
+          ...(isAsyncContinuation ? { suppressMediaReceipts: true } : {}),
           ...(preservedAttachments !== undefined && preservedAttachments.length > 0
             ? { attachments: preservedAttachments }
             : publishAssistantId !== null
@@ -4040,6 +4083,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                     thought: previousLiveAssistant?.thought ?? "",
                     thoughtStartedAt: previousLiveAssistant?.thoughtStartedAt ?? null,
                     thoughtFinishedAt: previousLiveAssistant?.thoughtFinishedAt ?? null,
+                    suppressMediaReceipts: true,
                     ...(committedPublishRow?.attachments !== undefined &&
                     committedPublishRow.attachments.length > 0
                       ? { attachments: committedPublishRow.attachments }

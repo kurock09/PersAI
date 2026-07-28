@@ -5,6 +5,7 @@ import type {
 import type { RuntimeAttachmentRef, RuntimeBillingFacts } from "@persai/runtime-contract";
 import type { AssistantWebChatMessageAttachmentState } from "../web-chat.types";
 import type { RuntimeMediaArtifact } from "../assistant-runtime.facade";
+import type { ChatAttachmentDeliveryIdentity } from "../deliver-chat-attachment-once.service";
 import { readPersistedDocumentLinkMetadata } from "../read-attachment-document-link";
 
 export type MediaChannel = "web" | "telegram" | "whatsapp" | "vk";
@@ -78,6 +79,11 @@ export interface OutboundMediaDeliverParams {
    * at ordinary deferred artifact-ready time before ConversationalPublish.
    */
   settleQuota?: boolean;
+  /**
+   * Document producers supply their immutable document version identity. Media
+   * producers derive their artifact/workspace identity from each artifact.
+   */
+  deliveryIdentity?: ChatAttachmentDeliveryIdentity;
 }
 
 export function inferAttachmentTypeFromMime(mime: string): AttachmentType {

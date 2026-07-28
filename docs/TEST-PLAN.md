@@ -4,6 +4,23 @@ This document defines the current verification baseline for the active PersAI-na
 
 ADR-072 is closed as the historical native migration ADR. Current continuation work should be checked against `docs/ADR/078-consolidated-follow-through-program.md`. `Step 15a` is cancelled and is not an active verification track. ADR-087 defines the unified quota-advisory and paid light-mode target state. ADR-088 defines the unified notification platform target state.
 
+## 2026-07-29 ADR-167 deliver-once + unified timeline amend
+
+- **Deliver-once:** worker delivery then same-identity `files.attach` yields one
+  attachment row and model-visible `already_delivered`; document same version
+  duplicates, new version delivers; concurrent creates serialize on the
+  assistant-message row.
+- **Runtime wire:** `files.attach` registers via internal chat-attachments;
+  null `messageId` binds the open ordinary USER_TURN assistant message; no
+  second artifact on `already_delivered`.
+- **Web projection:** no separate `media-receipt-lines` rail; delivery-ordered
+  receipts live inside the one «Выполнено» process-badge expand; async-cont
+  attachment-only suppresses technical «Получено…»; terminal strip + F5 order
+  remain.
+- **Still required after this amend:** independent delivery-flow audit cleanup,
+  full AGENTS.md gate + CI-like tests except SQL, commit/push, deploy, and
+  authenticated mixed image/PDF live smoke.
+
 ## 2026-07-28 ADR-167 single-turn receipts / cross-pod Working (local CLEAN)
 
 - **One message identity:** completion-first and stream-first interleavings bind
@@ -16,17 +33,12 @@ ADR-072 is closed as the historical native migration ADR. Current continuation w
   denied/no-open/missing-attachment paths emit no receipt. A deferred terminal
   snapshot is published only after successful durable finalization.
 - **Stable web projection:** one process badge; attachment-derived image/PDF
-  receipts survive live → commit → F5; terminal full attachment strip remains;
-  committed/history receipts are static while live receipts use polite live
-  semantics. No assistant-body high-water/min-height state remains.
+  receipts survive live → commit → F5 inside the process timeline (amended
+  2026-07-29 — no sibling receipt rail); terminal full attachment strip
+  remains. No assistant-body high-water/min-height state remains.
 - **Working terminal guard:** an exact terminal media/document identity removes
   that job and blocks a later stale snapshot from resurrecting it; F5 reloads
   canonical open jobs.
-- **Evidence:** final independent API and web audits returned CLEAN with zero
-  P0/P1/P2. Focused API coverage passed five files (51 passed, one optional
-  Postgres probe skipped without a local DB); focused web coverage passed three
-  files / 264 tests. Mandatory recursive lint, `format:check`, API typecheck,
-  and web typecheck passed.
 - **CI regression follow-up:** ADR-149 `tool_progress` coverage must complete
   normally under the null-only assistant-message bind contract. Tool-progress
   only heartbeats a running attempt; it must not create an empty assistant row
@@ -34,7 +46,7 @@ ADR-072 is closed as the historical native migration ADR. Current continuation w
   implement the binding and final-persistence repository protocol.
 - **Still required:** deploy and authenticated mixed image/PDF smoke covering
   completion-first/stream-first, cross-pod present, terminal commit, F5, one
-  process badge, durable receipts/full strips, and Working `N→0`.
+  process badge, durable timeline/full strips, and Working `N→0`.
 
 ## 2026-07-28 ADR-166 live-failure follow-up (local CLEAN; deploy/live pending)
 

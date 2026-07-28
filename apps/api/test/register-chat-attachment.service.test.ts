@@ -68,37 +68,23 @@ function createDocumentLink(input: {
   };
 }
 
-function createAttachmentRepository(createdInputs: Record<string, unknown>[]) {
+function createDeliverOnceService(createdInputs: Record<string, unknown>[]) {
   return {
-    create: async (input: Record<string, unknown>) => {
+    execute: async (input: Record<string, unknown>) => {
       createdInputs.push(input);
+      const attachmentId = `attachment-${createdInputs.length}`;
       return {
-        id: `attachment-${createdInputs.length}`,
-        storagePath: input.storagePath,
-        thumbnailStoragePath: input.thumbnailStoragePath,
-        posterStoragePath: input.posterStoragePath,
-        attachmentType: input.attachmentType,
-        originalFilename: input.originalFilename,
-        mimeType: input.mimeType,
-        sizeBytes: input.sizeBytes,
-        processingStatus: input.processingStatus,
-        metadata: input.metadata,
-        createdAt: new Date("2026-07-02T00:00:00.000Z")
+        alreadyDelivered: false,
+        attachment: {
+          id: attachmentId,
+          storagePath: input.storagePath as string,
+          metadata: (input.metadata as Record<string, unknown> | null) ?? null
+        },
+        delivery: {
+          kind: "new" as const,
+          canonicalKey: `media:workspace:${String(input.storagePath)}`
+        }
       };
-    }
-  };
-}
-
-function createAttachmentMetadataUpdater(updatedMetadata: Record<string, unknown>[]) {
-  return {
-    assistantChatMessageAttachment: {
-      update: async (input: { data: { metadata: Record<string, unknown> } }) => {
-        updatedMetadata.push(input.data.metadata);
-        return {
-          id: "attachment-updated",
-          metadata: input.data.metadata
-        };
-      }
     }
   };
 }
@@ -134,19 +120,66 @@ function createAssistantDocumentJobService(
   };
 }
 
+function createLiveTurnPresentService(
+  overrides: {
+    findOpenOrdinaryUserTurnAttemptForChat?: () => Promise<{
+      assistantId: string;
+      userId: string;
+      chatId: string;
+      surfaceThreadKey: string;
+      clientTurnId: string;
+      userMessageId: string;
+      assistantMessageId: string | null;
+    } | null>;
+    ensureOpenTurnAssistantMessage?: (input: {
+      attempt: { assistantMessageId: string | null };
+    }) => Promise<string>;
+  } = {}
+) {
+  return {
+    findOpenOrdinaryUserTurnAttemptForChat:
+      overrides.findOpenOrdinaryUserTurnAttemptForChat ?? (async () => null),
+    ensureOpenTurnAssistantMessage:
+      overrides.ensureOpenTurnAssistantMessage ??
+      (async (input: { attempt: { assistantMessageId: string | null } }) => {
+        if (
+          typeof input.attempt.assistantMessageId === "string" &&
+          input.attempt.assistantMessageId.trim().length > 0
+        ) {
+          return input.attempt.assistantMessageId;
+        }
+        throw new Error("Open web turn no longer accepts an assistant message binding.");
+      })
+  };
+}
+
+function createRegisterService(input: {
+  prisma?: unknown;
+  metadata?: ReturnType<typeof createWorkspaceFileMetadataService>;
+  documents?: ReturnType<typeof createAssistantDocumentJobService>;
+  micro?: ReturnType<typeof createMicroDescriptionJobService>;
+  deliverOnce: ReturnType<typeof createDeliverOnceService> | { execute: () => Promise<never> };
+  liveTurnPresent?: ReturnType<typeof createLiveTurnPresentService>;
+}) {
+  return new RegisterChatAttachmentService(
+    (input.prisma ?? { assistantChat: { findFirst: async () => null } }) as never,
+    (input.metadata ?? createWorkspaceFileMetadataService()) as never,
+    (input.documents ?? createAssistantDocumentJobService()) as never,
+    (input.micro ?? createMicroDescriptionJobService()) as never,
+    input.deliverOnce as never,
+    (input.liveTurnPresent ?? createLiveTurnPresentService()) as never
+  );
+}
+
 describe("register-chat-attachment.service", () => {
   test("rejects storage paths outside the active hierarchical workspace roots", async () => {
-    const service = new RegisterChatAttachmentService(
-      { assistantChat: { findFirst: async () => null } } as never,
-      {
-        create: async () => {
+    const service = createRegisterService({
+      deliverOnce: {
+        execute: async () => {
           throw new Error("should not create");
         }
-      } as never,
-      createWorkspaceFileMetadataService() as never,
-      createAssistantDocumentJobService() as never,
-      createMicroDescriptionJobService() as never
-    );
+      }
+    });
 
     await assert.rejects(
       () =>
@@ -167,35 +200,17 @@ describe("register-chat-attachment.service", () => {
   });
 
   test("registers attachment and upserts workspace metadata", async () => {
-    let createdInput: Record<string, unknown> | null = null;
+    const createdInputs: Record<string, unknown>[] = [];
     let upsertInput: Record<string, unknown> | null = null;
 
-    const service = new RegisterChatAttachmentService(
-      { assistantChat: { findFirst: async () => null } } as never,
-      {
-        create: async (input: Record<string, unknown>) => {
-          createdInput = input;
-          return {
-            id: "attachment-1",
-            storagePath: input.storagePath,
-            attachmentType: input.attachmentType,
-            originalFilename: input.originalFilename,
-            mimeType: input.mimeType,
-            sizeBytes: input.sizeBytes,
-            processingStatus: input.processingStatus,
-            metadata: input.metadata,
-            createdAt: new Date("2026-06-23T00:00:00.000Z")
-          };
-        }
-      } as never,
-      createWorkspaceFileMetadataService({
+    const service = createRegisterService({
+      metadata: createWorkspaceFileMetadataService({
         upsert: async (input: Record<string, unknown>) => {
           upsertInput = input;
         }
-      }) as never,
-      createAssistantDocumentJobService() as never,
-      createMicroDescriptionJobService() as never
-    );
+      }),
+      deliverOnce: createDeliverOnceService(createdInputs)
+    });
 
     const result = await service.execute({
       assistantId: "assistant-1",
@@ -213,9 +228,9 @@ describe("register-chat-attachment.service", () => {
 
     assert.equal(result.attachmentId, "attachment-1");
     assert.equal(result.storagePath, `${SESSION_ROOT}/report.csv`);
-    assert.equal(createdInput?.storagePath, `${SESSION_ROOT}/report.csv`);
-    assert.equal(createdInput?.processingStatus, "ready");
-    assert.deepEqual((createdInput?.metadata as Record<string, unknown>)?.kind, "user_upload");
+    assert.equal(result.alreadyDelivered, false);
+    assert.equal(createdInputs[0]?.storagePath, `${SESSION_ROOT}/report.csv`);
+    assert.deepEqual((createdInputs[0]?.metadata as Record<string, unknown>)?.kind, "user_upload");
     assert.equal(upsertInput?.path, `${SESSION_ROOT}/report.csv`);
     assert.equal(upsertInput?.originChatId, "chat-1");
     assert.equal(upsertInput?.originAssistantId, "assistant-1");
@@ -223,32 +238,11 @@ describe("register-chat-attachment.service", () => {
   });
 
   test("passes thumbnail and poster storage paths to attachment create", async () => {
-    let createdInput: Record<string, unknown> | null = null;
+    const createdInputs: Record<string, unknown>[] = [];
 
-    const service = new RegisterChatAttachmentService(
-      { assistantChat: { findFirst: async () => null } } as never,
-      {
-        create: async (input: Record<string, unknown>) => {
-          createdInput = input;
-          return {
-            id: "attachment-2",
-            storagePath: input.storagePath,
-            thumbnailStoragePath: input.thumbnailStoragePath,
-            posterStoragePath: input.posterStoragePath,
-            attachmentType: input.attachmentType,
-            originalFilename: input.originalFilename,
-            mimeType: input.mimeType,
-            sizeBytes: input.sizeBytes,
-            processingStatus: input.processingStatus,
-            metadata: input.metadata,
-            createdAt: new Date("2026-06-24T00:00:00.000Z")
-          };
-        }
-      } as never,
-      createWorkspaceFileMetadataService() as never,
-      createAssistantDocumentJobService() as never,
-      createMicroDescriptionJobService() as never
-    );
+    const service = createRegisterService({
+      deliverOnce: createDeliverOnceService(createdInputs)
+    });
 
     await service.execute({
       assistantId: "assistant-1",
@@ -265,28 +259,70 @@ describe("register-chat-attachment.service", () => {
       posterStoragePath: `${SESSION_ROOT}/clip.mp4.poster.jpg`
     });
 
-    assert.equal(createdInput?.thumbnailStoragePath, `${SESSION_ROOT}/photo.jpg.thumb.webp`);
-    assert.equal(createdInput?.posterStoragePath, `${SESSION_ROOT}/clip.mp4.poster.jpg`);
+    assert.equal(createdInputs[0]?.thumbnailStoragePath, `${SESSION_ROOT}/photo.jpg.thumb.webp`);
+    assert.equal(createdInputs[0]?.posterStoragePath, `${SESSION_ROOT}/clip.mp4.poster.jpg`);
   });
-  test("runtime attachment with null messageId does not fall back to running attempt userMessageId", async () => {
-    const service = new RegisterChatAttachmentService(
-      {
+  test("runtime attachment with null messageId binds open ordinary USER_TURN assistant message", async () => {
+    const createdInputs: Record<string, unknown>[] = [];
+    const service = createRegisterService({
+      prisma: {
         assistantChat: {
           findFirst: async () => ({ id: "chat-1" })
         },
-        assistantWebChatTurnAttempt: {
-          findFirst: async () => ({ userMessageId: "user-message-1" })
+        assistantChatMessage: {
+          findFirst: async (args: { where: { id: string } }) =>
+            args.where.id === "assistant-message-1" ? { id: "assistant-message-1" } : null
         }
-      } as never,
-      {
-        create: async () => {
+      },
+      deliverOnce: createDeliverOnceService(createdInputs),
+      liveTurnPresent: createLiveTurnPresentService({
+        findOpenOrdinaryUserTurnAttemptForChat: async () => ({
+          assistantId: "assistant-1",
+          userId: "user-1",
+          chatId: "chat-1",
+          surfaceThreadKey: "web-thread-1",
+          clientTurnId: "client-turn-1",
+          userMessageId: "user-message-1",
+          assistantMessageId: "assistant-message-1"
+        })
+      })
+    });
+
+    const result = await service.executeFromRuntime({
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      channel: "web",
+      externalThreadKey: "web-thread-1",
+      messageId: null,
+      storagePath: `${SESSION_ROOT}/report.csv`,
+      attachmentType: "document",
+      mimeType: "text/csv",
+      sizeBytes: 12,
+      originalFilename: "report.csv",
+      kind: "files.attach"
+    });
+
+    assert.equal(result.attachmentId, "attachment-1");
+    assert.equal(createdInputs[0]?.messageId, "assistant-message-1");
+    assert.notEqual(createdInputs[0]?.messageId, "user-message-1");
+  });
+
+  test("runtime attachment with null messageId fails closed when no open USER_TURN exists", async () => {
+    const service = createRegisterService({
+      prisma: {
+        assistantChat: {
+          findFirst: async () => ({ id: "chat-1" })
+        }
+      },
+      deliverOnce: {
+        execute: async () => {
           throw new Error("should not create");
         }
-      } as never,
-      createWorkspaceFileMetadataService() as never,
-      createAssistantDocumentJobService() as never,
-      createMicroDescriptionJobService() as never
-    );
+      },
+      liveTurnPresent: createLiveTurnPresentService({
+        findOpenOrdinaryUserTurnAttemptForChat: async () => null
+      })
+    });
 
     await assert.rejects(
       () =>
@@ -304,7 +340,7 @@ describe("register-chat-attachment.service", () => {
           kind: "files.attach"
         }),
       (error: unknown) =>
-        error instanceof NotFoundException && error.message === "chat_message_not_found"
+        error instanceof NotFoundException && error.message === "open_assistant_message_not_found"
     );
   });
 
@@ -329,41 +365,26 @@ describe("register-chat-attachment.service", () => {
 
     for (const testCase of cases) {
       const createdInputs: Record<string, unknown>[] = [];
-      const updatedMetadata: Record<string, unknown>[] = [];
       const readyLink = createDocumentLink({
         path: testCase.path,
         format: testCase.format,
         versionNumber: 1
       });
 
-      const service = new RegisterChatAttachmentService(
-        {
-          assistantChat: {
-            findFirst: async () => ({
-              id: "chat-1",
-              surface: "web",
-              surfaceThreadKey: "web-thread-1"
-            })
-          },
-          assistantDocument: {
-            findFirst: async () => null
-          },
-          ...createAttachmentMetadataUpdater(updatedMetadata)
-        } as never,
-        createAttachmentRepository(createdInputs) as never,
-        createWorkspaceFileMetadataService({
+      const service = createRegisterService({
+        metadata: createWorkspaceFileMetadataService({
           get: async (input: { path: string }) =>
             input.path === testCase.path
               ? createWorkspaceMetadata(input.path, testCase.mimeType)
               : null,
           upsert: async () => {}
-        }) as never,
-        createAssistantDocumentJobService({
+        }),
+        documents: createAssistantDocumentJobService({
           findCurrentDocumentLinkByOutputPath: async () =>
             ({ status: "ready" as const, link: readyLink }) as const
-        }) as never,
-        createMicroDescriptionJobService() as never
-      );
+        }),
+        deliverOnce: createDeliverOnceService(createdInputs)
+      });
 
       const result = await service.execute({
         assistantId: "assistant-1",
@@ -380,21 +401,24 @@ describe("register-chat-attachment.service", () => {
 
       assert.equal(result.attachmentId, "attachment-1");
       assert.equal(
-        (updatedMetadata[0] as { documentLink?: { outputFormat?: string } })?.documentLink
-          ?.outputFormat,
+        (createdInputs[0]?.metadata as { documentLink?: { outputFormat?: string } } | undefined)
+          ?.documentLink?.outputFormat,
         testCase.format
       );
       assert.equal(
-        (updatedMetadata[0] as { documentLink?: { outputPath?: string } })?.documentLink
-          ?.outputPath,
+        (createdInputs[0]?.metadata as { documentLink?: { outputPath?: string } } | undefined)
+          ?.documentLink?.outputPath,
         testCase.path
+      );
+      assert.equal(
+        (createdInputs[0]?.deliveryIdentity as { kind?: string } | undefined)?.kind,
+        "document"
       );
     }
   });
 
   test("re-attaching the same document path reuses the current version", async () => {
     const createdInputs: Record<string, unknown>[] = [];
-    const updatedMetadata: Record<string, unknown>[] = [];
     const links = [
       {
         status: "ready" as const,
@@ -414,29 +438,15 @@ describe("register-chat-attachment.service", () => {
       }
     ];
 
-    const service = new RegisterChatAttachmentService(
-      {
-        assistantChat: {
-          findFirst: async () => ({
-            id: "chat-1",
-            surface: "web",
-            surfaceThreadKey: "web-thread-1"
-          })
-        },
-        assistantDocument: {
-          findFirst: async () => null
-        },
-        ...createAttachmentMetadataUpdater(updatedMetadata)
-      } as never,
-      createAttachmentRepository(createdInputs) as never,
-      createWorkspaceFileMetadataService({
+    const service = createRegisterService({
+      metadata: createWorkspaceFileMetadataService({
         get: async (input: { path: string }) =>
           input.path === `${SESSION_ROOT}/report.pdf`
             ? createWorkspaceMetadata(`${SESSION_ROOT}/report.pdf`)
             : null,
         upsert: async () => {}
-      }) as never,
-      createAssistantDocumentJobService({
+      }),
+      documents: createAssistantDocumentJobService({
         findCurrentDocumentLinkByOutputPath: async () => {
           const next = links.shift();
           if (next === undefined) {
@@ -444,9 +454,9 @@ describe("register-chat-attachment.service", () => {
           }
           return next;
         }
-      }) as never,
-      createMicroDescriptionJobService() as never
-    );
+      }),
+      deliverOnce: createDeliverOnceService(createdInputs)
+    });
 
     const input = {
       assistantId: "assistant-1",
@@ -464,7 +474,7 @@ describe("register-chat-attachment.service", () => {
     await service.execute({ ...input, messageId: "message-2" });
 
     assert.equal(
-      (updatedMetadata[1] as { documentLink?: { versionNumber?: number; descriptorMode?: string } })
+      (createdInputs[1]?.metadata as { documentLink?: { versionNumber?: number } } | undefined)
         ?.documentLink?.versionNumber,
       1
     );
@@ -472,7 +482,6 @@ describe("register-chat-attachment.service", () => {
 
   test("files.attach reflects the current version after shell rewrites bytes", async () => {
     const createdInputs: Record<string, unknown>[] = [];
-    const updatedMetadata: Record<string, unknown>[] = [];
     const links = [
       {
         status: "ready" as const,
@@ -492,22 +501,8 @@ describe("register-chat-attachment.service", () => {
       }
     ];
 
-    const service = new RegisterChatAttachmentService(
-      {
-        assistantChat: {
-          findFirst: async () => ({
-            id: "chat-1",
-            surface: "web",
-            surfaceThreadKey: "web-thread-1"
-          })
-        },
-        assistantDocument: {
-          findFirst: async () => null
-        },
-        ...createAttachmentMetadataUpdater(updatedMetadata)
-      } as never,
-      createAttachmentRepository(createdInputs) as never,
-      createWorkspaceFileMetadataService({
+    const service = createRegisterService({
+      metadata: createWorkspaceFileMetadataService({
         get: async (input: { path: string }) =>
           input.path === `${SESSION_ROOT}/report.xlsx`
             ? createWorkspaceMetadata(
@@ -516,8 +511,8 @@ describe("register-chat-attachment.service", () => {
               )
             : null,
         upsert: async () => {}
-      }) as never,
-      createAssistantDocumentJobService({
+      }),
+      documents: createAssistantDocumentJobService({
         findCurrentDocumentLinkByOutputPath: async () => {
           const next = links.shift();
           if (next === undefined) {
@@ -525,9 +520,9 @@ describe("register-chat-attachment.service", () => {
           }
           return next;
         }
-      }) as never,
-      createMicroDescriptionJobService() as never
-    );
+      }),
+      deliverOnce: createDeliverOnceService(createdInputs)
+    });
 
     const input = {
       assistantId: "assistant-1",
@@ -555,19 +550,13 @@ describe("register-chat-attachment.service", () => {
     assert.equal(first.storagePath, `${SESSION_ROOT}/report.xlsx`);
     assert.equal(second.storagePath, `${SESSION_ROOT}/report.xlsx`);
     assert.equal(
-      (
-        updatedMetadata[1] as {
-          documentLink?: { versionNumber?: number; descriptorMode?: string; outputPath?: string };
-        }
-      )?.documentLink?.versionNumber,
+      (createdInputs[1]?.metadata as { documentLink?: { versionNumber?: number } } | undefined)
+        ?.documentLink?.versionNumber,
       2
     );
     assert.equal(
-      (
-        updatedMetadata[1] as {
-          documentLink?: { versionNumber?: number; descriptorMode?: string; outputPath?: string };
-        }
-      )?.documentLink?.outputPath,
+      (createdInputs[1]?.metadata as { documentLink?: { outputPath?: string } } | undefined)
+        ?.documentLink?.outputPath,
       `${SESSION_ROOT}/report.xlsx`
     );
   });
@@ -575,37 +564,19 @@ describe("register-chat-attachment.service", () => {
   test("files.attach still creates an attachment row when document enrichment fails", async () => {
     const createdInputs: Record<string, unknown>[] = [];
 
-    const service = new RegisterChatAttachmentService(
-      {
-        assistantChat: {
-          findFirst: async () => ({
-            id: "chat-1",
-            surface: "web",
-            surfaceThreadKey: "web-thread-1"
-          })
-        },
-        assistantDocument: {
-          findFirst: async () => null
-        },
-        assistantChatMessageAttachment: {
-          update: async () => {
-            throw new Error("metadata update should not run when enrichment fails");
-          }
-        }
-      } as never,
-      createAttachmentRepository(createdInputs) as never,
-      createWorkspaceFileMetadataService({
+    const service = createRegisterService({
+      metadata: createWorkspaceFileMetadataService({
         get: async (input: { path: string }) =>
           input.path === `${SESSION_ROOT}/test.pdf`
             ? createWorkspaceMetadata(`${SESSION_ROOT}/test.pdf`)
             : null,
         upsert: async () => {}
-      }) as never,
-      createAssistantDocumentJobService({
+      }),
+      documents: createAssistantDocumentJobService({
         findCurrentDocumentLinkByOutputPath: async () => ({ status: "none" as const })
-      }) as never,
-      createMicroDescriptionJobService() as never
-    );
+      }),
+      deliverOnce: createDeliverOnceService(createdInputs)
+    });
 
     const result = await service.execute({
       assistantId: "assistant-1",
@@ -629,29 +600,16 @@ describe("register-chat-attachment.service", () => {
   });
 
   test("missing workspace document output fails honestly without provenance-wall wording", async () => {
-    const service = new RegisterChatAttachmentService(
-      {
-        assistantChat: {
-          findFirst: async () => ({
-            id: "chat-1",
-            surface: "web",
-            surfaceThreadKey: "web-thread-1"
-          })
-        },
-        assistantDocument: {
-          findFirst: async () => null
-        }
-      } as never,
-      createAttachmentRepository([]) as never,
-      createWorkspaceFileMetadataService({
+    const service = createRegisterService({
+      metadata: createWorkspaceFileMetadataService({
         get: async () => null,
         upsert: async () => {}
-      }) as never,
-      createAssistantDocumentJobService({
+      }),
+      documents: createAssistantDocumentJobService({
         findCurrentDocumentLinkByOutputPath: async () => ({ status: "none" as const })
-      }) as never,
-      createMicroDescriptionJobService() as never
-    );
+      }),
+      deliverOnce: createDeliverOnceService([])
+    });
 
     await assert.rejects(
       () =>
@@ -683,18 +641,15 @@ describe("register-chat-attachment.service", () => {
     for (const testCase of cases) {
       const createdInputs: Record<string, unknown>[] = [];
       let lookupCount = 0;
-      const service = new RegisterChatAttachmentService(
-        { assistantChat: { findFirst: async () => null } } as never,
-        createAttachmentRepository(createdInputs) as never,
-        createWorkspaceFileMetadataService() as never,
-        createAssistantDocumentJobService({
+      const service = createRegisterService({
+        documents: createAssistantDocumentJobService({
           findCurrentDocumentLinkByOutputPath: async () => {
             lookupCount += 1;
             return { status: "none" as const };
           }
-        }) as never,
-        createMicroDescriptionJobService() as never
-      );
+        }),
+        deliverOnce: createDeliverOnceService(createdInputs)
+      });
 
       const result = await service.execute({
         assistantId: "assistant-1",

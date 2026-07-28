@@ -4,10 +4,12 @@ import { PlatformHttpMetricsService } from "../../platform-core/application/plat
 import { ApiErrorHttpException } from "../../platform-core/interface/http/api-error";
 import {
   ASSISTANT_CHAT_MESSAGE_ATTACHMENT_REPOSITORY,
-  type AssistantChatMessageAttachmentRepository,
-  type CreateAttachmentInput
+  type AssistantChatMessageAttachmentRepository
 } from "../domain/assistant-chat-message-attachment.repository";
-import type { AssistantChatMessageAttachment } from "../domain/assistant-chat-message-attachment.entity";
+import type {
+  AssistantChatMessageAttachment,
+  AttachmentType
+} from "../domain/assistant-chat-message-attachment.entity";
 import {
   ASSISTANT_CHAT_REPOSITORY,
   type AssistantChatRepository
@@ -48,7 +50,7 @@ const AUDIO_MIMES_NEEDING_CONVERSION = new Set([
   "audio/x-opus+ogg"
 ]);
 
-function inferAttachmentType(mimeType: string): CreateAttachmentInput["attachmentType"] {
+function inferAttachmentType(mimeType: string): AttachmentType {
   if (mimeType.startsWith("image/")) return "image";
   if (mimeType.startsWith("audio/")) return "audio";
   if (mimeType.startsWith("video/")) return "video";

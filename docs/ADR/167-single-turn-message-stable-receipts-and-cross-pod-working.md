@@ -1,8 +1,9 @@
 # ADR-167: Single-turn message, stable receipts, and cross-pod Working
 
-- Status: Implemented locally; independent audits and local gate CLEAN
-- Date: 2026-07-28
+- Status: Implemented locally; amend for deliver-once + unified timeline pending full gate
+- Date: 2026-07-28 (amended 2026-07-29)
 - Baseline: `4c6738b00680c37fddf6e26299880ef9a814ee75`
+- Amend baseline tip before this slice: `548febf3`
 
 ## Context
 
@@ -22,6 +23,13 @@ separate failures in one ordinary web `USER_TURN`:
    POST stream on another pod did not receive them. The POST registered the bus identity
    without attaching a consumer, while owner-pod `attachLocal()` did not subscribe to
    durable remote publishes.
+
+Post-deploy live acceptance on `persai.dev` then proved an additional delivery/UX failure:
+
+5. Worker delivery created a chat attachment, then `files.attach` of the same identity
+   created a second attachment row. The web showed a separate receipt rail outside
+   «Выполнено» chronology, duplicate thumbnails, and technical «Получено…» lines on
+   async-continuation bubbles that only delivered attachments.
 
 The exact historical sticky-Working event order was not retained and was not reproduced.
 The unversioned resurrection seam is therefore treated as bounded terminal hardening, not
@@ -48,15 +56,35 @@ forwarded by this attached path; direct token/tool callbacks remain direct.
 Delete `AssistantBodyHighWater` and its terminal-persistent `min-height`. Normal document
 flow owns message height. No viewport measurement is persisted or remembered.
 
-### D4. One process badge and durable receipt projection
+### D4. One process badge and delivery-ordered timeline inside «Выполнено»
 
-Receipts are derived from persisted attachments plus `inlineMediaPlacement`; no receipt
-table or second event model is introduced. A message renders exactly one process badge.
-Its receipt rail is separate, ordered by tool placement, and remains visible in live,
-committed, reattached, and F5 history states. The full attachment strip also appears at
-terminal.
+Ordinary open `USER_TURN` renders exactly one process badge. Successful delivery and
+completion events append into that badge’s expanded timeline in actual delivery order.
+There is **no separate receipt rail**. `inlineMediaPlacement` remains a durable order
+hint for F5/history hydrate; it is not a sibling presentation authority outside the
+process badge. The full attachment strip also appears at terminal.
 
-### D5. Terminal jobs cannot be resurrected client-side
+Standalone async continuation may own its own «Выполнено» when it performed real work.
+Attachment-only delivery on a continuation must not show technical internal-delivery
+«Получено изображение/файл» copy.
+
+### D5. Atomic deliver-once by canonical identity
+
+All chat attachment creates for assistant delivery go through one coordinator
+(`DeliverChatAttachmentOnceService`) under message-row serialization. Identity is
+canonical, not filename:
+
+- media: artifact id when present, plus workspace artifact path aliases (including
+  renamed persisted storage paths); legacy rows still match exact `storagePath`
+- document: `docId` + `versionId` (or version number); a new version is a new deliverable;
+  the same version is a duplicate
+
+`files.attach` of an already-delivered identity returns structured model-visible
+`already_delivered` and must not emit a second artifact or second attachment row. Ready
+artifact delivery also clears that job from Working via existing `async_jobs_open`
+terminal truth.
+
+### D6. Terminal jobs cannot be resurrected client-side
 
 `async_jobs_open` may carry the exact terminal media/document job identity that caused the
 snapshot. The client records a chat-scoped in-memory tombstone, removes that job, and
@@ -66,36 +94,41 @@ proves a broader ordering failure.
 
 ## Non-goals
 
-- No new presentation registry, receipt table, or universal process timeline.
-- No Prisma migration or persisted browser-layout state.
-- No change to async continuation narration ownership.
+- No new presentation registry, receipt table, Prisma migration, or persisted layout state.
+- No new ADR for this amend; long-term truth stays on ADR-167.
+- No change that reopens ADR-162 queue/eligibility mechanics beyond publish bind to the
+  open turn message.
 - No replacement of the full turn stream with a bus-only token stream.
 
 ## Acceptance
 
 1. Async completion-first and stream-first interleavings produce one assistant row and one
-   attachment set.
+   attachment set per delivered identity.
 2. Remote-pod `media` and `async_jobs_open` reach the original POST exactly once and in
    sequence.
-3. One process badge and the same receipt text survive live → commit → F5; the terminal
-   attachment strip is also present.
-4. No remembered or fixed assistant-body `min-height` remains.
-5. A stale snapshot cannot re-add a terminal job after its terminal identity was observed.
-6. Focused tests, full repository verification, independent audits, and an authenticated
+3. One process badge; delivery-ordered timeline text survives live → commit → F5 inside
+   «Выполнено»; the terminal attachment strip is also present; no separate receipt rail.
+4. Worker delivery then `files.attach` of the same identity yields one attachment row and
+   model-visible `already_delivered`.
+5. Same document version is not re-delivered; a new document version is deliverable.
+6. No remembered or fixed assistant-body `min-height` remains.
+7. A stale snapshot cannot re-add a terminal job after its terminal identity was observed.
+8. Async-continuation attachment-only delivery does not show technical «Получено…».
+9. Focused tests, full repository verification, independent audits, and an authenticated
    mixed image/PDF live smoke pass before production acceptance.
 
 ## Local implementation evidence
 
-- D1–D5 are implemented on baseline
-  `4c6738b00680c37fddf6e26299880ef9a814ee75`.
-- Final independent API and web audits returned CLEAN with no P0/P1/P2.
-- Focused API race, document-delivery, durable-bus, finalization, and attempt-identity
-  coverage passed: five files, 51 passed and one optional Postgres probe skipped because
-  no local Postgres was available.
-- Focused web receipt, terminal strip, F5/history, Retry/Cancel, and Working coverage
-  passed: three files / 264 tests.
-- Mandatory repository gate passed: recursive lint, `format:check`, API typecheck, and web
-  typecheck.
+- D1–D3 and D6 landed on baseline `4c6738b0` / tip `52c1e606` with CI follow-up
+  `548febf3`.
+- 2026-07-29 amend implements D4–D5 locally: deliver-once coordinator, runtime
+  `already_delivered`, unified process-badge timeline, ADR reconcile.
+- Cleanup audit follow-through: MediaDelivery peeks delivery identity before
+  download; ConversationalPublish residual selection uses the same identity
+  matcher (not renamed `storagePath` alone); dead
+  `AssistantChatMessageAttachmentRepository.create` removed; stream
+  `liveSyncMediaPresent.deliveredIdentities` kept as process-local POST
+  optimization beside durable deliver-once.
 - Production acceptance still requires deploy plus authenticated mixed image/PDF live
   smoke including completion-first/stream-first, cross-pod delivery, terminal commit, and
   F5.

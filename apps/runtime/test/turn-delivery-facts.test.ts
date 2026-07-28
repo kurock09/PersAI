@@ -25,6 +25,25 @@ describe("turn-delivery-facts", () => {
     assert.deepEqual(finalizeTurnDeliveryFacts(tracker).attachedPaths, [wp("a.pdf")]);
   });
 
+  test("recordTurnDeliveryFactsFromToolOutcome tracks already_delivered as attached", () => {
+    const tracker = createEmptyTurnDeliveryFacts();
+    recordTurnDeliveryFactsFromToolOutcome({
+      tracker,
+      toolName: "files",
+      isError: false,
+      payload: {
+        toolCode: "files",
+        executionMode: "inline",
+        requestedAction: "attach",
+        action: "already_delivered",
+        reason: null,
+        warning: null,
+        path: wp("report.csv")
+      }
+    });
+    assert.deepEqual(finalizeTurnDeliveryFacts(tracker).attachedPaths, [wp("report.csv")]);
+  });
+
   test("recordTurnDeliveryFactsFromToolOutcome tracks render without attach", () => {
     const tracker = createEmptyTurnDeliveryFacts();
     recordTurnDeliveryFactsFromToolOutcome({

@@ -144,7 +144,10 @@ function recordFilesToolDeliveryFacts(
   tracker: RuntimeTurnDeliveryFactsTracker,
   payload: RuntimeFilesToolResult
 ): void {
-  if (payload.action === "attached" && typeof payload.path === "string") {
+  if (
+    (payload.action === "attached" || payload.action === "already_delivered") &&
+    typeof payload.path === "string"
+  ) {
     appendUniquePath(tracker.attachedPaths, payload.path);
     return;
   }

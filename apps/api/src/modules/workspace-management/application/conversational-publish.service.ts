@@ -15,6 +15,7 @@ import {
   buildAssistantDocumentLinkMetadata,
   normalizeDocumentWorkspaceFacts
 } from "./assistant-document-link-metadata";
+import { attachmentMatchesDeliveryIdentity } from "./deliver-chat-attachment-once.service";
 import { MediaDeliveryService } from "./media/media-delivery.service";
 import { ResolveTelegramChannelRuntimeConfigService } from "./resolve-telegram-channel-runtime-config.service";
 import { parseTelegramChatIdFromSurfaceThreadKey } from "./telegram-assistant-chat-outbound.service";
@@ -263,7 +264,8 @@ export class ConversationalPublishService {
       existingAttachmentCount > 0
         ? await this.selectRemainingMediaArtifacts({
             messageId,
-            artifacts: workingPayload.artifacts
+            artifacts: workingPayload.artifacts,
+            documentIdentity: { docId: job.docId, versionId: job.versionId }
           })
         : workingPayload.artifacts;
     if (remainingArtifacts.length === 0) {
@@ -285,6 +287,11 @@ export class ConversationalPublishService {
         messageId,
         workspaceId: input.workspaceId,
         settleQuota: false,
+        deliveryIdentity: {
+          kind: "document",
+          docId: job.docId,
+          versionId: job.versionId
+        },
         ...(channelTarget === undefined ? {} : { channelTarget })
       });
     } catch (error) {
@@ -410,34 +417,47 @@ export class ConversationalPublishService {
   }
 
   /**
-   * Resume partial attach by durable storagePath identity only.
-   * No count-tail heuristics — without paths, fail closed so retry is explicit.
+   * Resume partial attach by ADR-167 delivery identity (artifact id / workspace
+   * path aliases), not renamed storagePath alone. Fail closed without a path.
    */
   private async selectRemainingMediaArtifacts(input: {
     messageId: string;
     artifacts: RuntimeOutputArtifact[];
+    documentIdentity?: { docId: string; versionId: string };
   }): Promise<RuntimeOutputArtifact[]> {
     const existingAttachments = await this.attachmentRepository.listByMessageId(input.messageId);
     if (existingAttachments.length === 0) {
       return input.artifacts;
     }
-    const attachedPaths = new Set(
-      existingAttachments
-        .map((attachment) =>
-          typeof attachment.storagePath === "string" ? attachment.storagePath.trim() : ""
-        )
-        .filter((path) => path.length > 0)
-    );
+    if (input.documentIdentity !== undefined) {
+      const already = existingAttachments.some((attachment) =>
+        attachmentMatchesDeliveryIdentity(attachment, {
+          kind: "document",
+          docId: input.documentIdentity!.docId,
+          versionId: input.documentIdentity!.versionId
+        })
+      );
+      return already ? [] : input.artifacts;
+    }
     const artifactsHavePaths = input.artifacts.every(
       (artifact) =>
         typeof artifact.storagePath === "string" && artifact.storagePath.trim().length > 0
     );
-    if (!artifactsHavePaths || attachedPaths.size === 0) {
+    if (!artifactsHavePaths) {
       throw new Error(
-        "ConversationalPublish cannot resume partial attach without storagePath identity on artifacts and attachments."
+        "ConversationalPublish cannot resume partial attach without storagePath identity on artifacts."
       );
     }
-    return input.artifacts.filter((artifact) => !attachedPaths.has(artifact.storagePath.trim()));
+    return input.artifacts.filter((artifact) => {
+      const path = artifact.storagePath.trim();
+      return !existingAttachments.some((attachment) =>
+        attachmentMatchesDeliveryIdentity(attachment, {
+          kind: "media",
+          artifactId: artifact.artifactId ?? null,
+          workspaceArtifactPath: path
+        })
+      );
+    });
   }
 
   private async resolveTelegramChannelTarget(assistantId: string, chatId: string) {

@@ -263,6 +263,7 @@ describe("SendNativeTelegramTurnService", () => {
       assert.deepEqual(result.media, [
         {
           source: "persai_object_storage",
+          artifactId: "artifact-1",
           objectKey: `${TELEGRAM_SESSION_ROOT}/reply.ogg`,
           type: "audio",
           mimeType: "audio/ogg",
@@ -714,6 +715,7 @@ describe("SendNativeTelegramTurnService", () => {
       assert.deepEqual(result.media, [
         {
           source: "persai_object_storage",
+          artifactId: "artifact-degraded-1",
           objectKey: `${TELEGRAM_SESSION_ROOT}/degraded.png`,
           type: "image",
           mimeType: "image/png",

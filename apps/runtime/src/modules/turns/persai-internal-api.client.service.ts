@@ -501,6 +501,7 @@ export type RegisterChatAttachmentInput = {
 export type RegisterChatAttachmentOutcome = {
   attachmentId: string;
   storagePath: string;
+  alreadyDelivered: boolean;
 };
 
 // ADR-074 Slice M3 — opt-in explicit close of an active open-loop entry,
@@ -1157,7 +1158,8 @@ export class PersaiInternalApiClientService {
     }
     return {
       attachmentId: payload.attachmentId,
-      storagePath: payload.storagePath
+      storagePath: payload.storagePath,
+      alreadyDelivered: payload.alreadyDelivered === true
     };
   }
 

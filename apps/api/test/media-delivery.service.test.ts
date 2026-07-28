@@ -59,23 +59,33 @@ const fakeRegisterChatAttachmentService = {
     originalFilename: string;
     sizeBytes: number;
     attachmentType: string;
+    metadata?: Record<string, unknown> | null;
   }) {
     const attachment = createAttachment({
+      id: `att-${registeredAttachments.size + 1}`,
       storagePath: input.storagePath,
       mimeType: input.mimeType,
       originalFilename: input.originalFilename,
       sizeBytes: BigInt(input.sizeBytes),
-      attachmentType: input.attachmentType as AssistantChatMessageAttachment["attachmentType"]
+      attachmentType: input.attachmentType as AssistantChatMessageAttachment["attachmentType"],
+      metadata: input.metadata ?? null
     });
     registeredAttachments.set(attachment.id, attachment);
-    return { attachmentId: attachment.id, storagePath: input.storagePath };
+    return {
+      attachmentId: attachment.id,
+      storagePath: input.storagePath,
+      alreadyDelivered: false
+    };
   }
 };
 
-function attachmentRepositoryWithRegisterLookup() {
+function attachmentRepositoryWithRegisterLookup(existing: AssistantChatMessageAttachment[] = []) {
   return {
     async findById(id: string) {
-      return registeredAttachments.get(id) ?? null;
+      return registeredAttachments.get(id) ?? existing.find((row) => row.id === id) ?? null;
+    },
+    async listByMessageId() {
+      return [...existing, ...registeredAttachments.values()];
     }
   };
 }
@@ -292,7 +302,11 @@ async function run(): Promise<void> {
     {
       async execute() {
         legacyObjectKeyRegisterCalls += 1;
-        return { attachmentId: "att-legacy", storagePath: `${CHAT_SESSION_ROOT}/ignored.png` };
+        return {
+          attachmentId: "att-legacy",
+          storagePath: `${CHAT_SESSION_ROOT}/ignored.png`,
+          alreadyDelivered: false
+        };
       }
     } as never,
     fakeWorkspaceFileMetadataService as never,
@@ -747,32 +761,24 @@ async function run(): Promise<void> {
     { operation: "reconcile", toolCode: "image_generate" }
   ]);
 
-  let oversizedVideoAttachmentCreates = 0;
+  let oversizedVideoRegisterCalls = 0;
   const oversizedVideoService = new MediaDeliveryService(
-    {
-      ...attachmentRepositoryWithRegisterLookup(),
-      async create(input: {
-        attachmentType: string;
-        originalFilename: string | null;
-        mimeType: string;
-        sizeBytes: bigint;
-        metadata: Record<string, unknown> | null;
-      }) {
-        oversizedVideoAttachmentCreates += 1;
-        return createAttachment({
-          id: "att-external-video-1",
-          attachmentType: input.attachmentType as "video",
-          originalFilename: input.originalFilename,
-          mimeType: input.mimeType,
-          sizeBytes: input.sizeBytes,
-          metadata: input.metadata
-        });
-      }
-    } as never,
+    attachmentRepositoryWithRegisterLookup() as never,
     noopAssistantRepository as never,
     [],
     fakeMediaObjectStorage() as never,
-    fakeRegisterChatAttachmentService as never,
+    {
+      async execute(input: {
+        storagePath: string;
+        mimeType: string;
+        originalFilename: string;
+        sizeBytes: number;
+        attachmentType: string;
+      }) {
+        oversizedVideoRegisterCalls += 1;
+        return fakeRegisterChatAttachmentService.execute(input);
+      }
+    } as never,
     fakeWorkspaceFileMetadataService as never,
     noopQuotaUsageService as never,
     new PlatformHttpMetricsService(),
@@ -806,7 +812,7 @@ async function run(): Promise<void> {
     workspaceId: "workspace-1",
     runtimeSessionId: RUNTIME_SESSION_ID
   });
-  assert.equal(oversizedVideoAttachmentCreates, 1);
+  assert.equal(oversizedVideoRegisterCalls, 1);
   assert.equal(oversizedVideoDelivered.attachments.length, 1);
   assert.equal(oversizedVideoDelivered.attachments[0]?.attachmentType, "video");
   assert.equal(
@@ -822,6 +828,103 @@ async function run(): Promise<void> {
     oversizedVideoDelivered.externalDeliveries?.[0]?.url,
     "https://files.heygen.ai/video/promo.mp4"
   );
+
+  // ADR-167 — already-delivered identity skips download, register, and settle.
+  let alreadyDeliveredDownloads = 0;
+  let alreadyDeliveredRegisters = 0;
+  let alreadyDeliveredSettles = 0;
+  const existingDeliveredPath = `${CHAT_SESSION_ROOT}/already-delivered.png`;
+  const existingDeliveredAttachment = createAttachment({
+    id: "att-already-1",
+    storagePath: `${CHAT_SESSION_ROOT}/renamed-already-delivered.png`,
+    originalFilename: "renamed-already-delivered.png",
+    mimeType: "image/png",
+    sizeBytes: BigInt(9),
+    attachmentType: "image",
+    metadata: {
+      kind: "image_generate",
+      deliveryIdentity: {
+        canonicalKey: "media:artifact:already-1",
+        aliases: ["media:artifact:already-1", `media:workspace:${existingDeliveredPath}`]
+      }
+    }
+  });
+  const alreadyDeliveredService = new MediaDeliveryService(
+    attachmentRepositoryWithRegisterLookup([existingDeliveredAttachment]) as never,
+    noopAssistantRepository as never,
+    [
+      {
+        channel: "telegram",
+        async sendImage() {
+          throw new Error("adapter must not run for alreadyDelivered");
+        },
+        async sendVoice() {},
+        async sendAudio() {},
+        async sendDocument() {},
+        async sendVideo() {}
+      }
+    ],
+    fakeMediaObjectStorage({
+      downloadObject: async () => {
+        alreadyDeliveredDownloads += 1;
+        return {
+          buffer: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]),
+          contentType: "image/png"
+        };
+      }
+    }) as never,
+    {
+      async execute() {
+        alreadyDeliveredRegisters += 1;
+        throw new Error("register must not run for alreadyDelivered");
+      }
+    } as never,
+    fakeWorkspaceFileMetadataService as never,
+    {
+      async settleAssistantMonthlyMediaQuota() {
+        alreadyDeliveredSettles += 1;
+      },
+      async markAssistantMonthlyMediaQuotaReconciliationRequired() {
+        alreadyDeliveredSettles += 1;
+      }
+    } as never,
+    new PlatformHttpMetricsService(),
+    noopRecordModelCostLedgerService,
+    {} as never,
+    {} as never,
+    {} as never,
+    fakeResolveAssistantInboundRuntimeContextService,
+    fakeWebRuntimeSessionStateClientService
+  );
+  const alreadyDeliveredResult = await alreadyDeliveredService.deliver({
+    artifacts: [
+      {
+        source: "persai_object_storage",
+        objectKey: existingDeliveredPath,
+        type: "image",
+        artifactId: "already-1",
+        sourceToolCode: "image_generate",
+        mimeType: "image/png",
+        filename: "already-delivered.png",
+        sizeBytes: 9
+      }
+    ],
+    channel: "telegram",
+    assistantId: "assistant-1",
+    chatId: "chat-1",
+    messageId: "msg-1",
+    workspaceId: "workspace-1",
+    runtimeSessionId: RUNTIME_SESSION_ID,
+    channelTarget: {
+      channel: "telegram",
+      chatId: "tg-chat-1"
+    }
+  });
+  assert.equal(alreadyDeliveredResult.attachments.length, 1);
+  assert.equal(alreadyDeliveredResult.attachments[0]?.id, "att-already-1");
+  assert.equal(alreadyDeliveredDownloads, 0);
+  assert.equal(alreadyDeliveredRegisters, 0);
+  assert.equal(alreadyDeliveredSettles, 0);
 
   globalThis.fetch = originalFetch;
 }

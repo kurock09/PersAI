@@ -160,6 +160,7 @@ import { GlobWorkspaceFilesFromManifestService } from "./application/glob-worksp
 import { ListWorkspaceFilesFromManifestService } from "./application/list-workspace-files-from-manifest.service";
 import { ListChatWorkspaceFilesService } from "./application/list-chat-workspace-files.service";
 import { RegisterChatAttachmentService } from "./application/register-chat-attachment.service";
+import { DeliverChatAttachmentOnceService } from "./application/deliver-chat-attachment-once.service";
 import { SandboxControlPlaneClientService } from "./application/sandbox-control-plane.client.service";
 import { UpsertWorkspaceFileMetadataFromRuntimeService } from "./application/upsert-workspace-file-metadata-from-runtime.service";
 import { DeleteWorkspaceFileFromRuntimeService } from "./application/delete-workspace-file-from-runtime.service";
@@ -620,6 +621,7 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     GlobWorkspaceFilesFromManifestService,
     ListWorkspaceFilesFromManifestService,
     ListChatWorkspaceFilesService,
+    DeliverChatAttachmentOnceService,
     RegisterChatAttachmentService,
     SandboxControlPlaneClientService,
     UpsertWorkspaceFileMetadataFromRuntimeService,

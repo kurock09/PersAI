@@ -147,11 +147,11 @@ function buildVideoSettleService(opts?: {
   const loggedLines: string[] = [];
 
   const attachmentRepo = {
-    async create() {
-      return buildAttachment();
-    },
     async findById(id: string) {
       return buildAttachment({ id });
+    },
+    async listByMessageId() {
+      return [];
     }
   } as never;
 
@@ -192,7 +192,11 @@ function buildVideoSettleService(opts?: {
 
   const registerChatAttachment = {
     async execute() {
-      return { attachmentId: "att-vid-1", storagePath: `${SESSION_ROOT}/clip.mp4` };
+      return {
+        attachmentId: "att-vid-1",
+        storagePath: `${SESSION_ROOT}/clip.mp4`,
+        alreadyDelivered: false
+      };
     }
   } as never;
 

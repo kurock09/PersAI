@@ -5,6 +5,28 @@
 
 ## 2026-07-29
 
+- **fix(adr-167): delivery-flow cleanup audit (local CLEAN).** Independent
+  API audit removed parallel/dead create paths after deliver-once: MediaDelivery
+  peeks canonical identity before download/register/adapter/settle;
+  ConversationalPublish residual selection uses the same identity matcher;
+  dead `AssistantChatMessageAttachmentRepository.create` removed; stream
+  `liveSyncMediaPresent.deliveredIdentities` kept as process-local POST
+  optimization beside durable deliver-once. Focused delivery suites green;
+  commit/full gate/deploy+live smoke remain.
+
+- **fix(adr-167): deliver-once + unified «Выполнено» timeline (local).**
+  Post-deploy live repro showed worker delivery then `files.attach` of the
+  same identity creating a second attachment row, a separate receipt rail
+  outside process chronology, and technical «Получено…» on attachment-only
+  async continuations. Amend keeps one ADR-167: atomic
+  `DeliverChatAttachmentOnceService` by canonical media/document identity;
+  runtime `files.attach` registers through the open USER_TURN bind and returns
+  model-visible `already_delivered` without a second artifact; media delivery
+  skips channel re-send on duplicates; web retires the sibling receipt rail and
+  projects delivery-ordered receipts inside the one process badge; async-cont
+  attachment-only suppresses technical receipt copy. Docs reconciled. Full
+  gate / independent delivery-flow audit / deploy+live smoke remain next.
+
 - **fix(api/tests): restore ADR-149 tool-progress completion after ADR-167.**
   GitHub CI caught a stale stream-service test double after the null-only
   assistant-message binding contract landed. `tool_progress` no longer creates

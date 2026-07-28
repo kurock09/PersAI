@@ -62,6 +62,13 @@ function createService(input: { apiClient?: Record<string, unknown> } = {}) {
     async getWorkspaceFileMetadata() {
       return null;
     },
+    async registerChatAttachment(input: Record<string, unknown>) {
+      return {
+        attachmentId: "attachment-1",
+        storagePath: String(input.storagePath),
+        alreadyDelivered: false
+      };
+    },
     ...input.apiClient
   };
   return new RuntimeFilesToolService(
@@ -97,16 +104,20 @@ const attachToolCallParams = {
   messageId: "message-1"
 };
 
-test("files.attach happy path workspace source emits assistant artifact", async () => {
-  let apiCalled = false;
+test("files.attach happy path workspace source registers and emits assistant artifact", async () => {
+  const registerCalls: Record<string, unknown>[] = [];
   const service = createService({
     apiClient: {
       async getWorkspaceFileMetadata() {
         return attachMetadata(wp("report.csv"));
       },
-      async registerChatAttachment() {
-        apiCalled = true;
-        throw new Error("files.attach should not register mid-turn");
+      async registerChatAttachment(input: Record<string, unknown>) {
+        registerCalls.push(input);
+        return {
+          attachmentId: "attachment-1",
+          storagePath: wp("report.csv"),
+          alreadyDelivered: false
+        };
       }
     }
   });
@@ -121,7 +132,10 @@ test("files.attach happy path workspace source emits assistant artifact", async 
     ...attachToolCallParams
   });
 
-  assert.equal(apiCalled, false);
+  assert.equal(registerCalls.length, 1);
+  assert.equal(registerCalls[0]?.kind, "files.attach");
+  assert.equal(registerCalls[0]?.storagePath, wp("report.csv"));
+  assert.equal(registerCalls[0]?.messageId, "message-1");
   assert.equal(result.isError, false);
   assert.equal(result.payload.action, "attached");
   assert.equal(result.payload.path, wp("report.csv"));
@@ -142,16 +156,57 @@ test("files.attach happy path workspace source emits assistant artifact", async 
   assert.match(modelJson, /"path":".*report\.csv"/);
 });
 
-test("files.attach session-root image file emits assistant artifact", async () => {
-  let apiCalled = false;
+test("files.attach alreadyDelivered returns already_delivered without artifact", async () => {
+  let registerCalled = false;
+  const service = createService({
+    apiClient: {
+      async getWorkspaceFileMetadata() {
+        return attachMetadata(wp("report.csv"));
+      },
+      async registerChatAttachment() {
+        registerCalled = true;
+        return {
+          attachmentId: "attachment-existing",
+          storagePath: wp("report.csv"),
+          alreadyDelivered: true
+        };
+      }
+    }
+  });
+
+  const result = await service.executeToolCall({
+    bundle: createBundle(),
+    toolCall: {
+      id: "tc-already",
+      name: "files",
+      arguments: { action: "attach", path: wp("report.csv") }
+    },
+    ...attachToolCallParams
+  });
+
+  assert.equal(registerCalled, true);
+  assert.equal(result.isError, false);
+  assert.equal(result.payload.action, "already_delivered");
+  assert.equal(result.payload.path, wp("report.csv"));
+  assert.equal(result.artifacts, undefined);
+  const modelJson = stringifyToolResultPayloadForModel(result.payload);
+  assert.match(modelJson, /"action":"already_delivered"/);
+});
+
+test("files.attach session-root image file registers and emits assistant artifact", async () => {
+  let registerCalled = false;
   const service = createService({
     apiClient: {
       async getWorkspaceFileMetadata() {
         return attachMetadata(wp("report.png"), "image/png", 12);
       },
       async registerChatAttachment() {
-        apiCalled = true;
-        throw new Error("files.attach should not register mid-turn");
+        registerCalled = true;
+        return {
+          attachmentId: "attachment-2",
+          storagePath: wp("report.png"),
+          alreadyDelivered: false
+        };
       }
     }
   });
@@ -166,7 +221,7 @@ test("files.attach session-root image file emits assistant artifact", async () =
     ...attachToolCallParams
   });
 
-  assert.equal(apiCalled, false);
+  assert.equal(registerCalled, true);
   assert.equal(result.payload.action, "attached");
   assert.equal(result.artifacts?.[0]?.kind, "image");
   assert.equal(result.artifacts?.[0]?.filename, "report.csv");
@@ -179,7 +234,11 @@ test("files.attach path_not_attachable does not call API", async () => {
     apiClient: {
       async registerChatAttachment() {
         apiCalled = true;
-        return { attachmentId: "attachment-3", storagePath: wp("report.csv") };
+        return {
+          attachmentId: "attachment-3",
+          storagePath: wp("report.csv"),
+          alreadyDelivered: false
+        };
       }
     }
   });

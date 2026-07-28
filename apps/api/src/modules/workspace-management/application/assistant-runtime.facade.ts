@@ -72,6 +72,7 @@ export type RuntimeMediaArtifactType = "image" | "audio" | "video" | "document";
 
 export interface RuntimeUrlMediaArtifact {
   source: "runtime_url";
+  artifactId?: string | null;
   url: string;
   type: RuntimeMediaArtifactType;
   sourceToolCode?: "image_generate" | "image_edit" | "video_generate" | "tts" | "document" | null;
@@ -85,6 +86,7 @@ export interface RuntimeUrlMediaArtifact {
 
 export interface PersaiObjectStorageRuntimeMediaArtifact {
   source: "persai_object_storage";
+  artifactId?: string | null;
   objectKey: string;
   type: RuntimeMediaArtifactType;
   sourceToolCode?: "image_generate" | "image_edit" | "video_generate" | "tts" | "document" | null;
@@ -287,6 +289,7 @@ export function runtimeOutputArtifactsToMediaArtifacts(
     }
     mediaArtifacts.push({
       source: "persai_object_storage",
+      artifactId: artifact.artifactId,
       objectKey: artifact.storagePath,
       type,
       ...(artifact.sourceToolCode === undefined ||

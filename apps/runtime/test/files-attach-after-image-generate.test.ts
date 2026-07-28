@@ -63,9 +63,13 @@ test("AC11: read shared-outbound artefact then attach workspace edit", async () 
       }
       return null;
     },
-    async registerChatAttachment() {
+    async registerChatAttachment(input: { storagePath: string }) {
       apiCalled = true;
-      throw new Error("files.attach should not register mid-turn");
+      return {
+        attachmentId: "attachment-edited",
+        storagePath: input.storagePath,
+        alreadyDelivered: false
+      };
     }
   };
 
@@ -127,7 +131,7 @@ test("AC11: read shared-outbound artefact then attach workspace edit", async () 
 
   assert.equal(attachResult.isError, false);
   assert.equal(attachResult.payload.action, "attached");
-  assert.equal(apiCalled, false);
+  assert.equal(apiCalled, true);
   assert.equal(attachResult.discoveredFileHandles, undefined);
   assert.equal(attachResult.artifacts?.[0]?.storagePath, editedPath);
   assert.equal(attachResult.artifacts?.[0]?.mimeType, "image/png");

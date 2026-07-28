@@ -758,6 +758,50 @@ export class RuntimeFilesToolService {
         isError: true
       };
     }
+    if (params.externalThreadKey === null || params.externalThreadKey.trim().length === 0) {
+      return {
+        payload: {
+          toolCode: "files",
+          executionMode: "inline",
+          requestedAction: "attach",
+          action: "skipped",
+          reason: "register_failed",
+          warning: "files.attach requires an external thread key to register chat delivery.",
+          path: outcome.workspaceRelPath
+        },
+        isError: true
+      };
+    }
+    const registered = await this.persaiInternalApiClientService.registerChatAttachment({
+      assistantId: params.bundle.metadata.assistantId,
+      workspaceId: params.bundle.metadata.workspaceId,
+      channel: params.channel,
+      externalThreadKey: params.externalThreadKey,
+      messageId: params.messageId,
+      storagePath: outcome.workspaceRelPath,
+      attachmentType: this.resolveAttachmentTypeForMime(outcome.mimeType),
+      mimeType: outcome.mimeType,
+      sizeBytes: outcome.sizeBytes,
+      originalFilename: outcome.displayName,
+      kind: "files.attach"
+    });
+    if (registered.alreadyDelivered) {
+      return {
+        payload: {
+          toolCode: "files",
+          executionMode: "inline",
+          requestedAction: "attach",
+          action: "already_delivered",
+          reason: null,
+          warning: null,
+          path: outcome.workspaceRelPath,
+          mimeType: outcome.mimeType,
+          displayName: outcome.displayName,
+          sizeBytes: outcome.sizeBytes
+        },
+        isError: false
+      };
+    }
     const outputArtifact: RuntimeOutputArtifact = {
       artifactId: randomUUID(),
       storagePath: outcome.workspaceRelPath,

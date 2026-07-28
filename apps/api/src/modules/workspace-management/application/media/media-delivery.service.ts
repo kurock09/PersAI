@@ -47,6 +47,10 @@ import {
   RegisterChatAttachmentService,
   type RegisterChatAttachmentKind
 } from "../register-chat-attachment.service";
+import {
+  attachmentMatchesDeliveryIdentity,
+  type ChatAttachmentDeliveryIdentity
+} from "../deliver-chat-attachment-once.service";
 import { resolveUniqueWorkspaceStoragePath } from "../resolve-workspace-storage-path";
 import { WorkspaceFileMetadataService } from "../workspace-file-metadata.service";
 import { TrackWorkspaceQuotaUsageService } from "../track-workspace-quota-usage.service";
@@ -64,6 +68,7 @@ import type { MediaChannel } from "./media.types";
 import { readPersistedDocumentLinkMetadata } from "../read-attachment-document-link";
 import { ResolveAssistantInboundRuntimeContextService } from "../resolve-assistant-inbound-runtime-context.service";
 import { WebRuntimeSessionStateClientService } from "../web-runtime-session-state-client.service";
+import type { AssistantChatMessageAttachment } from "../../domain/assistant-chat-message-attachment.entity";
 
 @Injectable()
 export class MediaDeliveryService {
@@ -116,6 +121,9 @@ export class MediaDeliveryService {
     const results: AssistantWebChatMessageAttachmentState[] = [];
     const externalDeliveries: NonNullable<DeliveredMedia["externalDeliveries"]> = [];
     const assistant = await this.assistantRepository.findById(params.assistantId);
+    // ADR-167 — load once so already-delivered identities skip download/adapter
+    // without a register round-trip per artifact.
+    const existingAttachments = await this.attachmentRepository.listByMessageId(params.messageId);
 
     for (const artifact of params.artifacts) {
       const startedAt = process.hrtime.bigint();
@@ -123,11 +131,13 @@ export class MediaDeliveryService {
       const isVcoinPricedArtifact = artifact.sourceToolCode === "video_generate";
       const monthlyQuotaToolCode = this.resolveMonthlyMediaQuotaToolCode(artifact);
       try {
-        const persisted = await this.persistArtifact(artifact, params);
+        const persisted = await this.persistArtifact(artifact, params, existingAttachments);
         if ("externalDelivery" in persisted) {
           externalDeliveries.push(persisted.externalDelivery);
           results.push(persisted.state);
-          if (params.settleQuota !== false) {
+          // ADR-167 — identity already on the open assistant message: no
+          // channel re-send / quota side-effects.
+          if (!persisted.alreadyDelivered && params.settleQuota !== false) {
             if (isVcoinPricedArtifact) {
               await this.settleVideoGenerateWithVcoinDebit({
                 assistant,
@@ -145,7 +155,7 @@ export class MediaDeliveryService {
           continue;
         }
 
-        if (adapter && params.channelTarget) {
+        if (!persisted.alreadyDelivered && adapter && params.channelTarget) {
           await this.sendViaAdapter(
             adapter,
             params.channelTarget,
@@ -163,7 +173,8 @@ export class MediaDeliveryService {
         //     → existing best-effort monthly-counter settle.
         // ADR-162 — ConversationalPublish may attach after artifact-ready
         // already settled quota/VC; skip a second settle in that case.
-        if (params.settleQuota !== false) {
+        // ADR-167 — skip settle when deliver-once returned alreadyDelivered.
+        if (!persisted.alreadyDelivered && params.settleQuota !== false) {
           if (isVcoinPricedArtifact) {
             await this.settleVideoGenerateWithVcoinDebit({
               assistant,
@@ -804,14 +815,66 @@ export class MediaDeliveryService {
     });
   }
 
-  private async persistArtifact(
+  private resolvePeekDeliveryIdentity(
     artifact: MediaArtifact,
     params: OutboundMediaDeliverParams
+  ): ChatAttachmentDeliveryIdentity | null {
+    if (params.deliveryIdentity !== undefined) {
+      return params.deliveryIdentity;
+    }
+    if (
+      artifact.source === "persai_object_storage" &&
+      this.isWorkspaceStoragePath(artifact.objectKey)
+    ) {
+      return {
+        kind: "media",
+        artifactId: artifact.artifactId ?? null,
+        workspaceArtifactPath: artifact.objectKey
+      };
+    }
+    return null;
+  }
+
+  private toAlreadyDeliveredPersistResult(attachment: AssistantChatMessageAttachment): {
+    state: AssistantWebChatMessageAttachmentState;
+    buffer: Buffer;
+    filename: string;
+    alreadyDelivered: true;
+  } {
+    // Replays skip download/adapter/settle. externalDelivery is first-create only.
+    return {
+      state: toAssistantWebChatMessageAttachmentState({
+        id: attachment.id,
+        storagePath: attachment.storagePath,
+        attachmentType: attachment.attachmentType,
+        originalFilename: attachment.originalFilename,
+        mimeType: attachment.mimeType,
+        sizeBytes: attachment.sizeBytes,
+        processingStatus: attachment.processingStatus,
+        metadata:
+          attachment.metadata !== null &&
+          typeof attachment.metadata === "object" &&
+          !Array.isArray(attachment.metadata)
+            ? (attachment.metadata as Record<string, unknown>)
+            : null,
+        createdAt: attachment.createdAt
+      }),
+      buffer: Buffer.alloc(0),
+      filename: attachment.originalFilename ?? "media",
+      alreadyDelivered: true
+    };
+  }
+
+  private async persistArtifact(
+    artifact: MediaArtifact,
+    params: OutboundMediaDeliverParams,
+    existingAttachments: AssistantChatMessageAttachment[]
   ): Promise<
     | {
         state: AssistantWebChatMessageAttachmentState;
         buffer: Buffer;
         filename: string;
+        alreadyDelivered: boolean;
       }
     | {
         state: AssistantWebChatMessageAttachmentState;
@@ -821,6 +884,7 @@ export class MediaDeliveryService {
           filename: string | null;
           reason: "file_too_large_for_inline_delivery";
         };
+        alreadyDelivered: boolean;
       }
   > {
     if (
@@ -830,6 +894,18 @@ export class MediaDeliveryService {
       throw new BadRequestException(
         "runtime artefact pipeline requires path-aware objectKey (W3 required); legacy assistant-media/ keys not accepted"
       );
+    }
+
+    // ADR-167 — skip download/validate/register when identity is already on
+    // this message. Adapter + settle are also skipped by the caller.
+    const peekIdentity = this.resolvePeekDeliveryIdentity(artifact, params);
+    if (peekIdentity !== null) {
+      const existing = existingAttachments.find((attachment) =>
+        attachmentMatchesDeliveryIdentity(attachment, peekIdentity)
+      );
+      if (existing !== undefined) {
+        return this.toAlreadyDeliveredPersistResult(existing);
+      }
     }
 
     const downloadResult = await this.downloadArtifactSource(artifact, params.workspaceId);
@@ -848,29 +924,43 @@ export class MediaDeliveryService {
         downloadResult.contentType !== "application/octet-stream"
           ? downloadResult.contentType
           : inferMimeFromUrlAndType(externalDownloadUrl, "video");
-      const attachment = await this.attachmentRepository.create({
+      const externalStoragePath = `${EXTERNAL_DOWNLOAD_STORAGE_PATH_PREFIX}messages/${params.messageId}`;
+      const registered = await this.registerChatAttachmentService.execute({
         messageId: params.messageId,
         chatId: params.chatId,
         assistantId: params.assistantId,
         workspaceId: params.workspaceId,
         attachmentType: "video",
-        storagePath: `${EXTERNAL_DOWNLOAD_STORAGE_PATH_PREFIX}messages/${params.messageId}`,
+        storagePath: externalStoragePath,
         originalFilename: filename,
         mimeType,
-        sizeBytes: BigInt(downloadResult.buffer.length),
+        sizeBytes: downloadResult.buffer.length,
+        kind: this.resolveRegisterKind(artifact),
         durationMs: null,
         width: null,
         height: null,
-        processingStatus: "ready",
         transcription: null,
         billingFacts: null,
-        metadata: buildStoredAttachmentMetadata({
-          source: "tool_output",
-          deliveryMode: "external_download",
-          externalDownloadUrl,
-          ...(artifact.source === "runtime_url" ? { originalUrl: artifact.url } : {})
-        })
+        metadata:
+          buildStoredAttachmentMetadata({
+            source: "tool_output",
+            deliveryMode: "external_download",
+            externalDownloadUrl,
+            ...(artifact.source === "runtime_url" ? { originalUrl: artifact.url } : {})
+          }) ?? {},
+        deliveryIdentity: {
+          kind: "media",
+          artifactId: artifact.artifactId ?? null,
+          workspaceArtifactPath: externalStoragePath
+        }
       });
+      const attachment = (await this.attachmentRepository.findById(registered.attachmentId))!;
+      if (
+        !registered.alreadyDelivered &&
+        !existingAttachments.some((entry) => entry.id === attachment.id)
+      ) {
+        existingAttachments.push(attachment);
+      }
       return {
         state: toAssistantWebChatMessageAttachmentState({
           id: attachment.id,
@@ -893,7 +983,8 @@ export class MediaDeliveryService {
           url: externalDownloadUrl,
           filename,
           reason: "file_too_large_for_inline_delivery"
-        }
+        },
+        alreadyDelivered: registered.alreadyDelivered
       };
     }
 
@@ -935,6 +1026,10 @@ export class MediaDeliveryService {
       artifact
     });
 
+    const sourceWorkspacePath =
+      artifact.source === "persai_object_storage" && this.isWorkspaceStoragePath(artifact.objectKey)
+        ? artifact.objectKey
+        : storagePath;
     const registered = await this.registerChatAttachmentService.execute({
       assistantId: params.assistantId,
       workspaceId: params.workspaceId,
@@ -950,11 +1045,23 @@ export class MediaDeliveryService {
       metadata: buildStoredAttachmentMetadata({
         source: "tool_output",
         ...(artifact.source === "runtime_url" ? { originalUrl: artifact.url } : {})
-      })
+      }),
+      deliveryIdentity: params.deliveryIdentity ?? {
+        kind: "media",
+        artifactId: artifact.artifactId ?? null,
+        workspaceArtifactPath: sourceWorkspacePath,
+        ...(sourceWorkspacePath === storagePath ? {} : { additionalWorkspacePaths: [storagePath] })
+      }
     });
     const attachment = (await this.attachmentRepository.findById(registered.attachmentId))!;
+    if (
+      !registered.alreadyDelivered &&
+      !existingAttachments.some((entry) => entry.id === attachment.id)
+    ) {
+      existingAttachments.push(attachment);
+    }
 
-    if (persistedBillingFacts !== null) {
+    if (!registered.alreadyDelivered && persistedBillingFacts !== null) {
       const ledgerSurface = this.resolveLedgerSurface(params.channel);
       if (ledgerSurface !== null) {
         const assistant = await this.assistantRepository.findById(params.assistantId);
@@ -996,7 +1103,8 @@ export class MediaDeliveryService {
         createdAt: attachment.createdAt
       }),
       buffer: downloadResult.buffer,
-      filename
+      filename,
+      alreadyDelivered: registered.alreadyDelivered
     };
   }
 

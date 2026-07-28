@@ -167,6 +167,7 @@ describe("WebRuntimeTurnClientService", () => {
       assert.deepEqual(result.media, [
         {
           source: "persai_object_storage",
+          artifactId: "artifact-1",
           objectKey: `${WEB_SESSION_ROOT}/one.png`,
           type: "image",
           mimeType: "image/png",

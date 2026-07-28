@@ -63,11 +63,38 @@ export class WebChatLiveTurnPresentService {
     chatId: string;
     userMessageId: string;
   }): Promise<OpenWebUserTurnAttempt | null> {
+    return this.findOpenOrdinaryUserTurnAttempt({
+      assistantId: input.assistantId,
+      chatId: input.chatId,
+      userMessageId: input.userMessageId
+    });
+  }
+
+  /**
+   * ADR-167 — chat-scoped open ordinary USER_TURN for runtime register when
+   * messageId is omitted. Same ownership filter as `findOpenUserTurnAttempt`
+   * (running, not async_continuation); does not invent a second binding path.
+   */
+  async findOpenOrdinaryUserTurnAttemptForChat(input: {
+    assistantId: string;
+    chatId: string;
+  }): Promise<OpenWebUserTurnAttempt | null> {
+    return this.findOpenOrdinaryUserTurnAttempt({
+      assistantId: input.assistantId,
+      chatId: input.chatId
+    });
+  }
+
+  private async findOpenOrdinaryUserTurnAttempt(input: {
+    assistantId: string;
+    chatId: string;
+    userMessageId?: string;
+  }): Promise<OpenWebUserTurnAttempt | null> {
     const row = await this.prisma.assistantWebChatTurnAttempt.findFirst({
       where: {
         assistantId: input.assistantId,
         chatId: input.chatId,
-        userMessageId: input.userMessageId,
+        ...(input.userMessageId === undefined ? {} : { userMessageId: input.userMessageId }),
         status: "running",
         OR: [{ surfaceClient: null }, { surfaceClient: { not: "async_continuation" } }]
       },

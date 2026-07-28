@@ -1,51 +1,17 @@
 import { Injectable } from "@nestjs/common";
-import { Prisma, type AssistantChatMessageAttachment as PrismaAttachment } from "@prisma/client";
+import type { AssistantChatMessageAttachment as PrismaAttachment } from "@prisma/client";
 import type { RuntimeBillingFacts } from "@persai/runtime-contract";
 import type {
   AssistantChatMessageAttachment,
   AttachmentProcessingStatus,
   AttachmentType
 } from "../../domain/assistant-chat-message-attachment.entity";
-import type {
-  AssistantChatMessageAttachmentRepository,
-  CreateAttachmentInput
-} from "../../domain/assistant-chat-message-attachment.repository";
+import type { AssistantChatMessageAttachmentRepository } from "../../domain/assistant-chat-message-attachment.repository";
 import { WorkspaceManagementPrismaService } from "./workspace-management-prisma.service";
 
 @Injectable()
 export class PrismaAssistantChatMessageAttachmentRepository implements AssistantChatMessageAttachmentRepository {
   constructor(private readonly prisma: WorkspaceManagementPrismaService) {}
-
-  async create(input: CreateAttachmentInput): Promise<AssistantChatMessageAttachment> {
-    const record = await this.prisma.assistantChatMessageAttachment.create({
-      data: {
-        messageId: input.messageId,
-        chatId: input.chatId,
-        assistantId: input.assistantId,
-        workspaceId: input.workspaceId,
-        attachmentType: input.attachmentType,
-        storagePath: input.storagePath,
-        thumbnailStoragePath: input.thumbnailStoragePath ?? null,
-        posterStoragePath: input.posterStoragePath ?? null,
-        originalFilename: input.originalFilename,
-        mimeType: input.mimeType,
-        sizeBytes: input.sizeBytes,
-        durationMs: input.durationMs,
-        width: input.width,
-        height: input.height,
-        processingStatus: input.processingStatus,
-        transcription: input.transcription,
-        billingFactsJson:
-          input.billingFacts === undefined || input.billingFacts === null
-            ? Prisma.DbNull
-            : (input.billingFacts as unknown as Prisma.InputJsonValue),
-        metadata: input.metadata ? (input.metadata as Prisma.InputJsonValue) : Prisma.DbNull,
-        clientTurnId: input.clientTurnId ?? null,
-        clientAttachmentId: input.clientAttachmentId ?? null
-      }
-    });
-    return this.mapToDomain(record);
-  }
 
   async findById(id: string): Promise<AssistantChatMessageAttachment | null> {
     const record = await this.prisma.assistantChatMessageAttachment.findUnique({

@@ -67,7 +67,8 @@ function createService(
     async registerChatAttachment() {
       return {
         attachmentId: "attachment-1",
-        storagePath: wp("report.csv")
+        storagePath: wp("report.csv"),
+        alreadyDelivered: false
       };
     },
     async getWorkspaceFileMetadata() {
@@ -174,12 +175,21 @@ const attachToolCallParams = {
 
 test("files.attach happy path workspace source returns artifact from storage plane", async () => {
   let metadataCalled = false;
+  let registerCalled = false;
   const service = createService({
     apiClient: {
       async getWorkspaceFileMetadata(input: Record<string, unknown>) {
         metadataCalled = true;
         assert.equal(input.path, wp("report.csv"));
         return attachMetadata(wp("report.csv"));
+      },
+      async registerChatAttachment() {
+        registerCalled = true;
+        return {
+          attachmentId: "attachment-1",
+          storagePath: wp("report.csv"),
+          alreadyDelivered: false
+        };
       }
     }
   });
@@ -195,6 +205,7 @@ test("files.attach happy path workspace source returns artifact from storage pla
   });
 
   assert.equal(metadataCalled, true);
+  assert.equal(registerCalled, true);
   assert.equal(result.isError, false);
   assert.equal(result.payload.action, "attached");
   assert.equal(result.payload.path, wp("report.csv"));
@@ -234,7 +245,11 @@ test("files.attach path_not_attachable does not call API", async () => {
     apiClient: {
       async registerChatAttachment() {
         apiCalled = true;
-        return { attachmentId: "attachment-3", storagePath: wp("report.csv") };
+        return {
+          attachmentId: "attachment-3",
+          storagePath: wp("report.csv"),
+          alreadyDelivered: false
+        };
       }
     }
   });

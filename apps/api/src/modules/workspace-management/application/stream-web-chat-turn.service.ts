@@ -459,7 +459,14 @@ export class StreamWebChatTurnService {
     let runtimeTruncated = false;
     const collectedMedia: RuntimeMediaArtifact[] = [];
     let mediaDeliveryCompleted = false;
-    /** ADR-165 — early live bubble + already-delivered artifact identities. */
+    /**
+     * ADR-165/167 — process-local mid-stream present state (not a second
+     * durable authority). `deliveredIdentities` avoids re-entering
+     * MediaDelivery for artifacts already attached on this POST; durable
+     * deliver-once still guards cross-pod / finalize races. Also tracks the
+     * early assistant message id, inline placement, and attachment states
+     * for finalize merge.
+     */
     const liveSyncMediaPresent: {
       earlyAssistantMessageId: string | null;
       deliveredIdentities: Set<string>;
@@ -1156,9 +1163,10 @@ export class StreamWebChatTurnService {
   }
 
   /**
-   * ADR-165 — deliver sync image (and any other mid-loop media) into the live
-   * assistant bubble as soon as the runtime yields artifacts. Tracks identities
-   * so end-of-turn finalize does not double-deliver.
+   * ADR-165/167 — deliver sync media into the live assistant bubble as soon as
+   * the runtime yields artifacts. Process-local identity tracking skips a
+   * second MediaDelivery call on this POST; durable deliver-once remains the
+   * cross-caller authority.
    */
   private async deliverSyncMediaMidStream(input: {
     prepared: StreamWebChatTurnPrepared;

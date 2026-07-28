@@ -193,7 +193,12 @@ remains a full active-job snapshot and may add
 terminal transition commits. The field is additive; clients use it to reject
 stale resurrection of the terminal job. Async PDF/document delivery uses the
 same `media` event without invented tool-call placement when no durable
-producer exists.
+producer exists. Internal
+`POST /api/v1/internal/runtime/files/chat-attachments` is the deliver-once
+register seam for runtime `files.attach`: when `messageId` is omitted it binds
+the open ordinary USER_TURN assistant message; the response includes
+`alreadyDelivered` so the model can observe an identity already present on
+that bubble.
 
 ADR-152 checkpoint 1 adds no public endpoint. New runtime uses the
 bearer-protected internal `POST /api/v1/internal/runtime/async-jobs/v1/status`

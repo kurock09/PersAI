@@ -919,11 +919,20 @@ function MarkdownFragment({ content }: { content: string }) {
 
 type IterationProcessPiece =
   | { kind: "text"; markdown: string }
-  | { kind: "tool"; tool: RuntimeTurnToolInvocation };
+  | { kind: "tool"; tool: RuntimeTurnToolInvocation }
+  | { kind: "receipt"; attachment: ChatAttachment };
 
 type IterationBlock =
   | { kind: "content"; markdown: string }
   | { kind: "process"; pieces: IterationProcessPiece[] };
+
+function shouldSuppressMediaReceipts(message: ChatMessage): boolean {
+  if (message.suppressMediaReceipts === true) {
+    return true;
+  }
+  // Live async-cont placeholders keep `async-cont` in the optimistic id.
+  return message.id.includes("async-cont");
+}
 
 function isContentBlock(text: string): boolean {
   if (/^\s*\|.*\|.*\|/m.test(text)) return true;
@@ -947,15 +956,33 @@ function isContentBlock(text: string): boolean {
 
 function buildIterationBlocks(
   workingNotes: string[],
-  toolInvocations: RuntimeTurnToolInvocation[]
+  toolInvocations: RuntimeTurnToolInvocation[],
+  receiptAttachments: ChatAttachment[] = []
 ): IterationBlock[] {
   const allPieces: IterationProcessPiece[] = [];
   const contentBlocks: string[] = [];
+  const claimedReceiptIds = new Set<string>();
   const iterations = Math.max(
     workingNotes.length,
     ...toolInvocations.map((tool) => tool.iteration + 1),
     0
   );
+
+  const pushReceiptsForToolCall = (toolCallId: string | undefined) => {
+    if (toolCallId === undefined || toolCallId.length === 0) {
+      return;
+    }
+    for (const attachment of receiptAttachments) {
+      if (claimedReceiptIds.has(attachment.id)) {
+        continue;
+      }
+      if (attachment.inlineAfterToolCallId !== toolCallId) {
+        continue;
+      }
+      allPieces.push({ kind: "receipt", attachment });
+      claimedReceiptIds.add(attachment.id);
+    }
+  };
 
   for (let i = 0; i < iterations; i += 1) {
     const text = (workingNotes[i] ?? "").trim();
@@ -970,11 +997,27 @@ function buildIterationBlocks(
     const toolsAtIteration = toolInvocations.filter((tool) => tool.iteration === i);
     for (const tool of toolsAtIteration) {
       allPieces.push({ kind: "tool", tool });
+      pushReceiptsForToolCall(tool.toolCallId);
     }
   }
 
+  // Orphan / placement-ordered receipts that did not match a tool call still
+  // join the single process timeline in delivery order (after claimed tools).
+  for (const attachment of receiptAttachments) {
+    if (claimedReceiptIds.has(attachment.id)) {
+      continue;
+    }
+    allPieces.push({ kind: "receipt", attachment });
+    claimedReceiptIds.add(attachment.id);
+  }
+
   const blocks: IterationBlock[] = [];
-  if (allPieces.length > 0) {
+  // Receipt-only bubbles (async-cont delivery / publish ack) must not invent a
+  // process badge solely for technical «Получено…» lines.
+  const hasNonReceiptProcess = allPieces.some(
+    (piece) => piece.kind === "text" || piece.kind === "tool"
+  );
+  if (hasNonReceiptProcess) {
     blocks.push({ kind: "process", pieces: allPieces });
   }
   for (const contentBlock of contentBlocks) {
@@ -1153,7 +1196,7 @@ function resolveProcessBadgeLabel(
   return t("processBadge.worked", { steps: processPieces.length });
 }
 
-function ProcessBadge({ pieces }: { pieces: IterationProcessPiece[] }) {
+function ProcessBadge({ pieces, live }: { pieces: IterationProcessPiece[]; live: boolean }) {
   const [expanded, setExpanded] = useState(false);
   const t = useTranslations("chat");
   const label = resolveProcessBadgeLabel(pieces, t);
@@ -1161,6 +1204,10 @@ function ProcessBadge({ pieces }: { pieces: IterationProcessPiece[] }) {
     (piece): piece is Extract<IterationProcessPiece, { kind: "text" }> => piece.kind === "text"
   );
   const toolMicroRows = buildToolFamilyMicroRows(pieces);
+  const receiptPieces = pieces.filter(
+    (piece): piece is Extract<IterationProcessPiece, { kind: "receipt" }> =>
+      piece.kind === "receipt"
+  );
 
   if (pieces.length === 0) {
     return null;
@@ -1203,13 +1250,43 @@ function ProcessBadge({ pieces }: { pieces: IterationProcessPiece[] }) {
               ))}
             </div>
           ) : null}
+          {receiptPieces.length > 0 ? (
+            <div
+              className={`space-y-1 ${
+                textPieces.length > 0 || toolMicroRows.length > 0 ? "mt-2" : ""
+              }`}
+              data-testid="process-timeline-receipts"
+              {...(live
+                ? {
+                    role: "status",
+                    "aria-live": "polite",
+                    "aria-atomic": "false",
+                    "aria-relevant": "additions"
+                  }
+                : {})}
+            >
+              {receiptPieces.map((piece) => (
+                <div
+                  key={piece.attachment.id}
+                  className={cn(
+                    "text-sm leading-5 text-text-muted/78",
+                    live
+                      ? "animate-fade-in-inline-status italic motion-reduce:animate-none"
+                      : "not-italic"
+                  )}
+                >
+                  {formatMediaReceiptLabel(piece.attachment, t)}
+                </div>
+              ))}
+            </div>
+          ) : null}
         </div>
       ) : null}
     </div>
   );
 }
 
-function IterationBlocks({ blocks }: { blocks: IterationBlock[] }) {
+function IterationBlocks({ blocks, live }: { blocks: IterationBlock[]; live: boolean }) {
   if (blocks.length === 0) {
     return null;
   }
@@ -1223,7 +1300,7 @@ function IterationBlocks({ blocks }: { blocks: IterationBlock[] }) {
             </div>
           );
         }
-        return <ProcessBadge key={`process-${index}`} pieces={block.pieces} />;
+        return <ProcessBadge key={`process-${index}`} pieces={block.pieces} live={live} />;
       })}
     </div>
   );
@@ -1417,45 +1494,6 @@ function formatMediaReceiptLabel(
     name: name && name.length > 0 ? name : t("mediaReceiptFileGeneric"),
     size
   });
-}
-
-function MediaReceiptLines({
-  attachments,
-  live
-}: {
-  attachments: ChatAttachment[];
-  live: boolean;
-}) {
-  const t = useTranslations("chat");
-  if (attachments.length === 0) {
-    return null;
-  }
-  return (
-    <div
-      className="space-y-1"
-      data-testid="media-receipt-lines"
-      {...(live
-        ? {
-            role: "status",
-            "aria-live": "polite",
-            "aria-atomic": "false",
-            "aria-relevant": "additions"
-          }
-        : {})}
-    >
-      {attachments.map((attachment) => (
-        <div
-          key={attachment.id}
-          className={cn(
-            "text-sm leading-5 text-text-muted/78",
-            live ? "animate-fade-in-inline-status italic motion-reduce:animate-none" : "not-italic"
-          )}
-        >
-          {formatMediaReceiptLabel(attachment, t)}
-        </div>
-      ))}
-    </div>
-  );
 }
 
 function attachmentTypeBadge(attachment: ChatAttachment): string {
@@ -2309,25 +2347,40 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
       ? message.workingNotes.map((note) => note.trim()).filter((note) => note.length > 0)
       : [];
     const toolInvocations = Array.isArray(message.toolInvocations) ? message.toolInvocations : [];
+    const receiptAttachments = shouldSuppressMediaReceipts(message)
+      ? []
+      : resolveReceiptAttachments({
+          attachments: message.attachments,
+          inlineMediaPlacement: message.inlineMediaPlacement
+        }).map((attachment) => {
+          if (attachment.inlineAfterToolCallId !== undefined) {
+            return attachment;
+          }
+          const placementToolCallId = message.inlineMediaPlacement?.find((entry) =>
+            entry.attachmentIds.includes(attachment.id)
+          )?.toolCallId;
+          return placementToolCallId === undefined
+            ? attachment
+            : { ...attachment, inlineAfterToolCallId: placementToolCallId };
+        });
     return {
-      iterationBlocks: buildIterationBlocks(workingNotes, toolInvocations),
+      iterationBlocks: buildIterationBlocks(workingNotes, toolInvocations, receiptAttachments),
       answerText: message.content
     };
-  }, [message.content, message.role, message.toolInvocations, message.workingNotes]);
-  const receiptAttachments = useMemo(
-    () =>
-      message.role === "assistant"
-        ? resolveReceiptAttachments({
-            attachments: message.attachments,
-            inlineMediaPlacement: message.inlineMediaPlacement
-          })
-        : [],
-    [message.attachments, message.inlineMediaPlacement, message.role]
-  );
+  }, [
+    message.attachments,
+    message.content,
+    message.id,
+    message.inlineMediaPlacement,
+    message.role,
+    message.suppressMediaReceipts,
+    message.toolInvocations,
+    message.workingNotes
+  ]);
   const bottomStripAttachments = useMemo(() => {
-    // Keep the full attachment strip out of active assistant bubbles. The
-    // separate receipt rail remains visible while live; terminal commit restores
-    // the classic strip below the answer.
+    // Keep the full attachment strip out of active assistant bubbles. Process
+    // timeline receipts stay inside «Выполнено»; terminal commit restores the
+    // classic strip below the answer.
     if (
       message.role === "assistant" &&
       (message.status === "streaming" || message.status === "reconciling")
@@ -2531,13 +2584,10 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
         ) : (
           <div className="prose-invert min-w-0 max-w-full text-sm break-words text-text [overflow-wrap:anywhere]">
             <ThoughtBlock message={message} />
-            <IterationBlocks blocks={assistantSegments.iterationBlocks} />
-            {receiptAttachments.length > 0 ? (
-              <MediaReceiptLines
-                attachments={receiptAttachments}
-                live={message.status === "streaming" || message.status === "reconciling"}
-              />
-            ) : null}
+            <IterationBlocks
+              blocks={assistantSegments.iterationBlocks}
+              live={message.status === "streaming" || message.status === "reconciling"}
+            />
             {isStreaming ? (
               <>
                 {hasVisibleAnswerText ? (

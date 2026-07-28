@@ -574,6 +574,7 @@ export interface RuntimeFilesToolResult {
     | "written"
     | "deleted"
     | "attached"
+    | "already_delivered"
     | "searched"
     | "skipped";
   reason: string | null;

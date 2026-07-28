@@ -3387,6 +3387,177 @@ describe("useChat", () => {
     resolveReattachHold?.();
   });
 
+  it("ADR-167: async-cont overlay sets suppressMediaReceipts and keeps it after same-id history absorb", async () => {
+    const continuationClientTurnId = "async-cont:handle-suppress-receipts-1";
+    const publishAttachment = {
+      id: "att-publish-suppress-1",
+      path: `${CHAT_SESSION_ROOT}/cat.png`,
+      thumbnailStoragePath: `${CHAT_SESSION_ROOT}/cat.thumb.png`,
+      posterStoragePath: null,
+      attachmentType: "image" as const,
+      originalFilename: "cat.png",
+      mimeType: "image/png",
+      sizeBytes: 1800,
+      processingStatus: "ready" as const,
+      createdAt: "2026-07-19T12:00:02.000Z"
+    };
+    const publishMessage = {
+      id: "assistant-msg-publish-suppress",
+      chatId: "chat-1",
+      assistantId: "assistant-1",
+      author: "assistant" as const,
+      content: "",
+      attachments: [publishAttachment],
+      workingNotes: ["сверяю"],
+      toolInvocations: [{ name: "web_fetch", iteration: 0, ok: true }],
+      inlineMediaPlacement: [{ toolCallId: "call-img-1", attachmentIds: [publishAttachment.id] }],
+      createdAt: "2026-07-19T12:00:02.000Z"
+    };
+    assistantApiMocks.getChatMessages.mockResolvedValue({
+      nextCursor: null,
+      activeTurn: null,
+      activeSandboxJobs: [
+        {
+          jobRef: "jr1.sandbox.SUPPRESSRECEIPT0000000000000000001",
+          toolCode: "shell" as const,
+          status: "detached" as const,
+          notifyState: "claimed" as const,
+          continuationClientTurnId,
+          createdAt: "2026-07-19T12:00:01.000Z",
+          startedAt: "2026-07-19T12:00:01.000Z",
+          updatedAt: "2026-07-19T12:00:01.000Z"
+        }
+      ],
+      messages: [
+        {
+          id: "user-msg-source-suppress",
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          author: "user" as const,
+          content: "continue",
+          attachments: [],
+          createdAt: "2026-07-19T12:00:00.000Z"
+        },
+        publishMessage
+      ]
+    });
+    const runningTurn = {
+      status: "running" as const,
+      chat: {
+        id: "chat-1",
+        assistantId: "assistant-1",
+        surface: "web",
+        surfaceThreadKey: "thread-1",
+        title: null,
+        chatMode: "normal",
+        deepModeEnabled: false,
+        skillDecisionState: null,
+        archivedAt: null,
+        lastMessageAt: null,
+        createdAt: "2026-07-19T00:00:00.000Z",
+        updatedAt: "2026-07-19T00:00:00.000Z"
+      },
+      userMessage: null,
+      assistantMessage: publishMessage,
+      currentActivity: null,
+      runtime: null,
+      error: null
+    };
+    assistantApiMocks.getAssistantWebChatTurnStatus.mockResolvedValue(runningTurn);
+
+    let resolveReattachHold: (() => void) | undefined;
+    const reattachHold = new Promise<void>((resolve) => {
+      resolveReattachHold = resolve;
+    });
+    assistantApiMocks.reattachAssistantWebChatTurnStream.mockImplementation(
+      async (
+        _token: string,
+        _clientTurnId: string,
+        handlers: {
+          onHeadersOk?: () => void;
+          onTurnStatus?: (payload: { turn: unknown }) => void;
+          onStarted?: (payload: {
+            chat: unknown;
+            userMessage: unknown;
+            assistantMessageId?: string;
+          }) => void;
+        }
+      ) => {
+        handlers.onHeadersOk?.();
+        handlers.onTurnStatus?.({ turn: runningTurn });
+        handlers.onStarted?.({
+          chat: { id: "chat-1" },
+          userMessage: null,
+          assistantMessageId: publishMessage.id
+        });
+        await reattachHold;
+      }
+    );
+
+    const { result } = renderHook(() => useChat("thread-1"), {
+      wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+    });
+
+    await act(async () => {
+      await result.current.loadHistory("chat-1");
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      const live = result.current.messages.find((message) => message.id === publishMessage.id);
+      expect(live?.status).toBe("streaming");
+      expect(live?.suppressMediaReceipts).toBe(true);
+    });
+
+    const terminalPublish = {
+      ...publishMessage,
+      content: "Продолжаю."
+    };
+    assistantApiMocks.getChatMessages.mockResolvedValue({
+      nextCursor: null,
+      activeTurn: null,
+      activeSandboxJobs: [],
+      messages: [
+        {
+          id: "user-msg-source-suppress",
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          author: "user" as const,
+          content: "continue",
+          attachments: [],
+          createdAt: "2026-07-19T12:00:00.000Z"
+        },
+        terminalPublish
+      ]
+    });
+    assistantApiMocks.getAssistantWebChatTurnStatus.mockResolvedValue({
+      ...runningTurn,
+      status: "completed",
+      assistantMessage: terminalPublish
+    });
+
+    resolveReattachHold?.();
+    await act(async () => {
+      await result.current.loadHistory("chat-1");
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      const committed = result.current.messages.find((message) => message.id === publishMessage.id);
+      expect(committed?.status).toBe("committed");
+      expect(committed?.suppressMediaReceipts).toBe(true);
+      expect(committed?.attachments?.map((attachment) => attachment.id)).toEqual([
+        publishAttachment.id
+      ]);
+    });
+  });
+
   it("clears the local streaming bubble when focus history already contains the completed turn", async () => {
     Object.defineProperty(document, "visibilityState", {
       configurable: true,
@@ -8048,7 +8219,7 @@ describe("useChat", () => {
       });
     });
 
-    it("document onMedia keeps a live PDF attachment mapped for the receipt rail across history refresh", async () => {
+    it("document onMedia keeps a live PDF attachment mapped for process-timeline receipts across history refresh", async () => {
       const streamGate: { release: () => void } = { release: () => undefined };
       const sseDocumentAttachment = {
         id: "att-doc-sse",
