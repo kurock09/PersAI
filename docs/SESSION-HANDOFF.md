@@ -1,5 +1,92 @@
 # SESSION-HANDOFF
 
+## 2026-07-28 — ADR-166 live failure follow-up: send/restore/continuation reconciliation (local CLEAN, uncommitted)
+
+- **Baseline:** `e8f26b2f`. Existing dirty code/tests are intentional. No
+  commit/push in this slice.
+- **Scope:** bounded follow-up after deployed ADR-166 release `edb948f4` failed
+  founder live acceptance on `persai.dev`. Repair covers nullable ordinary
+  USER_TURN recognition, same-id active-attempt authority across history/F5,
+  terminal same-id immutability, pending-send retry/cancel ambiguity, restored
+  `native_runtime_conflict` behavior, and live continuation media-strip
+  suppression until terminal commit. Docs were reconciled in the same slice.
+- **Proven live causes:**
+  1. ordinary running attempt with `surfaceClient = null` was excluded by Prisma
+     `NOT surfaceClient = async_continuation`, so deferred media could settle
+     `delivered` without chat attach/receipt and the wake active-user gate could
+     miss an active ordinary turn;
+  2. after network stall/F5, history could contain an early assistant row while
+     the ordinary attempt was still running; web treated that same-id row as
+     terminal, cleared active storage/busy, reopened the composer, accepted new
+     input, then later hit `native_runtime_conflict` and showed a scrambled
+     transcript when continuations/media arrived.
+- **Current local truth:** `WebChatLiveTurnPresentService` and
+  `ChatWakeCoordinator` now use nullable-safe ordinary-turn predicates (`NULL`
+  counts as ordinary; only exact `async_continuation` is excluded).
+  `WebChatTurnAttemptService.claim` keeps terminal `failed` / `interrupted`
+  attempts immutable under the same `clientTurnId`; explicit retry after those
+  states must use a fresh turn id and fresh attachment identity. Web continuity
+  treats `accepted` / `running` as the authoritative active send even if same-id
+  history already contains an assistant row, restores terminal
+  `native_runtime_conflict` as a recoverable pending failure even when the
+  pending slot is backed by a canonical server user row, and suppresses live
+  catch-up attachment strips until terminal commit. Retry/Cancel never delete
+  that failed canonical row locally. Text-only explicit Retry creates one fresh
+  logical turn while preserving the old failed row. If the restored canonical
+  row had attachments, browser `File` objects are unavailable after F5, so
+  Retry must not silently send text-only; it restores text into the composer,
+  unlocks pending, and requires manual reattachment before the new logical
+  send. Retry/Cancel actions bind only to the exact current pending user
+  message id, not historical failed rows. Ordinary live USER_TURN bubbles
+  continue to use italic receipts.
+- **Changed behavior / files / modules:** API repair touches
+  `apps/api/src/modules/workspace-management/application/chat-wake-coordinator.service.ts`,
+  `send-web-chat-turn.service.ts`,
+  `stream-web-async-continuation.service.ts`,
+  `stream-web-chat-turn.service.ts`,
+  `web-chat-live-turn-present.service.ts`,
+  `web-chat-turn-attempt.service.ts`; focused web continuity/UX repair touches
+  `apps/web/app/app/_components/chat-area.tsx`,
+  `chat-message.tsx`,
+  `use-chat.ts`. This docs reconciliation updates
+  `docs/ADR/166-unified-live-presentation-state-machine.md`,
+  `docs/ADR/075-mobile-capacitor-webview-shell.md`,
+  `docs/ADR/165-in-loop-sync-image-present.md`,
+  `docs/API-BOUNDARY.md`,
+  `docs/DATA-MODEL.md`,
+  `docs/TEST-PLAN.md`,
+  `docs/CHANGELOG.md`,
+  `docs/SESSION-HANDOFF.md`, and `docs/ARCHITECTURE.md`.
+- **Focused validation currently passed:** API
+  `chat-wake-coordinator.service.test.ts`,
+  `send-web-chat-turn.service.test.ts`,
+  `stream-web-async-continuation.service.test.ts`,
+  `stream-web-chat-turn.service.test.ts`,
+  `web-chat-live-turn-present.service.test.ts`,
+  `web-chat-turn-attempt.service.test.ts`; web
+  `chat-area.test.tsx`,
+  `chat-message.test.tsx`,
+  `use-chat.test.tsx` (`264/264`). Two final independent post-repair re-audits
+  returned CLEAN with zero P0/P1/P2. Mandatory gate also passed: recursive
+  lint, `format:check`, API typecheck, and web typecheck.
+- **Full-test evidence:** first full recursive web attempts exposed only
+  timing/contention failures under default parallelism. Each originally failing
+  web test passed in isolation. A later default-parallel web rerun still showed
+  scattered timeout-only unrelated failures under contention, so the
+  authoritative web proof is the serial rerun:
+  `vitest ... --maxWorkers=1` passed `86 files / 1130 tests`. All non-web
+  recursive tests passed, API `test:step2` passed, and the full production
+  build passed. Treat the parallel-only failures as harness contention
+  evidence, not as a product failure claim.
+- **Residual:** optional real-Postgres probes for nullable query semantics may
+  skip locally when `PERSAI_POSTGRES_INTEGRATION_URL` / localhost Postgres is
+  unavailable; deterministic query-shape coverage remains in place. Local
+  code/audit/gate state is CLEAN, but deploy/redeploy and authenticated live
+  smoke remain pending.
+- **Next:** founder-authorized commit/push/deploy, then authenticated live
+  smoke for F5/network recovery, retry/cancel matrix, attachment reattach, and
+  media/Working behavior on deployed truth.
+
 ## 2026-07-27 — ADR-166 unified live presentation state machine (local CLEAN)
 
 - **Pushed implementation tip:** `edb948f4` (rebased over bot GitOps pin
@@ -22,7 +109,7 @@
   pre-chat-id restore; same-tick tool progress/status merges through a
   synchronous live-activity ref.
 - **API/open turn:** explicit `newly_claimed |
-  already_current_turn_inline | denied` ownership gates live attach. A stale
+already_current_turn_inline | denied` ownership gates live attach. A stale
   `running` attempt with continuation ownership cannot pin/publish media.
   Terminal success/failure snapshots clear Working after durable state.
 - **Queue:** accepted web order is admission → runtime acceptance →
@@ -268,13 +355,14 @@ load; ADR paths pass isolated. Next after push: deploy → Admin
 ## 2026-07-23 — ADR-163 Composer triple audit → CLEAN
 
 Three Composer-2.5 hostile audits of full ADR-163:
+
 - Gateway/usage: CLEAN
 - Runtime/docs: CLEAN
 - Contracts/admin: DIRTY P1 dead `runtime-provider-profile-admin` (+ P2
   Admin Add-model zero pricing for kimi-k3)
-Fixes landed: deleted dead dual admin module; Admin Add-model seeds
-kimi-k3 0.3/3/15; Composer re-audit admin scope CLEAN. Residual P2 only
-(hand-maintained unions / optional test gaps) — not push-blocking.
+  Fixes landed: deleted dead dual admin module; Admin Add-model seeds
+  kimi-k3 0.3/3/15; Composer re-audit admin scope CLEAN. Residual P2 only
+  (hand-maintained unions / optional test gaps) — not push-blocking.
 
 ## 2026-07-23 — ADR-163 Kimi provider P0–P5 local CLEAN
 

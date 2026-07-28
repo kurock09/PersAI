@@ -69,7 +69,7 @@ export class WebChatLiveTurnPresentService {
         chatId: input.chatId,
         userMessageId: input.userMessageId,
         status: "running",
-        NOT: { surfaceClient: "async_continuation" }
+        OR: [{ surfaceClient: null }, { surfaceClient: { not: "async_continuation" } }]
       },
       orderBy: [{ runningAt: "desc" }, { updatedAt: "desc" }],
       select: {

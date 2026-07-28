@@ -4,6 +4,82 @@ This document defines the current verification baseline for the active PersAI-na
 
 ADR-072 is closed as the historical native migration ADR. Current continuation work should be checked against `docs/ADR/078-consolidated-follow-through-program.md`. `Step 15a` is cancelled and is not an active verification track. ADR-087 defines the unified quota-advisory and paid light-mode target state. ADR-088 defines the unified notification platform target state.
 
+## 2026-07-28 ADR-166 live-failure follow-up (local CLEAN; deploy/live pending)
+
+Focused local repair coverage is now CLEAN for the bounded web/api
+reconciliation path; deploy/redeploy and authenticated live smoke remain
+pending.
+
+- **Independent post-repair audits:** two final re-audits returned CLEAN with
+  zero P0/P1/P2.
+- **Mandatory local gate passed:** recursive lint, `format:check`, API
+  typecheck, and web typecheck.
+
+- **Focused parent gates currently passed:**
+  `apps/api/test/chat-wake-coordinator.service.test.ts`,
+  `apps/api/test/send-web-chat-turn.service.test.ts`,
+  `apps/api/test/stream-web-async-continuation.service.test.ts`,
+  `apps/api/test/stream-web-chat-turn.service.test.ts`,
+  `apps/api/test/web-chat-live-turn-present.service.test.ts`,
+  `apps/api/test/web-chat-turn-attempt.service.test.ts`,
+  plus web `chat-area`, `chat-message`, and `use-chat` (`264/264`).
+- **Nullable ordinary-turn SQL shape:** deterministic coverage must prove open
+  USER_TURN lookup includes `surfaceClient = null` and excludes only exact
+  `surfaceClient = "async_continuation"` in both live-present and
+  active-user/wake queries. Optional real-Postgres probes should assert the
+  same semantics when local DB is available; skip honestly when unavailable.
+- **Same-id early-row restore / F5:** after a network stall or F5, history may
+  already contain an early assistant row for the exact `clientTurnId` while the
+  durable attempt is still `accepted` or `running`. Web continuity must keep
+  that active attempt authoritative, preserve busy state, keep the composer
+  locked, and avoid admitting a second user send or terminalizing from history
+  alone.
+- **Local snapshot / no-controller restore:** restoring a pending send from a
+  local snapshot with no active controller must still reconcile exact
+  turn-status truth. A later terminal `native_runtime_conflict` becomes a
+  recoverable failed pending presentation, not a committed-looking orphan.
+- **Retry/Cancel matrix:** verify exact status semantics:
+  `unknown` never redispatches;
+  `accepted|running` reattach exact id;
+  `completed` hydrates;
+  `failed|interrupted` stay immutable under the same id and explicit Retry uses
+  a fresh turn plus fresh attachment identity while preserving the old failed
+  canonical row;
+  restored attachment-backed rows never silently retry as text-only after F5;
+  Cancel restores draft only for confirmed-never-sent local failure and must
+  reconcile before unlocking any ambiguous or active state.
+- **Conflict recovery:** once restore/reconcile terminalizes the prior logical
+  send as `native_runtime_conflict`, the UI must present an explicit retry path
+  that starts a fresh logical turn instead of mutating or redispatching the old
+  id.
+- **Canonical-row preservation:** restored `native_runtime_conflict` pending
+  slots may already be backed by a canonical server user row. Retry/Cancel
+  actions bind only to the exact current pending user message id and never
+  delete or mutate historical failed rows.
+- **Attachment retry after F5:** if the restored canonical failed row had
+  attachments, browser `File` objects are gone; Retry must preserve the failed
+  row, restore text into the composer, unlock pending, and require manual
+  reattachment before the next logical send.
+- **Continuation media cursor ordering:** while a catch-up / async-continuation
+  bubble is still streaming or reconciling, no classic attachment strip may
+  render below the live cursor. One canonical bottom strip appears only after
+  terminal commit. Ordinary live USER_TURN bubbles continue to show italic
+  receipts instead.
+- **Current residual:** optional real-Postgres probes may skip locally when
+  `PERSAI_POSTGRES_INTEGRATION_URL` / localhost Postgres is unavailable.
+- **Full recursive evidence:** first default-parallel recursive web attempts
+  exposed only timeout/contention failures. Each original failing web test
+  passed isolated. A later default-parallel web rerun still showed scattered
+  timeout-only unrelated failures under contention, so the authoritative web
+  proof is the serial rerun: `vitest ... --maxWorkers=1` passed
+  `86 files / 1130 tests`. All non-web recursive tests passed, API
+  `test:step2` passed, and the full production build passed. Treat the
+  parallel-only failures as harness contention evidence, not as a product
+  regression claim.
+- **Still required before deploy/live claim:** founder-authorized commit/push/
+  deploy, then authenticated smoke for F5/network recovery, retry/cancel,
+  attachment reattach, and media/Working ordering.
+
 ## 2026-07-21 ADR-161 cache-prefix repair
 
 - Runtime hydration coverage proves first-writer-wins non-empty snapshots,

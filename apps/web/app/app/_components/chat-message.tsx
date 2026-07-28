@@ -2483,10 +2483,11 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
   ]);
   const bottomStripAttachments = useMemo(() => {
     // Ordinary USER_TURN live + receipts flag: italic receipts only.
-    // Catch-up streaming (no flag) and committed: classic bottom strip.
+    // A continuation has no stable pre-answer placement in the persisted
+    // transcript. Never put its classic strip below an active cursor; terminal
+    // commit restores the one canonical strip.
     if (
       message.role === "assistant" &&
-      message.liveInlineMediaReceipts === true &&
       (message.status === "streaming" || message.status === "reconciling")
     ) {
       return [];

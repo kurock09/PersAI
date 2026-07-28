@@ -380,10 +380,18 @@ export class ChatWakeCoordinator {
         assistantId: input.assistantId,
         userId: input.userId,
         status: { in: ["accepted", "running"] },
-        NOT: { surfaceClient: "async_continuation" },
-        OR: [
-          { chatId: input.chatId },
-          ...(threadKey !== null && threadKey.length > 0 ? [{ surfaceThreadKey: threadKey }] : [])
+        AND: [
+          {
+            OR: [{ surfaceClient: null }, { surfaceClient: { not: "async_continuation" } }]
+          },
+          {
+            OR: [
+              { chatId: input.chatId },
+              ...(threadKey !== null && threadKey.length > 0
+                ? [{ surfaceThreadKey: threadKey }]
+                : [])
+            ]
+          }
         ]
       },
       select: { id: true }

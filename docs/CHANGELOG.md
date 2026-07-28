@@ -3,6 +3,24 @@
 > Archive: detailed historical entries from 2026-06-05 and earlier moved to `docs/CHANGELOG.archive-2026-06-05-details-and-earlier.md`; entries from 2026-05-19 and earlier remain in `docs/CHANGELOG.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: current entries plus concise recent summaries only.
 
+## 2026-07-28
+
+- **repair(web/api/chat): bounded local follow-up after deployed ADR-166 live failure.**
+  Release `edb948f4` was deployed to `persai.dev`, but founder live acceptance
+  failed on two production repros: nullable ordinary `surfaceClient` turns were
+  excluded from open-turn queries, and same-id early assistant history could
+  demote an `accepted` / `running` attempt after stall/F5. The follow-up is now
+  local CLEAN: two final independent re-audits returned zero P0/P1/P2; the
+  mandatory lint/format/typecheck gate passed; focused API suites passed;
+  focused web `use-chat` / `chat-message` / `chat-area` passed (`264/264`);
+  optional Postgres probes skipped honestly without a local DB; all non-web
+  recursive tests passed; API `test:step2` passed; and the full production
+  build passed. Full web verification needed one authoritative serial rerun:
+  the first recursive parallel attempts exposed only timeout/contention web
+  failures, each original failing test passed isolated, and the serial web run
+  passed `86 files / 1130 tests`. Deploy/redeploy and authenticated live smoke
+  remain pending.
+
 ## 2026-07-27
 
 - **ADR-166 unified live presentation state machine (local CLEAN).** One open

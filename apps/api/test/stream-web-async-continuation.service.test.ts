@@ -381,6 +381,48 @@ describe("StreamWebAsyncContinuationService", () => {
     assert.ok(!attemptCalls.includes("markRunning"));
   });
 
+  test("same continuation clientTurnId terminal failure does not stream again", async () => {
+    const callbackCalls: string[] = [];
+    const attemptCalls: string[] = [];
+    const service = new StreamWebAsyncContinuationService(
+      {
+        stream: async () => {
+          throw new Error("must not stream after terminal duplicate");
+        }
+      } as never,
+      {
+        ...attemptMock(attemptCalls),
+        claim: async () => {
+          attemptCalls.push("claim");
+          return {
+            outcome: "duplicate_terminal" as const,
+            terminalStatus: "failed" as const,
+            errorCode: "continuation_failed",
+            errorMessage: "Continuation already failed."
+          };
+        }
+      } as never,
+      streamRegistryMock(),
+      stopDispatchMock(),
+      noopConversationalPublish(),
+      allowCatchUpWake()
+    );
+
+    await service.processWebClaim({
+      claim: { id: "handle-terminal", claimToken: "claim-terminal" },
+      context: baseContext({ continuationClientTurnId: "async-cont:terminal" }),
+      request: { requestId: "req-terminal", idempotencyKey: "async-cont:terminal" } as never,
+      timeoutMs: 30_000,
+      callbacks: baseCallbacks(callbackCalls)
+    });
+
+    assert.deepEqual(attemptCalls, ["claim"]);
+    assert.deepEqual(callbackCalls, ["fail:continuation_failed"]);
+    assert.ok(!callbackCalls.includes("complete"));
+    assert.ok(!callbackCalls.includes("busy"));
+    assert.ok(!attemptCalls.includes("markRunning"));
+  });
+
   test("typed busy outcome releases claim without markDispatched or resetToAccepted", async () => {
     const callbackCalls: string[] = [];
     const attemptCalls: string[] = [];

@@ -49,7 +49,10 @@ import {
   WebRuntimeTurnClientService,
   type WebRuntimeTurnClientInput
 } from "./web-runtime-turn-client.service";
-import { WebChatTurnAttemptService } from "./web-chat-turn-attempt.service";
+import {
+  resolveDuplicateTerminalTurnConflict,
+  WebChatTurnAttemptService
+} from "./web-chat-turn-attempt.service";
 import { AutoSkillRoutingStateService } from "./auto-skill-routing-state.service";
 import { AssistantMediaJobService } from "./workspace-media-job.service";
 import { AssistantDocumentJobReadService } from "./assistant-document-job-read.service";
@@ -767,6 +770,14 @@ export class SendWebChatTurnService {
             clientTurnId
           );
       return completed ? this.rebuildStoredWebTurnState(resolved.assistantId, completed) : null;
+    }
+    if (typeof claim === "object" && claim.outcome === "duplicate_terminal") {
+      const conflict = resolveDuplicateTerminalTurnConflict(claim);
+      throw createAssistantInboundConflict(conflict.code, conflict.message, {
+        clientTurnId,
+        terminalStatus: claim.terminalStatus,
+        retryWithNewClientTurnId: true
+      });
     }
 
     const startedAt = Date.now();

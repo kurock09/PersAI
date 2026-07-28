@@ -2,30 +2,48 @@
 
 ## Status
 
-**Implementation CLEAN and pushed 2026-07-27 as `edb948f4`; not deployed or
-live-accepted.** Founder-directed repair program opened on baseline
-`1f2512a8e0e2e50cade98f1b5fee6e0475dd3bc7`.
+**Release `edb948f4` was deployed to `persai.dev`, but founder live acceptance
+failed on 2026-07-27/28.** Founder-directed repair program opened on baseline
+`1f2512a8e0e2e50cade98f1b5fee6e0475dd3bc7`; the bounded follow-up on baseline
+`e8f26b2f` is now local CLEAN and uncommitted.
 
-All five slices are implemented locally. The implementation preserves an open
-USER_TURN same-id live overlay across history/media reconciliation; uses an
-explicit claim outcome to exclude stale continuation-owned jobs from live
-present; makes catch-up visible only after runtime acceptance and a durable
-publish identity; clears Working from post-terminal full snapshots; preserves
-delivered current-turn media across Stop without a second wake; and replaces
-the fixed `8.75rem` blank reserve with a compact accessible live rail plus a
-per-message progressive height high-water mark. The bubble starts without
-blank reserve, grows with real thought/activity content, and cannot shrink
-again for that message. Focused three-image tests cover enqueue-order and
-out-of-order completion, set-like
-attachment/placement merges, Working `3→2→1→0`, soft detach/history/F5,
-pre-accept busy, terminal-first discovery, and retry/failure identities.
+The deployed release proved two live gaps that keep this ADR open. First,
+ordinary web USER_TURN lookup used a nullable-unsafe Prisma predicate, so
+`surfaceClient = null` turns were excluded together with
+`surfaceClient = "async_continuation"`, allowing deferred media to settle
+`delivered` without live chat attach/receipt and letting the wake gate miss an
+active ordinary user turn. Second, after a network stall or F5, a same-id
+early assistant history row could be treated as terminal client truth while
+the ordinary attempt was still `accepted` or `running`, clearing the active
+busy/send state, reopening the composer, and later surfacing
+`native_runtime_conflict` as a scrambled-looking orphan when continuations or
+media arrived.
 
-Independent audits first returned DIRTY findings; repairs were applied and all
-targeted re-audits returned CLEAN with no remaining P0/P1/P2. Recursive lint,
-format, full workspace typecheck, full recursive tests, final default-parallel
-`test:step2` (86 web files / 1115 tests), full production build, and
-`git diff --check` pass. Deploy and authenticated live three-image acceptance
-remain open.
+This follow-up repair keeps the original ADR-166 boundary and updates the
+authoritative live truth: active attempt status outranks same-id history while
+non-terminal; open-turn recognition is nullable-safe; terminal same-id retries
+stay immutable; ambiguous sends reconcile before any redispatch; live
+continuation strips are suppressed until terminal commit; and restored
+user-only `native_runtime_conflict` remains a recoverable pending failure.
+
+Two final independent post-repair re-audits returned CLEAN with zero P0/P1/P2.
+The mandatory local gate passed: recursive lint, `format:check`, API
+typecheck, and web typecheck. Focused API suites passed, focused web
+`use-chat` / `chat-message` / `chat-area` passed (`264/264`), and optional
+real-Postgres probes skipped honestly when no local DB was available.
+
+Full recursive verification was also resolved locally. The first default-
+parallel recursive test attempt exposed only web timing/contention failures.
+Each originally failing web test passed in isolation, and the subsequent
+default-parallel web rerun still showed scattered timeout-only unrelated
+failures under contention. Treat that as harness-parallel evidence, not as a
+product regression claim: the authoritative full web serial rerun passed
+`86 files / 1130 tests` with `--maxWorkers=1`. All non-web recursive tests
+passed, API `test:step2` passed, and the full production build passed.
+
+Therefore the local code/audit/gate state is CLEAN. Deploy/redeploy and
+authenticated live smoke remain pending, so this ADR must not claim deployed
+repair or live acceptance.
 
 This ADR is the repair authority for the shared presentation boundary only. It
 amends ADR-162 catch-up presentation ordering and ADR-165 open-turn/live UI
@@ -60,20 +78,30 @@ For one user turn that requests a series of three images:
 ### D1 — One presentation identity per active attempt
 
 `AssistantWebChatTurnAttempt` plus its bound `assistantMessageId` is the
-authoritative live presentation identity. SSE and durable history are inputs to
-that identity, not competing owners.
+authoritative live presentation identity. For web continuity, an
+`accepted` or `running` attempt remains the active authority even when
+durable history already contains an assistant row with the same
+`clientTurnId`. SSE and durable history are inputs to that identity, not
+competing owners.
 
 While the exact attempt is non-terminal, a same-id history row may contribute
 durable fields and attachments but must not demote `streaming`/`reconciling`,
 erase live thinking/activity, clear `liveInlineMediaReceipts`, or replace newer
-live content. Terminal attempt truth permits committed replacement.
+live content. It also must not clear busy/pending-send state, unlock the
+composer, or treat the send as settled solely because an assistant row exists.
+Terminal attempt truth permits committed replacement.
 
 History reconciliation must match exact ids and preserve transcript order. It
 must not absorb arbitrary older rows into the live tail.
 
-### D2 — Open-turn media present is claim-gated
+### D2 — Open-turn media present is claim-gated and nullable-safe
 
 Finding a `running` attempt is not sufficient authorization to present.
+Open-turn lookup for an ordinary web USER_TURN must include
+`surfaceClient = null` and exclude only the exact
+`surfaceClient = "async_continuation"` sentinel. A nullable inequality that
+filters out both values is invalid for live-present and wake-gate decisions.
+
 Open-turn delivery proceeds only when the canonical async handle atomically
 returns one of:
 
@@ -133,7 +161,13 @@ exists:
 
 - bounded live-thinking lines while thinking;
 - current tool/await label and useful progress while active;
-- received-file receipts in tool order.
+- ordinary live USER_TURN received-file receipts in tool order.
+
+Classic attachment strips for catch-up / async-continuation bubbles are
+suppressed while that continuation is still streaming or reconciling, so a
+committed-looking image cannot appear below a live cursor. One canonical
+attachment strip appears only after the continuation becomes terminal and is
+committed to history.
 
 There is no up-front fixed `min-height`/`max-height` thought reserve when
 thought text has never appeared. Instead, each active Assistant bubble keeps a
@@ -152,6 +186,34 @@ history reconciliation use the same reducer semantics for message identity,
 status, `streamingTextActive`, receipts, attachments, activities, and terminal
 cleanup. Handler-specific object-spread variants are not separate product
 state machines.
+
+### D8 — Ambiguous sends reconcile before retry or cancel
+
+Web retry/cancel decisions are driven by the durable logical-turn status for
+the exact `clientTurnId` and the exact current pending user message id:
+
+- `unknown` means server acceptance is unconfirmed. The client must reconcile
+  and must never redispatch the same logical send automatically.
+- `accepted` or `running` means the exact logical turn is active; the client
+  reattaches that id and keeps the composer locked.
+- `completed` hydrates the committed turn under the same id.
+- `failed` or `interrupted` is terminal and immutable for that id. Explicit
+  Retry mints a fresh `clientTurnId` plus fresh staged attachment identities.
+
+User-visible terminal `native_runtime_conflict` restored during reconnect or
+late reconciliation is presented as a recoverable failed pending send, not as a
+committed assistant orphan. That restored pending slot may already be backed by
+a canonical server user row; Retry and Cancel never delete that canonical row
+locally. For text-only sends, explicit Retry creates one fresh logical turn
+while preserving the old failed canonical row. If the restored canonical row
+had attachments, browser `File` objects are unavailable after F5, so Retry must
+not silently fall back to text-only: it preserves the failed row, restores text
+into the composer, unlocks pending, and requires the user to reattach files
+before a new send. Cancel may restore the draft only when the client has proof
+the request never left the device. If acceptance is unconfirmed, Cancel
+reconciles first and cannot unlock `unknown`, `accepted`, or `running`.
+Retry/Cancel actions bind only to the exact current pending user message id,
+never to historical failed rows in the transcript.
 
 ## Required scenario tests
 
@@ -181,6 +243,36 @@ state machines.
    shorter tool/await labels several times: the active bubble's measured
    height and transcript position never decrease during the turn, while a turn
    that has never shown thought text receives no up-front blank reserve.
+10. After a network stall or F5, history may contain an early assistant row for
+    the same `clientTurnId` while the ordinary attempt is still
+    `accepted` or `running`: the active attempt remains authoritative, the
+    composer stays locked, and no second user send is admitted.
+11. Restore from a local snapshot with no active controller and only a user-side
+    pending bubble: late terminal `native_runtime_conflict` becomes a
+    recoverable failed pending presentation, not a committed-looking orphan.
+12. Nullable SQL query-shape coverage proves ordinary web USER_TURN lookup
+    includes `surfaceClient = null` and excludes only exact
+    `surfaceClient = "async_continuation"`; optional real-Postgres probes verify
+    the same semantics when local DB is available.
+13. Retry/cancel status matrix:
+    `unknown` never redispatches;
+    `accepted|running` reattach exact id;
+    `completed` hydrates;
+    `failed|interrupted` stay immutable and Retry uses a fresh id;
+    restored canonical rows are never deleted locally; and Cancel restores draft
+    only for confirmed-never-sent local failure.
+14. A restored pending send that later terminalizes with
+    `native_runtime_conflict` remains explicitly retryable with a fresh turn and
+    fresh attachment identity, with no transcript scramble or same-id reuse.
+15. Continuation media ordering: while catch-up is streaming or reconciling, no
+    classic attachment strip renders below the live cursor; one canonical strip
+    appears only on terminal commit.
+16. Restored pending-send actions bind only to the exact current pending user
+    message id. Historical failed rows remain inert transcript history.
+17. If a restored canonical failed row has attachments after F5, Retry must not
+    silently send text-only without browser `File` objects; it preserves the
+    failed row, restores text into the composer, unlocks pending, and requires
+    reattachment before the next logical send.
 
 ## Slices
 

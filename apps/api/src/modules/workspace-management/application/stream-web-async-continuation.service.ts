@@ -9,7 +9,10 @@ import {
 } from "./internal-runtime-async-continuation.client.service";
 import { ChatWakeCoordinator } from "./chat-wake-coordinator.service";
 import { ConversationalPublishService } from "./conversational-publish.service";
-import { WebChatTurnAttemptService } from "./web-chat-turn-attempt.service";
+import {
+  resolveDuplicateTerminalTurnConflict,
+  WebChatTurnAttemptService
+} from "./web-chat-turn-attempt.service";
 import { WebChatContinuationDiscoveryService } from "./web-chat-continuation-discovery.service";
 import { WebChatTurnStopDispatchService } from "./web-chat-turn-stop-dispatch.service";
 import { WebChatTurnStreamRegistry } from "./web-chat-turn-stream-registry.service";
@@ -160,6 +163,17 @@ export class StreamWebAsyncContinuationService {
       await callbacks.releasePreDispatchBusy({
         ...claim,
         retryAt: callbacks.retryAt(context.handle.retryCount)
+      });
+      return;
+    }
+    if (typeof claimResult === "object" && claimResult.outcome === "duplicate_terminal") {
+      const conflict = resolveDuplicateTerminalTurnConflict(claimResult);
+      this.logger.warn(
+        `web_async_continuation_attempt_terminal clientTurnId=${continuationClientTurnId} status=${claimResult.terminalStatus}`
+      );
+      await callbacks.failClaimVisibly(claim, {
+        errorCode: conflict.code,
+        errorMessage: conflict.message
       });
       return;
     }

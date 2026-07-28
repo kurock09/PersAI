@@ -12,6 +12,136 @@ const noopChatWakeCoordinator = {
 } as never;
 
 describe("WebChatTurnAttemptService", () => {
+  test("claim keeps a failed attempt immutable under the same clientTurnId", async () => {
+    let updated = false;
+    let created = false;
+    const service = new WebChatTurnAttemptService(
+      {
+        assistantWebChatTurnAttempt: {
+          findUnique: async () => ({
+            id: "attempt-failed",
+            status: "failed",
+            errorCode: "web_turn_failed",
+            errorMessage: "Original failure.",
+            runningAt: new Date("2026-07-28T16:00:00.000Z"),
+            acceptedAt: new Date("2026-07-28T15:59:59.000Z"),
+            updatedAt: new Date("2026-07-28T16:00:01.000Z")
+          }),
+          update: async () => {
+            updated = true;
+            return {};
+          },
+          create: async () => {
+            created = true;
+            return {};
+          }
+        }
+      } as never,
+      { execute: async () => ({ assistantId: "assistant-1" }) } as never,
+      noopChatWakeCoordinator
+    );
+
+    const result = await service.claim({
+      assistantId: "assistant-1",
+      userId: "user-1",
+      workspaceId: "workspace-1",
+      surfaceThreadKey: "thread-1",
+      clientTurnId: "turn-failed",
+      claimedAt: new Date("2026-07-28T16:05:00.000Z"),
+      staleAfterMs: 60_000
+    });
+
+    assert.deepEqual(result, {
+      outcome: "duplicate_terminal",
+      terminalStatus: "failed",
+      errorCode: "web_turn_failed",
+      errorMessage: "Original failure."
+    });
+    assert.equal(updated, false);
+    assert.equal(created, false);
+  });
+
+  test("claim keeps an interrupted attempt immutable under the same clientTurnId", async () => {
+    let updated = false;
+    let created = false;
+    const service = new WebChatTurnAttemptService(
+      {
+        assistantWebChatTurnAttempt: {
+          findUnique: async () => ({
+            id: "attempt-interrupted",
+            status: "interrupted",
+            errorCode: "web_turn_interrupted",
+            errorMessage: "Stopped by user.",
+            runningAt: new Date("2026-07-28T16:00:00.000Z"),
+            acceptedAt: new Date("2026-07-28T15:59:59.000Z"),
+            updatedAt: new Date("2026-07-28T16:00:01.000Z")
+          }),
+          update: async () => {
+            updated = true;
+            return {};
+          },
+          create: async () => {
+            created = true;
+            return {};
+          }
+        }
+      } as never,
+      { execute: async () => ({ assistantId: "assistant-1" }) } as never,
+      noopChatWakeCoordinator
+    );
+
+    const result = await service.claim({
+      assistantId: "assistant-1",
+      userId: "user-1",
+      workspaceId: "workspace-1",
+      surfaceThreadKey: "thread-1",
+      clientTurnId: "turn-interrupted",
+      claimedAt: new Date("2026-07-28T16:05:00.000Z"),
+      staleAfterMs: 60_000
+    });
+
+    assert.deepEqual(result, {
+      outcome: "duplicate_terminal",
+      terminalStatus: "interrupted",
+      errorCode: "web_turn_interrupted",
+      errorMessage: "Stopped by user."
+    });
+    assert.equal(updated, false);
+    assert.equal(created, false);
+  });
+
+  test("claim allows a deliberate retry with a new clientTurnId", async () => {
+    const created: Array<Record<string, unknown>> = [];
+    const service = new WebChatTurnAttemptService(
+      {
+        assistantWebChatTurnAttempt: {
+          findUnique: async () => null,
+          create: async (input: { data: Record<string, unknown> }) => {
+            created.push(input.data);
+            return {};
+          }
+        }
+      } as never,
+      { execute: async () => ({ assistantId: "assistant-1" }) } as never,
+      noopChatWakeCoordinator
+    );
+
+    const result = await service.claim({
+      assistantId: "assistant-1",
+      userId: "user-1",
+      workspaceId: "workspace-1",
+      surfaceThreadKey: "thread-1",
+      clientTurnId: "turn-new-id",
+      claimedAt: new Date("2026-07-28T16:05:00.000Z"),
+      staleAfterMs: 60_000
+    });
+
+    assert.equal(result, "claimed");
+    assert.equal(created.length, 1);
+    assert.equal(created[0]?.clientTurnId, "turn-new-id");
+    assert.equal(created[0]?.status, "accepted");
+  });
+
   test("returns current tool activity only for active web turns", async () => {
     const attempt = {
       id: "attempt-1",

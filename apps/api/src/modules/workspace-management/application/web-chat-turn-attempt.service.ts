@@ -38,9 +38,56 @@ export interface WebChatTurnStatusState {
 
 export type WebChatTurnCurrentActivityState = AssistantWebChatTurnCurrentActivityState;
 
-export type WebTurnClaimResult = "claimed" | "duplicate_handled" | "duplicate_inflight";
+export type WebTurnDuplicateTerminalResult = {
+  outcome: "duplicate_terminal";
+  terminalStatus: "failed" | "interrupted";
+  errorCode: string | null;
+  errorMessage: string | null;
+};
+
+export type WebTurnClaimResult =
+  | "claimed"
+  | "duplicate_handled"
+  | "duplicate_inflight"
+  | WebTurnDuplicateTerminalResult;
 
 const TERMINAL_STATUSES = new Set<WebChatTurnAttemptStatus>(["completed", "failed", "interrupted"]);
+
+function readDuplicateTerminalResult(input: {
+  status: WebChatTurnAttemptStatus;
+  errorCode: string | null;
+  errorMessage: string | null;
+}): WebTurnDuplicateTerminalResult | null {
+  if (input.status !== "failed" && input.status !== "interrupted") {
+    return null;
+  }
+  return {
+    outcome: "duplicate_terminal",
+    terminalStatus: input.status,
+    errorCode: input.errorCode,
+    errorMessage: input.errorMessage
+  };
+}
+
+export function resolveDuplicateTerminalTurnConflict(input: WebTurnDuplicateTerminalResult): {
+  code: string;
+  message: string;
+} {
+  const fallback =
+    input.terminalStatus === "failed"
+      ? {
+          code: "web_turn_failed",
+          message: "This web turn already failed. Retry with a new clientTurnId."
+        }
+      : {
+          code: "web_turn_interrupted",
+          message: "This web turn was already interrupted. Retry with a new clientTurnId."
+        };
+  return {
+    code: input.errorCode ?? fallback.code,
+    message: input.errorMessage ?? fallback.message
+  };
+}
 
 function parseSkillDecisionState(value: unknown): AssistantChatSkillDecisionState | null {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
@@ -207,6 +254,17 @@ export class WebChatTurnAttemptService {
           `web_turn_attempt_replay_duplicate_prevented assistantId=${input.assistantId} threadKey=${input.surfaceThreadKey} clientTurnId=${input.clientTurnId} status=completed`
         );
         return "duplicate_handled";
+      }
+      const terminalResult = readDuplicateTerminalResult({
+        status: existing.status as WebChatTurnAttemptStatus,
+        errorCode: existing.errorCode,
+        errorMessage: existing.errorMessage
+      });
+      if (terminalResult !== null) {
+        this.logger.log(
+          `web_turn_attempt_terminal_duplicate_prevented assistantId=${input.assistantId} threadKey=${input.surfaceThreadKey} clientTurnId=${input.clientTurnId} status=${terminalResult.terminalStatus}`
+        );
+        return terminalResult;
       }
       const runningAt = existing.runningAt ?? existing.acceptedAt ?? existing.updatedAt;
       const fresh =

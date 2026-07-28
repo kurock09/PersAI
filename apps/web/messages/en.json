@@ -433,6 +433,8 @@
     "voiceTranscriptionEmptyGuidance": "Please record it again a little closer to the microphone.",
     "issueProviderFailure": "The model provider did not respond",
     "issueProviderFailureGuidance": "Wait a moment and retry in this same chat.",
+    "pendingRetryNeedsReattachTitle": "Reattach the files before retrying",
+    "pendingRetryNeedsReattachGuidance": "This restored failed message came from chat history, so its files are no longer available locally. Your text is back in the composer now. Reattach the files, then send again.",
     "send": "Send",
     "stop": "Stop",
     "recording": "Recording {duration}",

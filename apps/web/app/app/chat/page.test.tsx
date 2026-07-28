@@ -25,6 +25,7 @@ const chatHookMocks = vi.hoisted(() => ({
     | "send_failed"
     | "send_failed_unconfirmed"
     | "send_failed_confirmed",
+  pendingSendUserMessageId: null as string | null,
   threadKeys: [] as string[],
   assistantIds: [] as Array<string | null | undefined>
 }));
@@ -113,6 +114,7 @@ describe("ChatPage", () => {
     chatHookMocks.isStreaming = false;
     chatHookMocks.historyLoading = false;
     chatHookMocks.pendingSendStatus = null;
+    chatHookMocks.pendingSendUserMessageId = null;
     chatHookMocks.threadKeys = [];
     chatHookMocks.assistantIds = [];
     chatAreaMocks.lastProps = null;

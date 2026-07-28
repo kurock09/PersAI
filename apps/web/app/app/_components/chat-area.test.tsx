@@ -1,5 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { forwardRef, useImperativeHandle } from "react";
 import { ChatArea } from "./chat-area";
 import type { ChatMessage, UseChatReturn } from "./use-chat";
 import { patchAssistantWebChat } from "../assistant-api-client";
@@ -12,6 +13,7 @@ const openSettingsMock = vi.hoisted(() => vi.fn());
 const openAssistantBrowserProfileViewMock = vi.hoisted(() => vi.fn());
 const dismissAssistantBrowserProfileViewMock = vi.hoisted(() => vi.fn());
 const getCurrentLocalBrowserBridgeStatusMock = vi.hoisted(() => vi.fn());
+const setDraftMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@clerk/nextjs", () => ({
   useAuth: () => ({
@@ -43,30 +45,38 @@ vi.mock("./chat-message", () => ({
 }));
 
 vi.mock("./chat-input", () => ({
-  ChatInput: ({
-    showScrollToBottom,
-    onScrollToBottom
-  }: {
-    showScrollToBottom?: boolean;
-    onScrollToBottom?: () => void;
-  }) => (
-    <div data-testid="chat-composer-chrome">
-      <div data-testid="chat-input" />
-      {showScrollToBottom ? (
-        <div
-          data-testid="chat-scroll-to-bottom-anchor"
-          className="pointer-events-none absolute inset-x-0 bottom-full z-30 mb-2 flex justify-end"
-        >
-          <button
-            type="button"
-            aria-label="scrollToBottom"
-            className="pointer-events-auto flex h-11 w-11 cursor-pointer items-center justify-center rounded-full border border-border/45 bg-surface-raised"
-            onClick={onScrollToBottom}
-          />
-        </div>
-      ) : null}
-    </div>
-  )
+  ChatInput: forwardRef(function MockChatInput(
+    {
+      showScrollToBottom,
+      onScrollToBottom
+    }: {
+      showScrollToBottom?: boolean;
+      onScrollToBottom?: () => void;
+    },
+    ref
+  ) {
+    useImperativeHandle(ref, () => ({
+      setDraft: setDraftMock
+    }));
+    return (
+      <div data-testid="chat-composer-chrome">
+        <div data-testid="chat-input" />
+        {showScrollToBottom ? (
+          <div
+            data-testid="chat-scroll-to-bottom-anchor"
+            className="pointer-events-none absolute inset-x-0 bottom-full z-30 mb-2 flex justify-end"
+          >
+            <button
+              type="button"
+              aria-label="scrollToBottom"
+              className="pointer-events-auto flex h-11 w-11 cursor-pointer items-center justify-center rounded-full border border-border/45 bg-surface-raised"
+              onClick={onScrollToBottom}
+            />
+          </div>
+        ) : null}
+      </div>
+    );
+  })
 }));
 
 vi.mock("./assistant-avatar", () => ({
@@ -122,6 +132,7 @@ afterEach(() => {
   dismissAssistantBrowserProfileViewMock.mockReset();
   getCurrentLocalBrowserBridgeStatusMock.mockReset();
   openSidebarMock.mockClear();
+  setDraftMock.mockReset();
   sessionStorage.clear();
   projectFilesEvents.resetProjectFilesHintStateForTests();
   vi.restoreAllMocks();
@@ -137,6 +148,8 @@ function createChat(
     loadOlderMessages?: UseChatReturn["loadOlderMessages"];
     issue?: UseChatReturn["issue"];
     messages?: ChatMessage[];
+    pendingSendStatus?: UseChatReturn["pendingSendStatus"];
+    pendingSendUserMessageId?: string | null;
     currentEngagement?: UseChatReturn["currentEngagement"];
     compaction?: UseChatReturn["compaction"];
     compactionRunning?: boolean;
@@ -190,9 +203,10 @@ function createChat(
     loadHistory: vi.fn(async () => undefined),
     markHistoryEmpty: vi.fn(),
     loadOlderMessages: options?.loadOlderMessages ?? vi.fn(async () => undefined),
-    pendingSendStatus: null,
-    retryPendingSend: vi.fn(async () => undefined),
-    cancelPendingSend: vi.fn(() => null),
+    pendingSendStatus: options?.pendingSendStatus ?? null,
+    pendingSendUserMessageId: options?.pendingSendUserMessageId ?? null,
+    retryPendingSend: vi.fn(async () => null),
+    cancelPendingSend: vi.fn(async () => null),
     liveThinkingPreviewByMessageId: {}
   };
 }
@@ -753,6 +767,80 @@ describe("ChatArea", () => {
       ([props]) => props.message.id === "local-assistant-1"
     )?.[0];
     expect(assistantProps?.preResponseStatus).toBeUndefined();
+  });
+
+  it("wires retry and cancel only to the exact pending failed user row", () => {
+    const historicalFailed: ChatMessage = {
+      id: "user-failed-old",
+      role: "user",
+      content: "old failed",
+      status: "send_failed_confirmed"
+    };
+    const activePendingFailed: ChatMessage = {
+      id: "user-failed-active",
+      role: "user",
+      content: "active failed",
+      status: "send_failed_unconfirmed"
+    };
+
+    render(
+      <ChatArea
+        chat={createChat("", {
+          isStreaming: false,
+          messages: [historicalFailed, activePendingFailed],
+          pendingSendStatus: "send_failed_unconfirmed",
+          pendingSendUserMessageId: "user-failed-active"
+        })}
+      />
+    );
+
+    const historicalProps = chatMessageBubbleMock.mock.calls.find(
+      ([props]) => props.message.id === "user-failed-old"
+    )?.[0];
+    const activeProps = chatMessageBubbleMock.mock.calls.find(
+      ([props]) => props.message.id === "user-failed-active"
+    )?.[0];
+
+    expect(historicalProps?.onRetryPendingSend).toBeUndefined();
+    expect(historicalProps?.onCancelPendingSend).toBeUndefined();
+    expect(activeProps?.onRetryPendingSend).toBeTypeOf("function");
+    expect(activeProps?.onCancelPendingSend).toBeTypeOf("function");
+  });
+
+  it("restores retry text into the composer when the pending row needs reattachment", async () => {
+    const retryPendingSend = vi.fn(async () => "Need files again");
+    const pendingFailed: ChatMessage = {
+      id: "user-failed-active",
+      role: "user",
+      content: "Need files again",
+      status: "send_failed_unconfirmed"
+    };
+
+    render(
+      <ChatArea
+        chat={{
+          ...createChat("", {
+            isStreaming: false,
+            messages: [pendingFailed],
+            pendingSendStatus: "send_failed_unconfirmed",
+            pendingSendUserMessageId: "user-failed-active"
+          }),
+          retryPendingSend
+        }}
+      />
+    );
+
+    const pendingProps = chatMessageBubbleMock.mock.calls.find(
+      ([props]) => props.message.id === "user-failed-active"
+    )?.[0];
+    expect(pendingProps?.onRetryPendingSend).toBeTypeOf("function");
+
+    await act(async () => {
+      await pendingProps?.onRetryPendingSend?.();
+    });
+
+    expect(retryPendingSend).toHaveBeenCalledTimes(1);
+    expect(setDraftMock).toHaveBeenCalledWith("Need files again");
   });
 
   it("passes the next activity into the streaming assistant bubble instead of rendering a banner", () => {

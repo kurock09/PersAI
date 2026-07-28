@@ -145,6 +145,134 @@ describe("ChatWakeCoordinator", () => {
     assert.deepEqual(locks, []);
   });
 
+  test("web active-turn query shape includes null surfaceClient and excludes async_continuation", async () => {
+    let capturedWhere: Record<string, unknown> | null = null;
+    const coordinator = new ChatWakeCoordinator(
+      {
+        assistantWebChatTurnAttempt: {
+          findFirst: async (input: { where: Record<string, unknown> }) => {
+            capturedWhere = input.where;
+            return null;
+          }
+        }
+      } as never,
+      {} as never,
+      {} as never
+    );
+
+    const active = await (
+      coordinator as unknown as {
+        isWebUserTurnActive(input: {
+          chatId: string;
+          assistantId: string;
+          userId: string;
+          surfaceThreadKey: string | null;
+        }): Promise<boolean>;
+      }
+    ).isWebUserTurnActive({
+      chatId: "chat-1",
+      assistantId: "assistant-1",
+      userId: "user-1",
+      surfaceThreadKey: "thread-1"
+    });
+
+    assert.equal(active, false);
+    assert.deepEqual(capturedWhere, {
+      assistantId: "assistant-1",
+      userId: "user-1",
+      status: { in: ["accepted", "running"] },
+      AND: [
+        {
+          OR: [{ surfaceClient: null }, { surfaceClient: { not: "async_continuation" } }]
+        },
+        {
+          OR: [{ chatId: "chat-1" }, { surfaceThreadKey: "thread-1" }]
+        }
+      ]
+    });
+  });
+
+  test("PostgreSQL wake gate includes null surfaceClient and excludes async_continuation", async (t) => {
+    const prisma = new PrismaClient({
+      datasources: { db: { url: postgresIntegrationUrl } }
+    });
+    try {
+      try {
+        await prisma.$connect();
+      } catch {
+        t.skip("Postgres unavailable for wake-gate SQL probe");
+        return;
+      }
+      await prisma.$transaction(async (tx) => {
+        await tx.$executeRawUnsafe(`
+          CREATE TEMP TABLE "assistant_web_chat_turn_attempts" (
+            "assistant_id" uuid NOT NULL,
+            "user_id" uuid NOT NULL,
+            "chat_id" uuid,
+            "surface_thread_key" text NOT NULL,
+            "status" text NOT NULL,
+            "surface_client" text
+          ) ON COMMIT DROP
+        `);
+        await tx.$executeRawUnsafe(`
+          INSERT INTO "assistant_web_chat_turn_attempts"
+            ("assistant_id", "user_id", "chat_id", "surface_thread_key", "status", "surface_client")
+          VALUES
+            ('00000000-0000-0000-0000-000000000010', '00000000-0000-0000-0000-000000000020',
+             '00000000-0000-0000-0000-000000000030', 'thread-async', 'running', 'async_continuation')
+        `);
+        const coordinator = new ChatWakeCoordinator(
+          { assistantWebChatTurnAttempt: tx.assistantWebChatTurnAttempt } as never,
+          {} as never,
+          {} as never
+        );
+        const asyncOnly = await (
+          coordinator as unknown as {
+            isWebUserTurnActive(input: {
+              chatId: string;
+              assistantId: string;
+              userId: string;
+              surfaceThreadKey: string | null;
+            }): Promise<boolean>;
+          }
+        ).isWebUserTurnActive({
+          chatId: "00000000-0000-0000-0000-000000000030",
+          assistantId: "00000000-0000-0000-0000-000000000010",
+          userId: "00000000-0000-0000-0000-000000000020",
+          surfaceThreadKey: "thread-async"
+        });
+        assert.equal(asyncOnly, false);
+
+        await tx.$executeRawUnsafe(`
+          INSERT INTO "assistant_web_chat_turn_attempts"
+            ("assistant_id", "user_id", "chat_id", "surface_thread_key", "status", "surface_client")
+          VALUES
+            ('00000000-0000-0000-0000-000000000010', '00000000-0000-0000-0000-000000000020',
+             '00000000-0000-0000-0000-000000000030', 'thread-ordinary', 'accepted', NULL)
+        `);
+
+        const ordinaryOpen = await (
+          coordinator as unknown as {
+            isWebUserTurnActive(input: {
+              chatId: string;
+              assistantId: string;
+              userId: string;
+              surfaceThreadKey: string | null;
+            }): Promise<boolean>;
+          }
+        ).isWebUserTurnActive({
+          chatId: "00000000-0000-0000-0000-000000000030",
+          assistantId: "00000000-0000-0000-0000-000000000010",
+          userId: "00000000-0000-0000-0000-000000000020",
+          surfaceThreadKey: "thread-ordinary"
+        });
+        assert.equal(ordinaryOpen, true);
+      });
+    } finally {
+      await prisma.$disconnect();
+    }
+  });
+
   test("skips catch-up when Telegram USER_TURN started_at is open (preparing)", async () => {
     const locks: string[] = [];
     const startedAt = new Date(Date.now() - 100);
@@ -344,8 +472,12 @@ describe("ChatWakeCoordinator", () => {
       {
         $queryRaw: async () => candidates,
         assistantWebChatTurnAttempt: {
-          findFirst: async (input: { where: { OR: Array<{ chatId: string }> } }) =>
-            input.where.OR[0]?.chatId !== "chat-9" ? { id: "active-user-turn" } : null
+          findFirst: async (input: {
+            where: { AND?: Array<{ OR?: Array<{ chatId?: string }> }> };
+          }) => {
+            const chatId = input.where.AND?.[1]?.OR?.[0]?.chatId;
+            return chatId !== "chat-9" ? { id: "active-user-turn" } : null;
+          }
         },
         runtimeTurnReceipt: { findFirst: async () => null },
         assistantChat: {
@@ -401,8 +533,14 @@ describe("ChatWakeCoordinator", () => {
           return [];
         },
         assistantWebChatTurnAttempt: {
-          findFirst: async (input: { where: { OR: Array<{ chatId: string }> } }) =>
-            input.where.OR[0]?.chatId.startsWith("blocked-") ? { id: "active" } : null
+          findFirst: async (input: {
+            where: { AND?: Array<{ OR?: Array<{ chatId?: string }> }> };
+          }) => {
+            const chatId = input.where.AND?.[1]?.OR?.[0]?.chatId;
+            return typeof chatId === "string" && chatId.startsWith("blocked-")
+              ? { id: "active" }
+              : null;
+          }
         },
         runtimeTurnReceipt: { findFirst: async () => null },
         assistantChat: {

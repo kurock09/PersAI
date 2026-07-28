@@ -268,6 +268,99 @@ describe("SendWebChatTurnService", () => {
     assert.ok(Array.isArray(result.activeSandboxJobs));
   });
 
+  test("same clientTurnId terminal failure does not start a second runtime turn", async () => {
+    let webRuntimeCalls = 0;
+    let prepared = false;
+    const service = new SendWebChatTurnService(
+      {
+        findChatById: async () => {
+          throw new Error("chat replay should not be loaded for terminal failure");
+        },
+        findMessageByIdForAssistant: async () => {
+          throw new Error("messages should not be loaded for terminal failure");
+        },
+        findMessageToolContextById: async () => null
+      } as never,
+      {
+        listByMessageId: async () => []
+      } as never,
+      {} as never,
+      {
+        execute: async () => {
+          webRuntimeCalls += 1;
+          return {
+            assistantMessage: "native",
+            respondedAt: "2026-04-05T12:00:01.000Z",
+            media: []
+          };
+        }
+      } as never,
+      {
+        execute: async () => {
+          prepared = true;
+          throw new Error("prepare should not run after terminal duplicate");
+        }
+      } as never,
+      {
+        resolveByUserId: async () => ({
+          assistantId: "assistant-1",
+          assistant: {
+            workspaceId: "workspace-1"
+          }
+        })
+      } as never,
+      {} as never,
+      {
+        recordChatMainReplyEvents: async () => 0
+      } as never,
+      noopRecordToolPathLedgerFromToolInvocationsService,
+      {
+        attachAcknowledgementMessageId: async () => 0,
+        listOpenJobsForChatContext: async () => [],
+        listOpenJobsForWebChat: async () => []
+      } as never,
+      createAssistantDocumentJobReadServiceMock() as never,
+      {} as never,
+      createOverviewLatencyTraceServiceMock() as never,
+      createAttachmentObjectAvailabilityServiceMock() as never,
+      createSkillStatePersistenceServiceMock() as never,
+      createNotificationDeliveryWorkerServiceMock() as never,
+      undefined,
+      {
+        claim: async () => ({
+          outcome: "duplicate_terminal" as const,
+          terminalStatus: "failed" as const,
+          errorCode: "web_turn_failed",
+          errorMessage: "Original failure."
+        })
+      } as never
+    );
+
+    await assert.rejects(
+      () =>
+        service.execute("user-1", {
+          surfaceThreadKey: "thread-1",
+          message: "hello again",
+          clientTurnId: "turn-failed"
+        }),
+      (error: unknown) => {
+        assert.equal(webRuntimeCalls, 0);
+        assert.equal(prepared, false);
+        assert.equal(
+          (error as { errorObject?: { code?: string; details?: Record<string, unknown> } })
+            .errorObject?.code,
+          "web_turn_failed"
+        );
+        assert.equal(
+          (error as { errorObject?: { details?: Record<string, unknown> } }).errorObject?.details
+            ?.terminalStatus,
+          "failed"
+        );
+        return true;
+      }
+    );
+  });
+
   test("replay projection includes activeSandboxJobs", async () => {
     const sandboxJobs = [
       {

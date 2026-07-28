@@ -36,11 +36,11 @@ alwaysApply: true
   invent, absorb-as-architecture, continue-on-already-ready, or fake wake-up.
   Parent orchestrates/audits/commits; implementation subagents may use only
   `cursor-grok-4.5-high-fast`. Phases 1–3 landed locally (ConversationalPublish
-  + wave-closed continue + web bind to publish `assistantMessageId`; no dual
-  `local-assistant-async-cont:*`; attachment-preserving overlay); independent
-  audits pending; Phase 4 gates / Phase 5 live open. Supersedes conflicting
-  chat-present readings of ADR-157 D1/D4.1 and early-delivery +
-  `persistOutputOnce` patch seams; ADR-159 queue/eligibility remains.
+  - wave-closed continue + web bind to publish `assistantMessageId`; no dual
+    `local-assistant-async-cont:*`; attachment-preserving overlay); independent
+    audits pending; Phase 4 gates / Phase 5 live open. Supersedes conflicting
+    chat-present readings of ADR-157 D1/D4.1 and early-delivery +
+    `persistOutputOnce` patch seams; ADR-159 queue/eligibility remains.
 - **ADR-161** provider-native prompt-cache discipline and canonical usage
   accounting is an active founder-prioritized parent-orchestrated program
   (docs-only opening 2026-07-20; long-loop refinement independently audited
@@ -68,17 +68,23 @@ alwaysApply: true
   orchestrates/audits/commits; impl + audits **only**
   `cursor-grok-4.5-high-fast`. Keep ADR-163 commits separate from ADR-161/162.
 - **ADR-166** unified live presentation state machine is a founder-directed
-  repair program (implementation CLEAN and pushed 2026-07-27 as `edb948f4` on
-  baseline `1f2512a8`; deploy/live acceptance pending). Source of truth:
+  repair program (release `edb948f4` was deployed on `persai.dev`, but founder
+  live acceptance failed on 2026-07-27/28; the bounded local repair on
+  baseline `e8f26b2f` is now CLEAN after two independent re-audits with zero
+  P0/P1/P2, the mandatory lint/format/typecheck gate, focused API suites,
+  focused web `264/264`, authoritative full web serial pass `86 files / 1130
+tests` after parallel-only timeout/contention evidence, all non-web
+  recursive tests, API `test:step2`, and production build; founder-authorized
+  commit/push/deploy and authenticated live smoke remain pending). Source of truth:
   `docs/ADR/166-unified-live-presentation-state-machine.md`. One live USER_TURN
   owns a media series; same-id history cannot demote it; open-turn present is
   explicit-claim-gated; catch-up becomes visible only after runtime acceptance
   plus publish bind; terminal full snapshots clear Working; delivered inline
   media never requeues after Stop; compact status replaces the `8.75rem` blank
   reserve, and a per-message progressive height high-water prevents long-loop
-  shrink/bounce without up-front empty space. Three-image order/out-of-order,
-  reconnect/failure, mobile height-stability, and cross-thread history/restore
-  regressions, independent re-audits, and full CI-like local gates are CLEAN. Parent
+  shrink/bounce without up-front empty space. Current repair scope includes
+  three-image order/out-of-order, reconnect/failure, mobile
+  height-stability, and cross-thread history/restore regressions. Parent
   orchestrates/audits/commits; implementation subagents use only
   `cursor-grok-4.5-high-fast`.
 

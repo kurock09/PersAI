@@ -231,7 +231,28 @@ Web/Capacitor chat sends now carry a stable client envelope:
   lifetime. The former `last_cross_session_carry_over_at` cooldown column is
   removed.
 - ADR-100 Slice 2 adds `assistant_chats.chat_mode` (`normal`, `smart`, `project`) as the explicit chat-scoped behavior mode. Existing `assistant_chats.deep_mode_enabled` remains during migration as a compatibility boolean; writes through `chatMode` keep it synchronized (`normal=false`, `smart/project=true`), and old `deepModeEnabled` writes map back to `normal` / `smart`.
-- `assistant_web_chat_turn_attempts` records each logical send with status `accepted`, `running`, `completed`, `failed`, or `interrupted`, plus chat/message ids and terminal replay payloads when available.
+- `assistant_web_chat_turn_attempts` records each logical send with status
+  `accepted`, `running`, `completed`, `failed`, or `interrupted`, plus
+  chat/message ids and terminal replay payloads when available. For a given
+  `(assistantId, userId, surfaceThreadKey, clientTurnId)`, terminal `failed`
+  and `interrupted` rows are immutable and must not be reset to `accepted`;
+  `completed` remains replayable under the same id; and an explicit retry after
+  terminal failure/interruption must mint a fresh `clientTurnId` and fresh
+  staged attachment identities.
+- during continuity restore, an `accepted` or `running`
+  `assistant_web_chat_turn_attempts` row is the authoritative active-send truth
+  even if committed history already contains an early assistant row with the
+  same `clientTurnId`. That history row may hydrate durable ids, payloads, or
+  attachments, but it must not by itself clear pending/busy state, unlock the
+  composer, or promote the send to terminal client truth.
+- a restored pending-send slot may be backed by a canonical persisted user
+  message row. Retry/Cancel actions bind only to the exact current pending user
+  message id and never delete that failed canonical row locally. Text-only
+  explicit Retry creates one fresh logical turn while preserving the old failed
+  canonical row. If the restored canonical row had attachments, browser
+  `File` objects are unavailable after F5, so Retry must not silently send the
+  preserved text alone; the text returns to the composer and the user must
+  reattach files before the new logical send.
 - `assistant_media_jobs` is the ADR-086 durable generated-media job registry for `image` / `audio` / `video` work across both `web` and `telegram`. It now carries not only the canonical job row and web continuity projection for open states (`queued`, `running`, `completion_pending`), but also the source surface, worker-owned request payload, result payload, claim TTL, retry timing, acknowledgement/completion assistant message ids, and terminal error state needed for durable backend execution plus backend-owned web/Telegram completion delivery. ADR-112 Slice 7 leaves that persisted/web continuity truth unchanged, but runtime prompt projection now interprets it in two buckets: true in-progress generation (`queued`, `running`) vs post-completion delivery updates (`completion_pending` and very recent delivered rows).
 - `assistant_upload_micro_description_jobs` — **retired (ADR-126 v3).** Replaced by ADR-134 `workspace_file_micro_description_jobs` keyed on `(workspaceId, path)`.
 - ADR-099 Block 1 now also uses `assistant_media_jobs.billing_facts_json` as the durable additive billing-facts seam for generated image/video provider work; this is persistence foundation only, not a money-ledger row.

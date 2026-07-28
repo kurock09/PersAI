@@ -375,6 +375,87 @@ describe("StreamWebChatTurnService", () => {
     assert.equal(transport.engagementSummary, null);
   });
 
+  test("same clientTurnId terminal failure does not prepare or stream a second turn", async () => {
+    let streamed = false;
+    let prepared = false;
+    const service = new StreamWebChatTurnService(
+      {} as never,
+      {} as never,
+      {} as never,
+      {
+        stream: async () => {
+          streamed = true;
+          throw new Error("stream should not start after terminal duplicate");
+        }
+      } as never,
+      {} as never,
+      {
+        execute: async () => {
+          prepared = true;
+          throw new Error("prepare should not run after terminal duplicate");
+        }
+      } as never,
+      {
+        resolveByUserId: async () => ({
+          assistantId: "assistant-1",
+          assistant: {
+            workspaceId: "workspace-1"
+          }
+        })
+      } as never,
+      {} as never,
+      {
+        recordChatMainReplyEvents: async () => 0
+      } as never,
+      noopRecordToolPathLedgerFromToolInvocationsService,
+      {} as never,
+      createOverviewLatencyTraceServiceMock() as never,
+      createPlatformHttpMetricsServiceMock() as never,
+      createAttachmentObjectAvailabilityServiceMock() as never,
+      createSkillStatePersistenceServiceMock() as never,
+      {
+        listOpenJobsForChatContext: async () => [],
+        listOpenJobsForWebChat: async () => []
+      } as never,
+      createAssistantDocumentJobReadServiceMock() as never,
+      createNotificationDeliveryWorkerServiceMock() as never,
+      createAssistantBrowserProfileRepositoryMock() as never,
+      undefined,
+      {
+        claim: async () => ({
+          outcome: "duplicate_terminal" as const,
+          terminalStatus: "interrupted" as const,
+          errorCode: "web_turn_interrupted",
+          errorMessage: "Stopped by user."
+        })
+      } as never
+    );
+
+    await assert.rejects(
+      () =>
+        service.prepare("user-1", {
+          surfaceThreadKey: "thread-1",
+          message: "hello again",
+          clientTurnId: "turn-interrupted"
+        }),
+      (error: unknown) => {
+        assert.equal(streamed, false);
+        assert.equal(prepared, false);
+        assert.equal(
+          (error as { errorObject?: { code?: string; details?: Record<string, unknown> } })
+            .errorObject?.code,
+          "web_turn_interrupted"
+        );
+        assert.equal(
+          (error as { errorObject?: { details?: Record<string, unknown> } }).errorObject?.details
+            ?.terminalStatus,
+          "interrupted"
+        );
+        return true;
+      }
+    );
+  });
+
   test("persists final answer from done chunk and preamble in metadata", async () => {
     const createdMessages: Array<Record<string, unknown>> = [];
 

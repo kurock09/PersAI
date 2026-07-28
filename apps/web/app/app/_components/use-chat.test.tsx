@@ -108,6 +108,21 @@ describe("useChat", () => {
     };
   }
 
+  function createHistoryImageAttachment(id: string) {
+    return {
+      id,
+      path: `${CHAT_SESSION_ROOT}/${id}.png`,
+      thumbnailStoragePath: `${CHAT_SESSION_ROOT}/${id}.thumb.png`,
+      posterStoragePath: null,
+      attachmentType: "image" as const,
+      originalFilename: `${id}.png`,
+      mimeType: "image/png",
+      sizeBytes: 1024,
+      processingStatus: "ready" as const,
+      createdAt: "2026-04-14T10:00:00.000Z"
+    };
+  }
+
   beforeEach(() => {
     window.sessionStorage.clear();
     clerkMocks.getToken.mockReset();
@@ -2080,7 +2095,7 @@ describe("useChat", () => {
     ).toBe(false);
   });
 
-  it("terminal history absorb clears streaming for async-cont reattach", async () => {
+  it("F5 history clears a stale-running async-cont publish overlay once", async () => {
     const continuationClientTurnId = "async-cont:handle-terminal-absorb-1";
     const baseMessages = [
       {
@@ -2166,7 +2181,18 @@ describe("useChat", () => {
         handlers.onReattached?.({ turn, live: true });
         assistantApiMocks.getChatMessages.mockResolvedValue({
           nextCursor: null,
-          activeTurn: null,
+          activeTurn: {
+            clientTurnId: continuationClientTurnId,
+            status: "running",
+            updatedAt: "2026-07-19T04:00:08.000Z",
+            currentActivity: null,
+            pendingUserMessageId: null,
+            assistantMessageId: continuationMessage.id,
+            chat: null,
+            userMessage: null,
+            assistantMessage: continuationMessage,
+            canReattach: true
+          },
           activeSandboxJobs: [],
           messages: [...baseMessages, continuationMessage]
         });
@@ -2201,6 +2227,7 @@ describe("useChat", () => {
           (message.status === "streaming" || message.status === "reconciling")
       )
     ).toBe(false);
+    expect(window.sessionStorage.getItem("persai.active-web-turn.v1.thread-1")).toBeNull();
   });
 
   it("clears sticky and Stop when continuation reattach dies without a terminal", async () => {
@@ -4858,66 +4885,165 @@ describe("useChat", () => {
     });
   });
 
-  it("ignores stale running activeTurn when committed history already has the final assistant", async () => {
-    window.sessionStorage.setItem("persai.active-web-turn.v1.thread-1", "turn-stale");
-    assistantApiMocks.getChatMessages.mockResolvedValueOnce({
-      nextCursor: null,
-      messages: [
-        {
-          id: "server-user-active",
-          chatId: "chat-1",
-          assistantId: "assistant-1",
-          author: "user",
-          content: "draw",
-          attachments: [],
-          createdAt: "2026-04-25T17:45:35.000Z"
-        },
-        {
-          id: "server-final-assistant",
-          chatId: "chat-1",
-          assistantId: "assistant-1",
-          author: "assistant",
-          content: "Done",
-          attachments: [],
-          createdAt: "2026-04-25T17:45:40.000Z"
-        }
-      ],
-      activeTurn: {
-        clientTurnId: "turn-stale",
-        status: "running",
-        updatedAt: "2026-04-25T17:45:36.000Z",
-        currentActivity: null,
-        pendingUserMessageId: "server-user-active",
-        assistantMessageId: null,
-        chat: null,
-        userMessage: {
-          id: "server-user-active",
-          chatId: "chat-1",
-          assistantId: "assistant-1",
-          author: "user",
-          content: "draw",
-          attachments: [],
-          createdAt: "2026-04-25T17:45:35.000Z"
-        },
-        assistantMessage: null,
-        canReattach: true
-      }
-    });
+  it("keeps a running activeTurn authoritative when same-id history already has an early assistant row", async () => {
+    const threadKey = "thread-same-id-running-overlay";
+    const chatId = "chat-same-id-running-overlay";
+    const clientTurnId = "turn-same-id-running-overlay";
+    const runningTurn = {
+      status: "running" as const,
+      chat: {
+        id: chatId,
+        assistantId: "assistant-1",
+        surface: "web" as const,
+        surfaceThreadKey: threadKey,
+        title: "Chat",
+        chatMode: "normal" as const,
+        deepModeEnabled: false,
+        skillDecisionState: null,
+        archivedAt: null,
+        lastMessageAt: "2026-04-25T17:45:40.000Z",
+        createdAt: "2026-04-25T17:45:35.000Z",
+        updatedAt: "2026-04-25T17:45:40.000Z"
+      },
+      userMessage: {
+        id: "server-user-active",
+        chatId,
+        assistantId: "assistant-1",
+        author: "user" as const,
+        content: "draw",
+        attachments: [],
+        createdAt: "2026-04-25T17:45:35.000Z"
+      },
+      assistantMessage: {
+        id: "server-early-assistant",
+        chatId,
+        assistantId: "assistant-1",
+        author: "assistant" as const,
+        content: "Done",
+        attachments: [],
+        createdAt: "2026-04-25T17:45:40.000Z"
+      },
+      currentActivity: null,
+      runtime: null,
+      error: null
+    };
+    let releaseReattach: (() => void) | undefined;
 
-    const { result } = renderHook(() => useChat("thread-1"), {
+    window.sessionStorage.setItem(`persai.active-web-turn.v1.${threadKey}`, clientTurnId);
+    assistantApiMocks.getAssistantWebChatTurnStatus.mockImplementation(
+      async (_token: string, requestedClientTurnId: string) => {
+        if (requestedClientTurnId !== clientTurnId) {
+          return {
+            status: "unknown" as const,
+            chat: null,
+            userMessage: null,
+            assistantMessage: null,
+            currentActivity: null,
+            runtime: null,
+            error: null
+          };
+        }
+        return runningTurn;
+      }
+    );
+    assistantApiMocks.reattachAssistantWebChatTurnStream.mockImplementation(
+      async (
+        _token: string,
+        requestedClientTurnId: string,
+        handlers: {
+          onHeadersOk?: () => void;
+          onTurnStatus?: (payload: { turn: unknown }) => void;
+        }
+      ) => {
+        handlers.onHeadersOk?.();
+        handlers.onTurnStatus?.({
+          turn: await assistantApiMocks.getAssistantWebChatTurnStatus(
+            "token-1",
+            requestedClientTurnId
+          )
+        });
+        await new Promise<void>((resolve) => {
+          releaseReattach = resolve;
+        });
+      }
+    );
+    assistantApiMocks.getChatMessages.mockImplementation(
+      async (_token: string, requestedChatId: string) => {
+        if (requestedChatId !== chatId) {
+          return {
+            nextCursor: null,
+            messages: [],
+            activeMediaJobs: [],
+            activeDocumentJobs: [],
+            activeSandboxJobs: []
+          };
+        }
+        return {
+          nextCursor: null,
+          messages: [
+            {
+              id: "older-user-1",
+              chatId,
+              assistantId: "assistant-1",
+              author: "user" as const,
+              content: "older",
+              attachments: [],
+              createdAt: "2026-04-25T17:44:35.000Z"
+            },
+            runningTurn.userMessage,
+            runningTurn.assistantMessage
+          ],
+          activeTurn: {
+            clientTurnId,
+            status: "running" as const,
+            updatedAt: "2026-04-25T17:45:41.000Z",
+            currentActivity: null,
+            pendingUserMessageId: runningTurn.userMessage.id,
+            assistantMessageId: runningTurn.assistantMessage.id,
+            chat: null,
+            userMessage: runningTurn.userMessage,
+            assistantMessage: runningTurn.assistantMessage,
+            canReattach: true
+          },
+          activeMediaJobs: [],
+          activeDocumentJobs: [],
+          activeSandboxJobs: []
+        };
+      }
+    );
+
+    const { result } = renderHook(() => useChat(threadKey), {
       wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
     });
 
+    await waitFor(() => expect(result.current.isStreaming).toBe(true));
+    expect(assistantApiMocks.reattachAssistantWebChatTurnStream).toHaveBeenCalledWith(
+      "token-1",
+      clientTurnId,
+      expect.any(Object),
+      expect.any(AbortSignal)
+    );
+
     await act(async () => {
-      await result.current.loadHistory("chat-1");
+      await result.current.loadHistory(chatId);
     });
 
-    expect(result.current.isStreaming).toBe(false);
-    expect(result.current.messages.map((message) => message.id)).toEqual([
-      "server-user-active",
-      "server-final-assistant"
-    ]);
-    expect(window.sessionStorage.getItem("persai.active-web-turn.v1.thread-1")).toBeNull();
+    const ids = result.current.messages.map((message) => message.id);
+    expect(result.current.isStreaming).toBe(true);
+    expect(ids).toEqual(["older-user-1", "server-user-active", "server-early-assistant"]);
+    expect(ids.filter((id) => id === "server-user-active")).toHaveLength(1);
+    expect(ids.filter((id) => id === "server-early-assistant")).toHaveLength(1);
+    expect(
+      result.current.messages.find((message) => message.id === "server-early-assistant")?.status
+    ).toBe("streaming");
+    expect(window.sessionStorage.getItem(`persai.active-web-turn.v1.${threadKey}`)).toBe(
+      clientTurnId
+    );
+
+    act(() => {
+      releaseReattach?.();
+      result.current.stop();
+    });
   });
 
   it("does not clear a live stream when activeTurn is null but history only has older assistant messages", async () => {
@@ -5975,7 +6101,7 @@ describe("useChat", () => {
       expect(result.current.messages).toHaveLength(0);
     });
 
-    it("retryPendingSend re-dispatches the same payload and clears the slot on success", async () => {
+    it("does not redispatch an unknown pending turn and keeps its slot recoverable", async () => {
       let callCount = 0;
       assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
         async (
@@ -5987,7 +6113,8 @@ describe("useChat", () => {
           }
         ) => {
           callCount++;
-          // First call fails before headers, second succeeds.
+          // First call fails before headers. An unknown reconciliation must
+          // never create a second logical server turn.
           if (callCount === 1) {
             throw new TypeError("fetch failed");
           }
@@ -6012,10 +6139,10 @@ describe("useChat", () => {
         await result.current.retryPendingSend();
       });
 
-      expect(callCount).toBe(2);
-      expect(result.current.pendingSendStatus).toBeNull();
+      expect(callCount).toBe(1);
+      expect(result.current.pendingSendStatus).toBe("send_failed_unconfirmed");
       const userMsg = result.current.messages.find((m) => m.role === "user");
-      expect(userMsg?.status).toBe("committed");
+      expect(userMsg?.status).toBe("send_failed_unconfirmed");
     });
 
     it("retryPendingSend reconciles a completed server turn instead of sending a duplicate", async () => {
@@ -6283,7 +6410,7 @@ describe("useChat", () => {
         });
         expect(result.current.pendingSendStatus).toBe("send_failed_unconfirmed");
 
-        let retryPromise: Promise<void> | undefined;
+        let retryPromise: Promise<string | null> | undefined;
         await act(async () => {
           retryPromise = result.current.retryPendingSend();
           await Promise.resolve();
@@ -6296,7 +6423,7 @@ describe("useChat", () => {
         });
 
         expect(assistantApiMocks.streamAssistantWebChatTurn).toHaveBeenCalledTimes(1);
-        expect(assistantApiMocks.getAssistantWebChatTurnStatus).toHaveBeenCalledTimes(2);
+        expect(assistantApiMocks.getAssistantWebChatTurnStatus).toHaveBeenCalledTimes(3);
         expect(result.current.pendingSendStatus).toBeNull();
         expect(result.current.isStreaming).toBe(true);
         expect(result.current.entries).toContainEqual(
@@ -6321,13 +6448,720 @@ describe("useChat", () => {
       expect(result.current.pendingSendStatus).toBe("send_failed_confirmed");
 
       let restored: string | null = null;
-      act(() => {
-        restored = result.current.cancelPendingSend();
+      await act(async () => {
+        restored = await result.current.cancelPendingSend();
       });
 
       expect(restored).toBe("draft text");
       expect(result.current.pendingSendStatus).toBeNull();
       expect(result.current.messages).toHaveLength(0);
+    });
+
+    it("cancelPendingSend keeps an accepted attempt without a user row recoverable", async () => {
+      assistantApiMocks.streamAssistantWebChatTurn.mockRejectedValueOnce(
+        new TypeError("fetch failed")
+      );
+      assistantApiMocks.getAssistantWebChatTurnStatus.mockResolvedValueOnce({
+        status: "accepted",
+        chat: null,
+        userMessage: null,
+        assistantMessage: null,
+        currentActivity: null,
+        runtime: null,
+        error: null
+      });
+      const { result } = renderHook(() => useChat("thread-1"));
+
+      await act(async () => {
+        await result.current.send("do not lose me");
+      });
+      await act(async () => {
+        await result.current.cancelPendingSend();
+      });
+
+      expect(result.current.pendingSendStatus).toBe("send_failed_unconfirmed");
+      expect(result.current.messages).toContainEqual(
+        expect.objectContaining({ role: "user", status: "send_failed_unconfirmed" })
+      );
+    });
+
+    it("cancelPendingSend restores an exact running turn with its canonical user row", async () => {
+      const clientTurnId = "turn-cancel-running";
+      const runningTurn = {
+        status: "running" as const,
+        chat: {
+          id: "chat-running",
+          assistantId: "assistant-1",
+          surface: "web" as const,
+          surfaceThreadKey: "thread-1",
+          title: "Chat",
+          chatMode: "normal" as const,
+          deepModeEnabled: false,
+          skillDecisionState: null,
+          archivedAt: null,
+          lastMessageAt: "2026-04-14T10:00:01.000Z",
+          createdAt: "2026-04-14T10:00:00.000Z",
+          updatedAt: "2026-04-14T10:00:01.000Z"
+        },
+        userMessage: {
+          id: "server-user-running",
+          chatId: "chat-running",
+          assistantId: "assistant-1",
+          author: "user" as const,
+          content: "keep running",
+          attachments: [],
+          createdAt: "2026-04-14T10:00:00.000Z"
+        },
+        assistantMessage: null,
+        currentActivity: {
+          type: "tool_use" as const,
+          toolName: "web_search",
+          toolCallId: "tool-running",
+          phase: "start" as const,
+          isError: false,
+          updatedAt: "2026-04-14T10:00:01.000Z"
+        },
+        runtime: null,
+        error: null
+      };
+      let releaseReattach: (() => void) | undefined;
+
+      assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(async () => {
+        throw new TypeError("fetch failed");
+      });
+      assistantApiMocks.getAssistantWebChatTurnStatus.mockImplementation(
+        async (_token: string, requestedClientTurnId: string) =>
+          requestedClientTurnId === clientTurnId
+            ? runningTurn
+            : {
+                status: "unknown" as const,
+                chat: null,
+                userMessage: null,
+                assistantMessage: null,
+                currentActivity: null,
+                runtime: null,
+                error: null
+              }
+      );
+      assistantApiMocks.reattachAssistantWebChatTurnStream.mockImplementation(
+        async (
+          _token: string,
+          requestedClientTurnId: string,
+          handlers: {
+            onHeadersOk?: () => void;
+            onTurnStatus?: (payload: { turn: unknown }) => void;
+          }
+        ) => {
+          handlers.onHeadersOk?.();
+          handlers.onTurnStatus?.({
+            turn: await assistantApiMocks.getAssistantWebChatTurnStatus(
+              "token-1",
+              requestedClientTurnId
+            )
+          });
+          await new Promise<void>((resolve) => {
+            releaseReattach = resolve;
+          });
+        }
+      );
+
+      const { result } = renderHook(() => useChat("thread-1"), {
+        wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+      });
+
+      await act(async () => {
+        await result.current.send("keep running", undefined, { clientTurnId });
+      });
+      expect(result.current.pendingSendStatus).toBe("send_failed_unconfirmed");
+
+      let restored: string | null = "not-null";
+      await act(async () => {
+        restored = await result.current.cancelPendingSend();
+      });
+
+      expect(restored).toBeNull();
+      expect(result.current.pendingSendStatus).toBeNull();
+      expect(result.current.isStreaming).toBe(true);
+      expect(assistantApiMocks.streamAssistantWebChatTurn).toHaveBeenCalledTimes(1);
+      expect(assistantApiMocks.reattachAssistantWebChatTurnStream).toHaveBeenCalledWith(
+        "token-1",
+        clientTurnId,
+        expect.any(Object),
+        expect.any(AbortSignal)
+      );
+      expect(result.current.messages.map((message) => message.id)).toEqual([
+        "server-user-running",
+        `local-assistant-${clientTurnId}`
+      ]);
+
+      act(() => {
+        releaseReattach?.();
+        result.current.stop();
+      });
+    });
+
+    it("cancelPendingSend hydrates a completed turn instead of redispatching", async () => {
+      assistantApiMocks.streamAssistantWebChatTurn.mockRejectedValueOnce(
+        new TypeError("fetch failed")
+      );
+      assistantApiMocks.getAssistantWebChatTurnStatus.mockResolvedValueOnce({
+        status: "completed",
+        chat: {
+          id: "chat-completed",
+          assistantId: "assistant-1",
+          surface: "web",
+          surfaceThreadKey: "thread-1",
+          title: "Chat",
+          chatMode: "normal",
+          deepModeEnabled: false,
+          skillDecisionState: null,
+          archivedAt: null,
+          lastMessageAt: "2026-04-14T10:00:01.000Z",
+          createdAt: "2026-04-14T10:00:00.000Z",
+          updatedAt: "2026-04-14T10:00:01.000Z"
+        },
+        userMessage: {
+          id: "server-user-completed",
+          chatId: "chat-completed",
+          assistantId: "assistant-1",
+          author: "user",
+          content: "already finished",
+          attachments: [],
+          createdAt: "2026-04-14T10:00:00.000Z"
+        },
+        assistantMessage: {
+          id: "server-assistant-completed",
+          chatId: "chat-completed",
+          assistantId: "assistant-1",
+          author: "assistant",
+          content: "finished",
+          attachments: [],
+          createdAt: "2026-04-14T10:00:01.000Z"
+        },
+        followUpAssistantMessage: null,
+        currentActivity: null,
+        runtime: {
+          respondedAt: "2026-04-14T10:00:01.000Z",
+          degradedByQuotaFallback: false,
+          quotaFallbackReason: null,
+          quotaFallbackModel: null
+        },
+        error: null
+      });
+
+      const { result } = renderHook(() => useChat("thread-1"));
+
+      await act(async () => {
+        await result.current.send("already finished");
+      });
+      expect(result.current.pendingSendStatus).toBe("send_failed_unconfirmed");
+
+      let restored: string | null = "not-null";
+      await act(async () => {
+        restored = await result.current.cancelPendingSend();
+      });
+
+      expect(restored).toBeNull();
+      expect(result.current.pendingSendStatus).toBeNull();
+      expect(assistantApiMocks.streamAssistantWebChatTurn).toHaveBeenCalledTimes(1);
+      expect(result.current.messages.map((message) => message.id)).toEqual([
+        "server-user-completed",
+        "server-assistant-completed"
+      ]);
+    });
+
+    it.each(["failed", "interrupted"] as const)(
+      "cancelPendingSend clears only the transient pending state when the server is terminal: %s",
+      async (terminalStatus) => {
+        assistantApiMocks.streamAssistantWebChatTurn.mockRejectedValueOnce(
+          new TypeError("fetch failed")
+        );
+        assistantApiMocks.getAssistantWebChatTurnStatus.mockResolvedValueOnce({
+          status: terminalStatus,
+          chat: null,
+          userMessage: null,
+          assistantMessage: null,
+          currentActivity: null,
+          runtime: null,
+          error:
+            terminalStatus === "failed"
+              ? { code: "server_error", message: "failed before assistant output" }
+              : null
+        });
+
+        const { result } = renderHook(() => useChat("thread-1"));
+
+        await act(async () => {
+          await result.current.send(`cancel ${terminalStatus}`);
+        });
+        expect(result.current.pendingSendStatus).toBe("send_failed_unconfirmed");
+
+        await act(async () => {
+          await result.current.cancelPendingSend();
+        });
+
+        expect(result.current.pendingSendStatus).toBeNull();
+        expect(result.current.messages).toHaveLength(0);
+        expect(assistantApiMocks.streamAssistantWebChatTurn).toHaveBeenCalledTimes(1);
+        expect(assistantApiMocks.reattachAssistantWebChatTurnStream).not.toHaveBeenCalled();
+      }
+    );
+
+    it.each(["unknown", "throws"] as const)(
+      "cancelPendingSend keeps an ambiguous pending turn recoverable when status is %s",
+      async (mode) => {
+        assistantApiMocks.streamAssistantWebChatTurn.mockRejectedValueOnce(
+          new TypeError("fetch failed")
+        );
+        if (mode === "throws") {
+          assistantApiMocks.getAssistantWebChatTurnStatus.mockRejectedValueOnce(
+            new Error("status probe failed")
+          );
+        } else {
+          assistantApiMocks.getAssistantWebChatTurnStatus.mockResolvedValueOnce({
+            status: "unknown",
+            chat: null,
+            userMessage: null,
+            assistantMessage: null,
+            currentActivity: null,
+            runtime: null,
+            error: null
+          });
+        }
+
+        const { result } = renderHook(() => useChat("thread-1"));
+
+        await act(async () => {
+          await result.current.send(`cancel ${mode}`);
+        });
+        expect(result.current.pendingSendStatus).toBe("send_failed_unconfirmed");
+
+        let restored: string | null = "not-null";
+        await act(async () => {
+          restored = await result.current.cancelPendingSend();
+        });
+
+        expect(restored).toBeNull();
+        expect(result.current.pendingSendStatus).toBe("send_failed_unconfirmed");
+        expect(result.current.messages).toContainEqual(
+          expect.objectContaining({
+            role: "user",
+            content: `cancel ${mode}`,
+            status: "send_failed_unconfirmed"
+          })
+        );
+        expect(assistantApiMocks.streamAssistantWebChatTurn).toHaveBeenCalledTimes(1);
+      }
+    );
+
+    it.each(["failed", "interrupted"] as const)(
+      "retryPendingSend re-dispatches a terminal attempt exactly once with fresh identity: %s",
+      async (terminalStatus) => {
+        const sentPayloads: Array<{
+          clientTurnId?: string;
+          clientAttachmentIds?: string[];
+          chatMode?: string;
+          deepModeEnabled?: boolean;
+        }> = [];
+        assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
+          async (
+            _token: string,
+            payload: {
+              clientTurnId?: string;
+              clientAttachmentIds?: string[];
+              chatMode?: string;
+              deepModeEnabled?: boolean;
+            },
+            handlers: {
+              onHeadersOk?: () => void;
+              onCompleted?: (payload: { transport: unknown }) => void;
+            }
+          ) => {
+            sentPayloads.push(payload);
+            if (sentPayloads.length === 1) {
+              throw new TypeError("fetch failed");
+            }
+            handlers.onHeadersOk?.();
+            handlers.onCompleted?.({
+              transport: {
+                userMessage: { id: "fresh-user", chatId: "chat-1" },
+                assistantMessage: { id: "fresh-assistant", content: "Recovered" }
+              }
+            });
+          }
+        );
+        assistantApiMocks.getAssistantWebChatTurnStatus.mockResolvedValueOnce({
+          status: terminalStatus,
+          chat: null,
+          userMessage: null,
+          assistantMessage: null,
+          currentActivity: null,
+          runtime: null,
+          error:
+            terminalStatus === "failed"
+              ? { code: "native_runtime_conflict", message: "Native runtime conflict" }
+              : null
+        });
+
+        const { result } = renderHook(() => useChat("thread-1"));
+
+        await act(async () => {
+          await result.current.send("retry with fresh identity", undefined, {
+            clientTurnId: "caller-supplied-terminal-id",
+            clientAttachmentIds: ["caller-supplied-attachment-id"],
+            chatMode: "project",
+            deepModeEnabled: true
+          });
+        });
+        await act(async () => {
+          await result.current.retryPendingSend();
+        });
+
+        expect(sentPayloads).toHaveLength(2);
+        expect(sentPayloads[0]?.clientTurnId).toBe("caller-supplied-terminal-id");
+        expect(sentPayloads[1]?.clientTurnId).not.toBe("caller-supplied-terminal-id");
+        expect(sentPayloads[1]?.clientAttachmentIds ?? []).not.toContain(
+          "caller-supplied-attachment-id"
+        );
+        expect(sentPayloads[1]?.chatMode).toBe("project");
+        expect(sentPayloads[1]?.deepModeEnabled).toBe(true);
+      }
+    );
+
+    it("reload surfaces native_runtime_conflict as a recoverable failed turn, not a committed-looking orphan", async () => {
+      const threadKey = "thread-native-runtime-conflict";
+      const clientTurnId = "turn-native-runtime-conflict";
+      window.sessionStorage.setItem(`persai.active-web-turn.v1.${threadKey}`, clientTurnId);
+      assistantApiMocks.getAssistantWebChatTurnStatus.mockImplementation(
+        async (_token: string, requestedClientTurnId: string) => {
+          if (requestedClientTurnId !== clientTurnId) {
+            return {
+              status: "unknown" as const,
+              chat: null,
+              userMessage: null,
+              assistantMessage: null,
+              currentActivity: null,
+              runtime: null,
+              error: null
+            };
+          }
+          return {
+            status: "failed" as const,
+            chat: {
+              id: "chat-native-runtime-conflict",
+              assistantId: "assistant-1",
+              surface: "web" as const,
+              surfaceThreadKey: threadKey,
+              title: "Chat",
+              chatMode: "normal" as const,
+              deepModeEnabled: false,
+              skillDecisionState: null,
+              archivedAt: null,
+              lastMessageAt: "2026-04-14T10:00:00.000Z",
+              createdAt: "2026-04-14T10:00:00.000Z",
+              updatedAt: "2026-04-14T10:00:00.000Z"
+            },
+            userMessage: {
+              id: "server-user-native-runtime-conflict",
+              chatId: "chat-native-runtime-conflict",
+              assistantId: "assistant-1",
+              author: "user" as const,
+              content: "conflict me",
+              attachments: [],
+              createdAt: "2026-04-14T10:00:00.000Z"
+            },
+            assistantMessage: null,
+            currentActivity: null,
+            runtime: null,
+            error: {
+              code: "native_runtime_conflict",
+              message: "Native runtime conflict"
+            }
+          };
+        }
+      );
+
+      const { result } = renderHook(() => useChat(threadKey), {
+        wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+      });
+
+      await waitFor(() => expect(result.current.issue).not.toBeNull());
+
+      expect(result.current.isStreaming).toBe(false);
+      expect(result.current.pendingSendStatus).toBe("send_failed_unconfirmed");
+      expect(result.current.messages).toEqual([
+        expect.objectContaining({
+          id: "server-user-native-runtime-conflict",
+          role: "user",
+          content: "conflict me",
+          status: "send_failed_unconfirmed"
+        })
+      ]);
+      expect(window.sessionStorage.getItem(`persai.active-web-turn.v1.${threadKey}`)).toBeNull();
+    });
+
+    it("retryPendingSend keeps a restored canonical text-only conflict visible and sends one fresh turn", async () => {
+      const threadKey = "thread-native-runtime-conflict-retry";
+      const restoredClientTurnId = "turn-native-runtime-conflict-retry";
+      const sentPayloads: Array<{ clientTurnId?: string; message?: string }> = [];
+      window.sessionStorage.setItem(`persai.active-web-turn.v1.${threadKey}`, restoredClientTurnId);
+      assistantApiMocks.getAssistantWebChatTurnStatus.mockImplementation(
+        async (_token: string, requestedClientTurnId: string) => {
+          if (requestedClientTurnId !== restoredClientTurnId) {
+            return {
+              status: "unknown" as const,
+              chat: null,
+              userMessage: null,
+              assistantMessage: null,
+              currentActivity: null,
+              runtime: null,
+              error: null
+            };
+          }
+          return {
+            status: "failed" as const,
+            chat: {
+              id: "chat-native-runtime-conflict-retry",
+              assistantId: "assistant-1",
+              surface: "web" as const,
+              surfaceThreadKey: threadKey,
+              title: "Chat",
+              chatMode: "normal" as const,
+              deepModeEnabled: false,
+              skillDecisionState: null,
+              archivedAt: null,
+              lastMessageAt: "2026-04-14T10:00:00.000Z",
+              createdAt: "2026-04-14T10:00:00.000Z",
+              updatedAt: "2026-04-14T10:00:00.000Z"
+            },
+            userMessage: {
+              id: "server-user-native-runtime-conflict-retry",
+              chatId: "chat-native-runtime-conflict-retry",
+              assistantId: "assistant-1",
+              author: "user" as const,
+              content: "conflict me again",
+              attachments: [],
+              createdAt: "2026-04-14T10:00:00.000Z"
+            },
+            assistantMessage: null,
+            currentActivity: null,
+            runtime: null,
+            error: {
+              code: "native_runtime_conflict",
+              message: "Native runtime conflict"
+            }
+          };
+        }
+      );
+      assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
+        async (
+          _token: string,
+          payload: { clientTurnId?: string; message?: string },
+          handlers: {
+            onHeadersOk?: () => void;
+            onCompleted?: (payload: { transport: unknown }) => void;
+          }
+        ) => {
+          sentPayloads.push(payload);
+          handlers.onHeadersOk?.();
+          handlers.onCompleted?.({
+            transport: {
+              userMessage: { id: "fresh-user-native-runtime-conflict-retry", chatId: "chat-1" },
+              assistantMessage: {
+                id: "fresh-assistant-native-runtime-conflict-retry",
+                content: "Recovered"
+              }
+            }
+          });
+        }
+      );
+
+      const { result } = renderHook(() => useChat(threadKey));
+
+      await waitFor(() => expect(result.current.pendingSendStatus).toBe("send_failed_unconfirmed"));
+      expect(result.current.pendingSendUserMessageId).toBe(
+        "server-user-native-runtime-conflict-retry"
+      );
+
+      await act(async () => {
+        await result.current.retryPendingSend();
+      });
+
+      expect(sentPayloads).toHaveLength(1);
+      expect(sentPayloads[0]?.clientTurnId).not.toBe(restoredClientTurnId);
+      expect(result.current.pendingSendStatus).toBeNull();
+      expect(result.current.pendingSendUserMessageId).toBeNull();
+      expect(result.current.messages).toEqual([
+        expect.objectContaining({
+          id: "server-user-native-runtime-conflict-retry",
+          status: "send_failed_confirmed"
+        }),
+        expect.objectContaining({
+          id: "fresh-user-native-runtime-conflict-retry",
+          status: "committed"
+        }),
+        expect.objectContaining({
+          id: "fresh-assistant-native-runtime-conflict-retry",
+          status: "committed"
+        })
+      ]);
+    });
+
+    it("cancelPendingSend keeps a restored canonical text-only conflict visible and unlocks the composer", async () => {
+      const threadKey = "thread-native-runtime-conflict-cancel";
+      const restoredClientTurnId = "turn-native-runtime-conflict-cancel";
+      window.sessionStorage.setItem(`persai.active-web-turn.v1.${threadKey}`, restoredClientTurnId);
+      assistantApiMocks.getAssistantWebChatTurnStatus.mockImplementation(
+        async (_token: string, requestedClientTurnId: string) => {
+          if (requestedClientTurnId !== restoredClientTurnId) {
+            return {
+              status: "unknown" as const,
+              chat: null,
+              userMessage: null,
+              assistantMessage: null,
+              currentActivity: null,
+              runtime: null,
+              error: null
+            };
+          }
+          return {
+            status: "failed" as const,
+            chat: {
+              id: "chat-native-runtime-conflict-cancel",
+              assistantId: "assistant-1",
+              surface: "web" as const,
+              surfaceThreadKey: threadKey,
+              title: "Chat",
+              chatMode: "normal" as const,
+              deepModeEnabled: false,
+              skillDecisionState: null,
+              archivedAt: null,
+              lastMessageAt: "2026-04-14T10:00:00.000Z",
+              createdAt: "2026-04-14T10:00:00.000Z",
+              updatedAt: "2026-04-14T10:00:00.000Z"
+            },
+            userMessage: {
+              id: "server-user-native-runtime-conflict-cancel",
+              chatId: "chat-native-runtime-conflict-cancel",
+              assistantId: "assistant-1",
+              author: "user" as const,
+              content: "leave me visible",
+              attachments: [],
+              createdAt: "2026-04-14T10:00:00.000Z"
+            },
+            assistantMessage: null,
+            currentActivity: null,
+            runtime: null,
+            error: {
+              code: "native_runtime_conflict",
+              message: "Native runtime conflict"
+            }
+          };
+        }
+      );
+
+      const { result } = renderHook(() => useChat(threadKey));
+
+      await waitFor(() => expect(result.current.pendingSendStatus).toBe("send_failed_unconfirmed"));
+
+      let restored: string | null = "not-null";
+      await act(async () => {
+        restored = await result.current.cancelPendingSend();
+      });
+
+      expect(restored).toBeNull();
+      expect(assistantApiMocks.streamAssistantWebChatTurn).not.toHaveBeenCalled();
+      expect(result.current.pendingSendStatus).toBeNull();
+      expect(result.current.pendingSendUserMessageId).toBeNull();
+      expect(result.current.messages).toEqual([
+        expect.objectContaining({
+          id: "server-user-native-runtime-conflict-cancel",
+          status: "send_failed_confirmed"
+        })
+      ]);
+    });
+
+    it("retryPendingSend requires manual reattachment for restored canonical attachment conflicts", async () => {
+      const threadKey = "thread-native-runtime-conflict-attachment";
+      const restoredClientTurnId = "turn-native-runtime-conflict-attachment";
+      window.sessionStorage.setItem(`persai.active-web-turn.v1.${threadKey}`, restoredClientTurnId);
+      assistantApiMocks.getAssistantWebChatTurnStatus.mockImplementation(
+        async (_token: string, requestedClientTurnId: string) => {
+          if (requestedClientTurnId !== restoredClientTurnId) {
+            return {
+              status: "unknown" as const,
+              chat: null,
+              userMessage: null,
+              assistantMessage: null,
+              currentActivity: null,
+              runtime: null,
+              error: null
+            };
+          }
+          return {
+            status: "failed" as const,
+            chat: {
+              id: "chat-native-runtime-conflict-attachment",
+              assistantId: "assistant-1",
+              surface: "web" as const,
+              surfaceThreadKey: threadKey,
+              title: "Chat",
+              chatMode: "normal" as const,
+              deepModeEnabled: false,
+              skillDecisionState: null,
+              archivedAt: null,
+              lastMessageAt: "2026-04-14T10:00:00.000Z",
+              createdAt: "2026-04-14T10:00:00.000Z",
+              updatedAt: "2026-04-14T10:00:00.000Z"
+            },
+            userMessage: {
+              id: "server-user-native-runtime-conflict-attachment",
+              chatId: "chat-native-runtime-conflict-attachment",
+              assistantId: "assistant-1",
+              author: "user" as const,
+              content: "please send these again",
+              attachments: [createHistoryImageAttachment("native-runtime-conflict-reattach")],
+              createdAt: "2026-04-14T10:00:00.000Z"
+            },
+            assistantMessage: null,
+            currentActivity: null,
+            runtime: null,
+            error: {
+              code: "native_runtime_conflict",
+              message: "Native runtime conflict"
+            }
+          };
+        }
+      );
+
+      const { result } = renderHook(() => useChat(threadKey));
+
+      await waitFor(() => expect(result.current.pendingSendStatus).toBe("send_failed_unconfirmed"));
+      expect(result.current.pendingSendUserMessageId).toBe(
+        "server-user-native-runtime-conflict-attachment"
+      );
+
+      let restored: string | null = null;
+      await act(async () => {
+        restored = await result.current.retryPendingSend();
+      });
+
+      expect(restored).toBe("please send these again");
+      expect(assistantApiMocks.streamAssistantWebChatTurn).not.toHaveBeenCalled();
+      expect(result.current.pendingSendStatus).toBeNull();
+      expect(result.current.pendingSendUserMessageId).toBeNull();
+      expect(result.current.issue).toMatchObject({
+        classId: "input_validation",
+        message: "pendingRetryNeedsReattachTitle",
+        guidance: "pendingRetryNeedsReattachGuidance"
+      });
+      expect(result.current.messages).toEqual([
+        expect.objectContaining({
+          id: "server-user-native-runtime-conflict-attachment",
+          status: "send_failed_confirmed",
+          attachments: [expect.objectContaining({ id: "native-runtime-conflict-reattach" })]
+        })
+      ]);
     });
 
     /*
@@ -9275,7 +10109,8 @@ describe("useChat", () => {
           throw new TypeError("network disconnected before started event");
         }
       );
-      assistantApiMocks.reattachAssistantWebChatTurnStream.mockImplementationOnce(
+      let emittedFailedReattach = false;
+      assistantApiMocks.reattachAssistantWebChatTurnStream.mockImplementation(
         async (
           _token: string,
           _clientTurnId: string,
@@ -9283,6 +10118,10 @@ describe("useChat", () => {
             onFailed?: (payload: { code?: string; message: string; transport: unknown }) => void;
           }
         ) => {
+          if (emittedFailedReattach) {
+            return;
+          }
+          emittedFailedReattach = true;
           handlers.onFailed?.({
             code: "tool_daily_limit_reached",
             message: "Browser is exhausted for the current daily limit.",

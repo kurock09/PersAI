@@ -1514,7 +1514,7 @@ describe("ChatMessageBubble — pre-response status", () => {
       />
     );
 
-    expect(screen.queryByTestId("attachment-strip")).toBeNull();
+    expect(screen.queryAllByTestId("attachment-strip")).toHaveLength(0);
     expect(screen.getByTestId("media-receipt-lines")).toHaveTextContent(
       /Получено изображение.*генерация.*1\.0 MB/
     );
@@ -1524,7 +1524,7 @@ describe("ChatMessageBubble — pre-response status", () => {
     expect(receipts).toHaveAttribute("aria-relevant", "additions");
   });
 
-  it("ADR-165 D6.2: catch-up streaming uses classic strip, no italic receipts", () => {
+  it("suppresses a live continuation strip until terminal commit", () => {
     const image = {
       ...makeImageAttachment("att-catchup-1"),
       sizeBytes: 1024 * 1024
@@ -1546,9 +1546,9 @@ describe("ChatMessageBubble — pre-response status", () => {
     );
 
     expect(screen.queryByTestId("media-receipt-lines")).toBeNull();
-    const strips = screen.getAllByTestId("attachment-strip");
-    expect(strips).toHaveLength(1);
-    expect(container.querySelector('img[alt="photo.jpg"]')).not.toBeNull();
+    expect(screen.queryByTestId("attachment-strip")).toBeNull();
+    expect(screen.getByTestId("streaming-cursor")).toBeInTheDocument();
+    expect(container.querySelector('img[alt="photo.jpg"]')).toBeNull();
   });
 
   it("ADR-165: live USER_TURN shows orphan media receipts when placement is missing", () => {

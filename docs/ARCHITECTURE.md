@@ -81,6 +81,12 @@ ADR-109 and ADR-111 add one bounded HeyGen-backed product seam inside the active
   media/document/sandbox jobs; terminal continuation facts remain history,
   not active animation/status. Each dispatched turn admits 20 replay-deduped waits. No
   runtime Prisma access or parallel job registry is introduced.
+- Web live continuity follows the active `AssistantWebChatTurnAttempt`, not
+  same-id history alone: while a web attempt is `accepted` or `running`, that
+  attempt remains the authoritative USER_TURN presentation identity even if an
+  early assistant row already exists in committed history. Async continuation
+  bubbles suppress their classic attachment strip while still live or
+  reconciling; one canonical strip appears only after terminal commit.
 
 ### Provider plane
 

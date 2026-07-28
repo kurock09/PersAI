@@ -175,15 +175,18 @@ export function ChatArea({
   // "Cancel" on a failed pending-send bubble (text only — media/voice
   // blobs cannot be re-attached because they live in the now-removed
   // bubble's File objects).
-  const handleCancelPendingSend = useCallback(() => {
-    const restoredText = chat.cancelPendingSend();
+  const handleCancelPendingSend = useCallback(async () => {
+    const restoredText = await chat.cancelPendingSend();
     if (restoredText !== null && restoredText.length > 0) {
       chatInputRef.current?.setDraft(restoredText);
     }
   }, [chat]);
 
-  const handleRetryPendingSend = useCallback(() => {
-    void chat.retryPendingSend();
+  const handleRetryPendingSend = useCallback(async () => {
+    const restoredText = await chat.retryPendingSend();
+    if (restoredText !== null) {
+      chatInputRef.current?.setDraft(restoredText);
+    }
   }, [chat]);
 
   const handleDoNotRemember = useCallback(
@@ -881,43 +884,49 @@ export function ChatArea({
                           }
                       : undefined;
 
-                  return entry.kind === "message" ? (
-                    <ChatMessageBubble
-                      key={entry.message.id}
-                      chatId={chat.chatId}
-                      message={entry.message}
-                      preResponseStatus={preResponseStatus}
-                      showShadowRoutingLabel={showShadowRoutingBadge}
-                      assistantAvatarUrl={assistantAvatarUrl}
-                      assistantAvatarEmoji={assistantAvatarEmoji}
-                      showAssistantAvatar={showAssistantAvatars}
-                      onAssistantAction={handleAssistantAction}
-                      onDocumentJobAccepted={onDocumentJobAccepted}
-                      backgroundWaitFooter={
-                        entry.message.id === lastAssistantMessageId ? backgroundWaitFooter : null
-                      }
-                      onDoNotRemember={
-                        entry.message.role === "assistant" &&
-                        entry.message.status === "committed" &&
-                        !forgottenIds.has(entry.message.id)
-                          ? handleDoNotRememberClick
-                          : undefined
-                      }
-                      forgotten={forgottenIds.has(entry.message.id)}
-                      onRetryPendingSend={
-                        entry.message.role === "user" &&
-                        entry.message.status.startsWith("send_failed")
-                          ? handleRetryPendingSend
-                          : undefined
-                      }
-                      onCancelPendingSend={
-                        entry.message.role === "user" &&
-                        entry.message.status.startsWith("send_failed")
-                          ? handleCancelPendingSend
-                          : undefined
-                      }
-                    />
-                  ) : null;
+                  return entry.kind === "message"
+                    ? (() => {
+                        const isExactPendingFailedUserMessage =
+                          entry.message.role === "user" &&
+                          entry.message.status.startsWith("send_failed") &&
+                          entry.message.id === chat.pendingSendUserMessageId;
+                        return (
+                          <ChatMessageBubble
+                            key={entry.message.id}
+                            chatId={chat.chatId}
+                            message={entry.message}
+                            preResponseStatus={preResponseStatus}
+                            showShadowRoutingLabel={showShadowRoutingBadge}
+                            assistantAvatarUrl={assistantAvatarUrl}
+                            assistantAvatarEmoji={assistantAvatarEmoji}
+                            showAssistantAvatar={showAssistantAvatars}
+                            onAssistantAction={handleAssistantAction}
+                            onDocumentJobAccepted={onDocumentJobAccepted}
+                            backgroundWaitFooter={
+                              entry.message.id === lastAssistantMessageId
+                                ? backgroundWaitFooter
+                                : null
+                            }
+                            onDoNotRemember={
+                              entry.message.role === "assistant" &&
+                              entry.message.status === "committed" &&
+                              !forgottenIds.has(entry.message.id)
+                                ? handleDoNotRememberClick
+                                : undefined
+                            }
+                            forgotten={forgottenIds.has(entry.message.id)}
+                            onRetryPendingSend={
+                              isExactPendingFailedUserMessage ? handleRetryPendingSend : undefined
+                            }
+                            onCancelPendingSend={
+                              isExactPendingFailedUserMessage
+                                ? () => void handleCancelPendingSend()
+                                : undefined
+                            }
+                          />
+                        );
+                      })()
+                    : null;
                 });
               })()}
               <div ref={bottomRef} />
