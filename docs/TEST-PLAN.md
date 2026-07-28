@@ -27,6 +27,11 @@ ADR-072 is closed as the historical native migration ADR. Current continuation w
   Postgres probe skipped without a local DB); focused web coverage passed three
   files / 264 tests. Mandatory recursive lint, `format:check`, API typecheck,
   and web typecheck passed.
+- **CI regression follow-up:** ADR-149 `tool_progress` coverage must complete
+  normally under the null-only assistant-message bind contract. Tool-progress
+  only heartbeats a running attempt; it must not create an empty assistant row
+  before media/completion needs one. Its stream/repository test double must
+  implement the binding and final-persistence repository protocol.
 - **Still required:** deploy and authenticated mixed image/PDF smoke covering
   completion-first/stream-first, cross-pod present, terminal commit, F5, one
   process badge, durable receipts/full strips, and Working `N→0`.

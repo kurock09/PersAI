@@ -1,5 +1,23 @@
 # SESSION-HANDOFF
 
+## 2026-07-29 — ADR-167 CI regression follow-up (local CLEAN, uncommitted)
+
+- **Baseline:** pushed ADR-167 tip `52c1e606`; GitHub CI then exposed an
+  ADR-149 test-contract gap, not a passing full gate.
+- **Cause / repair:** `tool_progress` invoked the new D1 null-only assistant
+  binding helper before media or final persistence. That created a premature
+  empty candidate and made the pre-ADR-167 heartbeat test's narrow mock throw.
+  `tool_progress` now only heartbeats the attempt; media and completion retain
+  the legitimate binding paths. The test mock now implements the required
+  binding and repository operations for normal final persistence.
+- **Validation:** exact `adr149-tool-progress-mark-activity` regression and
+  focused `stream-web-chat-turn` suite pass. Full API `test/run-suite.ts`
+  passes with PostgreSQL probes explicitly unavailable, per founder request;
+  the local port-5432 database is stale (201 migrations unapplied) and must
+  not be used as CI proof. Focused ADR-167 web coverage passes.
+- **Next:** run formatting/typecheck for this follow-up, commit/push it, then
+  inspect the new GitHub CI run before claiming green.
+
 ## 2026-07-28 — ADR-167 stable receipts / cross-pod Working (local CLEAN, uncommitted)
 
 - **Baseline:** `4c6738b00680c37fddf6e26299880ef9a814ee75`. This

@@ -1731,10 +1731,6 @@ export class StreamWebChatTurnService {
               surfaceThreadKey: input.prepared.chat.surfaceThreadKey,
               clientTurnId: input.prepared.clientTurnId
             });
-            await this.ensureStableAssistantMessageForOpenTurn({
-              prepared: input.prepared,
-              liveSyncMediaPresent: input.liveSyncMediaPresent
-            });
           }
           input.callbacks.onToolProgress?.({
             toolName: chunk.toolName,

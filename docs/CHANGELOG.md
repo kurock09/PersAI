@@ -3,6 +3,16 @@
 > Archive: detailed historical entries from 2026-06-05 and earlier moved to `docs/CHANGELOG.archive-2026-06-05-details-and-earlier.md`; entries from 2026-05-19 and earlier remain in `docs/CHANGELOG.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: current entries plus concise recent summaries only.
 
+## 2026-07-29
+
+- **fix(api/tests): restore ADR-149 tool-progress completion after ADR-167.**
+  GitHub CI caught a stale stream-service test double after the null-only
+  assistant-message binding contract landed. `tool_progress` no longer creates
+  a premature empty assistant message; final persistence remains the binding
+  point unless media/completion already owns it. The ADR-149 test now supplies
+  the required binding and repository protocol. The exact regression and full
+  no-Postgres API suite pass; CI rerun is pending.
+
 ## 2026-07-28
 
 - **ADR-167 single-turn message, stable receipts, and cross-pod Working (local

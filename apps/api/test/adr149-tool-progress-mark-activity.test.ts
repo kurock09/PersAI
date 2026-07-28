@@ -42,8 +42,11 @@ describe("ADR-149 tool_progress touchRunningAttempt", () => {
       async touchRunningAttempt(input: Record<string, unknown>) {
         touchRunningAttemptCalls.push(input);
       },
-      async markCompleted() {
-        return undefined;
+      async bindOrDiscardAssistantMessageCandidate(input: { candidateAssistantMessageId: string }) {
+        return input.candidateAssistantMessageId;
+      },
+      async markCompleted(input: { assistantMessageId: string }) {
+        return input.assistantMessageId;
       },
       async markInterrupted() {
         return undefined;
@@ -71,6 +74,15 @@ describe("ADR-149 tool_progress touchRunningAttempt", () => {
           content,
           createdAt: new Date("2026-04-05T12:00:00.000Z")
         }),
+        findMessageByIdForAssistant: async (messageId: string, assistantId: string) => ({
+          id: messageId,
+          chatId: "chat-1",
+          assistantId,
+          author: "assistant",
+          content: "Done.",
+          createdAt: new Date("2026-04-05T12:00:00.000Z")
+        }),
+        mergeMessageMetadata: async () => null,
         findChatById: async (chatId: string) => ({
           id: chatId,
           assistantId: "assistant-1",
