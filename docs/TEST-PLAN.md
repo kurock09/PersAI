@@ -4,6 +4,33 @@ This document defines the current verification baseline for the active PersAI-na
 
 ADR-072 is closed as the historical native migration ADR. Current continuation work should be checked against `docs/ADR/078-consolidated-follow-through-program.md`. `Step 15a` is cancelled and is not an active verification track. ADR-087 defines the unified quota-advisory and paid light-mode target state. ADR-088 defines the unified notification platform target state.
 
+## 2026-07-28 ADR-167 single-turn receipts / cross-pod Working (local CLEAN)
+
+- **One message identity:** completion-first and stream-first interleavings bind
+  one null-only `assistantMessageId`; completion/interruption preserve a
+  concurrent winner; final persistence/replay forwards that exact id.
+- **Cross-pod present:** remote durable `media` and `async_jobs_open` reaches the
+  original POST once and in sequence; owner-pod attach merges replay, local
+  sinks, and durable live subscription without duplicates.
+- **Document/PDF:** durable attachment registration precedes live `media`;
+  denied/no-open/missing-attachment paths emit no receipt. A deferred terminal
+  snapshot is published only after successful durable finalization.
+- **Stable web projection:** one process badge; attachment-derived image/PDF
+  receipts survive live → commit → F5; terminal full attachment strip remains;
+  committed/history receipts are static while live receipts use polite live
+  semantics. No assistant-body high-water/min-height state remains.
+- **Working terminal guard:** an exact terminal media/document identity removes
+  that job and blocks a later stale snapshot from resurrecting it; F5 reloads
+  canonical open jobs.
+- **Evidence:** final independent API and web audits returned CLEAN with zero
+  P0/P1/P2. Focused API coverage passed five files (51 passed, one optional
+  Postgres probe skipped without a local DB); focused web coverage passed three
+  files / 264 tests. Mandatory recursive lint, `format:check`, API typecheck,
+  and web typecheck passed.
+- **Still required:** deploy and authenticated mixed image/PDF smoke covering
+  completion-first/stream-first, cross-pod present, terminal commit, F5, one
+  process badge, durable receipts/full strips, and Working `N→0`.
+
 ## 2026-07-28 ADR-166 live-failure follow-up (local CLEAN; deploy/live pending)
 
 Focused local repair coverage is now CLEAN for the bounded web/api

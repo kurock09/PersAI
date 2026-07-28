@@ -1,5 +1,46 @@
 # SESSION-HANDOFF
 
+## 2026-07-28 — ADR-167 stable receipts / cross-pod Working (local CLEAN, uncommitted)
+
+- **Baseline:** `4c6738b00680c37fddf6e26299880ef9a814ee75`. This
+  deletion-first repair is uncommitted and unpushed.
+- **Purpose / proven causes:** authenticated browser/DOM recording, database
+  rows, pod logs, and SSE inspection proved browser-measured terminal
+  `min-height`, competing assistant-row ownership, receipt/process projection
+  disappearing at commit, and missing original-POST durable-bus consumption.
+  The exact historical sticky-Working order was not retained, so only exact
+  terminal-job stale-snapshot resurrection is hardened; no unproven global
+  revision protocol was added.
+- **Implemented truth:** one ordinary attempt owns one null-only, race-safe
+  `assistantMessageId` across async media/document delivery and final
+  persistence. The original POST consumes cross-pod `media` /
+  `async_jobs_open`; owner-pod attach combines local, replay, and durable live
+  events behind sequence dedupe. One process badge and attachment-derived
+  receipts survive live → commit → F5, while the terminal attachment strip is
+  also present. `AssistantBodyHighWater` and `liveInlineMediaReceipts` are
+  removed. Exact terminal media/document identity prevents stale client-side
+  Working resurrection. Document delivery publishes attachment-bearing media
+  only after durable attach and publishes terminal snapshots only after a
+  committed terminal transition; unsupported document tool-call placement was
+  removed.
+- **Production files:** API attempt/live-present/bus/POST stream, completion,
+  media completion, and document delivery services/controllers under
+  `apps/api/src/modules/workspace-management`; web state/projection/API client
+  under `apps/web/app/app/_components` and `assistant-api-client.ts`.
+  Regression files cover API races/bus/document/finalization and web
+  receipt/F5/Working behavior. Architecture/API/data-model/test-plan/changelog,
+  ADR-167, and this handoff are reconciled.
+- **Validation:** final independent API and web audits returned CLEAN with no
+  P0/P1/P2. Focused API runner passed five files (51 pass; one optional
+  Postgres probe skipped because no local Postgres was available). Focused web
+  passed three files / 264 tests. Mandatory recursive lint, `format:check`, API
+  typecheck, and web typecheck passed.
+- **Residual / next:** no schema migration and no persisted browser geometry.
+  Deploy and authenticated mixed image/PDF smoke remain required: both
+  completion orders, cross-pod live delivery, one process badge, receipt/full
+  strip persistence at terminal and after F5, and Working `N→0`. Do not claim
+  production acceptance before that smoke.
+
 ## 2026-07-28 — ADR-166 live failure follow-up: send/restore/continuation reconciliation (local CLEAN, uncommitted)
 
 - **Baseline:** `e8f26b2f`. Existing dirty code/tests are intentional. No

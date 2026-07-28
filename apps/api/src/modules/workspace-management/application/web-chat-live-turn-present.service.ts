@@ -116,16 +116,18 @@ export class WebChatLiveTurnPresentService {
         : null;
     if (preferred !== null) {
       if (input.attempt.assistantMessageId !== preferred) {
-        await this.webChatTurnAttemptService.bindAssistantMessageId({
+        const bound = await this.webChatTurnAttemptService.bindAssistantMessageId({
           assistantId: input.attempt.assistantId,
           userId: input.attempt.userId,
           surfaceThreadKey: input.attempt.surfaceThreadKey,
           clientTurnId: input.attempt.clientTurnId,
           assistantMessageId: preferred
         });
-        input.attempt.assistantMessageId = preferred;
+        if (bound !== null) {
+          input.attempt.assistantMessageId = bound;
+        }
       }
-      return preferred;
+      return input.attempt.assistantMessageId ?? preferred;
     }
     if (
       typeof input.attempt.assistantMessageId === "string" &&
@@ -143,15 +145,18 @@ export class WebChatLiveTurnPresentService {
         inlineMediaPlacement: []
       }
     });
-    await this.webChatTurnAttemptService.bindAssistantMessageId({
+    const bound = await this.webChatTurnAttemptService.bindOrDiscardAssistantMessageCandidate({
       assistantId: input.attempt.assistantId,
       userId: input.attempt.userId,
       surfaceThreadKey: input.attempt.surfaceThreadKey,
       clientTurnId: input.attempt.clientTurnId,
-      assistantMessageId: early.id
+      candidateAssistantMessageId: early.id
     });
-    input.attempt.assistantMessageId = early.id;
-    return early.id;
+    if (bound === null) {
+      throw new Error("Open web turn no longer accepts an assistant message binding.");
+    }
+    input.attempt.assistantMessageId = bound;
+    return bound;
   }
 
   async claimInlineForOpenTurnPresent(input: {
@@ -183,7 +188,10 @@ export class WebChatLiveTurnPresentService {
     });
   }
 
-  async publishOpenJobsSnapshot(input: { attempt: OpenWebUserTurnAttempt }): Promise<void> {
+  async publishOpenJobsSnapshot(input: {
+    attempt: OpenWebUserTurnAttempt;
+    terminalJob?: { kind: "media" | "document"; id: string };
+  }): Promise<void> {
     try {
       const [activeMediaJobs, activeDocumentJobs, activeSandboxJobs] = await Promise.all([
         this.assistantMediaJobService.listOpenJobsForWebChat({
@@ -209,11 +217,13 @@ export class WebChatLiveTurnPresentService {
         payload: {
           activeMediaJobs,
           activeDocumentJobs,
-          activeSandboxJobs
+          activeSandboxJobs,
+          ...(input.terminalJob === undefined ? {} : { terminalJob: input.terminalJob })
         } satisfies {
           activeMediaJobs: AssistantWebChatActiveMediaJobState[];
           activeDocumentJobs: AssistantWebChatActiveDocumentJobState[];
           activeSandboxJobs: AssistantWebChatActiveSandboxJobState[];
+          terminalJob?: { kind: "media" | "document"; id: string };
         }
       });
     } catch (error) {

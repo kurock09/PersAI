@@ -377,6 +377,10 @@ type WebChatStreamEvent =
         activeMediaJobs: WebChatActiveMediaJobState[];
         activeDocumentJobs: WebChatActiveDocumentJobState[];
         activeSandboxJobs: WebChatActiveSandboxJobState[];
+        terminalJob?: {
+          kind: "media" | "document";
+          id: string;
+        };
       };
     }
   | {
@@ -496,6 +500,10 @@ export interface AssistantWebChatStreamHandlers {
     activeMediaJobs: WebChatActiveMediaJobState[];
     activeDocumentJobs: WebChatActiveDocumentJobState[];
     activeSandboxJobs: WebChatActiveSandboxJobState[];
+    terminalJob?: {
+      kind: "media" | "document";
+      id: string;
+    };
   }) => void;
   /** ADR-165 — media attached to the live assistant bubble (stream or job-deliver). */
   onMedia?: (payload: {
@@ -1239,6 +1247,20 @@ function toStreamEvent(eventName: string, payload: unknown): WebChatStreamEvent 
     };
   }
   if (eventName === "async_jobs_open") {
+    const terminalJobBody =
+      typeof body.terminalJob === "object" && body.terminalJob !== null
+        ? (body.terminalJob as { kind?: unknown; id?: unknown })
+        : null;
+    const terminalJob =
+      terminalJobBody !== null &&
+      (terminalJobBody.kind === "media" || terminalJobBody.kind === "document") &&
+      typeof terminalJobBody.id === "string" &&
+      terminalJobBody.id.trim().length > 0
+        ? {
+            kind: terminalJobBody.kind as "media" | "document",
+            id: terminalJobBody.id.trim()
+          }
+        : undefined;
     return {
       event: "async_jobs_open",
       data: {
@@ -1250,7 +1272,8 @@ function toStreamEvent(eventName: string, payload: unknown): WebChatStreamEvent 
           : [],
         activeSandboxJobs: Array.isArray(body.activeSandboxJobs)
           ? (body.activeSandboxJobs as WebChatActiveSandboxJobState[])
-          : []
+          : [],
+        ...(terminalJob === undefined ? {} : { terminalJob })
       }
     };
   }

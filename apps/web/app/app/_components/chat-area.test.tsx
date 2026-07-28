@@ -1251,8 +1251,7 @@ describe("ChatArea", () => {
           id: "assistant-1",
           role: "assistant",
           content: "Working…",
-          status: "streaming",
-          liveInlineMediaReceipts: true
+          status: "streaming"
         }
       ];
       const { container, rerender } = render(

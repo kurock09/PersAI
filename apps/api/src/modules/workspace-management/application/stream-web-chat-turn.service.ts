@@ -839,6 +839,15 @@ export class StreamWebChatTurnService {
         };
       }
 
+      // Completion-first can bind the worker's empty bubble before this stream
+      // has seen media/progress. Resolve it here too, so text-only completion
+      // cannot invent a second assistant row.
+      if (prepared.clientTurnId !== undefined && this.webChatTurnAttemptService !== undefined) {
+        await this.ensureStableAssistantMessageForOpenTurn({
+          prepared,
+          liveSyncMediaPresent
+        });
+      }
       const assistantMessage = await persistAssistantMessage({
         chatRepository: this.assistantChatRepository,
         assistantMediaJobService: this.assistantMediaJobService,
@@ -1174,21 +1183,12 @@ export class StreamWebChatTurnService {
       return;
     }
 
-    if (input.liveSyncMediaPresent.earlyAssistantMessageId === null) {
-      const earlyMessage = await this.assistantChatRepository.createMessage({
-        chatId: input.prepared.chat.id,
-        assistantId: input.prepared.assistantId,
-        author: "assistant",
-        content: "",
-        metadata: {
-          sourceUserMessageId: input.prepared.userMessage.id,
-          inlineMediaPlacement: []
-        }
-      });
-      input.liveSyncMediaPresent.earlyAssistantMessageId = earlyMessage.id;
-    }
+    await this.ensureStableAssistantMessageForOpenTurn(input);
 
     const messageId = input.liveSyncMediaPresent.earlyAssistantMessageId;
+    if (messageId === null) {
+      return;
+    }
     let delivered: Awaited<ReturnType<MediaDeliveryService["deliver"]>>;
     try {
       delivered = await this.mediaDeliveryService.deliver({
@@ -1306,6 +1306,45 @@ export class StreamWebChatTurnService {
       attachments: succeededAttachments,
       ...(afterToolCallId === undefined ? {} : { afterToolCallId })
     });
+  }
+
+  private async ensureStableAssistantMessageForOpenTurn(input: {
+    prepared: StreamWebChatTurnPrepared;
+    liveSyncMediaPresent: {
+      earlyAssistantMessageId: string | null;
+      deliveredIdentities: Set<string>;
+      inlineMediaPlacement: InlineMediaPlacementEntry[];
+      deliveredAttachments: AssistantWebChatMessageAttachmentState[];
+    };
+  }): Promise<void> {
+    if (input.liveSyncMediaPresent.earlyAssistantMessageId !== null) {
+      return;
+    }
+    const candidate = await this.assistantChatRepository.createMessage({
+      chatId: input.prepared.chat.id,
+      assistantId: input.prepared.assistantId,
+      author: "assistant",
+      content: "",
+      metadata: {
+        sourceUserMessageId: input.prepared.userMessage.id,
+        inlineMediaPlacement: []
+      }
+    });
+    if (input.prepared.clientTurnId === undefined || this.webChatTurnAttemptService === undefined) {
+      input.liveSyncMediaPresent.earlyAssistantMessageId = candidate.id;
+      return;
+    }
+    const winner = await this.webChatTurnAttemptService.bindOrDiscardAssistantMessageCandidate({
+      assistantId: input.prepared.assistantId,
+      userId: input.prepared.userId,
+      surfaceThreadKey: input.prepared.chat.surfaceThreadKey,
+      clientTurnId: input.prepared.clientTurnId,
+      candidateAssistantMessageId: candidate.id
+    });
+    if (winner === null) {
+      throw new Error("Open web turn no longer accepts an assistant message binding.");
+    }
+    input.liveSyncMediaPresent.earlyAssistantMessageId = winner;
   }
 
   private buildWebRuntimeStreamInput(input: {
@@ -1691,6 +1730,10 @@ export class StreamWebChatTurnService {
               userId: input.prepared.userId,
               surfaceThreadKey: input.prepared.chat.surfaceThreadKey,
               clientTurnId: input.prepared.clientTurnId
+            });
+            await this.ensureStableAssistantMessageForOpenTurn({
+              prepared: input.prepared,
+              liveSyncMediaPresent: input.liveSyncMediaPresent
             });
           }
           input.callbacks.onToolProgress?.({

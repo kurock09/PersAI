@@ -178,24 +178,19 @@ describe("complete web post-runtime turn", () => {
     assertStartedTogether([startedAt.quota, startedAt.ledger]);
   });
 
-  test("completeWebTurnReplay parallelizes attempt mark and binding completion", async () => {
-    const startedAt: Record<string, number> = {};
-    const completedAt: Record<string, number> = {};
+  test("completeWebTurnReplay forwards the atomically preserved assistant-message winner", async () => {
+    let boundAssistantMessageId: string | null = null;
     const stages: Record<string, number> = {};
 
-    await completeWebTurnReplay({
+    const replay = await completeWebTurnReplay({
       bindingRepository: {
-        completeWebTurnProcessing: async () => {
-          startedAt.binding = performance.now();
-          await delay(20);
-          completedAt.binding = performance.now();
+        completeWebTurnProcessing: async (_assistantId, _provider, _surface, payload) => {
+          boundAssistantMessageId = payload.assistantMessageId;
         }
       },
       webChatTurnAttemptService: {
         markCompleted: async () => {
-          startedAt.attempt = performance.now();
-          await delay(20);
-          completedAt.attempt = performance.now();
+          return "worker-message-1";
         }
       },
       assistantId: "assistant-1",
@@ -215,8 +210,9 @@ describe("complete web post-runtime turn", () => {
       }
     });
 
-    assertStartedTogether([startedAt.attempt, startedAt.binding]);
-    assert.ok(stages.replay_completed >= Math.max(completedAt.attempt, completedAt.binding));
+    assert.equal(replay.assistantMessageId, "worker-message-1");
+    assert.equal(boundAssistantMessageId, "worker-message-1");
+    assert.ok(stages.replay_completed > 0);
   });
 
   test("parallel cleanup uses allSettled so skill-state failure does not abort replay", async () => {

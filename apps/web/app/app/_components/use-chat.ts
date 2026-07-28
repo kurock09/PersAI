@@ -121,12 +121,6 @@ export interface ChatMessage {
   inlineMediaPlacement?: Array<{ toolCallId: string; attachmentIds: string[] }>;
   /** Local-only streaming hint: true while text deltas are actively being appended. */
   streamingTextActive?: boolean;
-  /**
-   * ADR-165 D6.2 — ordinary USER_TURN live bubble only. When true, show italic
-   * media receipts and suppress the classic bottom strip while streaming.
-   * Catch-up / async-cont / committed history omit this (classic strip).
-   */
-  liveInlineMediaReceipts?: boolean;
 }
 export interface RecentAutoCompactionNotice {
   detectedAt: string;
@@ -136,6 +130,31 @@ export interface RecentAutoCompactionNotice {
 export type ChatEntry =
   | { kind: "message"; message: ChatMessage }
   | { kind: "activity"; event: ActivityEvent };
+
+type AsyncJobsTerminalIdentity = {
+  kind: "media" | "document";
+  id: string;
+};
+
+type AsyncJobsOpenPayload = {
+  activeMediaJobs: WebChatActiveMediaJobState[];
+  activeDocumentJobs: WebChatActiveDocumentJobState[];
+  activeSandboxJobs: WebChatActiveSandboxJobState[];
+  terminalJob?: AsyncJobsTerminalIdentity;
+};
+
+type AsyncJobTerminalTombstones = {
+  media: Set<string>;
+  document: Set<string>;
+};
+
+function createAsyncJobTerminalTombstones(): AsyncJobTerminalTombstones {
+  return {
+    media: new Set<string>(),
+    document: new Set<string>()
+  };
+}
+
 function createClientTurnId(): string {
   return (
     globalThis.crypto?.randomUUID?.() ?? `turn-${Date.now()}-${Math.random().toString(36).slice(2)}`
@@ -940,7 +959,6 @@ function toActiveTurnOverlayMessages(activeTurn: WebChatActiveTurnState | null |
   }
   // ADR-162 P4: async-cont binds to ConversationalPublish id when known —
   // never invent a permanent active-assistant-* beside the publish row.
-  // ADR-165 D6.2: ordinary USER_TURN live gets italic receipts; async-cont never.
   const assistantOverlayBase: ChatMessage =
     assistantMessage !== null
       ? { ...assistantMessage, status: "streaming" }
@@ -957,13 +975,7 @@ function toActiveTurnOverlayMessages(activeTurn: WebChatActiveTurnState | null |
             content: "",
             status: "streaming"
           } satisfies ChatMessage);
-  const assistantOverlay: ChatMessage = isAsyncContinuation
-    ? (() => {
-        const next = { ...assistantOverlayBase };
-        delete next.liveInlineMediaReceipts;
-        return next;
-      })()
-    : { ...assistantOverlayBase, liveInlineMediaReceipts: true };
+  const assistantOverlay: ChatMessage = { ...assistantOverlayBase };
   const liveActivitiesByMessageId =
     activeTurn.currentActivity && activeTurn.currentActivity.phase === "start"
       ? {
@@ -1512,8 +1524,7 @@ function isLocalScopedAssistantId(id: string): boolean {
 function remapChatMessagesAssistantId(
   messages: ChatMessage[],
   fromId: string,
-  toId: string,
-  options?: { liveInlineMediaReceipts?: boolean }
+  toId: string
 ): ChatMessage[] {
   if (fromId === toId) {
     return messages;
@@ -1535,7 +1546,6 @@ function remapChatMessagesAssistantId(
     next.push(message);
   }
   if (!injected) {
-    // ADR-166: ordinary USER_TURN cold remap must keep italic receipt mode.
     next.push({
       id: toId,
       role: "assistant",
@@ -1543,10 +1553,7 @@ function remapChatMessagesAssistantId(
       status: "streaming",
       thought: "",
       thoughtStartedAt: null,
-      thoughtFinishedAt: null,
-      ...(options?.liveInlineMediaReceipts === true
-        ? { liveInlineMediaReceipts: true as const }
-        : {})
+      thoughtFinishedAt: null
     });
   }
   return next;
@@ -2004,6 +2011,9 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
   const activeMediaJobsRef = useRef<WebChatActiveMediaJobState[]>([]);
   const activeDocumentJobsRef = useRef<WebChatActiveDocumentJobState[]>([]);
   const activeSandboxJobsRef = useRef<WebChatActiveSandboxJobState[]>([]);
+  const asyncJobTerminalTombstonesByThreadRef = useRef<Map<string, AsyncJobTerminalTombstones>>(
+    new Map()
+  );
   const prevThreadKeyRef = useRef(assistantScopedThreadKey);
   const currentThreadKeyRef = useRef(assistantScopedThreadKey);
   const lastResumeRefreshAtRef = useRef(0);
@@ -2204,6 +2214,52 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
     },
     [applyThreadLiveActivities]
   );
+  const getThreadAsyncJobTerminalTombstones = useCallback(
+    (targetThreadKey: string): AsyncJobTerminalTombstones => {
+      const existing = asyncJobTerminalTombstonesByThreadRef.current.get(targetThreadKey);
+      if (existing !== undefined) {
+        return existing;
+      }
+      const created = createAsyncJobTerminalTombstones();
+      asyncJobTerminalTombstonesByThreadRef.current.set(targetThreadKey, created);
+      return created;
+    },
+    []
+  );
+  const isTerminalJobTombstoned = useCallback(
+    (targetThreadKey: string, kind: "media" | "document", id: string): boolean => {
+      const tombstones = asyncJobTerminalTombstonesByThreadRef.current.get(targetThreadKey);
+      if (tombstones === undefined) {
+        return false;
+      }
+      return (kind === "media" ? tombstones.media : tombstones.document).has(id);
+    },
+    []
+  );
+  const sanitizeAsyncJobsOpenPayload = useCallback(
+    (targetThreadKey: string, payload: AsyncJobsOpenPayload): AsyncJobsOpenPayload => {
+      if (payload.terminalJob !== undefined) {
+        const tombstones = getThreadAsyncJobTerminalTombstones(targetThreadKey);
+        if (payload.terminalJob.kind === "media") {
+          tombstones.media.add(payload.terminalJob.id);
+        } else {
+          tombstones.document.add(payload.terminalJob.id);
+        }
+      }
+      const tombstones = asyncJobTerminalTombstonesByThreadRef.current.get(targetThreadKey);
+      if (tombstones === undefined) {
+        return payload;
+      }
+      return {
+        ...payload,
+        activeMediaJobs: payload.activeMediaJobs.filter((job) => !tombstones.media.has(job.id)),
+        activeDocumentJobs: payload.activeDocumentJobs.filter(
+          (job) => !tombstones.document.has(job.id)
+        )
+      };
+    },
+    [getThreadAsyncJobTerminalTombstones]
+  );
   const setThreadChatId = useCallback((targetThreadKey: string, nextChatId: string) => {
     const snapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
     if (snapshot !== undefined) {
@@ -2319,6 +2375,9 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
         });
       };
       if (payload.kind === "media" && payload.mediaJob !== undefined) {
+        if (isTerminalJobTombstoned(currentThreadKeyRef.current, "media", payload.mediaJob.id)) {
+          return;
+        }
         const next = [...activeMediaJobsRef.current];
         const index = next.findIndex((job) => job.id === payload.mediaJob!.id);
         if (index >= 0) {
@@ -2331,6 +2390,11 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
         return;
       }
       if (payload.kind === "document" && payload.documentJob !== undefined) {
+        if (
+          isTerminalJobTombstoned(currentThreadKeyRef.current, "document", payload.documentJob.id)
+        ) {
+          return;
+        }
         const next = [...activeDocumentJobsRef.current];
         const index = next.findIndex((job) => job.id === payload.documentJob!.id);
         if (index >= 0) {
@@ -2354,32 +2418,31 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
         patchCache({ activeSandboxJobs: next });
       }
     },
-    [replaceActiveDocumentJobs, replaceActiveMediaJobs, replaceActiveSandboxJobs]
+    [
+      isTerminalJobTombstoned,
+      replaceActiveDocumentJobs,
+      replaceActiveMediaJobs,
+      replaceActiveSandboxJobs
+    ]
   );
   /** ADR-165 — replace Working banner from authoritative mid-turn open-jobs snapshot. */
   const applyOpenJobsSnapshot = useCallback(
-    (
-      targetThreadKey: string,
-      payload: {
-        activeMediaJobs: WebChatActiveMediaJobState[];
-        activeDocumentJobs: WebChatActiveDocumentJobState[];
-        activeSandboxJobs: WebChatActiveSandboxJobState[];
-      }
-    ) => {
+    (targetThreadKey: string, payload: AsyncJobsOpenPayload) => {
+      const sanitizedPayload = sanitizeAsyncJobsOpenPayload(targetThreadKey, payload);
       const cached = cachedThreadHistorySnapshotsRef.current.get(targetThreadKey);
       if (cached !== undefined) {
         cachedThreadHistorySnapshotsRef.current.set(targetThreadKey, {
           ...cached,
-          activeMediaJobs: payload.activeMediaJobs,
-          activeDocumentJobs: payload.activeDocumentJobs,
-          activeSandboxJobs: payload.activeSandboxJobs
+          activeMediaJobs: sanitizedPayload.activeMediaJobs,
+          activeDocumentJobs: sanitizedPayload.activeDocumentJobs,
+          activeSandboxJobs: sanitizedPayload.activeSandboxJobs
         });
       }
-      markMediaActive(targetThreadKey, payload.activeMediaJobs.length > 0);
-      markDocumentActive(targetThreadKey, payload.activeDocumentJobs.length > 0);
-      markSandboxActive(targetThreadKey, payload.activeSandboxJobs.length > 0);
+      markMediaActive(targetThreadKey, sanitizedPayload.activeMediaJobs.length > 0);
+      markDocumentActive(targetThreadKey, sanitizedPayload.activeDocumentJobs.length > 0);
+      markSandboxActive(targetThreadKey, sanitizedPayload.activeSandboxJobs.length > 0);
       // Job terminal emptied media Working rows — drop a stuck "Generating image" chip.
-      if (payload.activeMediaJobs.length === 0) {
+      if (sanitizedPayload.activeMediaJobs.length === 0) {
         const clearedDeferredMediaMessageIds: string[] = [];
         applyThreadLiveActivities(targetThreadKey, (prev) => {
           let changed = false;
@@ -2411,9 +2474,9 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
       if (currentThreadKeyRef.current !== targetThreadKey) {
         return;
       }
-      replaceActiveMediaJobs(payload.activeMediaJobs);
-      replaceActiveDocumentJobs(payload.activeDocumentJobs);
-      replaceActiveSandboxJobs(payload.activeSandboxJobs);
+      replaceActiveMediaJobs(sanitizedPayload.activeMediaJobs);
+      replaceActiveDocumentJobs(sanitizedPayload.activeDocumentJobs);
+      replaceActiveSandboxJobs(sanitizedPayload.activeSandboxJobs);
     },
     [
       applyThreadLiveActivities,
@@ -2423,7 +2486,8 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
       markSandboxActive,
       replaceActiveDocumentJobs,
       replaceActiveMediaJobs,
-      replaceActiveSandboxJobs
+      replaceActiveSandboxJobs,
+      sanitizeAsyncJobsOpenPayload
     ]
   );
   const clearSoftDetachReconcileTimer = useCallback((targetThreadKey: string) => {
@@ -2854,9 +2918,14 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
         let reconciledOptimisticTurn = false;
         try {
           const page = await getChatMessages(token, targetChatId, undefined, 20);
-          const nextActiveMediaJobs = page.activeMediaJobs ?? [];
-          const nextActiveDocumentJobs = page.activeDocumentJobs ?? [];
-          const nextActiveSandboxJobs = page.activeSandboxJobs ?? [];
+          const sanitizedOpenJobs = sanitizeAsyncJobsOpenPayload(targetThreadKey, {
+            activeMediaJobs: page.activeMediaJobs ?? [],
+            activeDocumentJobs: page.activeDocumentJobs ?? [],
+            activeSandboxJobs: page.activeSandboxJobs ?? []
+          });
+          const nextActiveMediaJobs = sanitizedOpenJobs.activeMediaJobs;
+          const nextActiveDocumentJobs = sanitizedOpenJobs.activeDocumentJobs;
+          const nextActiveSandboxJobs = sanitizedOpenJobs.activeSandboxJobs;
           const rawLoaded = page.messages
             .map(toCommittedChatMessage)
             .filter((message): message is ChatMessage => message !== null);
@@ -3232,6 +3301,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
       finalizeReconciledDetachedTurn,
       getToken,
       refreshCompactionState,
+      sanitizeAsyncJobsOpenPayload,
       setThreadPendingSend
     ]
   );
@@ -3395,8 +3465,8 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
               statusAssistantMessage?.attachments ??
               committedPublishRow?.attachments)
             : undefined;
-        // ADR-165 D6.2 — ordinary USER_TURN live always enables italic receipts
-        // (including cold restore / status reattach). Async-cont / catch-up never.
+        // Preserve attachment identity/ordering only; receipt presentation is now
+        // derived entirely by the renderer from message status + attachments.
         const liveAssistantMessage: ChatMessage = {
           ...fallbackAssistantMessage,
           id: nextAssistantId,
@@ -3413,12 +3483,8 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
             ? { attachments: preservedAttachments }
             : publishAssistantId !== null
               ? {}
-              : { attachments: undefined }),
-          ...(isAsyncContinuation ? {} : { liveInlineMediaReceipts: true as const })
+              : { attachments: undefined })
         };
-        if (isAsyncContinuation) {
-          delete liveAssistantMessage.liveInlineMediaReceipts;
-        }
         const currentActivity = status.currentActivity;
         const previousLiveAssistantIdForActivities =
           existingSnapshot?.liveAssistantMessageId ?? null;
@@ -4230,10 +4296,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                   const nextMessages = remapChatMessagesAssistantId(
                     baseMessages,
                     currentLiveId,
-                    serverAssistantMessageId,
-                    {
-                      liveInlineMediaReceipts: !isAsyncContinuationClientTurnId(clientTurnId)
-                    }
+                    serverAssistantMessageId
                   );
                   const previousActivities = snapshot?.liveActivitiesByMessageId ?? {};
                   const remappedActivities =
@@ -4300,6 +4363,9 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                     return;
                   }
                   if (payload.kind === "media" && payload.mediaJob !== undefined) {
+                    if (isTerminalJobTombstoned(targetThreadKey, "media", payload.mediaJob.id)) {
+                      return;
+                    }
                     const next = [...(cached.activeMediaJobs ?? [])];
                     const index = next.findIndex((job) => job.id === payload.mediaJob!.id);
                     if (index >= 0) next[index] = { ...next[index], ...payload.mediaJob };
@@ -4310,6 +4376,11 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                     });
                     markMediaActive(targetThreadKey, next.length > 0);
                   } else if (payload.kind === "document" && payload.documentJob !== undefined) {
+                    if (
+                      isTerminalJobTombstoned(targetThreadKey, "document", payload.documentJob.id)
+                    ) {
+                      return;
+                    }
                     const next = [...(cached.activeDocumentJobs ?? [])];
                     const index = next.findIndex((job) => job.id === payload.documentJob!.id);
                     if (index >= 0) next[index] = { ...next[index], ...payload.documentJob };
@@ -4499,6 +4570,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
       applyTurnStatusState,
       finalizeReconciledDetachedTurn,
       getToken,
+      isTerminalJobTombstoned,
       markDocumentActive,
       markMediaActive,
       markSandboxActive,
@@ -5030,8 +5102,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
         status: "streaming",
         thought: "",
         thoughtStartedAt: null,
-        thoughtFinishedAt: null,
-        liveInlineMediaReceipts: true
+        thoughtFinishedAt: null
       };
       const initialSnapshot = {
         clientTurnId,
@@ -5477,9 +5548,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
             const previousId = assistantMsgId;
             assistantMsgId = serverAssistantMessageId;
             applyThreadMessages(sendThreadKey, (prev) =>
-              remapChatMessagesAssistantId(prev, previousId, serverAssistantMessageId, {
-                liveInlineMediaReceipts: true
-              })
+              remapChatMessagesAssistantId(prev, previousId, serverAssistantMessageId)
             );
             applyThreadLiveActivities(sendThreadKey, (prev) => {
               const previous = prev[previousId];
@@ -5507,8 +5576,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                 messages: remapChatMessagesAssistantId(
                   snapshot.messages,
                   previousId,
-                  serverAssistantMessageId,
-                  { liveInlineMediaReceipts: true }
+                  serverAssistantMessageId
                 )
               });
             }
@@ -5843,9 +5911,19 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
           const userServerAttachments = Array.isArray(t?.userMessage?.attachments)
             ? t.userMessage.attachments
             : undefined;
-          const nextActiveMediaJobs = Array.isArray(t?.activeMediaJobs)
-            ? t.activeMediaJobs
-            : undefined;
+          const sanitizedCompletedOpenJobs =
+            Array.isArray(t?.activeMediaJobs) ||
+            Array.isArray(t?.activeDocumentJobs) ||
+            Array.isArray(t?.activeSandboxJobs)
+              ? sanitizeAsyncJobsOpenPayload(sendThreadKey, {
+                  activeMediaJobs: Array.isArray(t?.activeMediaJobs) ? t.activeMediaJobs : [],
+                  activeDocumentJobs: Array.isArray(t?.activeDocumentJobs)
+                    ? t.activeDocumentJobs
+                    : [],
+                  activeSandboxJobs: Array.isArray(t?.activeSandboxJobs) ? t.activeSandboxJobs : []
+                })
+              : null;
+          const nextActiveMediaJobs = sanitizedCompletedOpenJobs?.activeMediaJobs;
           applyThreadMessages(sendThreadKey, (prev) => {
             const mapped = prev.map((m) => {
               if (m.id === assistantMsgId) {
@@ -5994,12 +6072,8 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
             typeof t?.userMessage?.chatId === "string"
               ? t.userMessage.chatId
               : resolveKnownChatIdForThread(sendThreadKey);
-          const nextActiveDocumentJobs = Array.isArray(t?.activeDocumentJobs)
-            ? t.activeDocumentJobs
-            : undefined;
-          const nextActiveSandboxJobs = Array.isArray(t?.activeSandboxJobs)
-            ? t.activeSandboxJobs
-            : undefined;
+          const nextActiveDocumentJobs = sanitizedCompletedOpenJobs?.activeDocumentJobs;
+          const nextActiveSandboxJobs = sanitizedCompletedOpenJobs?.activeSandboxJobs;
           if (currentThreadKeyRef.current === sendThreadKey && nextActiveMediaJobs !== undefined) {
             replaceActiveMediaJobs(nextActiveMediaJobs);
           }
@@ -6306,6 +6380,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
       refreshChatPlan,
       refreshCompactionState,
       resolveKnownChatIdForThread,
+      sanitizeAsyncJobsOpenPayload,
       setThreadPendingSend,
       setThreadChatId,
       setThreadLiveThinkingPreview,
@@ -7041,9 +7116,14 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
         try {
           const page = await getChatMessages(token, targetChatId, undefined, 20);
           const stillVisible = applyVisibleHistory();
-          const nextActiveMediaJobs = page.activeMediaJobs ?? [];
-          const nextActiveDocumentJobs = page.activeDocumentJobs ?? [];
-          const nextActiveSandboxJobs = page.activeSandboxJobs ?? [];
+          const sanitizedOpenJobs = sanitizeAsyncJobsOpenPayload(targetThreadKey, {
+            activeMediaJobs: page.activeMediaJobs ?? [],
+            activeDocumentJobs: page.activeDocumentJobs ?? [],
+            activeSandboxJobs: page.activeSandboxJobs ?? []
+          });
+          const nextActiveMediaJobs = sanitizedOpenJobs.activeMediaJobs;
+          const nextActiveDocumentJobs = sanitizedOpenJobs.activeDocumentJobs;
+          const nextActiveSandboxJobs = sanitizedOpenJobs.activeSandboxJobs;
           const loaded: ChatMessage[] = page.messages
             .map(toCommittedChatMessage)
             .filter((message): message is ChatMessage => message !== null);
@@ -7340,6 +7420,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
       refreshCompactionState,
       refreshChatPlan,
       replaceVisibleLiveActivities,
+      sanitizeAsyncJobsOpenPayload,
       setThreadPendingSend,
       startStoredActiveTurnRestore,
       startTurnReattach

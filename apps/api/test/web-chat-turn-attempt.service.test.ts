@@ -305,6 +305,192 @@ describe("WebChatTurnAttemptService", () => {
     assert.equal(attempt.currentActivity, null);
   });
 
+  test("binds one open-turn assistant message atomically and refuses a different winner", async () => {
+    let boundMessageId: string | null = null;
+    const writes: string[] = [];
+    const service = new WebChatTurnAttemptService(
+      {
+        assistantWebChatTurnAttempt: {
+          updateMany: async (input: {
+            where: { assistantMessageId?: null };
+            data: { assistantMessageId: string };
+          }) => {
+            if (input.where.assistantMessageId === null && boundMessageId === null) {
+              boundMessageId = input.data.assistantMessageId;
+              writes.push(boundMessageId);
+              return { count: 1 };
+            }
+            return { count: 0 };
+          },
+          findUnique: async () => ({ assistantMessageId: boundMessageId })
+        },
+        assistantChatMessage: {
+          deleteMany: async () => ({ count: 1 })
+        }
+      } as never,
+      { execute: async () => ({ assistantId: "assistant-1" }) } as never,
+      noopChatWakeCoordinator
+    );
+
+    const first = await service.bindAssistantMessageId({
+      assistantId: "assistant-1",
+      userId: "user-1",
+      surfaceThreadKey: "thread-1",
+      clientTurnId: "turn-1",
+      assistantMessageId: "assistant-msg-1"
+    });
+    const second = await service.bindAssistantMessageId({
+      assistantId: "assistant-1",
+      userId: "user-1",
+      surfaceThreadKey: "thread-1",
+      clientTurnId: "turn-1",
+      assistantMessageId: "assistant-msg-2"
+    });
+
+    assert.equal(first, "assistant-msg-1");
+    assert.equal(second, "assistant-msg-1");
+    assert.deepEqual(writes, ["assistant-msg-1"]);
+  });
+
+  test("completion preserves an earlier assistant-message binding", async () => {
+    let completionData: Record<string, unknown> | null = null;
+    let updateCount = 0;
+    const service = new WebChatTurnAttemptService(
+      {
+        assistantWebChatTurnAttempt: {
+          findFirst: async () => ({
+            chatId: "chat-1",
+            surfaceClient: "web_chat",
+            assistantMessageId: "worker-winner"
+          }),
+          findUnique: async () => ({ assistantMessageId: "worker-winner" }),
+          updateMany: async (input: { data: Record<string, unknown> }) => {
+            completionData = input.data;
+            updateCount += 1;
+            return { count: updateCount === 1 ? 0 : 1 };
+          }
+        }
+      } as never,
+      { execute: async () => ({ assistantId: "assistant-1" }) } as never,
+      noopChatWakeCoordinator
+    );
+
+    await service.markCompleted({
+      assistantId: "assistant-1",
+      userId: "user-1",
+      surfaceThreadKey: "thread-1",
+      clientTurnId: "turn-1",
+      assistantMessageId: "stream-candidate",
+      respondedAt: "2026-07-28T23:00:00.000Z",
+      terminalPayload: {
+        clientTurnId: "turn-1",
+        chatId: "chat-1",
+        userMessageId: "user-1",
+        assistantMessageId: "worker-winner",
+        respondedAt: "2026-07-28T23:00:00.000Z",
+        degradedByQuotaFallback: false,
+        quotaFallbackReason: null,
+        quotaFallbackModel: null,
+        completedAt: "2026-07-28T23:00:01.000Z"
+      }
+    });
+
+    assert.equal(completionData?.assistantMessageId, undefined);
+  });
+
+  test("completion re-reads a competing winner and writes matching terminal identity", async () => {
+    const writes: Array<{ where: Record<string, unknown>; data: Record<string, unknown> }> = [];
+    let updateCount = 0;
+    const service = new WebChatTurnAttemptService(
+      {
+        assistantWebChatTurnAttempt: {
+          findFirst: async () => ({
+            chatId: "chat-1",
+            surfaceClient: null,
+            assistantMessageId: null
+          }),
+          findUnique: async () => ({ assistantMessageId: "worker-winner" }),
+          updateMany: async (input: {
+            where: Record<string, unknown>;
+            data: Record<string, unknown>;
+          }) => {
+            writes.push(input);
+            updateCount += 1;
+            return { count: updateCount === 1 ? 0 : 1 };
+          }
+        }
+      } as never,
+      { execute: async () => ({ assistantId: "assistant-1" }) } as never,
+      noopChatWakeCoordinator
+    );
+
+    const winner = await service.markCompleted({
+      assistantId: "assistant-1",
+      userId: "user-1",
+      surfaceThreadKey: "thread-1",
+      clientTurnId: "turn-1",
+      assistantMessageId: "stream-candidate",
+      respondedAt: "2026-07-28T23:00:00.000Z",
+      terminalPayload: {
+        clientTurnId: "turn-1",
+        chatId: "chat-1",
+        userMessageId: "user-1",
+        assistantMessageId: "stream-candidate",
+        respondedAt: "2026-07-28T23:00:00.000Z",
+        degradedByQuotaFallback: false,
+        quotaFallbackReason: null,
+        quotaFallbackModel: null,
+        completedAt: "2026-07-28T23:00:01.000Z"
+      }
+    });
+
+    assert.equal(winner, "worker-winner");
+    assert.equal(writes[1]?.where.assistantMessageId, "worker-winner");
+    assert.equal(writes[1]?.data.assistantMessageId, undefined);
+    assert.equal(
+      (writes[1]?.data.terminalPayload as { assistantMessageId?: string }).assistantMessageId,
+      "worker-winner"
+    );
+  });
+
+  test("interruption preserves a competing binding, including async continuation identity", async () => {
+    const writes: Array<{ where: Record<string, unknown>; data: Record<string, unknown> }> = [];
+    let updateCount = 0;
+    const service = new WebChatTurnAttemptService(
+      {
+        assistantWebChatTurnAttempt: {
+          findFirst: async () => ({
+            chatId: "chat-async",
+            surfaceClient: "async_continuation",
+            assistantMessageId: null
+          }),
+          findUnique: async () => ({ assistantMessageId: "worker-winner" }),
+          updateMany: async (input: {
+            where: Record<string, unknown>;
+            data: Record<string, unknown>;
+          }) => {
+            writes.push(input);
+            updateCount += 1;
+            return { count: updateCount === 1 ? 0 : 1 };
+          }
+        }
+      } as never,
+      { execute: async () => ({ assistantId: "assistant-1" }) } as never,
+      noopChatWakeCoordinator
+    );
+
+    await service.markInterrupted({
+      assistantId: "assistant-1",
+      userId: "user-1",
+      surfaceThreadKey: "thread-async",
+      clientTurnId: "async-cont:job-1",
+      assistantMessageId: "stream-candidate"
+    });
+
+    assert.equal(writes[1]?.where.assistantMessageId, "worker-winner");
+    assert.equal(writes[1]?.data.assistantMessageId, undefined);
+  });
+
   test("async_continuation terminals do not stamp last_user_turn_terminal_at", async () => {
     const terminalStamps: string[] = [];
     const startedStamps: string[] = [];

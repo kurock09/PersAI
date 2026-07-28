@@ -401,31 +401,29 @@ export async function completeWebTurnReplay(input: {
     completedAt: new Date().toISOString()
   };
 
-  const replayWrites: Array<Promise<unknown>> = [];
+  let effectiveReplayState = replayState;
   if (input.webChatTurnAttemptService) {
-    replayWrites.push(
-      input.webChatTurnAttemptService.markCompleted({
-        assistantId: input.assistantId,
-        userId: input.userId,
-        surfaceThreadKey: input.surfaceThreadKey,
-        clientTurnId: input.clientTurnId,
-        assistantMessageId: input.assistantMessageId,
-        respondedAt: input.respondedAt,
-        terminalPayload: replayState
-      })
-    );
+    const winner = await input.webChatTurnAttemptService.markCompleted({
+      assistantId: input.assistantId,
+      userId: input.userId,
+      surfaceThreadKey: input.surfaceThreadKey,
+      clientTurnId: input.clientTurnId,
+      assistantMessageId: input.assistantMessageId,
+      respondedAt: input.respondedAt,
+      terminalPayload: replayState
+    });
+    if (winner !== null && winner !== replayState.assistantMessageId) {
+      effectiveReplayState = { ...replayState, assistantMessageId: winner };
+    }
   }
-  replayWrites.push(
-    input.bindingRepository.completeWebTurnProcessing(
-      input.assistantId,
-      "web_internal",
-      "web_chat",
-      replayState
-    )
+  await input.bindingRepository.completeWebTurnProcessing(
+    input.assistantId,
+    "web_internal",
+    "web_chat",
+    effectiveReplayState
   );
-  await Promise.all(replayWrites);
   input.markTraceStage?.("replay_completed");
-  return replayState;
+  return effectiveReplayState;
 }
 
 export async function persistWebTurnSkillStateAndQueueBackgroundCheck(input: {

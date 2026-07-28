@@ -421,14 +421,17 @@ export class AssistantMediaJobCompletionDeliveryService {
         });
         deliveryState.loopResolved = true;
         await this.releaseUnproducedRemainderBestEffort(job, artifacts.length);
-        await this.finalizeJob(job, {
+        const terminalCommitted = await this.finalizeJob(job, {
           status: "delivered",
           code: null,
           message: null
         });
         // Working clears from durable terminal truth even when claim was denied.
-        if (openTurnAttempt !== null) {
-          await this.liveTurnPresent.publishOpenJobsSnapshot({ attempt: openTurnAttempt });
+        if (terminalCommitted && openTurnAttempt !== null) {
+          await this.liveTurnPresent.publishOpenJobsSnapshot({
+            attempt: openTurnAttempt,
+            terminalJob: { kind: "media", id: job.id }
+          });
         }
         return;
       }
@@ -531,7 +534,7 @@ export class AssistantMediaJobCompletionDeliveryService {
       }
 
       const terminalStatus = delivered.attachments.length > 0 ? "delivered" : "failed";
-      await this.finalizeJob(job, {
+      const terminalCommitted = await this.finalizeJob(job, {
         status: terminalStatus,
         code: terminalStatus === "failed" ? "media_delivery_failed" : null,
         message:
@@ -540,8 +543,11 @@ export class AssistantMediaJobCompletionDeliveryService {
             : null
       });
       // ADR-166 D5 — publish Working snapshot only after terminal state is durable.
-      if (openTurnAttempt !== null) {
-        await this.liveTurnPresent.publishOpenJobsSnapshot({ attempt: openTurnAttempt });
+      if (terminalCommitted && openTurnAttempt !== null) {
+        await this.liveTurnPresent.publishOpenJobsSnapshot({
+          attempt: openTurnAttempt,
+          terminalJob: { kind: "media", id: job.id }
+        });
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Media delivery failed.";
@@ -702,8 +708,11 @@ export class AssistantMediaJobCompletionDeliveryService {
         });
       }
       const openTurnAttempt = await this.resolveOpenTurnAttempt(job);
-      if (openTurnAttempt !== null) {
-        await this.liveTurnPresent.publishOpenJobsSnapshot({ attempt: openTurnAttempt });
+      if (terminal.count > 0 && openTurnAttempt !== null) {
+        await this.liveTurnPresent.publishOpenJobsSnapshot({
+          attempt: openTurnAttempt,
+          terminalJob: { kind: "media", id: job.id }
+        });
       }
       return;
     }
@@ -792,8 +801,11 @@ export class AssistantMediaJobCompletionDeliveryService {
     }
     // ADR-166 D5 — failure terminal also refreshes Working after durable state.
     const openTurnAttempt = await this.resolveOpenTurnAttempt(job);
-    if (openTurnAttempt !== null) {
-      await this.liveTurnPresent.publishOpenJobsSnapshot({ attempt: openTurnAttempt });
+    if (terminal.count > 0 && openTurnAttempt !== null) {
+      await this.liveTurnPresent.publishOpenJobsSnapshot({
+        attempt: openTurnAttempt,
+        terminalJob: { kind: "media", id: job.id }
+      });
     }
   }
 
@@ -1305,7 +1317,7 @@ export class AssistantMediaJobCompletionDeliveryService {
       code: string | null;
       message: string | null;
     }
-  ): Promise<void> {
+  ): Promise<boolean> {
     const terminal = await this.prisma.assistantMediaJob.updateMany({
       where: { id: job.id, schedulerClaimToken: job.claimToken },
       data: {
@@ -1332,6 +1344,7 @@ export class AssistantMediaJobCompletionDeliveryService {
         }
       });
     }
+    return terminal.count > 0;
   }
 
   private parseArtifacts(value: unknown): RuntimeOutputArtifact[] | null {

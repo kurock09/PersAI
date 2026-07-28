@@ -399,75 +399,6 @@ function normalizeLiveThinkingPreview(preview: string): string {
 const LIVE_THINKING_FADE_MS = 220;
 
 /**
- * ADR-166 D6 progressive high-water: measure the live Assistant body and keep a
- * monotonic minHeight for the lifetime of this message id. Thought fade, status
- * swaps, cursor-only, and a short terminal answer must not shrink the bubble.
- * No up-front blank reserve — minHeight applies only after real content height.
- * Remount via `key={messageId}` so a new message starts fresh.
- */
-function AssistantBodyHighWater({
-  messageId,
-  className,
-  children
-}: {
-  messageId: string;
-  className?: string;
-  children: React.ReactNode;
-}) {
-  const measureRef = useRef<HTMLDivElement>(null);
-  const highWaterRef = useRef(0);
-  const [highWaterPx, setHighWaterPx] = useState(0);
-
-  useLayoutEffect(() => {
-    const el = measureRef.current;
-    if (el === null) {
-      return;
-    }
-
-    const recordHeight = (height: number) => {
-      if (!Number.isFinite(height) || height <= 0) {
-        return;
-      }
-      const next = Math.ceil(height);
-      if (next <= highWaterRef.current) {
-        return;
-      }
-      highWaterRef.current = next;
-      setHighWaterPx(next);
-    };
-
-    recordHeight(el.getBoundingClientRect().height);
-
-    if (typeof ResizeObserver === "undefined") {
-      return;
-    }
-
-    const observer = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        const borderBox = entry.borderBoxSize?.[0]?.blockSize;
-        const height = typeof borderBox === "number" ? borderBox : entry.contentRect.height;
-        recordHeight(height);
-      }
-    });
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [messageId]);
-
-  return (
-    <div
-      data-testid="assistant-body-high-water"
-      data-message-id={messageId}
-      className={className}
-      style={highWaterPx > 0 ? { minHeight: highWaterPx } : undefined}
-    >
-      <div ref={measureRef} data-testid="assistant-body-measure">
-        {children}
-      </div>
-    </div>
-  );
-}
-
-/**
  * Top-first under the status label. Short text sizes the rail; when the buffer
  * overflows the ~4-line max, pin to the end so oldest lines leave upward.
  * Mount only while displayed (or fading) thought text exists — no empty reserve.
@@ -988,37 +919,11 @@ function MarkdownFragment({ content }: { content: string }) {
 
 type IterationProcessPiece =
   | { kind: "text"; markdown: string }
-  | { kind: "tool"; tool: RuntimeTurnToolInvocation }
-  /** Live-only italic receipt; committed replies use the classic bottom strip. */
-  | { kind: "media_receipt"; attachments: ChatAttachment[] };
+  | { kind: "tool"; tool: RuntimeTurnToolInvocation };
 
 type IterationBlock =
   | { kind: "content"; markdown: string }
   | { kind: "process"; pieces: IterationProcessPiece[] };
-
-function resolveInlineAttachmentsForToolCall(input: {
-  toolCallId: string | undefined;
-  attachments: ChatAttachment[] | undefined;
-  inlineMediaPlacement: Array<{ toolCallId: string; attachmentIds: string[] }> | undefined;
-}): ChatAttachment[] {
-  if (input.toolCallId === undefined || input.toolCallId.trim().length === 0) {
-    return [];
-  }
-  const toolCallId = input.toolCallId.trim();
-  const attachments = input.attachments ?? [];
-  if (attachments.length === 0) {
-    return [];
-  }
-  const placementIds = new Set(
-    (input.inlineMediaPlacement ?? [])
-      .filter((entry) => entry.toolCallId === toolCallId)
-      .flatMap((entry) => entry.attachmentIds)
-  );
-  return attachments.filter(
-    (attachment) =>
-      placementIds.has(attachment.id) || attachment.inlineAfterToolCallId === toolCallId
-  );
-}
 
 function isContentBlock(text: string): boolean {
   if (/^\s*\|.*\|.*\|/m.test(text)) return true;
@@ -1042,18 +947,10 @@ function isContentBlock(text: string): boolean {
 
 function buildIterationBlocks(
   workingNotes: string[],
-  toolInvocations: RuntimeTurnToolInvocation[],
-  options: {
-    committed: boolean;
-    /** Ordinary USER_TURN live receipts only — catch-up uses classic strip. */
-    liveInlineMediaReceipts?: boolean;
-    attachments?: ChatAttachment[] | undefined;
-    inlineMediaPlacement?: Array<{ toolCallId: string; attachmentIds: string[] }> | undefined;
-  }
+  toolInvocations: RuntimeTurnToolInvocation[]
 ): IterationBlock[] {
-  const showLiveMediaReceipts = !options.committed && options.liveInlineMediaReceipts === true;
   const allPieces: IterationProcessPiece[] = [];
-  const contentBlocks: Array<{ insertAfterPieceIndex: number; markdown: string }> = [];
+  const contentBlocks: string[] = [];
   const iterations = Math.max(
     workingNotes.length,
     ...toolInvocations.map((tool) => tool.iteration + 1),
@@ -1064,7 +961,7 @@ function buildIterationBlocks(
     const text = (workingNotes[i] ?? "").trim();
     if (text.length > 0) {
       if (isContentBlock(text)) {
-        contentBlocks.push({ insertAfterPieceIndex: allPieces.length, markdown: text });
+        contentBlocks.push(text);
       } else {
         allPieces.push({ kind: "text", markdown: text });
       }
@@ -1073,75 +970,16 @@ function buildIterationBlocks(
     const toolsAtIteration = toolInvocations.filter((tool) => tool.iteration === i);
     for (const tool of toolsAtIteration) {
       allPieces.push({ kind: "tool", tool });
-      // Ordinary USER_TURN live only: italic "received …" after the producing
-      // tool. Catch-up / committed use the classic bottom strip.
-      if (showLiveMediaReceipts) {
-        const inlineAttachments = resolveInlineAttachmentsForToolCall({
-          toolCallId: tool.toolCallId,
-          attachments: options.attachments,
-          inlineMediaPlacement: options.inlineMediaPlacement
-        });
-        if (inlineAttachments.length > 0) {
-          allPieces.push({ kind: "media_receipt", attachments: inlineAttachments });
-        }
-      }
     }
-  }
-
-  // Deferred media can land without afterToolCallId / placement (pre-repair jobs
-  // or race). Still show italic receipts for any live attachments not yet placed.
-  if (showLiveMediaReceipts) {
-    const shownIds = new Set<string>();
-    for (const piece of allPieces) {
-      if (piece.kind !== "media_receipt") {
-        continue;
-      }
-      for (const attachment of piece.attachments) {
-        shownIds.add(attachment.id);
-      }
-    }
-    const orphanAttachments = (options.attachments ?? []).filter(
-      (attachment) => !shownIds.has(attachment.id)
-    );
-    if (orphanAttachments.length > 0) {
-      allPieces.push({ kind: "media_receipt", attachments: orphanAttachments });
-    }
-  }
-
-  if (options.committed) {
-    const blocks: IterationBlock[] = [];
-    if (allPieces.length > 0) {
-      blocks.push({ kind: "process", pieces: allPieces });
-    }
-    for (const contentBlock of contentBlocks) {
-      blocks.push({ kind: "content", markdown: contentBlock.markdown });
-    }
-    return blocks;
   }
 
   const blocks: IterationBlock[] = [];
-  let currentProcess: IterationProcessPiece[] | null = null;
-  const flushProcess = () => {
-    if (currentProcess && currentProcess.length > 0) {
-      blocks.push({ kind: "process", pieces: currentProcess });
-    }
-    currentProcess = null;
-  };
-  const contentMap = new Map<number, string>();
+  if (allPieces.length > 0) {
+    blocks.push({ kind: "process", pieces: allPieces });
+  }
   for (const contentBlock of contentBlocks) {
-    contentMap.set(contentBlock.insertAfterPieceIndex, contentBlock.markdown);
+    blocks.push({ kind: "content", markdown: contentBlock });
   }
-  for (let i = 0; i <= allPieces.length; i += 1) {
-    if (contentMap.has(i)) {
-      flushProcess();
-      blocks.push({ kind: "content", markdown: contentMap.get(i)! });
-    }
-    if (i < allPieces.length) {
-      currentProcess = currentProcess ?? [];
-      currentProcess.push(allPieces[i]!);
-    }
-  }
-  flushProcess();
   return blocks;
 }
 
@@ -1385,48 +1223,44 @@ function IterationBlocks({ blocks }: { blocks: IterationBlock[] }) {
             </div>
           );
         }
-        // Split media receipts out of the collapsed process badge so they read
-        // as status lines between tool/text runs while the reply is still live.
-        const segments: Array<
-          | { kind: "process"; pieces: IterationProcessPiece[] }
-          | { kind: "media_receipt"; attachments: ChatAttachment[] }
-        > = [];
-        let currentProcess: IterationProcessPiece[] = [];
-        const flushProcess = () => {
-          if (currentProcess.length > 0) {
-            segments.push({ kind: "process", pieces: currentProcess });
-            currentProcess = [];
-          }
-        };
-        for (const piece of block.pieces) {
-          if (piece.kind === "media_receipt") {
-            flushProcess();
-            segments.push(piece);
-            continue;
-          }
-          currentProcess.push(piece);
-        }
-        flushProcess();
-        return (
-          <div key={`process-${index}`} className="space-y-3">
-            {segments.map((segment, segmentIndex) =>
-              segment.kind === "media_receipt" ? (
-                <MediaReceiptLines
-                  key={`media-receipt-${index}-${segmentIndex}`}
-                  attachments={segment.attachments}
-                />
-              ) : (
-                <ProcessBadge
-                  key={`process-seg-${index}-${segmentIndex}`}
-                  pieces={segment.pieces}
-                />
-              )
-            )}
-          </div>
-        );
+        return <ProcessBadge key={`process-${index}`} pieces={block.pieces} />;
       })}
     </div>
   );
+}
+
+function resolveReceiptAttachments(input: {
+  attachments: ChatAttachment[] | undefined;
+  inlineMediaPlacement: Array<{ toolCallId: string; attachmentIds: string[] }> | undefined;
+}): ChatAttachment[] {
+  const attachments = input.attachments ?? [];
+  if (attachments.length === 0) {
+    return [];
+  }
+  const attachmentsById = new Map(attachments.map((attachment) => [attachment.id, attachment]));
+  const seen = new Set<string>();
+  const ordered: ChatAttachment[] = [];
+
+  for (const placement of input.inlineMediaPlacement ?? []) {
+    for (const attachmentId of placement.attachmentIds) {
+      const attachment = attachmentsById.get(attachmentId);
+      if (attachment === undefined || seen.has(attachment.id)) {
+        continue;
+      }
+      ordered.push(attachment);
+      seen.add(attachment.id);
+    }
+  }
+
+  for (const attachment of attachments) {
+    if (seen.has(attachment.id)) {
+      continue;
+    }
+    ordered.push(attachment);
+    seen.add(attachment.id);
+  }
+
+  return ordered;
 }
 
 function AssistantActionChips({
@@ -1585,7 +1419,13 @@ function formatMediaReceiptLabel(
   });
 }
 
-function MediaReceiptLines({ attachments }: { attachments: ChatAttachment[] }) {
+function MediaReceiptLines({
+  attachments,
+  live
+}: {
+  attachments: ChatAttachment[];
+  live: boolean;
+}) {
   const t = useTranslations("chat");
   if (attachments.length === 0) {
     return null;
@@ -1594,15 +1434,22 @@ function MediaReceiptLines({ attachments }: { attachments: ChatAttachment[] }) {
     <div
       className="space-y-1"
       data-testid="media-receipt-lines"
-      role="status"
-      aria-live="polite"
-      aria-atomic="false"
-      aria-relevant="additions"
+      {...(live
+        ? {
+            role: "status",
+            "aria-live": "polite",
+            "aria-atomic": "false",
+            "aria-relevant": "additions"
+          }
+        : {})}
     >
       {attachments.map((attachment) => (
         <div
           key={attachment.id}
-          className="animate-fade-in-inline-status text-sm italic leading-5 text-text-muted/78 motion-reduce:animate-none"
+          className={cn(
+            "text-sm leading-5 text-text-muted/78",
+            live ? "animate-fade-in-inline-status italic motion-reduce:animate-none" : "not-italic"
+          )}
         >
           {formatMediaReceiptLabel(attachment, t)}
         </div>
@@ -2463,29 +2310,24 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
       : [];
     const toolInvocations = Array.isArray(message.toolInvocations) ? message.toolInvocations : [];
     return {
-      iterationBlocks: buildIterationBlocks(workingNotes, toolInvocations, {
-        committed: message.status === "committed",
-        liveInlineMediaReceipts: message.liveInlineMediaReceipts === true,
-        attachments: message.attachments,
-        inlineMediaPlacement: message.inlineMediaPlacement
-      }),
+      iterationBlocks: buildIterationBlocks(workingNotes, toolInvocations),
       answerText: message.content
     };
-  }, [
-    message.attachments,
-    message.content,
-    message.inlineMediaPlacement,
-    message.liveInlineMediaReceipts,
-    message.role,
-    message.status,
-    message.toolInvocations,
-    message.workingNotes
-  ]);
+  }, [message.content, message.role, message.toolInvocations, message.workingNotes]);
+  const receiptAttachments = useMemo(
+    () =>
+      message.role === "assistant"
+        ? resolveReceiptAttachments({
+            attachments: message.attachments,
+            inlineMediaPlacement: message.inlineMediaPlacement
+          })
+        : [],
+    [message.attachments, message.inlineMediaPlacement, message.role]
+  );
   const bottomStripAttachments = useMemo(() => {
-    // Ordinary USER_TURN live + receipts flag: italic receipts only.
-    // A continuation has no stable pre-answer placement in the persisted
-    // transcript. Never put its classic strip below an active cursor; terminal
-    // commit restores the one canonical strip.
+    // Keep the full attachment strip out of active assistant bubbles. The
+    // separate receipt rail remains visible while live; terminal commit restores
+    // the classic strip below the answer.
     if (
       message.role === "assistant" &&
       (message.status === "streaming" || message.status === "reconciling")
@@ -2493,7 +2335,7 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
       return [];
     }
     return message.attachments ?? [];
-  }, [message.attachments, message.liveInlineMediaReceipts, message.role, message.status]);
+  }, [message.attachments, message.role, message.status]);
   const hasVisibleAnswerText = assistantSegments.answerText.trim().length > 0;
   const isStreamingTextActive = message.streamingTextActive === true;
   const showInlineStreamingStatus =
@@ -2687,13 +2529,15 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
             )}
           </>
         ) : (
-          <AssistantBodyHighWater
-            key={message.id}
-            messageId={message.id}
-            className="prose-invert min-w-0 max-w-full text-sm break-words text-text [overflow-wrap:anywhere]"
-          >
+          <div className="prose-invert min-w-0 max-w-full text-sm break-words text-text [overflow-wrap:anywhere]">
             <ThoughtBlock message={message} />
             <IterationBlocks blocks={assistantSegments.iterationBlocks} />
+            {receiptAttachments.length > 0 ? (
+              <MediaReceiptLines
+                attachments={receiptAttachments}
+                live={message.status === "streaming" || message.status === "reconciling"}
+              />
+            ) : null}
             {isStreaming ? (
               <>
                 {hasVisibleAnswerText ? (
@@ -2772,7 +2616,7 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
                 {t("stoppedByUser")}
               </p>
             ) : null}
-          </AssistantBodyHighWater>
+          </div>
         )}
 
         {/* Message actions (assistant only, on hover) */}

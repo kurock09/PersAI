@@ -183,6 +183,18 @@ the provider loop closes. Durable/reconnect authority remains the chat
 active-observation projection. Await activity uses `await-deadline:<epochMs>`
 tool-progress preview for live countdown.
 
+ADR-167 keeps the existing SSE vocabulary and adds no public REST route. The
+original `POST /api/v1/assistant/chat/web/stream` now also consumes durable
+cross-pod turn-bus events `media` and `async_jobs_open`; token/thinking/tool
+events remain direct. `media` carries the one attempt-bound
+`assistantMessageId` plus persisted attachment states. `async_jobs_open`
+remains a full active-job snapshot and may add
+`terminalJob: { kind: "media" | "document", id }` only after that exact
+terminal transition commits. The field is additive; clients use it to reject
+stale resurrection of the terminal job. Async PDF/document delivery uses the
+same `media` event without invented tool-call placement when no durable
+producer exists.
+
 ADR-152 checkpoint 1 adds no public endpoint. New runtime uses the
 bearer-protected internal `POST /api/v1/internal/runtime/async-jobs/v1/status`
 seam with current assistant/workspace/chat/channel/thread ownership. It returns only opaque

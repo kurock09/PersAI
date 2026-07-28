@@ -87,6 +87,17 @@ ADR-109 and ADR-111 add one bounded HeyGen-backed product seam inside the active
   early assistant row already exists in committed history. Async continuation
   bubbles suppress their classic attachment strip while still live or
   reconciling; one canonical strip appears only after terminal commit.
+- ADR-167 makes that ordinary-turn identity singular across API replicas:
+  `AssistantWebChatTurnAttempt.assistantMessageId` is bound null-only and reused
+  by async media/document completion, synchronous delivery, final persistence,
+  terminal status, and replay. The original POST stream consumes durable
+  cross-pod `media` / `async_jobs_open` publishes; owner-pod attachment merges
+  local and durable delivery behind sequence dedupe. Receipts derive from
+  persisted attachments plus `inlineMediaPlacement`, remain visible through
+  commit/F5 beside the terminal attachment strip, and never split the one
+  process badge. Browser-measured assistant-body high-water state is retired.
+  Exact media/document terminal identities prevent stale Working snapshots
+  from resurrecting an already observed terminal job.
 
 ### Provider plane
 

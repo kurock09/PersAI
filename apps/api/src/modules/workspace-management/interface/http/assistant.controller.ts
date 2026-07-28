@@ -1367,7 +1367,19 @@ export class AssistantController {
     let clientTurnIdForRegistry: string | undefined;
     let assistantIdForRegistry: string | undefined;
     let streamRegistryUserId: string | undefined;
+    let detachPostStreamBus: (() => void) | null = null;
     const sseWriterInstrumentation = createStreamWriterInstrumentation();
+    const writeSse = (event: string, payload: unknown): void => {
+      if (clientClosed) {
+        return;
+      }
+      const writeReturnedTrue = res.write(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`);
+      sseWriterInstrumentation.recordWrite(writeReturnedTrue, res);
+      const flushable = res as unknown as { flush?: () => void };
+      if (typeof flushable.flush === "function") {
+        flushable.flush();
+      }
+    };
     const sendSse = (event: string, payload: unknown): void => {
       if (assistantIdForRegistry !== undefined && clientTurnIdForRegistry !== undefined) {
         this.webChatTurnStreamRegistry.publish({
@@ -1378,16 +1390,7 @@ export class AssistantController {
           payload
         });
       }
-      if (clientClosed) {
-        return;
-      }
-
-      const writeReturnedTrue = res.write(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`);
-      sseWriterInstrumentation.recordWrite(writeReturnedTrue, res);
-      const flushable = res as unknown as { flush?: () => void };
-      if (typeof flushable.flush === "function") {
-        flushable.flush();
-      }
+      writeSse(event, payload);
     };
     const sendHeartbeat = (): void => {
       // Soft-detach (clientClosed) must still refresh Redis TTL while the turn
@@ -1453,6 +1456,19 @@ export class AssistantController {
             assistantId: preparation.prepared.assistantId,
             clientTurnId: clientTurnIdForRegistry,
             userId: preparation.prepared.userId
+          });
+          // D2: the POST must consume remote completion publishes. Direct stream
+          // callbacks continue to own token/tool traffic; only these durable
+          // cross-pod presentation events flow back through the bus.
+          detachPostStreamBus = await this.webChatTurnStreamRegistry.attach({
+            assistantId: preparation.prepared.assistantId,
+            clientTurnId: clientTurnIdForRegistry,
+            userId: preparation.prepared.userId,
+            onEvent: (event, payload) => {
+              if (event === "media" || event === "async_jobs_open") {
+                writeSse(event, payload);
+              }
+            }
           });
         } catch (error) {
           const message =
@@ -1545,11 +1561,24 @@ export class AssistantController {
           });
         },
         onMediaAttachments: ({ assistantMessageId, attachments, afterToolCallId }) => {
-          sendSse("media", {
+          // The original POST receives this through the attached bus consumer,
+          // avoiding a same-pod direct+bus duplicate.
+          const payload = {
             assistantMessageId,
             attachments,
             ...(afterToolCallId === undefined ? {} : { afterToolCallId })
-          });
+          };
+          if (assistantIdForRegistry !== undefined && clientTurnIdForRegistry !== undefined) {
+            this.webChatTurnStreamRegistry.publish({
+              assistantId: assistantIdForRegistry,
+              clientTurnId: clientTurnIdForRegistry,
+              userId: streamRegistryUserId ?? prepared.userId,
+              event: "media",
+              payload
+            });
+          } else {
+            writeSse("media", payload);
+          }
         },
         onActivity: ({ source, phase, resultCount, skillName, skillIconEmoji }) => {
           sendSse("activity", {
@@ -1610,6 +1639,7 @@ export class AssistantController {
       res.end();
     } finally {
       clearInterval(heartbeat);
+      detachPostStreamBus?.();
       if (assistantIdForRegistry !== undefined && clientTurnIdForRegistry !== undefined) {
         this.webChatTurnStopDispatchService.release({
           assistantId: assistantIdForRegistry,

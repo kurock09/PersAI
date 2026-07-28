@@ -294,6 +294,28 @@ describe("ADR-158 durable web turn stream bus", () => {
     detach?.();
   });
 
+  test("owner-pod attach receives remote publish once in sequence", async () => {
+    const { podA, podB } = createBusPair();
+    const identity = { assistantId: "assistant-1", clientTurnId: "turn-owner", userId: "user-1" };
+    await podA.registerTurn(identity);
+    const received: string[] = [];
+    const detach = await podA.attach({
+      ...identity,
+      onEvent: (event, payload) => received.push(`${event}:${(payload as { id: string }).id}`)
+    });
+    assert.notEqual(detach, null);
+
+    await podB.publishAsync({ ...identity, event: "media", payload: { id: "remote-media" } });
+    await podA.publishAsync({
+      ...identity,
+      event: "async_jobs_open",
+      payload: { id: "local-open" }
+    });
+
+    assert.deepEqual(received, ["media:remote-media", "async_jobs_open:local-open"]);
+    detach?.();
+  });
+
   test("registry facade delegates publish/attach across shared store", async () => {
     const store = new MemoryTurnStreamEventStore();
     const busA = new WebChatTurnStreamBusService(store);

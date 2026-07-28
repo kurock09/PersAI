@@ -346,6 +346,21 @@ function makeVideoAttachment(id: string): NonNullable<ChatMessage["attachments"]
   };
 }
 
+function makeDocumentAttachment(id: string): NonNullable<ChatMessage["attachments"]>[number] {
+  return {
+    id,
+    path: `${CHAT_SESSION_ROOT}/spec.pdf`,
+    thumbnailStoragePath: null,
+    posterStoragePath: null,
+    attachmentType: "document",
+    originalFilename: "spec.pdf",
+    mimeType: "application/pdf",
+    sizeBytes: 2 * 1024 * 1024,
+    processingStatus: "ready",
+    createdAt: "2026-07-28T12:00:00.000Z"
+  };
+}
+
 function makeAssistantMessage(overrides: Partial<ChatMessage> = {}): ChatMessage {
   return {
     id: "assistant-1",
@@ -1458,7 +1473,7 @@ describe("ChatMessageBubble — pre-response status", () => {
     );
   });
 
-  it("ADR-165: committed reply keeps attachments in the classic bottom strip", () => {
+  it("ADR-167: committed reply keeps one receipt rail plus the terminal attachment strip", () => {
     const image = {
       ...makeImageAttachment("att-inline-1"),
       inlineAfterToolCallId: "call-img-1",
@@ -1480,7 +1495,9 @@ describe("ChatMessageBubble — pre-response status", () => {
       />
     );
 
-    expect(screen.queryByTestId("media-receipt-lines")).toBeNull();
+    expect(screen.getByTestId("media-receipt-lines")).toHaveTextContent(
+      /Получено изображение.*генерация.*1\.0 MB/
+    );
     const strips = screen.getAllByTestId("attachment-strip");
     expect(strips).toHaveLength(1);
     expect(container.querySelector('img[alt="photo.jpg"]')).not.toBeNull();
@@ -1491,7 +1508,7 @@ describe("ChatMessageBubble — pre-response status", () => {
     ).toBeTruthy();
   });
 
-  it("ADR-165: live USER_TURN shows italic media receipt instead of inline preview", () => {
+  it("ADR-167: live USER_TURN shows one receipt rail and no terminal strip", () => {
     const image = {
       ...makeImageAttachment("att-inline-1"),
       inlineAfterToolCallId: "call-img-1",
@@ -1503,7 +1520,6 @@ describe("ChatMessageBubble — pre-response status", () => {
         message={makeAssistantMessage({
           status: "streaming",
           content: "",
-          liveInlineMediaReceipts: true,
           workingNotes: ["сейчас"],
           toolInvocations: [
             { name: "image_generate", iteration: 0, ok: true, toolCallId: "call-img-1" }
@@ -1522,6 +1538,63 @@ describe("ChatMessageBubble — pre-response status", () => {
     expect(receipts).toHaveAttribute("role", "status");
     expect(receipts).toHaveAttribute("aria-live", "polite");
     expect(receipts).toHaveAttribute("aria-relevant", "additions");
+  });
+
+  it("ADR-167: receipt rail survives live to committed and terminal strip appears only after commit", () => {
+    const image = {
+      ...makeImageAttachment("att-live-commit-1"),
+      inlineAfterToolCallId: "call-img-1",
+      sizeBytes: 1024 * 1024
+    };
+    const { rerender } = render(
+      <ChatMessageBubble
+        chatId="chat-1"
+        message={makeAssistantMessage({
+          status: "streaming",
+          content: "",
+          workingNotes: ["сейчас"],
+          toolInvocations: [
+            { name: "image_generate", iteration: 0, ok: true, toolCallId: "call-img-1" }
+          ],
+          inlineMediaPlacement: [
+            { toolCallId: "call-img-1", attachmentIds: ["att-live-commit-1"] }
+          ],
+          attachments: [image]
+        })}
+      />
+    );
+
+    expect(screen.getByTestId("media-receipt-lines")).toHaveTextContent(
+      /Получено изображение.*генерация.*1\.0 MB/
+    );
+    expect(screen.queryByTestId("attachment-strip")).toBeNull();
+    expect(screen.getByTestId("media-receipt-lines")).toHaveAttribute("role", "status");
+    expect(screen.getByTestId("media-receipt-lines")).toHaveAttribute("aria-live", "polite");
+
+    rerender(
+      <ChatMessageBubble
+        chatId="chat-1"
+        message={makeAssistantMessage({
+          status: "committed",
+          content: "Готово.",
+          workingNotes: ["сейчас"],
+          toolInvocations: [
+            { name: "image_generate", iteration: 0, ok: true, toolCallId: "call-img-1" }
+          ],
+          inlineMediaPlacement: [
+            { toolCallId: "call-img-1", attachmentIds: ["att-live-commit-1"] }
+          ],
+          attachments: [image]
+        })}
+      />
+    );
+
+    expect(screen.getByTestId("media-receipt-lines")).toHaveTextContent(
+      /Получено изображение.*генерация.*1\.0 MB/
+    );
+    expect(screen.getByTestId("media-receipt-lines")).not.toHaveAttribute("role");
+    expect(screen.getByTestId("media-receipt-lines")).not.toHaveAttribute("aria-live");
+    expect(screen.getByTestId("attachment-strip")).toBeInTheDocument();
   });
 
   it("suppresses a live continuation strip until terminal commit", () => {
@@ -1545,7 +1618,9 @@ describe("ChatMessageBubble — pre-response status", () => {
       />
     );
 
-    expect(screen.queryByTestId("media-receipt-lines")).toBeNull();
+    expect(screen.getByTestId("media-receipt-lines")).toHaveTextContent(
+      /Получено изображение.*генерация.*1\.0 MB/
+    );
     expect(screen.queryByTestId("attachment-strip")).toBeNull();
     expect(screen.getByTestId("streaming-cursor")).toBeInTheDocument();
     expect(container.querySelector('img[alt="photo.jpg"]')).toBeNull();
@@ -1562,7 +1637,6 @@ describe("ChatMessageBubble — pre-response status", () => {
         message={makeAssistantMessage({
           status: "streaming",
           content: "",
-          liveInlineMediaReceipts: true,
           workingNotes: ["жду"],
           toolInvocations: [
             { name: "image_generate", iteration: 0, ok: true, toolCallId: "call-img-1" }
@@ -1576,6 +1650,57 @@ describe("ChatMessageBubble — pre-response status", () => {
     expect(screen.getByTestId("media-receipt-lines")).toHaveTextContent(
       /Получено изображение.*генерация.*1\.0 MB/
     );
+  });
+
+  it("ADR-167: document/PDF receipt stays live first, then persists as committed history with full strip", () => {
+    const documentAttachment = {
+      ...makeDocumentAttachment("att-doc-1"),
+      inlineAfterToolCallId: "call-doc-1"
+    };
+    const { rerender } = render(
+      <ChatMessageBubble
+        chatId="chat-1"
+        message={makeAssistantMessage({
+          status: "streaming",
+          content: "",
+          workingNotes: ["готовлю файл"],
+          toolInvocations: [
+            { name: "document_render", iteration: 0, ok: true, toolCallId: "call-doc-1" }
+          ],
+          inlineMediaPlacement: [{ toolCallId: "call-doc-1", attachmentIds: ["att-doc-1"] }],
+          attachments: [documentAttachment]
+        })}
+      />
+    );
+
+    const liveReceipts = screen.getByTestId("media-receipt-lines");
+    expect(liveReceipts).toHaveAttribute("role", "status");
+    expect(liveReceipts).toHaveAttribute("aria-live", "polite");
+    expect(liveReceipts).toHaveTextContent(/spec\.pdf.*2\.0 MB/i);
+    expect(screen.queryByTestId("attachment-strip")).toBeNull();
+
+    rerender(
+      <ChatMessageBubble
+        chatId="chat-1"
+        message={makeAssistantMessage({
+          status: "committed",
+          content: "Готово.",
+          workingNotes: ["готовлю файл"],
+          toolInvocations: [
+            { name: "document_render", iteration: 0, ok: true, toolCallId: "call-doc-1" }
+          ],
+          inlineMediaPlacement: [{ toolCallId: "call-doc-1", attachmentIds: ["att-doc-1"] }],
+          attachments: [documentAttachment]
+        })}
+      />
+    );
+
+    const committedReceipts = screen.getByTestId("media-receipt-lines");
+    expect(committedReceipts).not.toHaveAttribute("role");
+    expect(committedReceipts).not.toHaveAttribute("aria-live");
+    expect(committedReceipts).toHaveTextContent(/spec\.pdf.*2\.0 MB/i);
+    expect(screen.getByTestId("attachment-strip")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /spec\.pdf/i })).toBeInTheDocument();
   });
 
   it("preserves order for mixed connective text, content, then connective text plus tool", () => {
@@ -1676,7 +1801,7 @@ describe("ChatMessageBubble — pre-response status", () => {
     expect(screen.queryByRole("button", { name: /Выполнено|Найдено|Прочитано/ })).toBeNull();
   });
 
-  it("streaming mode preserves per-iter ordering", () => {
+  it("ADR-167: streaming mode keeps exactly one process badge per message", () => {
     render(
       <ChatMessageBubble
         chatId="chat-1"
@@ -1689,15 +1814,11 @@ describe("ChatMessageBubble — pre-response status", () => {
       />
     );
 
-    const firstBadge = screen.getByRole("button", { name: "Выполнено · 1 шаг" });
+    const badge = screen.getByRole("button", { name: "Выполнено · 3 шага" });
     const contentTitle = screen.getByText("Content Title");
-    const secondBadge = screen.getByRole("button", { name: "Выполнено · 2 шага" });
-
+    expect(screen.getAllByRole("button", { name: /Выполнено ·/ })).toHaveLength(1);
     expect(
-      firstBadge.compareDocumentPosition(contentTitle) & Node.DOCUMENT_POSITION_FOLLOWING
-    ).toBeTruthy();
-    expect(
-      contentTitle.compareDocumentPosition(secondBadge) & Node.DOCUMENT_POSITION_FOLLOWING
+      badge.compareDocumentPosition(contentTitle) & Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy();
   });
 
@@ -1883,249 +2004,22 @@ describe("ChatMessageBubble — pre-response status", () => {
   });
 });
 
-describe("ChatMessageBubble — progressive high-water mark (ADR-166 D6)", () => {
-  let resizeCallback: ResizeObserverCallback | null = null;
-  const OriginalResizeObserver = globalThis.ResizeObserver;
-
-  function installResizeObserverCapture(): void {
-    resizeCallback = null;
-    class CaptureResizeObserver {
-      constructor(callback: ResizeObserverCallback) {
-        resizeCallback = callback;
-      }
-      observe() {}
-      unobserve() {}
-      disconnect() {}
-    }
-    Object.defineProperty(globalThis, "ResizeObserver", {
-      configurable: true,
-      writable: true,
-      value: CaptureResizeObserver
-    });
-  }
-
-  function restoreResizeObserver(): void {
-    Object.defineProperty(globalThis, "ResizeObserver", {
-      configurable: true,
-      writable: true,
-      value: OriginalResizeObserver
-    });
-    resizeCallback = null;
-  }
-
-  function setMeasureHeight(heightPx: number): HTMLElement {
-    const measure = screen.getByTestId("assistant-body-measure");
-    vi.spyOn(measure, "getBoundingClientRect").mockReturnValue({
-      x: 0,
-      y: 0,
-      top: 0,
-      left: 0,
-      right: 320,
-      bottom: heightPx,
-      width: 320,
-      height: heightPx,
-      toJSON: () => ({})
-    } as DOMRect);
-    return measure;
-  }
-
-  function fireMeasuredHeight(heightPx: number): void {
-    const measure = setMeasureHeight(heightPx);
-    act(() => {
-      resizeCallback?.(
-        [
-          {
-            target: measure,
-            contentRect: {
-              x: 0,
-              y: 0,
-              top: 0,
-              left: 0,
-              right: 320,
-              bottom: heightPx,
-              width: 320,
-              height: heightPx,
-              toJSON: () => ({})
-            } as DOMRectReadOnly,
-            borderBoxSize: [{ blockSize: heightPx, inlineSize: 320 }],
-            contentBoxSize: [{ blockSize: heightPx, inlineSize: 320 }],
-            devicePixelContentBoxSize: [{ blockSize: heightPx, inlineSize: 320 }]
-          } as ResizeObserverEntry
-        ],
-        {} as ResizeObserver
-      );
-    });
-  }
-
-  beforeEach(() => {
-    installResizeObserverCapture();
-  });
-
-  afterEach(() => {
-    restoreResizeObserver();
-  });
-
-  it("starts with no blank minHeight reserve before real content height is recorded", () => {
+describe("ChatMessageBubble — normal assistant layout (ADR-167 D3)", () => {
+  it("does not render any remembered assistant-body min-height shell", () => {
     render(
-      <ChatMessageBubble
-        chatId="chat-1"
-        message={makeAssistantMessage()}
-        preResponseStatus={{ kind: "thinking" }}
-      />
-    );
-
-    const shell = screen.getByTestId("assistant-body-high-water");
-    expect(shell.style.minHeight).toBe("");
-    expect(document.body.innerHTML).not.toMatch(/min-h-\[8\.75rem\]/);
-  });
-
-  it("records height after four-line thought content occupies the bubble", () => {
-    const longThought = Array.from({ length: 40 }, (_, i) => `word${String(i)}`).join(" ");
-    render(
-      <ChatMessageBubble
-        chatId="chat-1"
-        message={makeAssistantMessage()}
-        preResponseStatus={{ kind: "thinking", thinkingPreview: longThought }}
-      />
-    );
-
-    // 4 × leading-5 (1.25rem) ≈ 80px thought rail + status label footprint.
-    fireMeasuredHeight(96);
-
-    const shell = screen.getByTestId("assistant-body-high-water");
-    expect(shell.style.minHeight).toBe("96px");
-    expect(screen.getByTestId("live-thinking-preview").className).toMatch(/max-h-\[5rem\]/);
-  });
-
-  it("retains the max after shorter activity, await, and cursor-only swaps", () => {
-    const { rerender } = render(
-      <ChatMessageBubble
-        chatId="chat-1"
-        message={makeAssistantMessage()}
-        preResponseStatus={{ kind: "thinking", thinkingPreview: "planning next step" }}
-      />
-    );
-    fireMeasuredHeight(96);
-    expect(screen.getByTestId("assistant-body-high-water").style.minHeight).toBe("96px");
-
-    rerender(
-      <ChatMessageBubble
-        chatId="chat-1"
-        message={makeAssistantMessage()}
-        preResponseStatus={{
-          kind: "activity",
-          event: {
-            id: "activity-1",
-            type: "tool_use",
-            label: "shell_started",
-            shellProgressLines: ["pip install"]
-          }
-        }}
-      />
-    );
-    fireMeasuredHeight(40);
-    expect(screen.getByTestId("assistant-body-high-water").style.minHeight).toBe("96px");
-
-    rerender(
-      <ChatMessageBubble
-        chatId="chat-1"
-        message={makeAssistantMessage()}
-        preResponseStatus={{
-          kind: "activity",
-          event: {
-            id: "activity-await-1",
-            type: "tool_use",
-            label: "await_started",
-            detail: "await-deadline:9999999999999"
-          }
-        }}
-      />
-    );
-    fireMeasuredHeight(28);
-    expect(screen.getByTestId("assistant-body-high-water").style.minHeight).toBe("96px");
-
-    rerender(
-      <ChatMessageBubble
-        chatId="chat-1"
-        message={makeAssistantMessage({ content: "Hi", streamingTextActive: true })}
-      />
-    );
-    fireMeasuredHeight(24);
-    expect(screen.getByTestId("assistant-body-high-water").style.minHeight).toBe("96px");
-    expect(screen.getByTestId("streaming-cursor")).toBeInTheDocument();
-  });
-
-  it("retains the max through terminal commit so a short final answer cannot shrink the bubble", () => {
-    const { rerender } = render(
-      <ChatMessageBubble
-        chatId="chat-1"
-        message={makeAssistantMessage()}
-        preResponseStatus={{ kind: "thinking", thinkingPreview: "long planning thought" }}
-      />
-    );
-    fireMeasuredHeight(112);
-    expect(screen.getByTestId("assistant-body-high-water").style.minHeight).toBe("112px");
-
-    rerender(
-      <ChatMessageBubble
-        chatId="chat-1"
-        message={makeAssistantMessage({ status: "committed", content: "OK." })}
-      />
-    );
-    fireMeasuredHeight(20);
-    expect(screen.getByTestId("assistant-body-high-water").style.minHeight).toBe("112px");
-  });
-
-  it("increases the high-water when later content is taller", () => {
-    const { rerender } = render(
-      <ChatMessageBubble
-        chatId="chat-1"
-        message={makeAssistantMessage()}
-        preResponseStatus={{ kind: "thinking", thinkingPreview: "short" }}
-      />
-    );
-    fireMeasuredHeight(48);
-    expect(screen.getByTestId("assistant-body-high-water").style.minHeight).toBe("48px");
-
-    rerender(
       <ChatMessageBubble
         chatId="chat-1"
         message={makeAssistantMessage({
-          content: "A much longer final answer that grows the bubble past the prior thought height."
+          status: "committed",
+          content: "Short final answer.",
+          attachments: [makeImageAttachment("att-no-min-height")]
         })}
-        preResponseStatus={{ kind: "thinking" }}
-      />
-    );
-    fireMeasuredHeight(160);
-    expect(screen.getByTestId("assistant-body-high-water").style.minHeight).toBe("160px");
-  });
-
-  it("starts fresh with no reserve when the message id changes", () => {
-    const { rerender } = render(
-      <ChatMessageBubble
-        chatId="chat-1"
-        message={makeAssistantMessage({ id: "assistant-1" })}
-        preResponseStatus={{ kind: "thinking", thinkingPreview: "first turn thought" }}
-      />
-    );
-    fireMeasuredHeight(96);
-    expect(screen.getByTestId("assistant-body-high-water").style.minHeight).toBe("96px");
-    expect(screen.getByTestId("assistant-body-high-water")).toHaveAttribute(
-      "data-message-id",
-      "assistant-1"
-    );
-
-    rerender(
-      <ChatMessageBubble
-        chatId="chat-1"
-        message={makeAssistantMessage({ id: "assistant-2" })}
-        preResponseStatus={{ kind: "thinking" }}
       />
     );
 
-    const shell = screen.getByTestId("assistant-body-high-water");
-    expect(shell).toHaveAttribute("data-message-id", "assistant-2");
-    expect(shell.style.minHeight).toBe("");
+    expect(screen.queryByTestId("assistant-body-high-water")).toBeNull();
+    expect(document.body.innerHTML).not.toMatch(/min-height:\s*\d+px/i);
+    expect(document.body.innerHTML).not.toMatch(/min-h-\[8\.75rem\]/);
   });
 });
 

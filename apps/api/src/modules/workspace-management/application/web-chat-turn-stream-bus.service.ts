@@ -368,6 +368,13 @@ export class WebChatTurnStreamBusService implements OnModuleDestroy {
       deliver(envelope);
     });
 
+    const unsubscribe = await this.store.subscribe(key, (envelope) => {
+      if (replaying) {
+        pending.push(envelope);
+        return;
+      }
+      deliver(envelope);
+    });
     try {
       const history = await this.store.listFrom(key, input.fromSeq ?? 0);
       for (const envelope of history) {
@@ -379,11 +386,13 @@ export class WebChatTurnStreamBusService implements OnModuleDestroy {
       }
     } catch (error) {
       local.sinks.delete(sinkId);
+      unsubscribe();
       throw error;
     }
 
     return () => {
       local.sinks.delete(sinkId);
+      unsubscribe();
     };
   }
 

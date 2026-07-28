@@ -14,6 +14,7 @@ import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/
 import { runtimeOutputArtifactsToMediaArtifacts } from "./assistant-runtime.facade";
 import { applyFinalDeliveryHonestyCorrection } from "./final-delivery-honesty";
 import { MediaDeliveryService } from "./media/media-delivery.service";
+import { toAssistantWebChatMessageAttachmentState } from "./media/media.types";
 import { ResolveTelegramChannelRuntimeConfigService } from "./resolve-telegram-channel-runtime-config.service";
 import { LEASE_HEARTBEAT_INTERVAL_MS } from "./scheduler-lease.constants";
 import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
@@ -136,7 +137,10 @@ export class AssistantDocumentJobDeliveryService {
   ) {}
 
   private async publishOpenJobsIfOpenTurn(
-    job: Pick<ClaimedReadyDocumentJob, "assistantId" | "chatId" | "surface" | "providerStatusJson">,
+    job: Pick<
+      ClaimedReadyDocumentJob,
+      "id" | "assistantId" | "chatId" | "surface" | "providerStatusJson"
+    >,
     payload?: PersistedDeliveryPayload | Partial<PersistedDeliveryPayload> | null
   ): Promise<void> {
     if (job.surface !== "web") {
@@ -154,7 +158,72 @@ export class AssistantDocumentJobDeliveryService {
     if (attempt === null) {
       return;
     }
-    await this.liveTurnPresent.publishOpenJobsSnapshot({ attempt });
+    await this.liveTurnPresent.publishOpenJobsSnapshot({
+      attempt,
+      terminalJob: { kind: "document", id: job.id }
+    });
+  }
+
+  private async resolveOpenTurnDocumentPresent(input: {
+    job: ClaimedReadyDocumentJob;
+    payload: PersistedDeliveryPayload;
+  }): Promise<Awaited<ReturnType<WebChatLiveTurnPresentService["findOpenUserTurnAttempt"]>>> {
+    if (input.job.surface !== "web") {
+      return null;
+    }
+    const sourceUserMessageId = this.resolveOpenTurnSourceUserMessageId(input.job, input.payload);
+    if (sourceUserMessageId === null) {
+      return null;
+    }
+    const attempt = await this.liveTurnPresent.findOpenUserTurnAttempt({
+      assistantId: input.job.assistantId,
+      chatId: input.job.chatId,
+      userMessageId: sourceUserMessageId
+    });
+    if (attempt === null) {
+      return null;
+    }
+    const claim = await this.liveTurnPresent.claimInlineForOpenTurnPresent({
+      kind: "document",
+      canonicalJobId: input.job.id
+    });
+    return claim === "newly_claimed" || claim === "already_current_turn_inline" ? attempt : null;
+  }
+
+  private async publishOpenTurnDocumentMedia(input: {
+    attempt: NonNullable<
+      Awaited<ReturnType<WebChatLiveTurnPresentService["findOpenUserTurnAttempt"]>>
+    >;
+    job: ClaimedReadyDocumentJob;
+    payload: PersistedDeliveryPayload;
+    messageId: string;
+    attachmentIds: string[];
+  }): Promise<void> {
+    const attachments = (await this.attachmentRepository.listByMessageId(input.messageId))
+      .filter((attachment) => input.attachmentIds.includes(attachment.id))
+      .map((attachment) =>
+        toAssistantWebChatMessageAttachmentState({
+          id: attachment.id,
+          storagePath: attachment.storagePath,
+          thumbnailStoragePath: attachment.thumbnailStoragePath,
+          posterStoragePath: attachment.posterStoragePath,
+          attachmentType: attachment.attachmentType,
+          originalFilename: attachment.originalFilename,
+          mimeType: attachment.mimeType,
+          sizeBytes: attachment.sizeBytes,
+          processingStatus: attachment.processingStatus,
+          metadata: attachment.metadata,
+          createdAt: attachment.createdAt
+        })
+      );
+    if (attachments.length === 0) {
+      return;
+    }
+    this.liveTurnPresent.publishMedia({
+      attempt: input.attempt,
+      assistantMessageId: input.messageId,
+      attachments
+    });
   }
 
   private resolveOpenTurnSourceUserMessageId(
@@ -325,22 +394,36 @@ export class AssistantDocumentJobDeliveryService {
         kind: "document",
         canonicalJobId: job.id
       });
+      const openTurnPresent = await this.resolveOpenTurnDocumentPresent({
+        job,
+        payload: currentPayload
+      });
 
-      // ADR-162 Phase 1 — ordinary deferred: settle + finalize without chat
-      // invent / attach. ConversationalPublish owns the bubble at present.
-      // ADR-165 D6 live attach+SSE media is media-job only until document pins
-      // are wired into end-of-turn persist (avoid dual assistant bubbles).
+      // Ordinary deferred delivery remains chat-silent. A current-turn-inline
+      // claim is the sole exception: it reuses the turn's bound message and
+      // presents the durable document attachment through the live media rail.
       const deferChatPublish = await this.shouldDeferConversationalPublish(job.id);
-      if (deferChatPublish && currentPayload.externalDeliveryCommitted !== true) {
-        await this.finalizeOrdinaryDeferredWithoutChat({
+      if (
+        deferChatPublish &&
+        openTurnPresent === null &&
+        currentPayload.externalDeliveryCommitted !== true
+      ) {
+        const finalized = await this.finalizeOrdinaryDeferredWithoutChat({
           job,
           payload: currentPayload
         });
-        await this.publishOpenJobsIfOpenTurn(job, currentPayload);
+        if (finalized) {
+          await this.publishOpenJobsIfOpenTurn(job, currentPayload);
+        }
         return;
       }
 
-      let completionAssistantMessageId = currentPayload.completionAssistantMessageId ?? null;
+      let completionAssistantMessageId =
+        openTurnPresent === null
+          ? (currentPayload.completionAssistantMessageId ?? null)
+          : await this.liveTurnPresent.ensureOpenTurnAssistantMessage({
+              attempt: openTurnPresent
+            });
       if (
         currentPayload.externalDeliveryCommitted !== true &&
         completionAssistantMessageId === null
@@ -459,6 +542,15 @@ export class AssistantDocumentJobDeliveryService {
       });
       if (!recorded) {
         return;
+      }
+      if (openTurnPresent !== null) {
+        await this.publishOpenTurnDocumentMedia({
+          attempt: openTurnPresent,
+          job,
+          payload: persistedPayload,
+          messageId: completionAssistantMessageId,
+          attachmentIds: deliveredAttachments.map((attachment) => attachment.attachmentId)
+        });
       }
 
       let finalPayload = persistedPayload;
@@ -690,7 +782,7 @@ export class AssistantDocumentJobDeliveryService {
   private async finalizeOrdinaryDeferredWithoutChat(input: {
     job: ClaimedReadyDocumentJob;
     payload: PersistedDeliveryPayload;
-  }): Promise<void> {
+  }): Promise<boolean> {
     let finalPayload: PersistedDeliveryPayload = {
       ...input.payload,
       completionAssistantMessageId: null,
@@ -705,7 +797,7 @@ export class AssistantDocumentJobDeliveryService {
           "document_quota_settlement_ambiguous",
           "Document output is ready, but quota settlement is in an ambiguous recovery state after a prior crash or retry."
         );
-        return;
+        return false;
       }
       const assistant = await this.assistantRepository.findById(input.job.assistantId);
       if (assistant === null) {
@@ -715,7 +807,7 @@ export class AssistantDocumentJobDeliveryService {
           "document_delivery_recovery_pending",
           "Document output is ready, but assistant quota context could not be resolved."
         );
-        return;
+        return false;
       }
       try {
         finalPayload = {
@@ -724,7 +816,7 @@ export class AssistantDocumentJobDeliveryService {
         };
         const markedPending = await this.markQuotaSettlementPending(input.job, finalPayload);
         if (!markedPending) {
-          return;
+          return false;
         }
         await this.trackWorkspaceQuotaUsageService.consumeAssistantMonthlyToolQuotaSuccessOnly({
           assistant,
@@ -740,7 +832,7 @@ export class AssistantDocumentJobDeliveryService {
             ? error.message
             : "Document quota settlement is temporarily unavailable."
         );
-        return;
+        return false;
       }
       finalPayload = {
         ...finalPayload,
@@ -749,7 +841,7 @@ export class AssistantDocumentJobDeliveryService {
       };
     }
 
-    await this.finalizeDelivery(input.job, finalPayload, []);
+    return this.finalizeDelivery(input.job, finalPayload, []);
   }
 
   private async rememberCompletionMessage(

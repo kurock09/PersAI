@@ -76,7 +76,10 @@ describe("WebChatLiveTurnPresentService", () => {
       ],
       afterToolCallId: "call-image-1"
     });
-    await service.publishOpenJobsSnapshot({ attempt });
+    await service.publishOpenJobsSnapshot({
+      attempt,
+      terminalJob: { kind: "media", id: "media-terminal-1" }
+    });
 
     assert.equal(published.length, 2);
     assert.equal(published[0]?.event, "media");
@@ -102,7 +105,8 @@ describe("WebChatLiveTurnPresentService", () => {
     assert.deepEqual(published[1]?.payload, {
       activeMediaJobs: [],
       activeDocumentJobs: [],
-      activeSandboxJobs: []
+      activeSandboxJobs: [],
+      terminalJob: { kind: "media", id: "media-terminal-1" }
     });
   });
 

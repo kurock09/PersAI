@@ -87,6 +87,18 @@ tests` after parallel-only timeout/contention evidence, all non-web
   height-stability, and cross-thread history/restore regressions. Parent
   orchestrates/audits/commits; implementation subagents use only
   `cursor-grok-4.5-high-fast`.
+- **ADR-167** single-turn message, stable receipts, and cross-pod Working is
+  implemented locally on baseline `4c6738b0`; independent API/web audits and
+  the mandatory local gate are CLEAN. One ordinary open USER_TURN owns one
+  null-only race-safe assistant message identity; the original POST consumes
+  cross-pod `media` / `async_jobs_open`; receipts derive from durable
+  attachments and survive live → commit → F5 beside the terminal full strip;
+  one process badge renders. It supersedes ADR-166's browser-measured
+  progressive height high-water and retires `liveInlineMediaReceipts`. Exact
+  terminal media/document identity blocks stale Working resurrection. No new
+  receipt registry, process timeline, Prisma migration, or persisted layout
+  state. Deploy and authenticated mixed image/PDF live acceptance remain
+  pending.
 
 - Treat `docs/SESSION-HANDOFF.md` as the source of truth for the latest completed checkpoint and the user's next stated priority.
 - Treat `docs/CHANGELOG.md` as the source of truth for what has actually landed.

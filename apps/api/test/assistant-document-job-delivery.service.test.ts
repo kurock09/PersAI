@@ -2156,4 +2156,207 @@ describe("AssistantDocumentJobDeliveryService", () => {
     assert.equal(await finalize("job-5", "version-5"), false, "same job retry is idempotent");
     assert.equal(lockCalls.length, 2, "each accepted finalizer locks the document row");
   });
+
+  test("presents a durable open-turn PDF attachment before its terminal snapshot", async () => {
+    const events: string[] = [];
+    const service = Object.create(
+      AssistantDocumentJobDeliveryService.prototype
+    ) as AssistantDocumentJobDeliveryService & {
+      attachmentRepository: {
+        listByMessageId: (messageId: string) => Promise<unknown[]>;
+      };
+      liveTurnPresent: {
+        publishMedia: (input: Record<string, unknown>) => void;
+        publishOpenJobsSnapshot: (input: Record<string, unknown>) => Promise<void>;
+      };
+    };
+    service.attachmentRepository = {
+      async listByMessageId() {
+        return [
+          {
+            id: "attachment-pdf-1",
+            storagePath: `${WEB_SESSION_ROOT}/ready.pdf`,
+            thumbnailStoragePath: null,
+            posterStoragePath: null,
+            attachmentType: "document",
+            originalFilename: "ready.pdf",
+            mimeType: "application/pdf",
+            sizeBytes: 42n,
+            processingStatus: "ready",
+            metadata: null,
+            createdAt: new Date("2026-07-28T20:00:00.000Z")
+          }
+        ];
+      }
+    };
+    service.liveTurnPresent = {
+      publishMedia(input) {
+        events.push(`media:${String(input.assistantMessageId)}`);
+        assert.equal(input.afterToolCallId, undefined);
+      },
+      async publishOpenJobsSnapshot(input) {
+        events.push(`terminal:${String((input.terminalJob as { id: string }).id)}`);
+      }
+    };
+    const attempt = {
+      assistantId: "assistant-1",
+      userId: "user-1",
+      chatId: "chat-1",
+      clientTurnId: "turn-1",
+      surfaceThreadKey: "thread-1",
+      userMessageId: "user-message-1",
+      assistantMessageId: "assistant-message-1"
+    };
+    await (
+      service as unknown as {
+        publishOpenTurnDocumentMedia: (input: Record<string, unknown>) => Promise<void>;
+      }
+    ).publishOpenTurnDocumentMedia({
+      attempt,
+      job: { id: "document-job-1", providerStatusJson: {} },
+      payload: {},
+      messageId: "assistant-message-1",
+      attachmentIds: ["attachment-pdf-1"]
+    });
+    await service.liveTurnPresent.publishOpenJobsSnapshot({
+      attempt,
+      terminalJob: { kind: "document", id: "document-job-1" }
+    });
+
+    assert.deepEqual(events, ["media:assistant-message-1", "terminal:document-job-1"]);
+  });
+
+  test("does not authorize an open-turn document receipt for a denied claim", async () => {
+    let ensureMessageCalls = 0;
+    const service = Object.create(
+      AssistantDocumentJobDeliveryService.prototype
+    ) as AssistantDocumentJobDeliveryService & {
+      liveTurnPresent: {
+        findOpenUserTurnAttempt: () => Promise<unknown>;
+        claimInlineForOpenTurnPresent: () => Promise<string>;
+        ensureOpenTurnAssistantMessage: () => Promise<string>;
+      };
+    };
+    service.liveTurnPresent = {
+      async findOpenUserTurnAttempt() {
+        return {
+          assistantId: "assistant-1",
+          userId: "user-1",
+          chatId: "chat-1",
+          clientTurnId: "turn-1",
+          surfaceThreadKey: "thread-1",
+          userMessageId: "user-message-1",
+          assistantMessageId: null
+        };
+      },
+      async claimInlineForOpenTurnPresent() {
+        return "denied_already_claimed";
+      },
+      async ensureOpenTurnAssistantMessage() {
+        ensureMessageCalls += 1;
+        return "must-not-create";
+      }
+    };
+    const result = await (
+      service as unknown as {
+        resolveOpenTurnDocumentPresent: (input: Record<string, unknown>) => Promise<unknown>;
+      }
+    ).resolveOpenTurnDocumentPresent({
+      job: {
+        id: "document-job-denied",
+        assistantId: "assistant-1",
+        chatId: "chat-1",
+        surface: "web",
+        providerStatusJson: {}
+      },
+      payload: { sourceUserMessageId: "user-message-1" }
+    });
+
+    assert.equal(result, null);
+    assert.equal(ensureMessageCalls, 0, "a denied claim must not invent an assistant message");
+  });
+
+  test("does not emit a receipt when no durable document attachment is readable", async () => {
+    let mediaEvents = 0;
+    const service = Object.create(
+      AssistantDocumentJobDeliveryService.prototype
+    ) as AssistantDocumentJobDeliveryService & {
+      attachmentRepository: { listByMessageId: () => Promise<unknown[]> };
+      liveTurnPresent: { publishMedia: () => void };
+    };
+    service.attachmentRepository = {
+      async listByMessageId() {
+        return [];
+      }
+    };
+    service.liveTurnPresent = {
+      publishMedia() {
+        mediaEvents += 1;
+      }
+    };
+    await (
+      service as unknown as {
+        publishOpenTurnDocumentMedia: (input: Record<string, unknown>) => Promise<void>;
+      }
+    ).publishOpenTurnDocumentMedia({
+      attempt: {},
+      job: { providerStatusJson: {} },
+      payload: {},
+      messageId: "assistant-message-1",
+      attachmentIds: ["attachment-failed"]
+    });
+
+    assert.equal(mediaEvents, 0);
+  });
+
+  test("does not publish a deferred terminal snapshot after a reclaimed claim rejects finalization", async () => {
+    let terminalSnapshots = 0;
+    const service = Object.create(
+      AssistantDocumentJobDeliveryService.prototype
+    ) as AssistantDocumentJobDeliveryService & {
+      prisma: { assistantDocumentRenderJob: { updateMany: () => Promise<{ count: number }> } };
+      asyncJobHandleState: { prepareDelivery: () => Promise<string> };
+      resolveOpenTurnDocumentPresent: () => Promise<null>;
+      shouldDeferConversationalPublish: () => Promise<boolean>;
+      finalizeOrdinaryDeferredWithoutChat: () => Promise<boolean>;
+      publishOpenJobsIfOpenTurn: () => Promise<void>;
+    };
+    service.prisma = {
+      assistantDocumentRenderJob: {
+        async updateMany() {
+          return { count: 0 };
+        }
+      }
+    };
+    service.asyncJobHandleState = {
+      async prepareDelivery() {
+        return "legacy_frame";
+      }
+    };
+    service.resolveOpenTurnDocumentPresent = async () => null;
+    service.shouldDeferConversationalPublish = async () => true;
+    service.finalizeOrdinaryDeferredWithoutChat = async () => false;
+    service.publishOpenJobsIfOpenTurn = async () => {
+      terminalSnapshots += 1;
+    };
+
+    await service.deliverReadyJob({
+      id: "document-job-reclaimed",
+      docId: "doc-1",
+      versionId: "version-1",
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      chatId: "chat-1",
+      surface: "web",
+      schedulerClaimToken: "stale-claim",
+      providerStatusJson: {
+        artifacts: [
+          { source: "runtime_url", url: "https://example.com/ready.pdf", type: "document" }
+        ],
+        assistantText: null
+      }
+    });
+
+    assert.equal(terminalSnapshots, 0);
+  });
 });

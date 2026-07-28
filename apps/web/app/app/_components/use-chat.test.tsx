@@ -3376,8 +3376,6 @@ describe("useChat", () => {
       );
       expect(live?.status).toBe("streaming");
       expect(live?.attachments?.map((attachment) => attachment.id)).toEqual([publishAttachment.id]);
-      // ADR-165 D6.2 — catch-up must not enter italic receipt mode.
-      expect(live?.liveInlineMediaReceipts).not.toBe(true);
     });
     expect(
       result.current.messages.some(
@@ -7611,7 +7609,6 @@ describe("useChat", () => {
         const assistant = result.current.messages.find((message) => message.role === "assistant");
         expect(assistant?.status).toBe("streaming");
         expect(assistant?.streamingTextActive).toBe(false);
-        expect(assistant?.liveInlineMediaReceipts).toBe(true);
       });
       expect(
         result.current.entries.some(
@@ -8014,7 +8011,6 @@ describe("useChat", () => {
           (message) => message.id === "assistant-166-1"
         );
         expect(assistant?.status).toBe("streaming");
-        expect(assistant?.liveInlineMediaReceipts).toBe(true);
         expect(assistant?.streamingTextActive).toBe(false);
         expect(assistant?.attachments?.map((attachment) => attachment.id)).toContain(
           "att-sse-only"
@@ -8040,11 +8036,157 @@ describe("useChat", () => {
       expect(ids.filter((id) => id === "assistant-166-1")).toHaveLength(1);
       const assistant = result.current.messages.find((message) => message.id === "assistant-166-1");
       expect(assistant?.status).toBe("streaming");
-      expect(assistant?.liveInlineMediaReceipts).toBe(true);
       expect(assistant?.streamingTextActive).toBe(false);
       expect(assistant?.attachments?.map((attachment) => attachment.id).sort()).toEqual([
         "att-history",
         "att-sse-only"
+      ]);
+
+      streamGate.release();
+      await act(async () => {
+        if (sendPromise !== undefined) await sendPromise;
+      });
+    });
+
+    it("document onMedia keeps a live PDF attachment mapped for the receipt rail across history refresh", async () => {
+      const streamGate: { release: () => void } = { release: () => undefined };
+      const sseDocumentAttachment = {
+        id: "att-doc-sse",
+        attachmentType: "document" as const,
+        originalFilename: "spec.pdf",
+        mimeType: "application/pdf",
+        sizeBytes: 2048,
+        processingStatus: "ready" as const,
+        createdAt: "2026-07-27T12:00:01.000Z"
+      };
+      const historyDocumentAttachment = {
+        id: "att-doc-history",
+        attachmentType: "document" as const,
+        originalFilename: "history-spec.pdf",
+        mimeType: "application/pdf",
+        sizeBytes: 1024,
+        processingStatus: "ready" as const,
+        createdAt: "2026-07-27T12:00:00.500Z"
+      };
+      const olderHistory = {
+        nextCursor: null as string | null,
+        messages: [
+          {
+            id: "older-user-166-doc",
+            chatId: "chat-166-doc",
+            assistantId: "assistant-1",
+            author: "user" as const,
+            content: "prior question",
+            attachments: [] as [],
+            createdAt: "2026-07-27T11:00:00.000Z"
+          },
+          {
+            id: "older-assistant-166-doc",
+            chatId: "chat-166-doc",
+            assistantId: "assistant-1",
+            author: "assistant" as const,
+            content: "prior answer",
+            attachments: [] as [],
+            createdAt: "2026-07-27T11:00:05.000Z"
+          }
+        ]
+      };
+      const liveHistoryPage = {
+        nextCursor: null as string | null,
+        messages: [
+          ...olderHistory.messages,
+          {
+            id: "user-166-doc",
+            chatId: "chat-166-doc",
+            assistantId: "assistant-1",
+            author: "user" as const,
+            content: "generate a pdf",
+            attachments: [] as [],
+            createdAt: "2026-07-27T12:00:00.000Z"
+          },
+          {
+            id: "assistant-166-doc",
+            chatId: "chat-166-doc",
+            assistantId: "assistant-1",
+            author: "assistant" as const,
+            content: "",
+            attachments: [historyDocumentAttachment],
+            createdAt: "2026-07-27T12:00:00.100Z"
+          }
+        ]
+      };
+      assistantApiMocks.getChatMessages
+        .mockResolvedValueOnce(olderHistory)
+        .mockResolvedValue(liveHistoryPage);
+      assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
+        async (
+          _token: string,
+          _payload: unknown,
+          handlers: {
+            onHeadersOk?: () => void;
+            onStarted?: (payload: { chat: unknown; userMessage: unknown }) => void;
+            onMedia?: (payload: {
+              assistantMessageId: string;
+              attachments: Array<typeof sseDocumentAttachment>;
+              afterToolCallId?: string;
+            }) => void;
+          }
+        ) => {
+          handlers.onHeadersOk?.();
+          handlers.onStarted?.({
+            chat: { id: "chat-166-doc" },
+            userMessage: { id: "user-166-doc", chatId: "chat-166-doc", attachments: [] }
+          });
+          handlers.onMedia?.({
+            assistantMessageId: "assistant-166-doc",
+            attachments: [sseDocumentAttachment],
+            afterToolCallId: "tool-doc-1"
+          });
+          await new Promise<void>((resolve) => {
+            streamGate.release = resolve;
+          });
+        }
+      );
+
+      const { result } = renderHook(() => useChat("thread-166-doc"), {
+        wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+      });
+
+      await act(async () => {
+        await result.current.loadHistory("chat-166-doc");
+      });
+
+      let sendPromise: Promise<void> | undefined;
+      await act(async () => {
+        sendPromise = result.current.send("generate a pdf");
+        await Promise.resolve();
+      });
+
+      await waitFor(() => {
+        const assistant = result.current.messages.find(
+          (message) => message.id === "assistant-166-doc"
+        );
+        expect(assistant?.status).toBe("streaming");
+        expect(assistant?.attachments?.map((attachment) => attachment.id)).toContain("att-doc-sse");
+        expect(assistant?.inlineMediaPlacement).toEqual([
+          { toolCallId: "tool-doc-1", attachmentIds: ["att-doc-sse"] }
+        ]);
+      });
+
+      await act(async () => {
+        await result.current.loadHistory("chat-166-doc");
+      });
+
+      const assistant = result.current.messages.find(
+        (message) => message.id === "assistant-166-doc"
+      );
+      expect(assistant?.status).toBe("streaming");
+      expect(assistant?.attachments?.map((attachment) => attachment.id).sort()).toEqual([
+        "att-doc-history",
+        "att-doc-sse"
+      ]);
+      expect(assistant?.inlineMediaPlacement).toEqual([
+        { toolCallId: "tool-doc-1", attachmentIds: ["att-doc-sse"] }
       ]);
 
       streamGate.release();
@@ -8202,7 +8344,6 @@ describe("useChat", () => {
             (message) => message.id === "assistant-166-poll"
           );
           expect(assistant?.status).toBe("streaming");
-          expect(assistant?.liveInlineMediaReceipts).toBe(true);
           expect(assistant?.attachments?.map((attachment) => attachment.id).sort()).toEqual([
             "att-history",
             "att-sse-only"
@@ -8351,7 +8492,6 @@ describe("useChat", () => {
             (message) => message.id === "assistant-166-contentful"
           );
           expect(assistant?.status).toBe("streaming");
-          expect(assistant?.liveInlineMediaReceipts).toBe(true);
           expect(assistant?.content).toContain("Working on images");
           expect(result.current.activeMediaJobs).toHaveLength(2);
         });
@@ -8366,7 +8506,6 @@ describe("useChat", () => {
           (message) => message.id === "assistant-166-contentful"
         );
         expect(assistant?.status).toBe("streaming");
-        expect(assistant?.liveInlineMediaReceipts).toBe(true);
         expect(assistant?.content).toContain("Working on images");
         expect(result.current.activeMediaJobs.map((job) => job.id).sort()).toEqual([
           "job-166-remain-2",
@@ -8474,7 +8613,6 @@ describe("useChat", () => {
           );
           expect(assistant?.status).not.toBe("streaming");
           expect(assistant?.status).not.toBe("reconciling");
-          expect(assistant?.liveInlineMediaReceipts).not.toBe(true);
           expect(assistant?.attachments?.map((attachment) => attachment.id)).toEqual([
             "att-history"
           ]);
@@ -8703,7 +8841,6 @@ describe("useChat", () => {
         );
         expect(assistant?.status).toBe("streaming");
         expect(assistant?.streamingTextActive).toBe(false);
-        expect(assistant?.liveInlineMediaReceipts).toBe(true);
         expect(assistant?.attachments?.[0]?.id).toBe("att-sse-only");
       });
 
@@ -8801,7 +8938,6 @@ describe("useChat", () => {
         );
         expect(assistant?.status).toBe("streaming");
         expect(assistant?.streamingTextActive).toBe(false);
-        expect(assistant?.liveInlineMediaReceipts).toBe(true);
         expect(assistant?.attachments?.[0]?.id).toBe("att-reattach-only");
       });
     });
@@ -8929,7 +9065,6 @@ describe("useChat", () => {
             (message) => message.id === "assistant-166-term"
           );
           expect(assistant?.status).toBe("committed");
-          expect(assistant?.liveInlineMediaReceipts).not.toBe(true);
           expect(assistant?.content).toBe("Here is your image.");
           expect(assistant?.attachments?.map((attachment) => attachment.id).sort()).toEqual([
             "att-history",
@@ -13040,7 +13175,6 @@ describe("useChat", () => {
         (message) => message.id === "assistant-s5-series"
       );
       expect(assistant?.status).toBe("streaming");
-      expect(assistant?.liveInlineMediaReceipts).toBe(true);
       expect(assistant?.attachments?.map((attachment) => attachment.id).sort()).toEqual([
         "att-series-a",
         "att-series-b",
@@ -13286,7 +13420,6 @@ describe("useChat", () => {
         (message) => message.id === "assistant-s5-hist"
       );
       expect(assistant?.status).toBe("streaming");
-      expect(assistant?.liveInlineMediaReceipts).toBe(true);
       expect(assistant?.attachments?.map((attachment) => attachment.id).sort()).toEqual([
         "att-s5-early",
         "att-s5-history"
@@ -13446,7 +13579,6 @@ describe("useChat", () => {
           (message) => message.id === "assistant-s5-parity-reattach"
         );
         expect(assistant?.status).toBe("streaming");
-        expect(assistant?.liveInlineMediaReceipts).toBe(true);
         expect(assistant?.attachments?.map((attachment) => attachment.id).sort()).toEqual([
           "att-parity-primary",
           "att-parity-reattach"
@@ -13487,7 +13619,6 @@ describe("useChat", () => {
         (message) => message.id === "assistant-s5-parity-reattach"
       );
       expect(afterF5?.status).toBe("streaming");
-      expect(afterF5?.liveInlineMediaReceipts).toBe(true);
       expect(afterF5?.attachments?.map((attachment) => attachment.id).sort()).toEqual([
         "att-parity-history",
         "att-parity-primary",
@@ -13593,6 +13724,180 @@ describe("useChat", () => {
       resolveStreamEnd();
       await act(async () => {
         if (sendPromise !== undefined) await sendPromise;
+      });
+    });
+
+    it("terminal async_jobs_open tombstones prevent same-thread stale Working resurrection", async () => {
+      const jobA = openMediaJob("job-s5-tombstone-a");
+      const jobB = openMediaJob("job-s5-tombstone-b");
+      type TombstoneHandlers = {
+        onHeadersOk?: () => void;
+        onStarted?: (payload: { chat: unknown; userMessage: unknown }) => void;
+        onAsyncJobsOpen?: (payload: {
+          activeMediaJobs: Array<ReturnType<typeof openMediaJob>>;
+          activeDocumentJobs: unknown[];
+          activeSandboxJobs: unknown[];
+          terminalJob?: { kind: "media" | "document"; id: string };
+        }) => void;
+      };
+      let resolveHandlers: (handlers: TombstoneHandlers) => void = () => undefined;
+      const handlersReady = new Promise<TombstoneHandlers>((resolve) => {
+        resolveHandlers = resolve;
+      });
+      let resolveStreamEnd: () => void = () => undefined;
+      const streamEnded = new Promise<void>((resolve) => {
+        resolveStreamEnd = resolve;
+      });
+
+      assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
+        async (_token: string, _payload: unknown, handlers: TombstoneHandlers) => {
+          handlers.onHeadersOk?.();
+          handlers.onStarted?.({
+            chat: { id: "chat-s5-tombstone" },
+            userMessage: { id: "user-s5-tombstone", chatId: "chat-s5-tombstone", attachments: [] }
+          });
+          resolveHandlers(handlers);
+          await streamEnded;
+        }
+      );
+
+      const { result } = renderHook(() => useChat("thread-s5-tombstone"), {
+        wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+      });
+
+      let sendPromise: Promise<void> | undefined;
+      await act(async () => {
+        sendPromise = result.current.send("two images");
+        await Promise.resolve();
+      });
+      const handlers = await handlersReady;
+
+      await act(async () => {
+        handlers.onAsyncJobsOpen?.({
+          activeMediaJobs: [jobA, jobB],
+          activeDocumentJobs: [],
+          activeSandboxJobs: []
+        });
+      });
+      expect(result.current.activeMediaJobs.map((job) => job.id).sort()).toEqual([
+        "job-s5-tombstone-a",
+        "job-s5-tombstone-b"
+      ]);
+
+      await act(async () => {
+        handlers.onAsyncJobsOpen?.({
+          activeMediaJobs: [jobB],
+          activeDocumentJobs: [],
+          activeSandboxJobs: [],
+          terminalJob: { kind: "media", id: "job-s5-tombstone-a" }
+        });
+      });
+      expect(result.current.activeMediaJobs.map((job) => job.id)).toEqual(["job-s5-tombstone-b"]);
+
+      await act(async () => {
+        handlers.onAsyncJobsOpen?.({
+          activeMediaJobs: [jobA, jobB],
+          activeDocumentJobs: [],
+          activeSandboxJobs: []
+        });
+      });
+      expect(result.current.activeMediaJobs.map((job) => job.id)).toEqual(["job-s5-tombstone-b"]);
+
+      resolveStreamEnd();
+      await act(async () => {
+        if (sendPromise !== undefined) await sendPromise;
+      });
+    });
+
+    it("terminal async_jobs_open tombstones stay thread-scoped across thread switches", async () => {
+      const releaseByThread = new Map<string, () => void>();
+      const handlersByThread = new Map<
+        string,
+        {
+          onHeadersOk?: () => void;
+          onStarted?: (payload: { chat: unknown; userMessage: unknown }) => void;
+          onAsyncJobsOpen?: (payload: {
+            activeMediaJobs: Array<ReturnType<typeof openMediaJob>>;
+            activeDocumentJobs: unknown[];
+            activeSandboxJobs: unknown[];
+            terminalJob?: { kind: "media" | "document"; id: string };
+          }) => void;
+        }
+      >();
+
+      assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
+        async (
+          _token: string,
+          payload: { surfaceThreadKey?: string },
+          handlers: {
+            onHeadersOk?: () => void;
+            onStarted?: (payload: { chat: unknown; userMessage: unknown }) => void;
+            onAsyncJobsOpen?: (payload: {
+              activeMediaJobs: Array<ReturnType<typeof openMediaJob>>;
+              activeDocumentJobs: unknown[];
+              activeSandboxJobs: unknown[];
+              terminalJob?: { kind: "media" | "document"; id: string };
+            }) => void;
+          }
+        ) => {
+          const sendThreadKey = payload.surfaceThreadKey ?? "unknown-thread";
+          const chatId = sendThreadKey === "thread-s5-A" ? "chat-s5-A" : "chat-s5-B";
+          handlers.onHeadersOk?.();
+          handlers.onStarted?.({
+            chat: { id: chatId },
+            userMessage: { id: `user-${sendThreadKey}`, chatId, attachments: [] }
+          });
+          handlersByThread.set(sendThreadKey, handlers);
+          await new Promise<void>((resolve) => {
+            releaseByThread.set(sendThreadKey, resolve);
+          });
+        }
+      );
+
+      const { result, rerender } = renderHook(({ threadKey }) => useChat(threadKey), {
+        initialProps: { threadKey: "thread-s5-A" },
+        wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+      });
+
+      let sendAPromise: Promise<void> | undefined;
+      await act(async () => {
+        sendAPromise = result.current.send("thread A");
+        await Promise.resolve();
+      });
+      const handlersA = handlersByThread.get("thread-s5-A");
+      expect(handlersA).toBeDefined();
+      await act(async () => {
+        handlersA?.onAsyncJobsOpen?.({
+          activeMediaJobs: [openMediaJob("job-shared")],
+          activeDocumentJobs: [],
+          activeSandboxJobs: [],
+          terminalJob: { kind: "media", id: "job-shared" }
+        });
+      });
+      expect(result.current.activeMediaJobs).toEqual([]);
+
+      rerender({ threadKey: "thread-s5-B" });
+
+      let sendBPromise: Promise<void> | undefined;
+      await act(async () => {
+        sendBPromise = result.current.send("thread B");
+        await Promise.resolve();
+      });
+      const handlersB = handlersByThread.get("thread-s5-B");
+      expect(handlersB).toBeDefined();
+      await act(async () => {
+        handlersB?.onAsyncJobsOpen?.({
+          activeMediaJobs: [openMediaJob("job-shared")],
+          activeDocumentJobs: [],
+          activeSandboxJobs: []
+        });
+      });
+      expect(result.current.activeMediaJobs.map((job) => job.id)).toEqual(["job-shared"]);
+
+      releaseByThread.get("thread-s5-A")?.();
+      releaseByThread.get("thread-s5-B")?.();
+      await act(async () => {
+        await Promise.all([sendAPromise, sendBPromise].filter(Boolean) as Promise<void>[]);
       });
     });
 

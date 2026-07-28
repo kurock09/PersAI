@@ -148,6 +148,13 @@ durable catch-up backlog. Serialization moves to a `ChatWakeCoordinator`:
   `surfaceClient ≠ async_continuation`; Telegram accepted
   `RuntimeTurnReceipt` on the thread whose `idempotencyKey` does not start
   with `async-cont:` (no TG attempt row).
+- **ADR-167 ordinary-turn message identity:** once a nonterminal ordinary web
+  attempt binds `assistantMessageId`, that value is immutable except for
+  same-id idempotence. Async completion, synchronous attachment delivery,
+  final text persistence, terminal payload, status, and replay all reuse the
+  same `assistant_chat_messages` row. Concurrent losing candidate rows are
+  discarded before attachment/presentation; terminal updates cannot overwrite
+  a previously bound winner.
 - **Admission linearization (Slice 1):** non-null
   `assistant_chats.catch_up_admission_fence` defaults to `0`. A catch-up
   increments it only through a conditional update that rechecks the durable
@@ -174,7 +181,11 @@ durable catch-up backlog. Serialization moves to a `ChatWakeCoordinator`:
   (web) running attempt; no parked `accepted` attempt rows as wake state.
 - **Working projection:** only a canonical nonterminal media/document/sandbox
   row is active. Terminal handle state and continuation facts are retained for
-  history/catch-up, never as an active Working status.
+  history/catch-up, never as an active Working status. ADR-167 adds no new
+  persisted Working table or revision: a delivered terminal media/document
+  identity is carried with the full live snapshot so the current client cannot
+  resurrect that exact job from a later stale snapshot; F5 re-reads canonical
+  nonterminal rows.
 - **Document current revision:** `assistant_documents.current_version_id` may
   advance only to a successfully delivered version with a strictly larger
   durable `assistant_document_versions.version_number`. Delivery finalization

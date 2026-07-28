@@ -5,6 +5,23 @@
 
 ## 2026-07-28
 
+- **ADR-167 single-turn message, stable receipts, and cross-pod Working (local
+  CLEAN).** Live browser/DOM, database, pod-log, and stream evidence showed
+  separate causes behind the founder repro: browser-measured terminal
+  `min-height`, two assistant-row ownership paths, receipt/process projection
+  that disappeared at commit, and a missing durable-bus consumer on the
+  original POST. The deletion-first repair removes `AssistantBodyHighWater`
+  and `liveInlineMediaReceipts`; makes attempt `assistantMessageId` null-only
+  and race-safe; reuses one row for media/document/final persistence; consumes
+  cross-pod `media` / `async_jobs_open` exactly once; derives durable receipts
+  from attachments plus `inlineMediaPlacement`; renders one process badge and
+  terminal full strips; and carries exact terminal job identity so stale
+  snapshots cannot resurrect Working. Unsupported document tool placement was
+  removed instead of invented. Final API/web audits are CLEAN; focused API
+  coverage passed (51 pass, one optional Postgres skip), focused web passed
+  `264/264`, and recursive lint/format/API+web typecheck passed. Deploy and
+  authenticated mixed image/PDF live acceptance remain pending.
+
 - **repair(web/api/chat): bounded local follow-up after deployed ADR-166 live failure.**
   Release `edb948f4` was deployed to `persai.dev`, but founder live acceptance
   failed on two production repros: nullable ordinary `surfaceClient` turns were

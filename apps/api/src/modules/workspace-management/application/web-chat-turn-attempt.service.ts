@@ -354,28 +354,84 @@ export class WebChatTurnAttemptService {
     surfaceThreadKey: string;
     clientTurnId: string;
     assistantMessageId: string;
-  }): Promise<void> {
+  }): Promise<string | null> {
     const updated = await this.prisma.assistantWebChatTurnAttempt.updateMany({
       where: {
         assistantId: input.assistantId,
         userId: input.userId,
         surfaceThreadKey: input.surfaceThreadKey,
         clientTurnId: input.clientTurnId,
-        status: { in: ["accepted", "running"] }
+        status: { in: ["accepted", "running"] },
+        assistantMessageId: null
       },
       data: {
         assistantMessageId: input.assistantMessageId
       }
     });
+    if (updated.count > 0) {
+      this.logger.log(
+        `web_turn_attempt_bound_assistant_message assistantId=${input.assistantId} clientTurnId=${input.clientTurnId} assistantMessageId=${input.assistantMessageId}`
+      );
+      return input.assistantMessageId;
+    }
+    const current = await this.prisma.assistantWebChatTurnAttempt.findUnique({
+      where: {
+        assistantId_userId_surfaceThreadKey_clientTurnId: {
+          assistantId: input.assistantId,
+          userId: input.userId,
+          surfaceThreadKey: input.surfaceThreadKey,
+          clientTurnId: input.clientTurnId
+        }
+      },
+      select: { assistantMessageId: true }
+    });
+    if (current?.assistantMessageId === input.assistantMessageId) {
+      return input.assistantMessageId;
+    }
+    if (current?.assistantMessageId !== null && current?.assistantMessageId !== undefined) {
+      this.logger.warn(
+        `web_turn_attempt_bind_assistant_message_refused assistantId=${input.assistantId} clientTurnId=${input.clientTurnId} candidateMessageId=${input.assistantMessageId} boundMessageId=${current.assistantMessageId}`
+      );
+      return current.assistantMessageId;
+    }
     if (updated.count === 0) {
       this.logger.warn(
         `web_turn_attempt_bind_assistant_message_ignored assistantId=${input.assistantId} clientTurnId=${input.clientTurnId} assistantMessageId=${input.assistantMessageId}`
       );
-      return;
+      return null;
     }
-    this.logger.log(
-      `web_turn_attempt_bound_assistant_message assistantId=${input.assistantId} clientTurnId=${input.clientTurnId} assistantMessageId=${input.assistantMessageId}`
-    );
+    return null;
+  }
+
+  /**
+   * D1: settle a just-created candidate onto the one open USER_TURN bubble.
+   * A concurrent winner is reused and this still-empty loser is removed.
+   */
+  async bindOrDiscardAssistantMessageCandidate(input: {
+    assistantId: string;
+    userId: string;
+    surfaceThreadKey: string;
+    clientTurnId: string;
+    candidateAssistantMessageId: string;
+  }): Promise<string | null> {
+    const winner = await this.bindAssistantMessageId({
+      assistantId: input.assistantId,
+      userId: input.userId,
+      surfaceThreadKey: input.surfaceThreadKey,
+      clientTurnId: input.clientTurnId,
+      assistantMessageId: input.candidateAssistantMessageId
+    });
+    if (winner !== null && winner !== input.candidateAssistantMessageId) {
+      await this.prisma.assistantChatMessage.deleteMany({
+        where: {
+          id: input.candidateAssistantMessageId,
+          assistantId: input.assistantId,
+          author: "assistant",
+          attachments: { none: {} }
+        }
+      });
+    }
+    return winner;
   }
 
   /**
@@ -423,41 +479,71 @@ export class WebChatTurnAttemptService {
      * was incorrectly left `failed` so refresh does not re-surface a banner.
      */
     healFailedAsyncContinuation?: boolean;
-  }): Promise<void> {
+  }): Promise<string | null> {
     const prior = await this.findActiveAttemptIdentity(input);
     const allowedStatuses = input.healFailedAsyncContinuation
       ? (["accepted", "running", "failed"] as const)
       : (["accepted", "running"] as const);
-    const updated = await this.prisma.assistantWebChatTurnAttempt.updateMany({
-      where: {
-        assistantId: input.assistantId,
-        userId: input.userId,
-        surfaceThreadKey: input.surfaceThreadKey,
-        clientTurnId: input.clientTurnId,
-        status: { in: [...allowedStatuses] }
-      },
-      data: {
-        status: "completed",
-        assistantMessageId: input.assistantMessageId,
-        respondedAt: new Date(input.respondedAt),
-        currentActivity: Prisma.DbNull,
-        terminalPayload: input.terminalPayload as unknown as Prisma.InputJsonValue,
-        completedAt: new Date(),
-        failedAt: null,
-        errorCode: null,
-        errorMessage: null
-      }
+    const terminalData = (assistantMessageId: string, bind: boolean) => ({
+      status: "completed" as const,
+      ...(bind ? { assistantMessageId } : {}),
+      respondedAt: new Date(input.respondedAt),
+      currentActivity: Prisma.DbNull,
+      terminalPayload: {
+        ...input.terminalPayload,
+        assistantMessageId
+      } as unknown as Prisma.InputJsonValue,
+      completedAt: new Date(),
+      failedAt: null,
+      errorCode: null,
+      errorMessage: null
     });
+    const baseWhere = {
+      assistantId: input.assistantId,
+      userId: input.userId,
+      surfaceThreadKey: input.surfaceThreadKey,
+      clientTurnId: input.clientTurnId,
+      status: { in: [...allowedStatuses] }
+    };
+    let winner = input.assistantMessageId;
+    let updated = await this.prisma.assistantWebChatTurnAttempt.updateMany({
+      where: {
+        ...baseWhere,
+        assistantMessageId: null
+      },
+      data: terminalData(winner, true)
+    });
+    if (updated.count === 0) {
+      const current = await this.prisma.assistantWebChatTurnAttempt.findUnique({
+        where: {
+          assistantId_userId_surfaceThreadKey_clientTurnId: {
+            assistantId: input.assistantId,
+            userId: input.userId,
+            surfaceThreadKey: input.surfaceThreadKey,
+            clientTurnId: input.clientTurnId
+          }
+        },
+        select: { assistantMessageId: true }
+      });
+      if (current?.assistantMessageId !== null && current?.assistantMessageId !== undefined) {
+        winner = current.assistantMessageId;
+        updated = await this.prisma.assistantWebChatTurnAttempt.updateMany({
+          where: { ...baseWhere, assistantMessageId: winner },
+          data: terminalData(winner, false)
+        });
+      }
+    }
     if (updated.count === 0) {
       this.logger.log(
         `web_turn_attempt_completed_ignored assistantId=${input.assistantId} threadKey=${input.surfaceThreadKey} clientTurnId=${input.clientTurnId} reason=already_terminal`
       );
-      return;
+      return null;
     }
     await this.recordUserTurnTerminalIfNeeded(prior);
     this.logger.log(
-      `web_turn_attempt_completed assistantId=${input.assistantId} threadKey=${input.surfaceThreadKey} clientTurnId=${input.clientTurnId} assistantMessageId=${input.assistantMessageId}`
+      `web_turn_attempt_completed assistantId=${input.assistantId} threadKey=${input.surfaceThreadKey} clientTurnId=${input.clientTurnId} assistantMessageId=${winner}`
     );
+    return winner;
   }
 
   async markFailed(input: {
@@ -678,34 +764,67 @@ export class WebChatTurnAttemptService {
     assistantMessageId?: string | null;
     code?: string | null;
     message?: string | null;
-  }): Promise<void> {
+  }): Promise<string | null> {
     const prior = await this.findActiveAttemptIdentity(input);
-    const updated = await this.prisma.assistantWebChatTurnAttempt.updateMany({
-      where: {
-        assistantId: input.assistantId,
-        userId: input.userId,
-        surfaceThreadKey: input.surfaceThreadKey,
-        clientTurnId: input.clientTurnId,
-        status: { in: ["accepted", "running"] }
-      },
-      data: {
-        status: input.status,
-        ...(input.assistantMessageId === undefined
-          ? {}
-          : { assistantMessageId: input.assistantMessageId }),
-        currentActivity: Prisma.DbNull,
-        errorCode: input.code ?? null,
-        errorMessage: input.message ?? null,
-        ...(input.status === "failed" ? { failedAt: new Date() } : { interruptedAt: new Date() })
-      }
+    const baseWhere = {
+      assistantId: input.assistantId,
+      userId: input.userId,
+      surfaceThreadKey: input.surfaceThreadKey,
+      clientTurnId: input.clientTurnId,
+      status: { in: ["accepted", "running"] }
+    };
+    const terminalData = (bind: boolean) => ({
+      status: input.status,
+      ...(bind && input.assistantMessageId !== undefined
+        ? { assistantMessageId: input.assistantMessageId }
+        : {}),
+      currentActivity: Prisma.DbNull,
+      errorCode: input.code ?? null,
+      errorMessage: input.message ?? null,
+      ...(input.status === "failed" ? { failedAt: new Date() } : { interruptedAt: new Date() })
     });
+    let updated = await this.prisma.assistantWebChatTurnAttempt.updateMany({
+      where: {
+        ...baseWhere,
+        ...(input.assistantMessageId === undefined ? {} : { assistantMessageId: null })
+      },
+      data: terminalData(input.assistantMessageId !== undefined)
+    });
+    let winner = input.assistantMessageId ?? prior?.assistantMessageId ?? null;
+    if (updated.count === 0 && input.assistantMessageId !== undefined) {
+      if (
+        typeof (this.prisma.assistantWebChatTurnAttempt as { findUnique?: unknown }).findUnique !==
+        "function"
+      ) {
+        return null;
+      }
+      const current = await this.prisma.assistantWebChatTurnAttempt.findUnique({
+        where: {
+          assistantId_userId_surfaceThreadKey_clientTurnId: {
+            assistantId: input.assistantId,
+            userId: input.userId,
+            surfaceThreadKey: input.surfaceThreadKey,
+            clientTurnId: input.clientTurnId
+          }
+        },
+        select: { assistantMessageId: true }
+      });
+      if (current?.assistantMessageId !== null && current?.assistantMessageId !== undefined) {
+        winner = current.assistantMessageId;
+        updated = await this.prisma.assistantWebChatTurnAttempt.updateMany({
+          where: { ...baseWhere, assistantMessageId: winner },
+          data: terminalData(false)
+        });
+      }
+    }
     if (updated.count === 0) {
       this.logger.log(
         `web_turn_attempt_terminal_write_ignored assistantId=${input.assistantId} threadKey=${input.surfaceThreadKey} clientTurnId=${input.clientTurnId} status=${input.status} reason=already_terminal`
       );
-      return;
+      return null;
     }
     await this.recordUserTurnTerminalIfNeeded(prior);
+    return winner;
   }
 
   private async findActiveAttemptIdentity(input: {
@@ -713,7 +832,11 @@ export class WebChatTurnAttemptService {
     userId: string;
     surfaceThreadKey: string;
     clientTurnId: string;
-  }): Promise<{ chatId: string | null; surfaceClient: string | null } | null> {
+  }): Promise<{
+    chatId: string | null;
+    surfaceClient: string | null;
+    assistantMessageId: string | null;
+  } | null> {
     if (
       typeof (this.prisma.assistantWebChatTurnAttempt as { findFirst?: unknown }).findFirst !==
       "function"
@@ -728,7 +851,7 @@ export class WebChatTurnAttemptService {
         clientTurnId: input.clientTurnId,
         status: { in: ["accepted", "running"] }
       },
-      select: { chatId: true, surfaceClient: true }
+      select: { chatId: true, surfaceClient: true, assistantMessageId: true }
     });
   }
 
