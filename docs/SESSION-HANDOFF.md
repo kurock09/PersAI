@@ -16,27 +16,34 @@
 - **Next:** full AGENTS.md gate + CI-like tests except SQL; commit/push;
   deploy + authenticated mixed image/PDF live smoke.
 
-## 2026-07-29 — ADR-167 deliver-once + unified timeline amend (ready to push)
+## 2026-07-29 — ADR-167 receipt placement + clickable receipts (push pending)
+
+- **Baseline tip:** `f900179b` (deliver-once + prior timeline amend pushed).
+- **Founder live note:** «Получено…» banners were buried inside expanded
+  «Выполнено» tool log; while waiting on a long tool, already-delivered media
+  should open/download from the receipt.
+- **Landed locally:** delivery receipts outside collapsible «Выполнено» (after
+  process badge, before answer, delivery order); receipt click → same chat
+  file URLs as terminal strip (image/video lightbox, file download). Docs D4
+  + architecture/test-plan/changelog reconciled.
+- **Gate:** recursive lint + `format:check`; api/web/runtime/provider-gateway
+  typecheck; API suite with SQL probes forced unavailable
+  (`PERSAI_POSTGRES_INTEGRATION_URL` closed port); runtime + provider-gateway
+  + sandbox tests; web `86/1138`; API `test:step2`; API+web production builds.
+- **Next:** commit/push; deploy; authenticated live smoke that collapsed
+  «Выполнено» still shows clickable ordered receipts.
+
+## 2026-07-29 — ADR-167 deliver-once + unified timeline amend (pushed `f900179b`)
 
 - **Baseline tip before amend:** `548febf3`.
-- **Purpose:** founder live repro after ADR-167: duplicate attachment after
-  worker + `files.attach`, separate receipt rail outside «Выполнено», technical
-  «Получено…» on attachment-only async continuations. No new ADR — amend
-  ADR-167 D4/D5/D6.
 - **Landed:** one create path `DeliverChatAttachmentOnceService`; runtime
   `files.attach` → register-once → model-visible `already_delivered`; media
   early-skip on already-delivered identity; ConversationalPublish residual
-  selection by identity; dead `attachmentRepository.create` removed; web
-  receipts only inside one process-badge timeline; async-cont suppress survives
-  live→terminal absorb; docs reconciled. Independent API/web delivery audits
-  returned CLEAN after cleanup.
+  selection by identity; dead `attachmentRepository.create` removed; async-cont
+  suppress; docs reconciled. Independent API/web delivery audits CLEAN.
 - **Gate (no SQL):** recursive lint, `format:check`, API/web/runtime typecheck,
-  API suite with SQL probes skipped via unreachable
-  `PERSAI_POSTGRES_INTEGRATION_URL`, runtime tests, web `86/1134`, API
+  API suite with SQL probes skipped, runtime tests, web `86/1134`, API
   `test:step2`, provider-gateway/sandbox tests, API+web production builds.
-- **Next:** commit/push this amend, watch GitHub CI, deploy, then authenticated
-  mixed image/PDF live smoke (worker then same-identity attach, timeline inside
-  Выполнено, Working N→0, no technical Получено on attachment-only cont).
 
 ## 2026-07-29 — ADR-167 CI regression follow-up (pushed `548febf3`)
 

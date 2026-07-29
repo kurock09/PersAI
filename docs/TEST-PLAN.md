@@ -13,10 +13,11 @@ ADR-072 is closed as the historical native migration ADR. Current continuation w
 - **Runtime wire:** `files.attach` registers via internal chat-attachments;
   null `messageId` binds the open ordinary USER_TURN assistant message; no
   second artifact on `already_delivered`.
-- **Web projection:** no separate `media-receipt-lines` rail; delivery-ordered
-  receipts live inside the one «Выполнено» process-badge expand; async-cont
-  attachment-only suppresses technical «Получено…»; terminal strip + F5 order
-  remain.
+- **Web projection:** delivery-ordered receipts are always-visible reply lines
+  after «Выполнено» and before the answer (not inside the collapsible process
+  log); clicking a receipt opens/downloads via the same chat file URLs as the
+  terminal strip; async-cont attachment-only suppresses technical «Получено…»;
+  terminal strip + F5 order remain.
 - **Still required after this amend:** independent delivery-flow audit cleanup,
   full AGENTS.md gate + CI-like tests except SQL, commit/push, deploy, and
   authenticated mixed image/PDF live smoke.

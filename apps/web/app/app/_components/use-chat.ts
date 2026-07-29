@@ -88,7 +88,7 @@ export type PendingSendStatus =
 export type ChatAttachment = ChatHistoryAttachment & {
   localPreviewUrl?: string | undefined;
   uploadProgressPercent?: number | undefined;
-  /** ADR-165/167 — place this attachment after a tool call in the process timeline. */
+  /** ADR-165/167 — durable delivery-order hint for assistant-facing receipt lines. */
   inlineAfterToolCallId?: string | undefined;
 };
 export type ChatPlatformNotice = {

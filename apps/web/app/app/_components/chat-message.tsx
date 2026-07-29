@@ -919,8 +919,7 @@ function MarkdownFragment({ content }: { content: string }) {
 
 type IterationProcessPiece =
   | { kind: "text"; markdown: string }
-  | { kind: "tool"; tool: RuntimeTurnToolInvocation }
-  | { kind: "receipt"; attachment: ChatAttachment };
+  | { kind: "tool"; tool: RuntimeTurnToolInvocation };
 
 type IterationBlock =
   | { kind: "content"; markdown: string }
@@ -956,33 +955,15 @@ function isContentBlock(text: string): boolean {
 
 function buildIterationBlocks(
   workingNotes: string[],
-  toolInvocations: RuntimeTurnToolInvocation[],
-  receiptAttachments: ChatAttachment[] = []
+  toolInvocations: RuntimeTurnToolInvocation[]
 ): IterationBlock[] {
   const allPieces: IterationProcessPiece[] = [];
   const contentBlocks: string[] = [];
-  const claimedReceiptIds = new Set<string>();
   const iterations = Math.max(
     workingNotes.length,
     ...toolInvocations.map((tool) => tool.iteration + 1),
     0
   );
-
-  const pushReceiptsForToolCall = (toolCallId: string | undefined) => {
-    if (toolCallId === undefined || toolCallId.length === 0) {
-      return;
-    }
-    for (const attachment of receiptAttachments) {
-      if (claimedReceiptIds.has(attachment.id)) {
-        continue;
-      }
-      if (attachment.inlineAfterToolCallId !== toolCallId) {
-        continue;
-      }
-      allPieces.push({ kind: "receipt", attachment });
-      claimedReceiptIds.add(attachment.id);
-    }
-  };
 
   for (let i = 0; i < iterations; i += 1) {
     const text = (workingNotes[i] ?? "").trim();
@@ -997,27 +978,11 @@ function buildIterationBlocks(
     const toolsAtIteration = toolInvocations.filter((tool) => tool.iteration === i);
     for (const tool of toolsAtIteration) {
       allPieces.push({ kind: "tool", tool });
-      pushReceiptsForToolCall(tool.toolCallId);
     }
-  }
-
-  // Orphan / placement-ordered receipts that did not match a tool call still
-  // join the single process timeline in delivery order (after claimed tools).
-  for (const attachment of receiptAttachments) {
-    if (claimedReceiptIds.has(attachment.id)) {
-      continue;
-    }
-    allPieces.push({ kind: "receipt", attachment });
-    claimedReceiptIds.add(attachment.id);
   }
 
   const blocks: IterationBlock[] = [];
-  // Receipt-only bubbles (async-cont delivery / publish ack) must not invent a
-  // process badge solely for technical «Получено…» lines.
-  const hasNonReceiptProcess = allPieces.some(
-    (piece) => piece.kind === "text" || piece.kind === "tool"
-  );
-  if (hasNonReceiptProcess) {
+  if (allPieces.length > 0) {
     blocks.push({ kind: "process", pieces: allPieces });
   }
   for (const contentBlock of contentBlocks) {
@@ -1149,10 +1114,7 @@ function resolveProcessBadgeLabel(
   pieces: IterationProcessPiece[],
   t: ReturnType<typeof useTranslations>
 ): string {
-  const processPieces = pieces.filter(
-    (piece): piece is Extract<IterationProcessPiece, { kind: "text" | "tool" }> =>
-      piece.kind === "text" || piece.kind === "tool"
-  );
+  const processPieces = pieces;
   const toolPieces = processPieces.filter(
     (piece): piece is Extract<IterationProcessPiece, { kind: "tool" }> => piece.kind === "tool"
   );
@@ -1196,7 +1158,7 @@ function resolveProcessBadgeLabel(
   return t("processBadge.worked", { steps: processPieces.length });
 }
 
-function ProcessBadge({ pieces, live }: { pieces: IterationProcessPiece[]; live: boolean }) {
+function ProcessBadge({ pieces }: { pieces: IterationProcessPiece[] }) {
   const [expanded, setExpanded] = useState(false);
   const t = useTranslations("chat");
   const label = resolveProcessBadgeLabel(pieces, t);
@@ -1204,10 +1166,6 @@ function ProcessBadge({ pieces, live }: { pieces: IterationProcessPiece[]; live:
     (piece): piece is Extract<IterationProcessPiece, { kind: "text" }> => piece.kind === "text"
   );
   const toolMicroRows = buildToolFamilyMicroRows(pieces);
-  const receiptPieces = pieces.filter(
-    (piece): piece is Extract<IterationProcessPiece, { kind: "receipt" }> =>
-      piece.kind === "receipt"
-  );
 
   if (pieces.length === 0) {
     return null;
@@ -1250,43 +1208,13 @@ function ProcessBadge({ pieces, live }: { pieces: IterationProcessPiece[]; live:
               ))}
             </div>
           ) : null}
-          {receiptPieces.length > 0 ? (
-            <div
-              className={`space-y-1 ${
-                textPieces.length > 0 || toolMicroRows.length > 0 ? "mt-2" : ""
-              }`}
-              data-testid="process-timeline-receipts"
-              {...(live
-                ? {
-                    role: "status",
-                    "aria-live": "polite",
-                    "aria-atomic": "false",
-                    "aria-relevant": "additions"
-                  }
-                : {})}
-            >
-              {receiptPieces.map((piece) => (
-                <div
-                  key={piece.attachment.id}
-                  className={cn(
-                    "text-sm leading-5 text-text-muted/78",
-                    live
-                      ? "animate-fade-in-inline-status italic motion-reduce:animate-none"
-                      : "not-italic"
-                  )}
-                >
-                  {formatMediaReceiptLabel(piece.attachment, t)}
-                </div>
-              ))}
-            </div>
-          ) : null}
         </div>
       ) : null}
     </div>
   );
 }
 
-function IterationBlocks({ blocks, live }: { blocks: IterationBlock[]; live: boolean }) {
+function IterationBlocks({ blocks }: { blocks: IterationBlock[] }) {
   if (blocks.length === 0) {
     return null;
   }
@@ -1300,7 +1228,182 @@ function IterationBlocks({ blocks, live }: { blocks: IterationBlock[]; live: boo
             </div>
           );
         }
-        return <ProcessBadge key={`process-${index}`} pieces={block.pieces} live={live} />;
+        return <ProcessBadge key={`process-${index}`} pieces={block.pieces} />;
+      })}
+    </div>
+  );
+}
+
+function resolveAttachmentAccessUrls(input: {
+  chatId: string | null | undefined;
+  attachment: ChatAttachment;
+}): { viewUrl: string | null; downloadUrl: string | null } {
+  const attachment = input.attachment;
+  if (
+    attachment.unavailable === true ||
+    attachment.id.startsWith("local-") ||
+    !input.chatId ||
+    !attachment.path
+  ) {
+    return {
+      viewUrl: attachment.localPreviewUrl ?? null,
+      downloadUrl: null
+    };
+  }
+  const externalDownloadUrl =
+    typeof attachment.externalDownloadUrl === "string" &&
+    attachment.externalDownloadUrl.trim().length > 0
+      ? attachment.externalDownloadUrl.trim()
+      : null;
+  const link = attachment.documentLink;
+  return {
+    viewUrl: buildChatFileUrl({ chatId: input.chatId, storagePath: attachment.path }),
+    downloadUrl:
+      externalDownloadUrl ??
+      buildChatFileUrl({
+        chatId: input.chatId,
+        storagePath: attachment.path,
+        download: true,
+        versionId: link?.documentType === "workspace_document" ? link.versionId : null
+      })
+  };
+}
+
+function MediaReceiptLines({
+  chatId,
+  attachments,
+  live
+}: {
+  chatId?: string | null | undefined;
+  attachments: ChatAttachment[];
+  live: boolean;
+}) {
+  const t = useTranslations("chat");
+  const [openAttachmentId, setOpenAttachmentId] = useState<string | null>(null);
+  if (attachments.length === 0) {
+    return null;
+  }
+
+  const galleryImages = attachments
+    .filter((attachment) => attachment.attachmentType === "image")
+    .map((attachment) => {
+      const urls = resolveAttachmentAccessUrls({ chatId, attachment });
+      if (urls.viewUrl === null) {
+        return null;
+      }
+      return {
+        id: attachment.id,
+        src: urls.viewUrl,
+        downloadUrl: urls.downloadUrl ?? urls.viewUrl,
+        filename: attachment.originalFilename ?? undefined,
+        alt: attachment.originalFilename ?? undefined
+      };
+    })
+    .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
+
+  return (
+    <div
+      className="mb-4 space-y-1"
+      data-testid="media-receipt-lines"
+      {...(live
+        ? {
+            role: "status",
+            "aria-live": "polite",
+            "aria-atomic": "false",
+            "aria-relevant": "additions"
+          }
+        : {})}
+    >
+      {attachments.map((attachment) => {
+        const label = formatMediaReceiptLabel(attachment, t);
+        const urls = resolveAttachmentAccessUrls({ chatId, attachment });
+        const className = cn(
+          "text-sm leading-5 text-text-muted/78",
+          live ? "animate-fade-in-inline-status italic motion-reduce:animate-none" : "not-italic"
+        );
+        const interactiveClassName = cn(
+          className,
+          "cursor-pointer underline-offset-2 transition-colors hover:text-text-muted hover:underline focus:outline-none focus-visible:underline"
+        );
+
+        if (attachment.attachmentType === "image" || attachment.attachmentType === "video") {
+          const canOpen = urls.viewUrl !== null;
+          return (
+            <div key={attachment.id}>
+              <button
+                type="button"
+                disabled={!canOpen}
+                onClick={() => {
+                  if (canOpen) {
+                    setOpenAttachmentId(attachment.id);
+                  }
+                }}
+                className={interactiveClassName}
+                data-testid={`media-receipt-open-${attachment.id}`}
+              >
+                {label}
+              </button>
+              {canOpen &&
+              urls.viewUrl !== null &&
+              openAttachmentId === attachment.id &&
+              attachment.attachmentType === "image" ? (
+                <ImageLightbox
+                  open
+                  src={urls.viewUrl}
+                  downloadUrl={urls.downloadUrl ?? urls.viewUrl}
+                  filename={attachment.originalFilename ?? undefined}
+                  alt={attachment.originalFilename ?? undefined}
+                  galleryItems={galleryImages.map((image) => ({
+                    src: image.src,
+                    downloadUrl: image.downloadUrl,
+                    filename: image.filename,
+                    alt: image.alt
+                  }))}
+                  currentIndex={galleryImages.findIndex((image) => image.id === attachment.id)}
+                  onNavigate={(nextIndex) =>
+                    setOpenAttachmentId(galleryImages[nextIndex]?.id ?? null)
+                  }
+                  onClose={() => setOpenAttachmentId(null)}
+                />
+              ) : null}
+              {canOpen &&
+              urls.viewUrl !== null &&
+              openAttachmentId === attachment.id &&
+              attachment.attachmentType === "video" ? (
+                <ImageLightbox
+                  open
+                  src={urls.viewUrl}
+                  downloadUrl={urls.downloadUrl ?? urls.viewUrl}
+                  filename={attachment.originalFilename ?? undefined}
+                  alt={attachment.originalFilename ?? undefined}
+                  mediaType="video"
+                  videoSourceUrl={urls.viewUrl}
+                  onClose={() => setOpenAttachmentId(null)}
+                />
+              ) : null}
+            </div>
+          );
+        }
+
+        if (urls.downloadUrl !== null) {
+          return (
+            <a
+              key={attachment.id}
+              href={urls.downloadUrl}
+              download={attachment.originalFilename ?? undefined}
+              className={cn(interactiveClassName, "inline-block")}
+              data-testid={`media-receipt-download-${attachment.id}`}
+            >
+              {label}
+            </a>
+          );
+        }
+
+        return (
+          <div key={attachment.id} className={className}>
+            {label}
+          </div>
+        );
       })}
     </div>
   );
@@ -2339,7 +2442,7 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
   const isAssistantReconciling = message.role === "assistant" && message.status === "reconciling";
   const assistantSegments = useMemo(() => {
     if (message.role !== "assistant") {
-      return { iterationBlocks: [], answerText: message.content };
+      return { iterationBlocks: [], receiptAttachments: [], answerText: message.content };
     }
     // workingNotes is the structured multi-step field from the server (one entry
     // per tool-loop step); content is always the clean final answer.
@@ -2347,24 +2450,18 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
       ? message.workingNotes.map((note) => note.trim()).filter((note) => note.length > 0)
       : [];
     const toolInvocations = Array.isArray(message.toolInvocations) ? message.toolInvocations : [];
+    // Delivery receipts are assistant-facing reply lines (after process, before
+    // answer), ordered by durable delivery / inlineMediaPlacement — never inside
+    // the collapsible «Выполнено» tool log.
     const receiptAttachments = shouldSuppressMediaReceipts(message)
       ? []
       : resolveReceiptAttachments({
           attachments: message.attachments,
           inlineMediaPlacement: message.inlineMediaPlacement
-        }).map((attachment) => {
-          if (attachment.inlineAfterToolCallId !== undefined) {
-            return attachment;
-          }
-          const placementToolCallId = message.inlineMediaPlacement?.find((entry) =>
-            entry.attachmentIds.includes(attachment.id)
-          )?.toolCallId;
-          return placementToolCallId === undefined
-            ? attachment
-            : { ...attachment, inlineAfterToolCallId: placementToolCallId };
         });
     return {
-      iterationBlocks: buildIterationBlocks(workingNotes, toolInvocations, receiptAttachments),
+      iterationBlocks: buildIterationBlocks(workingNotes, toolInvocations),
+      receiptAttachments,
       answerText: message.content
     };
   }, [
@@ -2378,8 +2475,8 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
     message.workingNotes
   ]);
   const bottomStripAttachments = useMemo(() => {
-    // Keep the full attachment strip out of active assistant bubbles. Process
-    // timeline receipts stay inside «Выполнено»; terminal commit restores the
+    // Keep the full attachment strip out of active assistant bubbles. Delivery
+    // receipts stay visible above the answer; terminal commit restores the
     // classic strip below the answer.
     if (
       message.role === "assistant" &&
@@ -2389,6 +2486,9 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
     }
     return message.attachments ?? [];
   }, [message.attachments, message.role, message.status]);
+  const isAssistantLive =
+    message.role === "assistant" &&
+    (message.status === "streaming" || message.status === "reconciling");
   const hasVisibleAnswerText = assistantSegments.answerText.trim().length > 0;
   const isStreamingTextActive = message.streamingTextActive === true;
   const showInlineStreamingStatus =
@@ -2584,9 +2684,11 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
         ) : (
           <div className="prose-invert min-w-0 max-w-full text-sm break-words text-text [overflow-wrap:anywhere]">
             <ThoughtBlock message={message} />
-            <IterationBlocks
-              blocks={assistantSegments.iterationBlocks}
-              live={message.status === "streaming" || message.status === "reconciling"}
+            <IterationBlocks blocks={assistantSegments.iterationBlocks} />
+            <MediaReceiptLines
+              chatId={chatId}
+              attachments={assistantSegments.receiptAttachments}
+              live={isAssistantLive}
             />
             {isStreaming ? (
               <>

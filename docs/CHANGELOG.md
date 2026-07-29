@@ -14,18 +14,24 @@
   optimization beside durable deliver-once. Focused delivery suites green;
   commit/full gate/deploy+live smoke remain.
 
-- **fix(adr-167): deliver-once + unified «Выполнено» timeline (local).**
+- **fix(adr-167): deliver-once + visible delivery receipts (local).**
   Post-deploy live repro showed worker delivery then `files.attach` of the
-  same identity creating a second attachment row, a separate receipt rail
-  outside process chronology, and technical «Получено…» on attachment-only
-  async continuations. Amend keeps one ADR-167: atomic
-  `DeliverChatAttachmentOnceService` by canonical media/document identity;
-  runtime `files.attach` registers through the open USER_TURN bind and returns
-  model-visible `already_delivered` without a second artifact; media delivery
-  skips channel re-send on duplicates; web retires the sibling receipt rail and
-  projects delivery-ordered receipts inside the one process badge; async-cont
-  attachment-only suppresses technical receipt copy. Docs reconciled. Full
-  gate / independent delivery-flow audit / deploy+live smoke remain next.
+  same identity creating a second attachment row, misplaced receipts, and
+  technical «Получено…» on attachment-only async continuations. Amend keeps
+  one ADR-167: atomic `DeliverChatAttachmentOnceService` by canonical
+  media/document identity; runtime `files.attach` registers through the open
+  USER_TURN bind and returns model-visible `already_delivered` without a second
+  artifact; media delivery skips channel re-send on duplicates; web shows
+  delivery-ordered receipts as always-visible reply lines after «Выполнено»
+  and before the answer (not inside the collapsible tool log); async-cont
+  attachment-only suppresses technical receipt copy. Docs reconciled.
+
+- **fix(web): keep delivery receipts outside collapsible Выполнено.**
+  Founder live check showed «Получено…» banners buried in the expanded process
+  log. Receipts now stay visible in message chronology after the process badge
+  and before answer text, in actual delivery order. Clicking a receipt opens
+  the image/video lightbox or downloads the file via the same chat file URLs
+  as the terminal strip (no extra preview pipeline).
 
 - **fix(api/tests): restore ADR-149 tool-progress completion after ADR-167.**
   GitHub CI caught a stale stream-service test double after the null-only

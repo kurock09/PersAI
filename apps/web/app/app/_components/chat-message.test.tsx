@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { forwardRef, type ReactEventHandler } from "react";
 import { ChatMessageBubble, resolveInternalChatCta } from "./chat-message";
@@ -1482,7 +1482,7 @@ describe("ChatMessageBubble — pre-response status", () => {
     return badge;
   }
 
-  it("ADR-167: committed reply keeps one process timeline receipt plus the terminal attachment strip", () => {
+  it("ADR-167: committed reply keeps delivery receipts outside Выполнено plus the terminal strip", () => {
     const image = {
       ...makeImageAttachment("att-inline-1"),
       inlineAfterToolCallId: "call-img-1",
@@ -1504,23 +1504,30 @@ describe("ChatMessageBubble — pre-response status", () => {
       />
     );
 
-    expect(screen.queryByTestId("media-receipt-lines")).toBeNull();
     expect(screen.getAllByRole("button", { name: /Выполнено|Сгенерировано/ })).toHaveLength(1);
-    expandProcessBadge();
-    expect(screen.getByTestId("process-timeline-receipts")).toHaveTextContent(
-      /Получено изображение.*генерация.*1\.0 MB/
-    );
+    const receipts = screen.getByTestId("media-receipt-lines");
+    expect(receipts).toHaveTextContent(/Получено изображение.*генерация.*1\.0 MB/);
+    expect(screen.queryByTestId("process-timeline-receipts")).toBeNull();
+    // Receipts stay visible without expanding the process badge.
+    expect(receipts).toBeVisible();
+    const processBadge = screen.getByRole("button", { name: /Выполнено|Сгенерировано/ });
+    expect(
+      processBadge.compareDocumentPosition(receipts) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    expect(
+      receipts.compareDocumentPosition(screen.getByText("Вот картинка.")) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
     const strips = screen.getAllByTestId("attachment-strip");
     expect(strips).toHaveLength(1);
     expect(container.querySelector('img[alt="photo.jpg"]')).not.toBeNull();
-    // Classic layout: answer text, then bottom attachment strip.
     expect(
       screen.getByText("Вот картинка.").compareDocumentPosition(strips[0] as Node) &
         Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy();
   });
 
-  it("ADR-167: live USER_TURN shows process-timeline receipts and no terminal strip", () => {
+  it("ADR-167: live USER_TURN shows delivery receipts outside Выполнено and no terminal strip", () => {
     const image = {
       ...makeImageAttachment("att-inline-1"),
       inlineAfterToolCallId: "call-img-1",
@@ -1543,16 +1550,98 @@ describe("ChatMessageBubble — pre-response status", () => {
     );
 
     expect(screen.queryAllByTestId("attachment-strip")).toHaveLength(0);
-    expect(screen.queryByTestId("media-receipt-lines")).toBeNull();
-    expandProcessBadge();
-    const receipts = screen.getByTestId("process-timeline-receipts");
+    const receipts = screen.getByTestId("media-receipt-lines");
     expect(receipts).toHaveTextContent(/Получено изображение.*генерация.*1\.0 MB/);
     expect(receipts).toHaveAttribute("role", "status");
     expect(receipts).toHaveAttribute("aria-live", "polite");
     expect(receipts).toHaveAttribute("aria-relevant", "additions");
+    expandProcessBadge();
+    expect(screen.queryByTestId("process-timeline-receipts")).toBeNull();
   });
 
-  it("ADR-167: process-timeline receipts survive live to committed and terminal strip appears only after commit", () => {
+  it("ADR-167: live receipt banner opens the received image in the lightbox", () => {
+    const image = {
+      ...makeImageAttachment("att-open-1"),
+      inlineAfterToolCallId: "call-img-1",
+      sizeBytes: 1024 * 1024
+    };
+    render(
+      <ChatMessageBubble
+        chatId="chat-1"
+        message={makeAssistantMessage({
+          status: "streaming",
+          content: "",
+          toolInvocations: [
+            { name: "image_generate", iteration: 0, ok: true, toolCallId: "call-img-1" }
+          ],
+          inlineMediaPlacement: [{ toolCallId: "call-img-1", attachmentIds: ["att-open-1"] }],
+          attachments: [image]
+        })}
+      />
+    );
+
+    fireEvent.click(screen.getByTestId("media-receipt-open-att-open-1"));
+    const lightbox = screen.getByTestId("mock-image-lightbox");
+    expect(lightbox).toHaveAttribute(
+      "data-src",
+      "/api/v1/assistant/chats/web/chat-1/files?path=%2Fworkspace%2Fassistants%2Fassistant-1%2Fsessions%2Fruntime-session-1%2Fphoto.jpg"
+    );
+  });
+
+  it("ADR-167: live receipt banner downloads a received document", () => {
+    const document = {
+      ...makeDocumentAttachment("att-dl-1"),
+      inlineAfterToolCallId: "call-doc-1"
+    };
+    render(
+      <ChatMessageBubble
+        chatId="chat-1"
+        message={makeAssistantMessage({
+          status: "streaming",
+          content: "",
+          toolInvocations: [
+            { name: "document_render", iteration: 0, ok: true, toolCallId: "call-doc-1" }
+          ],
+          inlineMediaPlacement: [{ toolCallId: "call-doc-1", attachmentIds: ["att-dl-1"] }],
+          attachments: [document]
+        })}
+      />
+    );
+
+    expect(screen.getByTestId("media-receipt-download-att-dl-1")).toHaveAttribute(
+      "href",
+      "/api/v1/assistant/chats/web/chat-1/files?path=%2Fworkspace%2Fassistants%2Fassistant-1%2Fsessions%2Fruntime-session-1%2Fspec.pdf&download=1"
+    );
+  });
+
+  it("ADR-167: receipt banner stays non-clickable when the attachment has no path yet", () => {
+    const image = {
+      ...makeImageAttachment("att-no-path"),
+      path: null,
+      thumbnailStoragePath: null,
+      inlineAfterToolCallId: "call-img-1",
+      sizeBytes: 1024 * 1024
+    };
+    render(
+      <ChatMessageBubble
+        chatId="chat-1"
+        message={makeAssistantMessage({
+          status: "streaming",
+          content: "",
+          toolInvocations: [
+            { name: "image_generate", iteration: 0, ok: true, toolCallId: "call-img-1" }
+          ],
+          inlineMediaPlacement: [{ toolCallId: "call-img-1", attachmentIds: ["att-no-path"] }],
+          attachments: [image]
+        })}
+      />
+    );
+
+    expect(screen.getByTestId("media-receipt-open-att-no-path")).toBeDisabled();
+    expect(screen.queryByTestId("mock-image-lightbox")).toBeNull();
+  });
+
+  it("ADR-167: delivery receipts survive live to committed and terminal strip appears only after commit", () => {
     const image = {
       ...makeImageAttachment("att-live-commit-1"),
       inlineAfterToolCallId: "call-img-1",
@@ -1576,8 +1665,7 @@ describe("ChatMessageBubble — pre-response status", () => {
       />
     );
 
-    expandProcessBadge();
-    const liveReceipts = screen.getByTestId("process-timeline-receipts");
+    const liveReceipts = screen.getByTestId("media-receipt-lines");
     expect(liveReceipts).toHaveTextContent(/Получено изображение.*генерация.*1\.0 MB/);
     expect(screen.queryByTestId("attachment-strip")).toBeNull();
     expect(liveReceipts).toHaveAttribute("role", "status");
@@ -1601,12 +1689,47 @@ describe("ChatMessageBubble — pre-response status", () => {
       />
     );
 
-    expandProcessBadge();
-    const committedReceipts = screen.getByTestId("process-timeline-receipts");
+    const committedReceipts = screen.getByTestId("media-receipt-lines");
     expect(committedReceipts).toHaveTextContent(/Получено изображение.*генерация.*1\.0 MB/);
     expect(committedReceipts).not.toHaveAttribute("role");
     expect(committedReceipts).not.toHaveAttribute("aria-live");
     expect(screen.getByTestId("attachment-strip")).toBeInTheDocument();
+  });
+
+  it("ADR-167: delivery order keeps later receipts below earlier ones outside Выполнено", () => {
+    const pdf = {
+      ...makeDocumentAttachment("att-pdf-1"),
+      originalFilename: "test-report.pdf",
+      sizeBytes: 7680
+    };
+    const image = {
+      ...makeImageAttachment("att-img-1"),
+      sizeBytes: 778240
+    };
+    render(
+      <ChatMessageBubble
+        chatId="chat-1"
+        message={makeAssistantMessage({
+          status: "committed",
+          content: "Готово.",
+          workingNotes: ["сейчас"],
+          toolInvocations: [
+            { name: "image_generate", iteration: 0, ok: true, toolCallId: "call-img-1" },
+            { name: "document", iteration: 1, ok: true, toolCallId: "call-doc-1" }
+          ],
+          inlineMediaPlacement: [
+            { toolCallId: "call-doc-1", attachmentIds: ["att-pdf-1"] },
+            { toolCallId: "call-img-1", attachmentIds: ["att-img-1"] }
+          ],
+          attachments: [pdf, image]
+        })}
+      />
+    );
+
+    const receipts = screen.getByTestId("media-receipt-lines");
+    expect(receipts.textContent).toMatch(
+      /Получен файл — test-report\.pdf[\s\S]*Получено изображение — генерация/
+    );
   });
 
   it("suppresses a live continuation strip until terminal commit", () => {
@@ -1630,8 +1753,7 @@ describe("ChatMessageBubble — pre-response status", () => {
       />
     );
 
-    expandProcessBadge();
-    expect(screen.getByTestId("process-timeline-receipts")).toHaveTextContent(
+    expect(screen.getByTestId("media-receipt-lines")).toHaveTextContent(
       /Получено изображение.*генерация.*1\.0 MB/
     );
     expect(screen.queryByTestId("attachment-strip")).toBeNull();
@@ -1639,7 +1761,7 @@ describe("ChatMessageBubble — pre-response status", () => {
     expect(container.querySelector('img[alt="photo.jpg"]')).toBeNull();
   });
 
-  it("ADR-165: live USER_TURN shows orphan media receipts in process timeline when placement is missing", () => {
+  it("ADR-165: live USER_TURN shows orphan media receipts when placement is missing", () => {
     const image = {
       ...makeImageAttachment("att-orphan-1"),
       sizeBytes: 1024 * 1024
@@ -1660,8 +1782,7 @@ describe("ChatMessageBubble — pre-response status", () => {
     );
 
     expect(screen.queryByTestId("attachment-strip")).toBeNull();
-    expandProcessBadge();
-    expect(screen.getByTestId("process-timeline-receipts")).toHaveTextContent(
+    expect(screen.getByTestId("media-receipt-lines")).toHaveTextContent(
       /Получено изображение.*генерация.*1\.0 MB/
     );
   });
@@ -1688,7 +1809,6 @@ describe("ChatMessageBubble — pre-response status", () => {
     );
 
     expect(screen.queryByTestId("media-receipt-lines")).toBeNull();
-    expect(screen.queryByTestId("process-timeline-receipts")).toBeNull();
     expect(screen.queryByRole("button", { name: /Выполнено|Сгенерировано/ })).toBeNull();
     expect(screen.queryByText(/Получено изображение/)).toBeNull();
     expect(screen.queryByTestId("attachment-strip")).toBeNull();
@@ -1717,8 +1837,6 @@ describe("ChatMessageBubble — pre-response status", () => {
     );
 
     expect(screen.queryByTestId("media-receipt-lines")).toBeNull();
-    expandProcessBadge(/Выполнено/);
-    expect(screen.queryByTestId("process-timeline-receipts")).toBeNull();
     expect(screen.queryByText(/Получено изображение/)).toBeNull();
   });
 
@@ -1744,13 +1862,12 @@ describe("ChatMessageBubble — pre-response status", () => {
     );
 
     expect(screen.getAllByRole("button", { name: /Выполнено/ })).toHaveLength(1);
-    expandProcessBadge(/Выполнено/);
-    expect(screen.queryByTestId("process-timeline-receipts")).toBeNull();
+    expect(screen.queryByTestId("media-receipt-lines")).toBeNull();
     expect(screen.queryByText(/Получено изображение/)).toBeNull();
     expect(screen.getByTestId("attachment-strip")).toBeInTheDocument();
   });
 
-  it("ADR-167: document/PDF receipt stays in process timeline live first, then persists with full strip", () => {
+  it("ADR-167: document/PDF receipt stays visible live first, then persists with full strip", () => {
     const documentAttachment = {
       ...makeDocumentAttachment("att-doc-1"),
       inlineAfterToolCallId: "call-doc-1"
@@ -1771,8 +1888,7 @@ describe("ChatMessageBubble — pre-response status", () => {
       />
     );
 
-    expandProcessBadge();
-    const liveReceipts = screen.getByTestId("process-timeline-receipts");
+    const liveReceipts = screen.getByTestId("media-receipt-lines");
     expect(liveReceipts).toHaveAttribute("role", "status");
     expect(liveReceipts).toHaveAttribute("aria-live", "polite");
     expect(liveReceipts).toHaveTextContent(/spec\.pdf.*2\.0 MB/i);
@@ -1794,13 +1910,18 @@ describe("ChatMessageBubble — pre-response status", () => {
       />
     );
 
-    expandProcessBadge();
-    const committedReceipts = screen.getByTestId("process-timeline-receipts");
+    const committedReceipts = screen.getByTestId("media-receipt-lines");
     expect(committedReceipts).not.toHaveAttribute("role");
     expect(committedReceipts).not.toHaveAttribute("aria-live");
     expect(committedReceipts).toHaveTextContent(/spec\.pdf.*2\.0 MB/i);
     expect(screen.getByTestId("attachment-strip")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /spec\.pdf/i })).toBeInTheDocument();
+    expect(screen.getByTestId("media-receipt-download-att-doc-1")).toHaveAttribute(
+      "href",
+      expect.stringContaining("spec.pdf")
+    );
+    expect(
+      within(screen.getByTestId("attachment-strip")).getByRole("link", { name: /spec\.pdf/i })
+    ).toBeInTheDocument();
   });
 
   it("preserves order for mixed connective text, content, then connective text plus tool", () => {
