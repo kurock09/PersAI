@@ -5,10 +5,16 @@
 
 ## 2026-07-29
 
-- **fix(api/tests): wake-gate SQL probe no longer shadows Prisma tables.**
-  CI `full-checks` failed on `PostgreSQL wake gate includes null
-  surfaceClient…` because TEMP inserts were invisible to Prisma `findFirst`.
-  Probe now uses `$queryRaw` against the TEMP fixture; product code unchanged.
+- **fix(web): notes+receipts share one process stream under Выполнено.**
+  No separate receipt rail above the answer. Live: short notes and clickable
+  «Получено…» stay visible in one stream under the badge. Commit: stream folds
+  into collapsed «Выполнено»; terminal strip below owns files. ADR-167 D4.
+
+- **fix(api/tests): TEMP-table SQL probes use `$queryRaw`, not Prisma models.**
+  CI `full-checks` failed on wake-gate and live-turn
+  `null surfaceClient` probes because TEMP inserts are invisible to Prisma
+  `findFirst` (public schema). Probes now query the TEMP fixture with
+  `$queryRaw`; product code unchanged.
 
 - **fix(adr-167): delivery-flow cleanup audit (local CLEAN).** Independent
   API audit removed parallel/dead create paths after deliver-once: MediaDelivery
@@ -31,12 +37,10 @@
   and before the answer (not inside the collapsible tool log); async-cont
   attachment-only suppresses technical receipt copy. Docs reconciled.
 
-- **fix(web): keep delivery receipts outside collapsible Выполнено.**
-  Founder live check showed «Получено…» banners buried in the expanded process
-  log. Receipts now stay visible in message chronology after the process badge
-  and before answer text, in actual delivery order. Clicking a receipt opens
-  the image/video lightbox or downloads the file via the same chat file URLs
-  as the terminal strip (no extra preview pipeline).
+- **fix(web): live delivery receipts outside Выполнено (superseded for
+  commit by fold-in above).** Founder live check showed «Получено…» buried in
+  the process log during work; live receipts stay visible/clickable outside.
+  Committed fold-in is the later correction in this same day.
 
 - **fix(api/tests): restore ADR-149 tool-progress completion after ADR-167.**
   GitHub CI caught a stale stream-service test double after the null-only

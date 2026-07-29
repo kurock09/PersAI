@@ -16,17 +16,31 @@
 - **Next:** full AGENTS.md gate + CI-like tests except SQL; commit/push;
   deploy + authenticated mixed image/PDF live smoke.
 
-## 2026-07-29 — CI: fix wake-gate TEMP-table SQL probe (local)
+## 2026-07-29 — ADR-167 notes+receipts one process stream (push pending)
+
+- **Founder:** notes and «Получено…» as one stream under «Выполнено» (live
+  visible/clickable, no float rail); after answer fold into collapsed
+  «Выполнено»; attachments below.
+- **Landed:** receipt pieces after tools; live `process-live-note-receipt-stream`;
+  commit folds to expand; no outer MediaReceiptLines rail. Also fixed
+  live-turn TEMP SQL probe (`$queryRaw`) that was still red on CI after
+  wake-gate fix.
+- **Gate:** lint+format; api/web/runtime/gateway typecheck; API suite green;
+  runtime+gateway+sandbox; chat-message 79/79; web parallel flaked only on
+  unrelated use-chat/plans timing (isolated re-runs green); API test:step2;
+  api+web builds.
+- **Next:** commit/push; confirm CI; live smoke.
+
+## 2026-07-29 — CI: fix wake-gate TEMP-table SQL probe (pushed `93088991`)
 
 - **Symptom:** CI `full-checks` Test failed on `chat-wake-coordinator`
   `PostgreSQL wake gate includes null surfaceClient…` (`false !== true`).
   Pre-existing; also failed Full Verification before the receipts push.
 - **Cause:** probe inserted into `CREATE TEMP TABLE` but called Prisma
   `findFirst` (hits `public`, not TEMP).
-- **Fix:** probe the SQL predicate via `$queryRaw` against the TEMP fixture
-  (same pattern as eligible-chat SQL probe). Local file: 17/17 pass with
-  Postgres. Prisma where-shape unit test unchanged.
-- **Next:** commit/push; confirm CI green; live smoke for clickable receipts.
+- **Fix (pushed `93088991`):** probe the SQL predicate via `$queryRaw`
+  against the TEMP fixture. Local file: 17/17 pass with Postgres.
+- **Next:** confirm CI green; land fold-in receipts UX; live smoke.
 
 ## 2026-07-29 — ADR-167 receipt placement + clickable receipts (pushed `d5ff2f97`)
 

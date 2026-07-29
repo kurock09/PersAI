@@ -58,14 +58,14 @@ flow owns message height. No viewport measurement is persisted or remembered.
 
 ### D4. One process badge; delivery receipts as always-visible reply lines
 
-Ordinary open `USER_TURN` renders exactly one process badge for tools/notes only.
-Successful delivery receipts are **not** inside the collapsible «Выполнено» log.
-They render as always-visible assistant reply lines **after** the process badge and
-**before** the answer text, in actual delivery order
-(`inlineMediaPlacement` / attachment append order for F5 hydrate). While the turn
-is still open, each receipt reuses the same attachment URLs as the terminal strip:
-images/videos open the existing lightbox; files download. No separate preview
-pipeline. The full attachment strip also appears at terminal.
+Ordinary open `USER_TURN` renders exactly one process badge. Short working notes
+and delivery receipts share one process stream (receipt pieces land after their
+producing tool; orphan/placement leftovers append in delivery order). While the
+turn is live, that note+receipt stream stays visible under the badge — clickable
+via the same chat file URLs as the terminal strip — and must not float on a
+separate rail above answer text. After terminal commit, the stream folds into the
+collapsed «Выполнено» expand with the notes; the full attachment strip below the
+answer owns the files.
 
 Standalone async continuation may own its own «Выполнено» when it performed real work.
 Attachment-only delivery on a continuation must not show technical internal-delivery
@@ -109,9 +109,9 @@ proves a broader ordering failure.
    attachment set per delivered identity.
 2. Remote-pod `media` and `async_jobs_open` reach the original POST exactly once and in
    sequence.
-3. One process badge for tools/notes; delivery-ordered receipt lines survive live →
-   commit → F5 as always-visible reply content after «Выполнено» and before the answer;
-   the terminal attachment strip is also present.
+3. One process badge; notes and receipts share one stream under it while live
+   (clickable), then fold into the «Выполнено» expand after commit → F5; the
+   terminal attachment strip below the answer is also present.
 4. Worker delivery then `files.attach` of the same identity yields one attachment row and
    model-visible `already_delivered`.
 5. Same document version is not re-delivered; a new document version is deliverable.

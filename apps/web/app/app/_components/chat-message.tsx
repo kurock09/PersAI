@@ -919,7 +919,8 @@ function MarkdownFragment({ content }: { content: string }) {
 
 type IterationProcessPiece =
   | { kind: "text"; markdown: string }
-  | { kind: "tool"; tool: RuntimeTurnToolInvocation };
+  | { kind: "tool"; tool: RuntimeTurnToolInvocation }
+  | { kind: "receipt"; attachment: ChatAttachment };
 
 type IterationBlock =
   | { kind: "content"; markdown: string }
@@ -955,15 +956,33 @@ function isContentBlock(text: string): boolean {
 
 function buildIterationBlocks(
   workingNotes: string[],
-  toolInvocations: RuntimeTurnToolInvocation[]
+  toolInvocations: RuntimeTurnToolInvocation[],
+  receiptAttachments: ChatAttachment[] = []
 ): IterationBlock[] {
   const allPieces: IterationProcessPiece[] = [];
   const contentBlocks: string[] = [];
+  const claimedReceiptIds = new Set<string>();
   const iterations = Math.max(
     workingNotes.length,
     ...toolInvocations.map((tool) => tool.iteration + 1),
     0
   );
+
+  const pushReceiptsForToolCall = (toolCallId: string | undefined) => {
+    if (toolCallId === undefined || toolCallId.length === 0) {
+      return;
+    }
+    for (const attachment of receiptAttachments) {
+      if (claimedReceiptIds.has(attachment.id)) {
+        continue;
+      }
+      if (attachment.inlineAfterToolCallId !== toolCallId) {
+        continue;
+      }
+      allPieces.push({ kind: "receipt", attachment });
+      claimedReceiptIds.add(attachment.id);
+    }
+  };
 
   for (let i = 0; i < iterations; i += 1) {
     const text = (workingNotes[i] ?? "").trim();
@@ -978,11 +997,26 @@ function buildIterationBlocks(
     const toolsAtIteration = toolInvocations.filter((tool) => tool.iteration === i);
     for (const tool of toolsAtIteration) {
       allPieces.push({ kind: "tool", tool });
+      pushReceiptsForToolCall(tool.toolCallId);
     }
   }
 
+  // Placement-ordered receipts that did not match a tool call still join the
+  // same note/receipt stream in delivery order.
+  for (const attachment of receiptAttachments) {
+    if (claimedReceiptIds.has(attachment.id)) {
+      continue;
+    }
+    allPieces.push({ kind: "receipt", attachment });
+    claimedReceiptIds.add(attachment.id);
+  }
+
   const blocks: IterationBlock[] = [];
-  if (allPieces.length > 0) {
+  // Receipt-only bubbles must not invent a process badge solely for «Получено…».
+  const hasNonReceiptProcess = allPieces.some(
+    (piece) => piece.kind === "text" || piece.kind === "tool"
+  );
+  if (hasNonReceiptProcess) {
     blocks.push({ kind: "process", pieces: allPieces });
   }
   for (const contentBlock of contentBlocks) {
@@ -1114,7 +1148,8 @@ function resolveProcessBadgeLabel(
   pieces: IterationProcessPiece[],
   t: ReturnType<typeof useTranslations>
 ): string {
-  const processPieces = pieces;
+  // Receipts share the note stream but do not inflate «N шагов».
+  const processPieces = pieces.filter((piece) => piece.kind !== "receipt");
   const toolPieces = processPieces.filter(
     (piece): piece is Extract<IterationProcessPiece, { kind: "tool" }> => piece.kind === "tool"
   );
@@ -1158,18 +1193,98 @@ function resolveProcessBadgeLabel(
   return t("processBadge.worked", { steps: processPieces.length });
 }
 
-function ProcessBadge({ pieces }: { pieces: IterationProcessPiece[] }) {
+function ProcessNoteReceiptStream({
+  pieces,
+  chatId,
+  live,
+  testId
+}: {
+  pieces: IterationProcessPiece[];
+  chatId?: string | null | undefined;
+  live: boolean;
+  testId?: string | undefined;
+}) {
+  const streamPieces = pieces.filter(
+    (piece): piece is Extract<IterationProcessPiece, { kind: "text" | "receipt" }> =>
+      piece.kind === "text" || piece.kind === "receipt"
+  );
+  if (streamPieces.length === 0) {
+    return null;
+  }
+  const receiptAttachments = streamPieces
+    .filter(
+      (piece): piece is Extract<IterationProcessPiece, { kind: "receipt" }> =>
+        piece.kind === "receipt"
+    )
+    .map((piece) => piece.attachment);
+
+  return (
+    <div
+      className="space-y-1"
+      data-testid={testId}
+      {...(live
+        ? {
+            role: "status",
+            "aria-live": "polite",
+            "aria-atomic": "false",
+            "aria-relevant": "additions"
+          }
+        : {})}
+    >
+      {streamPieces.map((piece, index) => {
+        if (piece.kind === "text") {
+          return (
+            <div
+              key={`text-${index}-${piece.markdown}`}
+              className={cn(
+                "text-sm leading-relaxed text-text-muted/72",
+                live ? "animate-fade-in-inline-status motion-reduce:animate-none" : undefined
+              )}
+            >
+              <MarkdownFragment content={piece.markdown} />
+            </div>
+          );
+        }
+        return (
+          <MediaReceiptLines
+            key={piece.attachment.id}
+            chatId={chatId}
+            attachments={[piece.attachment]}
+            galleryAttachments={receiptAttachments}
+            live={live}
+            embedded
+          />
+        );
+      })}
+    </div>
+  );
+}
+
+function ProcessBadge({
+  pieces,
+  chatId,
+  live
+}: {
+  pieces: IterationProcessPiece[];
+  chatId?: string | null | undefined;
+  live: boolean;
+}) {
   const [expanded, setExpanded] = useState(false);
   const t = useTranslations("chat");
   const label = resolveProcessBadgeLabel(pieces, t);
-  const textPieces = pieces.filter(
-    (piece): piece is Extract<IterationProcessPiece, { kind: "text" }> => piece.kind === "text"
-  );
   const toolMicroRows = buildToolFamilyMicroRows(pieces);
+  const hasNoteOrReceipt = pieces.some(
+    (piece) => piece.kind === "text" || piece.kind === "receipt"
+  );
 
   if (pieces.length === 0) {
     return null;
   }
+
+  const showLiveStream = live && hasNoteOrReceipt;
+  const showCommittedStream = !live && expanded && hasNoteOrReceipt;
+  const showToolMicros = expanded && toolMicroRows.length > 0;
+  const showPanel = showLiveStream || showCommittedStream || showToolMicros;
 
   return (
     <div className="mb-4">
@@ -1186,21 +1301,28 @@ function ProcessBadge({ pieces }: { pieces: IterationProcessPiece[] }) {
         )}
         <span>{label}</span>
       </button>
-      {expanded ? (
+      {showPanel ? (
         <div className="mt-2 border-l border-border/70 pl-3">
-          {textPieces.length > 0 ? (
-            <div className="space-y-2 text-sm text-text-muted/72">
-              {textPieces.map((piece, index) => (
-                <div key={`text-${index}-${piece.markdown}`} className="leading-relaxed">
-                  <MarkdownFragment content={piece.markdown} />
-                </div>
-              ))}
-            </div>
+          {showLiveStream ? (
+            <ProcessNoteReceiptStream
+              pieces={pieces}
+              chatId={chatId}
+              live
+              testId="process-live-note-receipt-stream"
+            />
           ) : null}
-          {toolMicroRows.length > 0 ? (
+          {showCommittedStream ? (
+            <ProcessNoteReceiptStream
+              pieces={pieces}
+              chatId={chatId}
+              live={false}
+              testId="process-timeline-receipts"
+            />
+          ) : null}
+          {showToolMicros ? (
             <div
               className={`space-y-0.5 text-xs leading-snug text-text-subtle/80 ${
-                textPieces.length > 0 ? "mt-2" : ""
+                showLiveStream || showCommittedStream ? "mt-2" : ""
               }`}
             >
               {toolMicroRows.map((row) => (
@@ -1214,7 +1336,15 @@ function ProcessBadge({ pieces }: { pieces: IterationProcessPiece[] }) {
   );
 }
 
-function IterationBlocks({ blocks }: { blocks: IterationBlock[] }) {
+function IterationBlocks({
+  blocks,
+  chatId,
+  live
+}: {
+  blocks: IterationBlock[];
+  chatId?: string | null | undefined;
+  live: boolean;
+}) {
   if (blocks.length === 0) {
     return null;
   }
@@ -1228,7 +1358,14 @@ function IterationBlocks({ blocks }: { blocks: IterationBlock[] }) {
             </div>
           );
         }
-        return <ProcessBadge key={`process-${index}`} pieces={block.pieces} />;
+        return (
+          <ProcessBadge
+            key={`process-${index}`}
+            pieces={block.pieces}
+            chatId={chatId}
+            live={live}
+          />
+        );
       })}
     </div>
   );
@@ -1272,11 +1409,17 @@ function resolveAttachmentAccessUrls(input: {
 function MediaReceiptLines({
   chatId,
   attachments,
-  live
+  galleryAttachments,
+  live,
+  embedded = false
 }: {
   chatId?: string | null | undefined;
   attachments: ChatAttachment[];
+  /** Full image set for lightbox gallery when rendering one receipt in a stream. */
+  galleryAttachments?: ChatAttachment[] | undefined;
   live: boolean;
+  /** Inside process stream — no outer margin / no live region (parent owns it). */
+  embedded?: boolean;
 }) {
   const t = useTranslations("chat");
   const [openAttachmentId, setOpenAttachmentId] = useState<string | null>(null);
@@ -1284,7 +1427,8 @@ function MediaReceiptLines({
     return null;
   }
 
-  const galleryImages = attachments
+  const gallerySource = galleryAttachments ?? attachments;
+  const galleryImages = gallerySource
     .filter((attachment) => attachment.attachmentType === "image")
     .map((attachment) => {
       const urls = resolveAttachmentAccessUrls({ chatId, attachment });
@@ -1303,9 +1447,9 @@ function MediaReceiptLines({
 
   return (
     <div
-      className="mb-4 space-y-1"
+      className={cn(embedded ? "space-y-1" : "mb-4 space-y-1")}
       data-testid="media-receipt-lines"
-      {...(live
+      {...(live && !embedded
         ? {
             role: "status",
             "aria-live": "polite",
@@ -2442,7 +2586,7 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
   const isAssistantReconciling = message.role === "assistant" && message.status === "reconciling";
   const assistantSegments = useMemo(() => {
     if (message.role !== "assistant") {
-      return { iterationBlocks: [], receiptAttachments: [], answerText: message.content };
+      return { iterationBlocks: [], answerText: message.content };
     }
     // workingNotes is the structured multi-step field from the server (one entry
     // per tool-loop step); content is always the clean final answer.
@@ -2450,18 +2594,27 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
       ? message.workingNotes.map((note) => note.trim()).filter((note) => note.length > 0)
       : [];
     const toolInvocations = Array.isArray(message.toolInvocations) ? message.toolInvocations : [];
-    // Delivery receipts are assistant-facing reply lines (after process, before
-    // answer), ordered by durable delivery / inlineMediaPlacement — never inside
-    // the collapsible «Выполнено» tool log.
+    // Receipts are process pieces after their tool (same stream as short notes).
+    // Live: stream stays visible under «Выполнено». Committed: stream folds into
+    // the expand; terminal strip below the answer owns the files.
     const receiptAttachments = shouldSuppressMediaReceipts(message)
       ? []
       : resolveReceiptAttachments({
           attachments: message.attachments,
           inlineMediaPlacement: message.inlineMediaPlacement
+        }).map((attachment) => {
+          if (attachment.inlineAfterToolCallId !== undefined) {
+            return attachment;
+          }
+          const placementToolCallId = message.inlineMediaPlacement?.find((entry) =>
+            entry.attachmentIds.includes(attachment.id)
+          )?.toolCallId;
+          return placementToolCallId !== undefined
+            ? { ...attachment, inlineAfterToolCallId: placementToolCallId }
+            : attachment;
         });
     return {
-      iterationBlocks: buildIterationBlocks(workingNotes, toolInvocations),
-      receiptAttachments,
+      iterationBlocks: buildIterationBlocks(workingNotes, toolInvocations, receiptAttachments),
       answerText: message.content
     };
   }, [
@@ -2475,9 +2628,8 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
     message.workingNotes
   ]);
   const bottomStripAttachments = useMemo(() => {
-    // Keep the full attachment strip out of active assistant bubbles. Delivery
-    // receipts stay visible above the answer; terminal commit restores the
-    // classic strip below the answer.
+    // Keep the full attachment strip out of active assistant bubbles. Terminal
+    // commit restores the classic strip below the answer.
     if (
       message.role === "assistant" &&
       (message.status === "streaming" || message.status === "reconciling")
@@ -2684,10 +2836,9 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
         ) : (
           <div className="prose-invert min-w-0 max-w-full text-sm break-words text-text [overflow-wrap:anywhere]">
             <ThoughtBlock message={message} />
-            <IterationBlocks blocks={assistantSegments.iterationBlocks} />
-            <MediaReceiptLines
+            <IterationBlocks
+              blocks={assistantSegments.iterationBlocks}
               chatId={chatId}
-              attachments={assistantSegments.receiptAttachments}
               live={isAssistantLive}
             />
             {isStreaming ? (

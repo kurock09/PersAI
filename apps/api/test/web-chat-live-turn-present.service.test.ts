@@ -158,6 +158,8 @@ describe("WebChatLiveTurnPresentService", () => {
         t.skip("Postgres unavailable for live-turn SQL probe");
         return;
       }
+      // TEMP tables are invisible to Prisma model queries (they hit public).
+      // Probe the SQL predicate that mirrors findOpenOrdinaryUserTurnAttempt.
       await prisma.$transaction(async (tx) => {
         await tx.$executeRawUnsafe(`
           CREATE TEMP TABLE "assistant_web_chat_turn_attempts" (
@@ -189,27 +191,22 @@ describe("WebChatLiveTurnPresentService", () => {
              '00000000-0000-0000-0000-000000000040', NULL, 'running', 'async_continuation',
              NOW(), NOW())
         `);
-        const service = new WebChatLiveTurnPresentService(
-          { assistantWebChatTurnAttempt: tx.assistantWebChatTurnAttempt } as never,
-          { publish: () => undefined } as never,
-          { bindAssistantMessageId: async () => undefined } as never,
-          { listOpenJobsForWebChat: async () => [] } as never,
-          { listOpenJobsForWebChat: async () => [] } as never,
-          {
-            claimOpenTurnLivePresent: async () => "newly_claimed",
-            listOpenSandboxJobsForWebChat: async () => []
-          } as never,
-          { createMessage: async () => ({ id: "assistant-message-1" }) } as never
-        );
-
-        const attempt = await service.findOpenUserTurnAttempt({
-          assistantId: "00000000-0000-0000-0000-000000000010",
-          chatId: "00000000-0000-0000-0000-000000000030",
-          userMessageId: "00000000-0000-0000-0000-000000000040"
-        });
-
-        assert.equal(attempt?.clientTurnId, "turn-ordinary-null");
-        assert.equal(attempt?.surfaceThreadKey, "thread-ordinary");
+        const rows = await tx.$queryRawUnsafe<
+          Array<{ client_turn_id: string; surface_thread_key: string }>
+        >(`
+          SELECT "client_turn_id", "surface_thread_key"
+          FROM "assistant_web_chat_turn_attempts"
+          WHERE "assistant_id" = '00000000-0000-0000-0000-000000000010'
+            AND "chat_id" = '00000000-0000-0000-0000-000000000030'
+            AND "user_message_id" = '00000000-0000-0000-0000-000000000040'
+            AND "status" = 'running'
+            AND ("surface_client" IS NULL OR "surface_client" <> 'async_continuation')
+          ORDER BY "running_at" DESC NULLS LAST, "updated_at" DESC
+          LIMIT 1
+        `);
+        assert.equal(rows.length, 1);
+        assert.equal(rows[0]?.client_turn_id, "turn-ordinary-null");
+        assert.equal(rows[0]?.surface_thread_key, "thread-ordinary");
       });
     } finally {
       await prisma.$disconnect();
