@@ -16,6 +16,18 @@
 - **Next:** full AGENTS.md gate + CI-like tests except SQL; commit/push;
   deploy + authenticated mixed image/PDF live smoke.
 
+## 2026-07-29 — CI: fix wake-gate TEMP-table SQL probe (local)
+
+- **Symptom:** CI `full-checks` Test failed on `chat-wake-coordinator`
+  `PostgreSQL wake gate includes null surfaceClient…` (`false !== true`).
+  Pre-existing; also failed Full Verification before the receipts push.
+- **Cause:** probe inserted into `CREATE TEMP TABLE` but called Prisma
+  `findFirst` (hits `public`, not TEMP).
+- **Fix:** probe the SQL predicate via `$queryRaw` against the TEMP fixture
+  (same pattern as eligible-chat SQL probe). Local file: 17/17 pass with
+  Postgres. Prisma where-shape unit test unchanged.
+- **Next:** commit/push; confirm CI green; live smoke for clickable receipts.
+
 ## 2026-07-29 — ADR-167 receipt placement + clickable receipts (pushed `d5ff2f97`)
 
 - **Baseline tip before this slice:** `f900179b` / GitOps pin `6795e764`.
@@ -23,12 +35,14 @@
   (after process badge, before answer, delivery order); receipt click opens
   image/video lightbox or downloads files via the same chat file URLs as the
   terminal strip. Docs D4 + architecture/test-plan/changelog reconciled.
+  Tip docs SHA `bfc8480a`. Dev Image Publish succeeded; CI red on unrelated
+  wake-gate SQL probe (see above).
 - **Gate:** recursive lint + `format:check`; api/web/runtime/provider-gateway
   typecheck; API suite with SQL probes forced unavailable
   (`PERSAI_POSTGRES_INTEGRATION_URL` closed port); runtime + provider-gateway
   + sandbox tests; web `86/1138`; API `test:step2`; API+web production builds.
-- **Next:** wait for image publish/GitOps pin; authenticated live smoke that
-  collapsed «Выполнено» still shows clickable ordered receipts.
+- **Next:** after CI probe fix lands — authenticated live smoke that collapsed
+  «Выполнено» still shows clickable ordered receipts.
 
 ## 2026-07-29 — ADR-167 deliver-once + unified timeline amend (pushed `f900179b`)
 

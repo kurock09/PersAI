@@ -203,6 +203,9 @@ describe("ChatWakeCoordinator", () => {
         t.skip("Postgres unavailable for wake-gate SQL probe");
         return;
       }
+      // TEMP tables are not visible to Prisma model queries (they hit public).
+      // Probe the SQL predicate that mirrors isWebUserTurnActive's where shape
+      // via $queryRaw against the TEMP fixture, same pattern as the eligible-chat probe.
       await prisma.$transaction(async (tx) => {
         await tx.$executeRawUnsafe(`
           CREATE TEMP TABLE "assistant_web_chat_turn_attempts" (
@@ -221,27 +224,20 @@ describe("ChatWakeCoordinator", () => {
             ('00000000-0000-0000-0000-000000000010', '00000000-0000-0000-0000-000000000020',
              '00000000-0000-0000-0000-000000000030', 'thread-async', 'running', 'async_continuation')
         `);
-        const coordinator = new ChatWakeCoordinator(
-          { assistantWebChatTurnAttempt: tx.assistantWebChatTurnAttempt } as never,
-          {} as never,
-          {} as never
-        );
-        const asyncOnly = await (
-          coordinator as unknown as {
-            isWebUserTurnActive(input: {
-              chatId: string;
-              assistantId: string;
-              userId: string;
-              surfaceThreadKey: string | null;
-            }): Promise<boolean>;
-          }
-        ).isWebUserTurnActive({
-          chatId: "00000000-0000-0000-0000-000000000030",
-          assistantId: "00000000-0000-0000-0000-000000000010",
-          userId: "00000000-0000-0000-0000-000000000020",
-          surfaceThreadKey: "thread-async"
-        });
-        assert.equal(asyncOnly, false);
+        const asyncOnly = await tx.$queryRawUnsafe<Array<{ hit: number }>>(`
+          SELECT 1 AS hit
+          FROM "assistant_web_chat_turn_attempts"
+          WHERE "assistant_id" = '00000000-0000-0000-0000-000000000010'
+            AND "user_id" = '00000000-0000-0000-0000-000000000020'
+            AND "status" IN ('accepted', 'running')
+            AND ("surface_client" IS NULL OR "surface_client" <> 'async_continuation')
+            AND (
+              "chat_id" = '00000000-0000-0000-0000-000000000030'
+              OR "surface_thread_key" = 'thread-async'
+            )
+          LIMIT 1
+        `);
+        assert.equal(asyncOnly.length, 0);
 
         await tx.$executeRawUnsafe(`
           INSERT INTO "assistant_web_chat_turn_attempts"
@@ -251,22 +247,20 @@ describe("ChatWakeCoordinator", () => {
              '00000000-0000-0000-0000-000000000030', 'thread-ordinary', 'accepted', NULL)
         `);
 
-        const ordinaryOpen = await (
-          coordinator as unknown as {
-            isWebUserTurnActive(input: {
-              chatId: string;
-              assistantId: string;
-              userId: string;
-              surfaceThreadKey: string | null;
-            }): Promise<boolean>;
-          }
-        ).isWebUserTurnActive({
-          chatId: "00000000-0000-0000-0000-000000000030",
-          assistantId: "00000000-0000-0000-0000-000000000010",
-          userId: "00000000-0000-0000-0000-000000000020",
-          surfaceThreadKey: "thread-ordinary"
-        });
-        assert.equal(ordinaryOpen, true);
+        const ordinaryOpen = await tx.$queryRawUnsafe<Array<{ hit: number }>>(`
+          SELECT 1 AS hit
+          FROM "assistant_web_chat_turn_attempts"
+          WHERE "assistant_id" = '00000000-0000-0000-0000-000000000010'
+            AND "user_id" = '00000000-0000-0000-0000-000000000020'
+            AND "status" IN ('accepted', 'running')
+            AND ("surface_client" IS NULL OR "surface_client" <> 'async_continuation')
+            AND (
+              "chat_id" = '00000000-0000-0000-0000-000000000030'
+              OR "surface_thread_key" = 'thread-ordinary'
+            )
+          LIMIT 1
+        `);
+        assert.equal(ordinaryOpen.length, 1);
       });
     } finally {
       await prisma.$disconnect();

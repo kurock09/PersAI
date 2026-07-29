@@ -5,6 +5,11 @@
 
 ## 2026-07-29
 
+- **fix(api/tests): wake-gate SQL probe no longer shadows Prisma tables.**
+  CI `full-checks` failed on `PostgreSQL wake gate includes null
+  surfaceClient…` because TEMP inserts were invisible to Prisma `findFirst`.
+  Probe now uses `$queryRaw` against the TEMP fixture; product code unchanged.
+
 - **fix(adr-167): delivery-flow cleanup audit (local CLEAN).** Independent
   API audit removed parallel/dead create paths after deliver-once: MediaDelivery
   peeks canonical identity before download/register/adapter/settle;
