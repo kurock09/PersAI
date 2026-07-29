@@ -16,20 +16,15 @@
 - **Next:** full AGENTS.md gate + CI-like tests except SQL; commit/push;
   deploy + authenticated mixed image/PDF live smoke.
 
-## 2026-07-29 — ADR-167 notes+receipts one process stream (push pending)
+## 2026-07-29 — ADR-167 notes+receipts one process stream (pushed `bad46df4`)
 
-- **Founder:** notes and «Получено…» as one stream under «Выполнено» (live
-  visible/clickable, no float rail); after answer fold into collapsed
-  «Выполнено»; attachments below.
-- **Landed:** receipt pieces after tools; live `process-live-note-receipt-stream`;
-  commit folds to expand; no outer MediaReceiptLines rail. Also fixed
-  live-turn TEMP SQL probe (`$queryRaw`) that was still red on CI after
-  wake-gate fix.
-- **Gate:** lint+format; api/web/runtime/gateway typecheck; API suite green;
-  runtime+gateway+sandbox; chat-message 79/79; web parallel flaked only on
-  unrelated use-chat/plans timing (isolated re-runs green); API test:step2;
-  api+web builds.
-- **Next:** commit/push; confirm CI; live smoke.
+- **Pushed `bad46df4`:** notes and «Получено…» as one stream under «Выполнено»
+  (live visible/clickable); after answer fold into collapsed «Выполнено»;
+  attachment strip below. Live-turn TEMP SQL probe also fixed via `$queryRaw`.
+- **Gate:** lint+format; typechecks; API suite; runtime+gateway+sandbox;
+  chat-message 79/79; web parallel flakes only unrelated use-chat/plans
+  (isolated green); API test:step2; api+web builds.
+- **Next:** confirm CI green; authenticated live smoke.
 
 ## 2026-07-29 — CI: fix wake-gate TEMP-table SQL probe (pushed `93088991`)
 
