@@ -16,22 +16,19 @@
 - **Next:** full AGENTS.md gate + CI-like tests except SQL; commit/push;
   deploy + authenticated mixed image/PDF live smoke.
 
-## 2026-07-29 — ADR-167 receipt placement + clickable receipts (push pending)
+## 2026-07-29 — ADR-167 receipt placement + clickable receipts (pushed `d5ff2f97`)
 
-- **Baseline tip:** `f900179b` (deliver-once + prior timeline amend pushed).
-- **Founder live note:** «Получено…» banners were buried inside expanded
-  «Выполнено» tool log; while waiting on a long tool, already-delivered media
-  should open/download from the receipt.
-- **Landed locally:** delivery receipts outside collapsible «Выполнено» (after
-  process badge, before answer, delivery order); receipt click → same chat
-  file URLs as terminal strip (image/video lightbox, file download). Docs D4
-  + architecture/test-plan/changelog reconciled.
+- **Baseline tip before this slice:** `f900179b` / GitOps pin `6795e764`.
+- **Pushed:** `d5ff2f97` — delivery receipts outside collapsible «Выполнено»
+  (after process badge, before answer, delivery order); receipt click opens
+  image/video lightbox or downloads files via the same chat file URLs as the
+  terminal strip. Docs D4 + architecture/test-plan/changelog reconciled.
 - **Gate:** recursive lint + `format:check`; api/web/runtime/provider-gateway
   typecheck; API suite with SQL probes forced unavailable
   (`PERSAI_POSTGRES_INTEGRATION_URL` closed port); runtime + provider-gateway
   + sandbox tests; web `86/1138`; API `test:step2`; API+web production builds.
-- **Next:** commit/push; deploy; authenticated live smoke that collapsed
-  «Выполнено» still shows clickable ordered receipts.
+- **Next:** wait for image publish/GitOps pin; authenticated live smoke that
+  collapsed «Выполнено» still shows clickable ordered receipts.
 
 ## 2026-07-29 — ADR-167 deliver-once + unified timeline amend (pushed `f900179b`)
 
