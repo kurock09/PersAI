@@ -2331,6 +2331,176 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
     assert.equal(finalUpdates.at(-1)?.data?.status, "delivered");
   });
 
+  test("regression: enqueue-time sourceToolCallId is never used as inline placement (worker artifacts omit producingToolCallId)", async () => {
+    // Live repro (persai.dev): binding a media receipt to the enqueue-time
+    // tool call — the tool call that *started* the async job, not the one
+    // producing it — put the receipt above every note the model wrote while
+    // the job was still in flight, including notes said immediately after
+    // enqueueing. `requestJson.sourceToolCallId` must never become
+    // `afterToolCallId`/`inlineMediaPlacement`; only a real
+    // `artifact.producingToolCallId` (worker artifacts never set this) may.
+    const mergeMessageMetadataCalls: Array<Record<string, unknown>> = [];
+    const publishMediaCalls: Array<Record<string, unknown>> = [];
+
+    const openAttempt = {
+      assistantId: "assistant-1",
+      userId: "user-1",
+      chatId: "chat-1",
+      surfaceThreadKey: "web:chat-1",
+      clientTurnId: "client-turn-early-bind-1",
+      userMessageId: "user-message-early-bind-1",
+      assistantMessageId: "live-assistant-bubble-early-bind-1"
+    };
+
+    const service = new AssistantMediaJobCompletionDeliveryService(
+      {
+        $transaction: async <T>(callback: (tx: Record<string, unknown>) => Promise<T>) =>
+          callback({
+            $queryRaw: async () => [
+              {
+                id: "job-early-bind-1",
+                assistantId: "assistant-1",
+                userId: "user-1",
+                workspaceId: "workspace-1",
+                chatId: "chat-1",
+                surface: "web",
+                kind: "image",
+                sourceUserMessageId: "user-message-early-bind-1",
+                requestJson: {
+                  attachments: [],
+                  sourceUserMessageText: "draw a fox",
+                  sourceUserMessageCreatedAt: "2026-07-26T09:00:00.000Z",
+                  // The enqueue-time tool call — must not become placement.
+                  sourceToolCallId: "call-img-enqueue-early-1",
+                  directToolExecution: {
+                    toolCode: "image_generate",
+                    request: {
+                      toolCode: "image_generate",
+                      prompt: "draw a fox",
+                      count: 1,
+                      filename: null,
+                      size: "1024x1024",
+                      background: "auto"
+                    }
+                  }
+                },
+                resultText: null,
+                // Worker artifact — no producingToolCallId, as in production.
+                artifactsJson: [{ artifactId: "artifact-early-bind-1", kind: "image" }],
+                completionAssistantMessageId: null,
+                assistantAcknowledgementMessageId: "ack-early-bind-1",
+                attemptCount: 1,
+                maxAttempts: 5
+              }
+            ],
+            assistantMediaJob: {
+              update: async () => undefined
+            }
+          }),
+        assistantAsyncJobHandle: {
+          findUnique: async () => ({
+            narrationOwner: "current_turn",
+            narrationDecision: "current_turn_inline"
+          }),
+          findMany: async () => []
+        },
+        assistantMediaJob: {
+          count: async () => 1,
+          findFirst: async () => null,
+          findMany: async () => [],
+          updateMany: async () => ({ count: 1 })
+        }
+      } as never,
+      {
+        createMessage: async () => {
+          throw new Error("open-turn must pin live bubble, not invent");
+        },
+        findMessageByIdForAssistant: async () => ({
+          id: "live-assistant-bubble-early-bind-1",
+          content: "",
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          author: "assistant" as const,
+          createdAt: new Date(),
+          metadata: { inlineMediaPlacement: [] }
+        }),
+        updateMessageContent: async () => null,
+        mergeMessageMetadata: async (
+          messageId: string,
+          assistantId: string,
+          metadata: Record<string, unknown>
+        ) => {
+          mergeMessageMetadataCalls.push({ messageId, assistantId, ...metadata });
+        }
+      } as never,
+      {
+        deliver: async () => ({
+          attachments: [
+            {
+              id: "attachment-early-bind-1",
+              originalFilename: "fox.png",
+              sizeBytes: 1024
+            }
+          ]
+        }),
+        settleProducedArtifactsWithoutDelivery: async () => undefined
+      } as never,
+      {
+        async deliverPersistedAssistantMessageBestEffort() {
+          throw new Error("telegram reply should not run for web jobs");
+        }
+      } as never,
+      {
+        async resolveByAssistantId() {
+          throw new Error("telegram config should not resolve for web jobs");
+        }
+      } as never,
+      {
+        async maybeFrame() {
+          return { text: null, usage: null };
+        }
+      } as never,
+      noopRecordModelCostLedgerService,
+      noopAssistantRepository,
+      noopTrackWorkspaceQuotaUsageService,
+      {
+        async prepareDelivery() {
+          return "skip_legacy_frame";
+        },
+        async recordCanonicalCompletion() {
+          return { decision: "skip_legacy_frame", state: "completed" };
+        }
+      } as never,
+      {
+        async findOpenUserTurnAttempt() {
+          return openAttempt;
+        },
+        async ensureOpenTurnAssistantMessage() {
+          return "live-assistant-bubble-early-bind-1";
+        },
+        async claimInlineForOpenTurnPresent() {
+          return "newly_claimed";
+        },
+        publishMedia(input: Record<string, unknown>) {
+          publishMediaCalls.push(input);
+        },
+        async publishOpenJobsSnapshot() {
+          return undefined;
+        }
+      } as never
+    );
+
+    const processed = await service.processPendingBatch();
+
+    assert.equal(processed, 1);
+    assert.equal(publishMediaCalls.length, 1);
+    // No `afterToolCallId` key at all — never the enqueue-time id.
+    assert.equal("afterToolCallId" in publishMediaCalls[0]!, false);
+    // No inlineMediaPlacement write either — an unbound receipt renders
+    // after current content/notes on the client, not at a stale position.
+    assert.equal(mergeMessageMetadataCalls.length, 0);
+  });
+
   test("ADR-166: denied claim with stale running attempt settles without live attach/SSE", async () => {
     const finalUpdates: Array<Record<string, unknown>> = [];
     const deliverCalls: Array<{ messageId: string }> = [];

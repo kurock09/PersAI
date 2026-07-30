@@ -1,5 +1,63 @@
 # SESSION-HANDOFF
 
+## 2026-07-30/31 — live receipt banner: backend enqueue-time binding was the real root cause
+
+- **Baseline tip:** the claimed/unclaimed frontend split from the section
+  directly below (`chat-message.tsx`), still uncommitted at the time this
+  fix landed.
+- **Founder confirmed the frontend-only fix from the section below did NOT
+  fix the bug**, with a fresh live repro on `persai.dev`: banner still at
+  the very top of the expanded "Выполнено" panel. Founder's own diagnosis,
+  stated directly: "РАННЕМУ (enqueue-time) вызову инструмента, а не к
+  моменту реальной доставки. он на самый верх привязался же" — confirmed
+  correct.
+- **Real root cause (backend, not frontend):**
+  `AssistantMediaJobCompletionDeliveryService.publishOpenTurnMediaPresent`
+  (`apps/api/.../workspace-media-job-completion-delivery.service.ts`) computed
+  `afterToolCallId = firstProducingToolCallId(artifacts) ??
+  sourceToolCallIdFromRequestJson(job.requestJson)`. Worker-delivered media
+  artifacts never carry `producingToolCallId` (confirmed: only
+  `turn-execution.service.ts`'s synchronous tool-outcome mapping sets that
+  field, never the async worker/completion-delivery path), so the fallback
+  — the **enqueue-time** tool call, i.e. the one that *started* the async
+  job — was used on essentially every deferred media delivery. Because that
+  id matches a *real* entry in `toolInvocations`, the frontend's
+  claimed/unclaimed split (below) still classified it as "claimed" and
+  rendered the receipt right after that early call, above every note said
+  afterward while the job was in flight.
+- **Fix:** deleted the `sourceToolCallIdFromRequestJson` fallback (and the
+  now-dead function) entirely. `afterToolCallId` is only ever set from a
+  real `artifact.producingToolCallId`; for deferred media jobs that means it
+  is now consistently unset, so neither an `inlineMediaPlacement` DB write
+  nor an SSE `afterToolCallId` field is produced — the client's existing
+  unclaimed path renders the receipt after whatever notes/answer text exist
+  at delivery time, never at a stale early position.
+- **New regression test:** `workspace-media-job-completion-delivery.service.test.ts`
+  — "enqueue-time sourceToolCallId is never used as inline placement (worker
+  artifacts omit producingToolCallId)" — asserts `publishMedia` is called
+  with no `afterToolCallId` key and `mergeMessageMetadata` is never called,
+  even when `requestJson.sourceToolCallId` is present.
+- **Scope check:** document job delivery
+  (`assistant-document-job-delivery.service.ts`) has no equivalent fallback
+  — documents deliver synchronously inline already bound to the correct
+  tool call — so this fix is scoped to the media completion-delivery service
+  only.
+- **Gate run this session:** full targeted test file (23/23 green, incl. new
+  regression), full `@persai/api` suite (`pnpm --filter @persai/api run
+  test`, all green, exit 0), `@persai/api`/`@persai/web` typecheck clean,
+  repo-wide lint clean, `format:check` clean.
+- **Files touched:**
+  `apps/api/src/modules/workspace-management/application/workspace-media-job-completion-delivery.service.ts`,
+  `apps/api/test/workspace-media-job-completion-delivery.service.test.ts`.
+- **Next:** commit + push, deploy, then live-verify on `persai.dev`: repeat
+  the image+narration repro (ask for a re-edit that gets a real narrated
+  reply while the job is in flight) and confirm the banner now renders
+  strictly after the last note/reply that streamed before delivery, never
+  above it. If it still reproduces after this fix, the remaining candidate
+  is the same class of bug elsewhere (e.g. a second, currently-unnoticed
+  fallback path) — do not silently re-attempt frontend position heuristics
+  again; get a fresh DOM/SSE-payload capture first.
+
 ## 2026-07-30 — document-version dead links + live receipt-above-narration fix
 
 - **Baseline tip:** `457c7b44` (the two post-processing regressions below,

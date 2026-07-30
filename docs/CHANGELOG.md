@@ -5,6 +5,34 @@
 
 ## 2026-07-30
 
+- **fix(api): live receipt banner still bound to the *enqueue-time* tool call
+  — the claimed/unclaimed split alone did not fix it.** Founder repro on
+  `persai.dev` after the claimed/unclaimed split shipped below: the banner
+  was still rendered at the very top of the expanded "Выполнено" panel,
+  above every note. Root cause, confirmed by founder ("РАННЕМУ (enqueue-time)
+  вызову инструмента, а не к моменту реальной доставки"):
+  `AssistantMediaJobCompletionDeliveryService.publishOpenTurnMediaPresent`
+  fell back to `requestJson.sourceToolCallId` — the tool call that *started*
+  the async job at enqueue time — whenever the worker artifact carried no
+  `producingToolCallId` (the ordinary case; worker artifacts never set that
+  field). Because that enqueue-time id matches a *real* tool call in
+  `toolInvocations`, the frontend's claimed/unclaimed split (previous entry
+  below) still classified it as "claimed" and rendered it right after that
+  early call — i.e. above any note said afterward while the job was still in
+  flight, including notes said immediately after enqueueing. Fix: dropped
+  the `sourceToolCallIdFromRequestJson` fallback entirely (function deleted,
+  now dead); `afterToolCallId` is only ever set from a real
+  `artifact.producingToolCallId`. For deferred media jobs that is always
+  absent, so `afterToolCallId` is now consistently unset for worker-delivered
+  media — no `inlineMediaPlacement` write, no SSE `afterToolCallId` — which
+  the client's existing unclaimed-receipt path (previous entry) renders
+  after whatever notes/answer text exist at delivery time instead of at a
+  stale early position. New regression test:
+  `workspace-media-job-completion-delivery.service.test.ts` — "enqueue-time
+  sourceToolCallId is never used as inline placement". Scope is
+  `workspace-media-job-completion-delivery.service.ts` only; document job
+  delivery never had this fallback (documents deliver synchronously inline
+  already at the correct tool call).
 - **fix(web): outdated document version chips (v1/v2 when v3 exists) are no
   longer clickable download links.** Founder report + live repro on
   `persai.dev`: a revised document reuses the same canonical workspace

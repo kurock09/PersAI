@@ -80,18 +80,6 @@ function truncateLastError(message: string): string {
   return `${message.slice(0, COMPLETION_DELIVERY_LAST_ERROR_MAX_CHARS - 3)}...`;
 }
 
-function sourceToolCallIdFromRequestJson(requestJson: unknown): string | null {
-  if (requestJson === null || typeof requestJson !== "object" || Array.isArray(requestJson)) {
-    return null;
-  }
-  const raw = (requestJson as Record<string, unknown>).sourceToolCallId;
-  if (typeof raw !== "string") {
-    return null;
-  }
-  const trimmed = raw.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
 function firstProducingToolCallId(artifacts: RuntimeOutputArtifact[]): string | null {
   for (const artifact of artifacts) {
     if (
@@ -1022,11 +1010,19 @@ export class AssistantMediaJobCompletionDeliveryService {
     if (input.attachments.length === 0) {
       return;
     }
-    // Worker artifacts historically omit producingToolCallId; fall back to the
-    // enqueue-time chat toolCall.id so live receipts can bind mid-await.
-    const afterToolCallId =
-      firstProducingToolCallId(input.artifacts) ??
-      sourceToolCallIdFromRequestJson(input.job.requestJson);
+    // Only bind placement to a real producing tool call. The enqueue-time
+    // `sourceToolCallId` (the tool call that *started* the async job) used to
+    // be a fallback here, but it is chronologically wrong for any job that
+    // takes long enough for the model to keep narrating/calling more tools
+    // while it awaits delivery (the common case for image/video jobs): the
+    // receipt would render bound to that early call, i.e. above every note
+    // said afterward, including notes said immediately after the job was
+    // enqueued. Confirmed live on persai.dev (banner rendered above all
+    // narration, "Начнём..." etc., inside the expanded "Выполнено" panel).
+    // Leaving `afterToolCallId` unset here makes the client treat this
+    // receipt as unclaimed, which renders it after whatever notes/answer
+    // text exist at delivery time instead of at a stale early position.
+    const afterToolCallId = firstProducingToolCallId(input.artifacts);
     if (afterToolCallId !== null) {
       const existing = await this.assistantChatRepository.findMessageByIdForAssistant(
         input.messageId,
