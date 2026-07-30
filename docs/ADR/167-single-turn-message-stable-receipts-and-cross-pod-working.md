@@ -60,13 +60,18 @@ flow owns message height. No viewport measurement is persisted or remembered.
 
 Ordinary open `USER_TURN` renders exactly one process badge. Short working notes
 and delivery receipts share one process stream (receipt pieces land after their
-producing tool; orphan/placement leftovers append in delivery order). While the
-turn is live, mid-turn replicas stream in answer `content`, so the note+receipt
-stream renders **after** that streamed text and **before** the streaming cursor
-— clickable via the same chat file URLs as the terminal strip — and must not pin
-under the process badge above those replicas. After terminal commit, the stream
-folds into the collapsed «Выполнено» expand with the notes; the full attachment
-strip below the answer owns the files.
+producing tool; orphan/placement leftovers append in delivery order). Live
+`message.content` is the raw cumulative provider stream (every tool-loop step's
+text plus the final answer, concatenated with no reset at iteration/tool-call
+boundaries) — not the clean final-answer-only text the server persists at
+commit. The web bubble strips the exact `workingNotes` prefix from live
+`content` so only the genuine post-tool-loop answer renders as content; the
+note+receipt stream then renders **before** that stripped answer text and
+**before** the streaming cursor — clickable via the same chat file URLs as the
+terminal strip — and must not pin under the process badge (which stays
+collapsed while live). After terminal commit, the stream folds into the
+collapsed «Выполнено» expand with the notes; the full attachment strip below
+the answer owns the files.
 
 Standalone async continuation may own its own «Выполнено» when it performed real work.
 Attachment-only delivery on a continuation must not show technical internal-delivery

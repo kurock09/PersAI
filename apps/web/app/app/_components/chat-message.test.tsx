@@ -1521,18 +1521,20 @@ describe("ChatMessageBubble — pre-response status", () => {
     ).toBeTruthy();
   });
 
-  it("ADR-167: live USER_TURN shows note+receipt stream after answer text, not under badge", () => {
+  it("ADR-167: live USER_TURN shows note+receipt stream before the true answer text, not under badge", () => {
     const image = {
       ...makeImageAttachment("att-inline-1"),
       inlineAfterToolCallId: "call-img-1",
       sizeBytes: 1024 * 1024
     };
+    // Raw live content is the cumulative provider stream: the note prefix
+    // ("сейчас") plus the genuine post-tool-loop answer that follows it.
     render(
       <ChatMessageBubble
         chatId="chat-1"
         message={makeAssistantMessage({
           status: "streaming",
-          content: "Генерирую.",
+          content: "сейчас Пишу итоговый ответ.",
           workingNotes: ["сейчас"],
           toolInvocations: [
             { name: "image_generate", iteration: 0, ok: true, toolCallId: "call-img-1" }
@@ -1555,10 +1557,53 @@ describe("ChatMessageBubble — pre-response status", () => {
     const badge = screen.getByRole("button", { name: /Выполнено|Сгенерировано/ });
     // Live stream must not sit under the process badge above streamed replicas.
     expect(badge.contains(stream)).toBe(false);
-    const answer = screen.getByText("Генерирую.");
-    expect(answer.compareDocumentPosition(stream) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // The note prefix is stripped from live content — only the genuine
+    // post-tool-loop answer renders as content, and it must follow the
+    // note+receipt stream (the raw note text stays inside the stream only,
+    // it is not duplicated as answer text below).
+    const answer = screen.getByText("Пишу итоговый ответ.");
+    expect(stream.compareDocumentPosition(answer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     const cursor = screen.getByTestId("streaming-cursor");
-    expect(stream.compareDocumentPosition(cursor) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(answer.compareDocumentPosition(cursor) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("ADR-167: strips the raw workingNotes prefix from live content so answer text never duplicates notes", () => {
+    render(
+      <ChatMessageBubble
+        chatId="chat-1"
+        message={makeAssistantMessage({
+          status: "streaming",
+          // Raw cumulative stream: note 1 + note 2 + the real answer, with no
+          // reset between tool-loop iterations (matches production content).
+          content: "Готовлю генерацию.Генерация: круг.Итоговый ответ готов.",
+          workingNotes: ["Готовлю генерацию.", "Генерация: круг."]
+        })}
+      />
+    );
+
+    // Only the genuine post-tool-loop remainder renders as answer text.
+    expect(screen.getByText("Итоговый ответ готов.")).toBeInTheDocument();
+    expect(screen.queryByText(/^Готовлю генерацию\.Генерация/)).toBeNull();
+    const stream = screen.getByTestId("process-live-note-receipt-stream");
+    expect(stream).toHaveTextContent("Готовлю генерацию.");
+    expect(stream).toHaveTextContent("Генерация: круг.");
+  });
+
+  it("ADR-167: live content matching no workingNotes prefix renders unchanged (safe fallback)", () => {
+    render(
+      <ChatMessageBubble
+        chatId="chat-1"
+        message={makeAssistantMessage({
+          status: "streaming",
+          // workingNotes text was corrected/edited and no longer matches the
+          // raw stream exactly — must not swallow any text.
+          content: "Другой текст, не совпадающий с заметками.",
+          workingNotes: ["Заметка, которой нет в content."]
+        })}
+      />
+    );
+
+    expect(screen.getByText("Другой текст, не совпадающий с заметками.")).toBeInTheDocument();
   });
 
   it("ADR-167: live receipt banner opens the received image in the lightbox", () => {

@@ -954,6 +954,40 @@ function isContentBlock(text: string): boolean {
   return false;
 }
 
+/**
+ * Live `message.content` is the raw cumulative provider stream (every
+ * tool-loop step's text plus the final answer, concatenated with no reset
+ * at iteration/tool-call boundaries) — NOT the clean final-answer-only text
+ * the server persists at commit. Rendering that raw blob as "the answer"
+ * duplicates workingNotes narration inside content and makes any fixed
+ * before/after placement of the note+receipt stream wrong: notes the model
+ * wrote AFTER a receipt end up trapped inside the same growing blob as
+ * notes it wrote before, so the receipt always renders relative to the
+ * wrong half. Strip the exact workingNotes prefix (each note occurs once,
+ * in order, in the raw stream) so only genuine post-tool-loop answer text
+ * remains live. Committed messages already have clean answerText content,
+ * so the notes will not be found and this is a safe no-op.
+ */
+function deriveLiveAnswerText(content: string, workingNotes: readonly string[]): string {
+  let cursor = 0;
+  for (const note of workingNotes) {
+    if (note.length === 0) {
+      continue;
+    }
+    const idx = content.indexOf(note, cursor);
+    if (idx === -1) {
+      // Raw stream doesn't match the note prefix exactly (e.g. already-clean
+      // committed content, or a correction changed the text) — do not guess.
+      return content;
+    }
+    cursor = idx + note.length;
+  }
+  while (cursor < content.length && /\s/.test(content.charAt(cursor))) {
+    cursor += 1;
+  }
+  return content.slice(cursor);
+}
+
 function buildIterationBlocks(
   workingNotes: string[],
   toolInvocations: RuntimeTurnToolInvocation[],
@@ -2583,7 +2617,9 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
       return { iterationBlocks: [], answerText: message.content };
     }
     // workingNotes is the structured multi-step field from the server (one entry
-    // per tool-loop step); content is always the clean final answer.
+    // per tool-loop step). Committed content is the clean final answer, but
+    // live content is the raw cumulative stream (notes + answer); strip the
+    // notes prefix so only the true post-tool-loop answer renders as content.
     const workingNotes = Array.isArray(message.workingNotes)
       ? message.workingNotes.map((note) => note.trim()).filter((note) => note.length > 0)
       : [];
@@ -2610,7 +2646,7 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
         });
     return {
       iterationBlocks: buildIterationBlocks(workingNotes, toolInvocations, receiptAttachments),
-      answerText: message.content
+      answerText: deriveLiveAnswerText(message.content, workingNotes)
     };
   }, [
     message.attachments,
@@ -2849,22 +2885,21 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
             />
             {isStreaming ? (
               <>
-                {hasVisibleAnswerText ? (
-                  <StreamingMarkdownMessageContent
-                    content={assistantSegments.answerText}
-                    onAction={onAssistantAction}
-                  />
-                ) : null}
                 {hasLiveNoteOrReceipt ? (
-                  <div
-                    className={hasVisibleAnswerText ? "mt-2" : undefined}
-                    data-testid="process-live-note-receipt-anchor"
-                  >
+                  <div data-testid="process-live-note-receipt-anchor">
                     <ProcessNoteReceiptStream
                       pieces={liveProcessPieces}
                       chatId={chatId}
                       live
                       testId="process-live-note-receipt-stream"
+                    />
+                  </div>
+                ) : null}
+                {hasVisibleAnswerText ? (
+                  <div className={hasLiveNoteOrReceipt ? "mt-2" : undefined}>
+                    <StreamingMarkdownMessageContent
+                      content={assistantSegments.answerText}
+                      onAction={onAssistantAction}
                     />
                   </div>
                 ) : null}
@@ -2888,22 +2923,21 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
               </>
             ) : isAssistantReconciling ? (
               <>
-                {hasVisibleAnswerText ? (
-                  <MarkdownMessageContent
-                    content={assistantSegments.answerText}
-                    onAction={onAssistantAction}
-                  />
-                ) : null}
                 {hasLiveNoteOrReceipt ? (
-                  <div
-                    className={hasVisibleAnswerText ? "mt-2" : undefined}
-                    data-testid="process-live-note-receipt-anchor"
-                  >
+                  <div data-testid="process-live-note-receipt-anchor">
                     <ProcessNoteReceiptStream
                       pieces={liveProcessPieces}
                       chatId={chatId}
                       live
                       testId="process-live-note-receipt-stream"
+                    />
+                  </div>
+                ) : null}
+                {hasVisibleAnswerText ? (
+                  <div className={hasLiveNoteOrReceipt ? "mt-2" : undefined}>
+                    <MarkdownMessageContent
+                      content={assistantSegments.answerText}
+                      onAction={onAssistantAction}
                     />
                   </div>
                 ) : null}

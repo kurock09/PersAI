@@ -5,6 +5,23 @@
 
 ## 2026-07-30
 
+- **fix(web): strip raw workingNotes prefix from live content; stream before answer.**
+  Live browser DOM (MutationObserver capture, `persai.dev`) proved live
+  `message.content` is the raw cumulative provider stream (every tool-loop
+  step's text plus the final answer, concatenated with no reset at
+  iteration/tool-call boundaries) — not the clean answer-only text the
+  server persists at commit. Rendering that raw blob duplicated notes inside
+  `content`, so any fixed before/after placement of the note+receipt stream
+  put the receipt in the wrong spot once the model kept writing after image
+  delivery (screenshot: subsequent replica text glued to the streaming
+  cursor). `deriveLiveAnswerText()` strips the exact `workingNotes` prefix
+  (each note occurs once, in order, in the raw stream) so only the genuine
+  post-tool-loop answer renders as content; the note+receipt stream now
+  renders before that answer and before the cursor, matching commit-time
+  chronology (notes/receipts, then the real answer). Supersedes the
+  same-day "after streamed replicas" placement below, which only fixed the
+  case where the model wrote no narration after the receipt. ADR-167 D4.
+
 - **fix(web): live note+receipt stream after streamed replicas, not under badge.**
   Prod DOM showed mid-turn answer text in `streaming-markdown-live` below the
   process badge while «Получено…» pinned under the badge above it. Live stream

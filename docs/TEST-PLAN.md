@@ -13,11 +13,14 @@ ADR-072 is closed as the historical native migration ADR. Current continuation w
 - **Runtime wire:** `files.attach` registers via internal chat-attachments;
   null `messageId` binds the open ordinary USER_TURN assistant message; no
   second artifact on `already_delivered`.
-- **Web projection:** live notes+receipts share one stream after streamed
-  answer text / before the cursor (not under the process badge); after commit
-  that stream folds into the «Выполнено» expand; terminal strip below owns
-  attachments; async-cont attachment-only suppresses technical «Получено…»;
-  F5/tool order remains.
+- **Web projection:** live `message.content` is stripped of its raw
+  `workingNotes` prefix (the cumulative provider stream is notes+answer with
+  no per-iteration reset) so only the genuine answer renders as content; live
+  notes+receipts share one stream **before** that stripped answer text / before
+  the cursor (not under the process badge); after commit that stream folds
+  into the «Выполнено» expand; terminal strip below owns attachments;
+  async-cont attachment-only suppresses technical «Получено…»; F5/tool order
+  remains.
 - **Still required after this amend:** independent delivery-flow audit cleanup,
   full AGENTS.md gate + CI-like tests except SQL, commit/push, deploy, and
   authenticated mixed image/PDF live smoke.

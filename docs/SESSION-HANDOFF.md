@@ -1,18 +1,44 @@
 # SESSION-HANDOFF
 
-## 2026-07-30 — ADR-167 live receipts after replicas (local, uncommitted)
+## 2026-07-30 — ADR-167 live receipt root cause + strip fix (local, uncommitted)
 
-- **Baseline tip:** `6b6559c0`. Tree was clean; this slice dirty until commit.
-- **Browser DOM (prod `persai.dev`, thread `web-1785440038031`):** mid-live
-  bubble order was process badge → `streaming-markdown-live` replica
-  («Генерирую.») → status. Receipts under `process-live-note-receipt-stream`
-  pinned under the badge, so «Получено…» appeared above replicas. Committed
-  expand kept notes+receipts chrono inside «Выполнено».
-- **Fix:** ProcessBadge no longer hosts the live stream; bubble renders
-  `process-live-note-receipt-stream` after answer content / before cursor.
-  ADR-167 D4 + ARCHITECTURE/TEST-PLAN/CHANGELOG updated.
-- **Next:** focused chat-message tests + typecheck; commit/push/deploy; live
-  smoke that receipt sits below streamed replica during the open turn.
+- **Baseline tip:** `31405fac` (deployed to `persai-dev`, pods confirmed on
+  that tag). This slice is dirty on top of it until commit.
+- **Founder repro after `31405fac` deployed:** after the "Получено…" banner
+  landed in the right spot, subsequent replicas got glued to the streaming
+  cursor. First hypothesis (stale pre-deploy screenshot) was **wrong** — pod
+  uptime predated the screenshot, so the bug was real in `31405fac`.
+- **Root-cause method:** injected a `MutationObserver` via CDP into a live
+  `persai.dev` chat tab to log every DOM mutation with timestamps (polling
+  alone was too slow to catch the ~1–2s live window before terminal commit).
+  Four live image-generation repros; the 4th (with post-image narration)
+  caught the bug: the observer log showed the receipt rendering **after**
+  the model's entire final answer text, even though the image arrived
+  chronologically before that answer was written.
+- **Real root cause:** live `message.content` in `use-chat.ts` accumulates
+  every SSE text delta for the whole turn (`content: m.content + chunk`)
+  with no reset at tool-call/iteration boundaries — it is the raw cumulative
+  provider stream (notes + answer, concatenated), not the clean
+  answer-only text the server computes and persists at commit
+  (`assembleWorkingNotesAndAnswer` in `turn-execution.service.ts`, runtime
+  side, confirmed the split is answer-only there). The `chat-message.tsx`
+  comment claiming "content is always the clean final answer" was false
+  for the live case. Any static stream-before/after-content placement is
+  therefore wrong whenever the model narrates after a receipt.
+- **Fix:** added `deriveLiveAnswerText()` in `chat-message.tsx` — strips the
+  exact `workingNotes` prefix from live `content` (each note occurs once, in
+  order, in the raw stream; safe no-op fallback if it doesn't match, e.g.
+  already-clean committed content). Moved the note+receipt stream to render
+  **before** the (now-clean) answer text and before the cursor, in both the
+  `isStreaming` and `isAssistantReconciling` branches. ADR-167 D4 + docs
+  updated to describe the strip + new ordering.
+- **Tests:** `chat-message.test.tsx` 81/81 (updated the ordering test +
+  added two new tests for the strip behavior and its safe fallback);
+  `@persai/web` typecheck clean; no lint errors on touched files.
+- **Next:** commit/push, redeploy to `persai-dev`, then live-verify with the
+  same MutationObserver-in-browser technique on a turn that narrates both
+  before and after a media receipt, confirming stream-before-answer holds
+  and nothing regresses on the committed/folded «Выполнено» view.
 
 ## 2026-07-29 — ADR-167 delivery-flow cleanup audit (CLEAN, dirty tree)
 
