@@ -5,6 +5,56 @@
 
 ## 2026-07-30
 
+- **fix(web): outdated document version chips (v1/v2 when v3 exists) are no
+  longer clickable download links.** Founder report + live repro on
+  `persai.dev`: a revised document reuses the same canonical workspace
+  storage path on every version (ADR-132 single-door identity); the object
+  in storage is overwritten in place on each revision, and
+  `AssistantChatMessageAttachmentRepository.findByChatIdAndStoragePath`
+  (`orderBy: { createdAt: "desc" }`) always resolves that path to the
+  *latest* attachment row regardless of which historical (`v1`/`v2`/`v3`)
+  chip the user clicked. Confirmed by direct `fetch()` against three real
+  revisions: clicking `v1` or `v2` returned `409 Conflict` ("The requested
+  document version does not match this attachment anymore"); only the
+  current version's own link returned `200`. There is no immutable
+  per-version blob to serve even if the version check were bypassed — the
+  bytes are gone. Minimal, non-destructive fix (founder-selected scope):
+  render a superseded document attachment (`documentLink.isCurrentOutput
+  === false`) as a non-clickable pill with an `outdatedDocumentVersion`
+  tooltip instead of a broken download link, in both the attachment strip
+  and the inline `MediaReceiptLines` receipt banners. A durable fix (persist
+  each version's bytes at an immutable per-version object key) is a real
+  storage/data-model change and would need its own ADR — not done here.
+- **fix(web): live receipt banner ("🖼 Получено...") no longer renders above
+  narration the model already streamed.** Founder report ("баннер появился
+  выше" + exact desired behavior: image arrives → banner appears *below*
+  the last reply, then narration continues below the banner) confirmed live
+  on `persai.dev` via a fresh multi-step repro (image + PDF, narrated
+  waiting). Root cause: `ProcessNoteReceiptStream` (the live note+receipt
+  block) is a single, position-fixed block that always renders *before* the
+  streamed answer `content`. That is correct for receipts bound
+  ("claimed") to a real, already-narrated tool call — those are
+  chronologically earlier than the currently-streaming answer by
+  construction (`workingNotes` = pre-answer tool-loop text). It is wrong for
+  a receipt that never matched a known tool call ("unclaimed" — the
+  deferred job's `inlineMediaPlacement` binding is enqueue-time/
+  producing-tool-call-time, not delivery-time, and once the model has moved
+  past its tool loop into free-form narration that lands in `content`
+  instead of a fresh `workingNotes` entry, there is nothing left to bind
+  to): the banner rendered above narration the user had already read.
+  `buildIterationBlocks` now tags each receipt piece with `claimed:
+  boolean`. Live rendering (`chat-message.tsx`) splits `liveProcessPieces`
+  into `liveBeforeContentPieces` (text + claimed receipts, unchanged
+  position/testid `process-live-note-receipt-stream`) and
+  `liveUnclaimedReceipts`, rendered in a new block
+  (`process-live-unclaimed-receipt-stream`) *after* the streamed answer
+  text. Committed/collapsed "Выполнено" rendering is untouched (already
+  verified correct via live DOM capture on a real diagnostic chat: notes,
+  then claimed receipt, then unclaimed receipt, all before the terminal
+  answer). Does not fully solve arbitrary interleaving of many
+  notes/receipts/content chunks across a long turn (there is no unified
+  per-event sequence number yet) — flagged as a residual, not silently
+  claimed as complete.
 - **fix(runtime): restore model-owned-reply policy for deferred media/document
   jobs — regression from `d4bd3267` silently reverted it.** Founder report:
   asking the assistant to re-edit a photo produced a genuine reply ("поставил

@@ -601,6 +601,7 @@
     "uploadFailed": "Не удалось загрузить",
     "attachmentTooLarge": "Файл слишком большой. Максимальный размер — {limit} МБ.",
     "fileDeleted": "файл удалён",
+    "outdatedDocumentVersion": "заменено новой версией",
     "externalVideoDownload": "Скачать",
     "externalVideoDefaultName": "видео",
     "presentationDownloadPptxAction": "Скачать PPTX",

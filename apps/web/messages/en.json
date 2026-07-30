@@ -601,6 +601,7 @@
     "uploadFailed": "Upload failed",
     "attachmentTooLarge": "File is too large. Maximum size is {limit} MB.",
     "fileDeleted": "file deleted",
+    "outdatedDocumentVersion": "replaced by a newer version",
     "externalVideoDownload": "Download",
     "externalVideoDefaultName": "video",
     "presentationDownloadPptxAction": "Download PPTX",

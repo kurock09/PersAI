@@ -920,7 +920,15 @@ function MarkdownFragment({ content }: { content: string }) {
 type IterationProcessPiece =
   | { kind: "text"; markdown: string }
   | { kind: "tool"; tool: RuntimeTurnToolInvocation }
-  | { kind: "receipt"; attachment: ChatAttachment };
+  // `claimed` distinguishes a receipt bound to a real, already-narrated tool
+  // call (chronologically settled — belongs before any later content) from
+  // one that never matched a known tool call (arrived "just now", concurrent
+  // with whatever the model is currently saying in `content`/answer text).
+  // Live rendering needs this split: the note+receipt stream is a fixed
+  // block rendered before the streamed answer, so an unclaimed receipt that
+  // shows up while the model is already narrating its final answer must NOT
+  // render above text the user already saw — see `ChatMessageBubble`.
+  | { kind: "receipt"; attachment: ChatAttachment; claimed: boolean };
 
 type IterationBlock =
   | { kind: "content"; markdown: string }
@@ -1013,7 +1021,7 @@ function buildIterationBlocks(
       if (attachment.inlineAfterToolCallId !== toolCallId) {
         continue;
       }
-      allPieces.push({ kind: "receipt", attachment });
+      allPieces.push({ kind: "receipt", attachment, claimed: true });
       claimedReceiptIds.add(attachment.id);
     }
   };
@@ -1036,12 +1044,12 @@ function buildIterationBlocks(
   }
 
   // Placement-ordered receipts that did not match a tool call still join the
-  // same note/receipt stream in delivery order.
+  // same note/receipt stream in delivery order (unclaimed — see live split).
   for (const attachment of receiptAttachments) {
     if (claimedReceiptIds.has(attachment.id)) {
       continue;
     }
-    allPieces.push({ kind: "receipt", attachment });
+    allPieces.push({ kind: "receipt", attachment, claimed: false });
     claimedReceiptIds.add(attachment.id);
   }
 
@@ -1557,7 +1565,11 @@ function MediaReceiptLines({
           );
         }
 
-        if (urls.downloadUrl !== null) {
+        // Same single-door storage identity as the attachment strip: a
+        // superseded document version's own bytes no longer exist, so the
+        // link cannot honor its version label anymore. Render as plain text.
+        const isOutdatedDocumentVersion = attachment.documentLink?.isCurrentOutput === false;
+        if (urls.downloadUrl !== null && !isOutdatedDocumentVersion) {
           return (
             <a
               key={attachment.id}
@@ -1572,7 +1584,11 @@ function MediaReceiptLines({
         }
 
         return (
-          <div key={attachment.id} className={className}>
+          <div
+            key={attachment.id}
+            className={className}
+            title={isOutdatedDocumentVersion ? t("outdatedDocumentVersion") : undefined}
+          >
             {label}
           </div>
         );
@@ -2329,6 +2345,17 @@ function AttachmentStrip({
       if (!link) return null;
       return typeof link.versionNumber === "number" ? `v${link.versionNumber}` : null;
     })();
+    // A revised document reuses the same canonical workspace storage path on
+    // every version (ADR-132 single-door identity), so the object at that
+    // path is overwritten in place each time the document is redelivered.
+    // Once a newer version has been promoted (`isCurrentOutput` flips to
+    // `false` on every superseded attachment), the historical attachment's
+    // own bytes no longer exist anywhere — its `downloadUrl` either 409s
+    // (workspace_document, versionId is checked server-side) or silently
+    // resolves to whatever is current (presentation, versionId is not
+    // forwarded). Render superseded document chips as non-clickable instead
+    // of offering a download that cannot honor its own version label.
+    const isOutdatedDocumentVersion = link != null && link.isCurrentOutput === false;
 
     if (att.attachmentType === "image") {
       const fullUrl =
@@ -2478,7 +2505,11 @@ function AttachmentStrip({
         )}
         <span className={CHAT_FILE_PILL_FILENAME_CLASS}>{att.originalFilename ?? "File"}</span>
         <span className={CHAT_FILE_PILL_META_CLASS}>
-          {isUnavailable ? t("fileDeleted") : (progressLabel ?? formatBytes(att.sizeBytes))}
+          {isUnavailable
+            ? t("fileDeleted")
+            : isOutdatedDocumentVersion
+              ? t("outdatedDocumentVersion")
+              : (progressLabel ?? formatBytes(att.sizeBytes))}
         </span>
         {documentLabel ? (
           <span className="shrink-0 whitespace-nowrap rounded-full border border-border/70 bg-bg/70 px-1.5 py-0.5 text-[10px] font-medium text-text-subtle">
@@ -2496,11 +2527,12 @@ function AttachmentStrip({
         ? getAssistantDocumentPptxPrepareUrl(link.docId, { versionId: link.versionId })
         : null;
 
-    if (!downloadUrl) {
+    if (!downloadUrl || isOutdatedDocumentVersion) {
       return (
         <div
           key={att.id}
           aria-disabled="true"
+          title={isOutdatedDocumentVersion ? t("outdatedDocumentVersion") : undefined}
           className={cn(CHAT_FILE_PILL_SURFACE_CLASS, "opacity-55")}
         >
           {fileContent}
@@ -2680,9 +2712,29 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
       block.kind === "process" ? block.pieces : []
     );
   }, [assistantSegments.iterationBlocks, isAssistantLive]);
-  const hasLiveNoteOrReceipt = liveProcessPieces.some(
+  // A receipt that never matched a real narrated tool call ("unclaimed")
+  // arrived concurrently with whatever the model is currently saying in its
+  // answer text, not before it — narration the user already read must not
+  // get a banner shoved above it. Claimed receipts stay with their notes
+  // (legitimately earlier); unclaimed ones render after the answer text so
+  // far, then further narration/receipts keep appending below in arrival
+  // order (matches committed replay once the turn settles).
+  const liveBeforeContentPieces = useMemo(
+    () => liveProcessPieces.filter((piece) => !(piece.kind === "receipt" && !piece.claimed)),
+    [liveProcessPieces]
+  );
+  const liveUnclaimedReceipts = useMemo(
+    () =>
+      liveProcessPieces.filter(
+        (piece): piece is Extract<IterationProcessPiece, { kind: "receipt" }> =>
+          piece.kind === "receipt" && !piece.claimed
+      ),
+    [liveProcessPieces]
+  );
+  const hasLiveNoteOrReceipt = liveBeforeContentPieces.some(
     (piece) => piece.kind === "text" || piece.kind === "receipt"
   );
+  const hasLiveUnclaimedReceipt = liveUnclaimedReceipts.length > 0;
   const hasVisibleAnswerText = assistantSegments.answerText.trim().length > 0;
   const isStreamingTextActive = message.streamingTextActive === true;
   const showInlineStreamingStatus =
@@ -2888,7 +2940,7 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
                 {hasLiveNoteOrReceipt ? (
                   <div data-testid="process-live-note-receipt-anchor">
                     <ProcessNoteReceiptStream
-                      pieces={liveProcessPieces}
+                      pieces={liveBeforeContentPieces}
                       chatId={chatId}
                       live
                       testId="process-live-note-receipt-stream"
@@ -2900,6 +2952,19 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
                     <StreamingMarkdownMessageContent
                       content={assistantSegments.answerText}
                       onAction={onAssistantAction}
+                    />
+                  </div>
+                ) : null}
+                {hasLiveUnclaimedReceipt ? (
+                  <div
+                    className={hasLiveNoteOrReceipt || hasVisibleAnswerText ? "mt-2" : undefined}
+                    data-testid="process-live-unclaimed-receipt-anchor"
+                  >
+                    <ProcessNoteReceiptStream
+                      pieces={liveUnclaimedReceipts}
+                      chatId={chatId}
+                      live
+                      testId="process-live-unclaimed-receipt-stream"
                     />
                   </div>
                 ) : null}
@@ -2926,7 +2991,7 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
                 {hasLiveNoteOrReceipt ? (
                   <div data-testid="process-live-note-receipt-anchor">
                     <ProcessNoteReceiptStream
-                      pieces={liveProcessPieces}
+                      pieces={liveBeforeContentPieces}
                       chatId={chatId}
                       live
                       testId="process-live-note-receipt-stream"
@@ -2938,6 +3003,19 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
                     <MarkdownMessageContent
                       content={assistantSegments.answerText}
                       onAction={onAssistantAction}
+                    />
+                  </div>
+                ) : null}
+                {hasLiveUnclaimedReceipt ? (
+                  <div
+                    className={hasLiveNoteOrReceipt || hasVisibleAnswerText ? "mt-2" : undefined}
+                    data-testid="process-live-unclaimed-receipt-anchor"
+                  >
+                    <ProcessNoteReceiptStream
+                      pieces={liveUnclaimedReceipts}
+                      chatId={chatId}
+                      live
+                      testId="process-live-unclaimed-receipt-stream"
                     />
                   </div>
                 ) : null}

@@ -1,6 +1,93 @@
 # SESSION-HANDOFF
 
-## 2026-07-30 — two post-processing regressions fixed (local, uncommitted)
+## 2026-07-30 — document-version dead links + live receipt-above-narration fix
+
+- **Baseline tip:** `457c7b44` (the two post-processing regressions below,
+  already committed and pushed). This slice is dirty on top of it until
+  commit.
+- **Task 1 — founder ask: "check whether v1/v2 document links download v3
+  instead of their own version."** Live-verified on `persai.dev`: created a
+  PDF, revised it twice (v1→v2→v3), fetched all three attachment links
+  directly. **v1 and v2 both return `409 Conflict`** ("The requested
+  document version does not match this attachment anymore"); only v3 (the
+  current version) returns `200`. Not literally "downloads v3" as founder
+  first described from memory — it is a dead link, confirmed by direct
+  `fetch()`, not a silent wrong-content download.
+  - **Root cause:** a revised document reuses the *same* canonical
+    workspace storage path across every version (ADR-132 single-door
+    identity) — the object in GCS storage is physically overwritten in
+    place on each revision. `PrismaAssistantChatMessageAttachmentRepository
+    .findByChatIdAndStoragePath` resolves `(chatId, storagePath)` via
+    `findFirst(... orderBy: { createdAt: "desc" })`, which always returns
+    the *latest* attachment row for that path — the version check in
+    `MediaDeliveryService.assertRequestedDocumentVersionAccessible` then
+    correctly rejects any `versionId` that isn't the latest one's, hence
+    `409`. Even bypassing that check would not help: the old bytes are
+    gone, overwritten at the same object key.
+  - **Fix scope (founder-selected, "ux_only" of 3 options offered):**
+    render a superseded document attachment
+    (`documentLink.isCurrentOutput === false`) as a **non-clickable** pill
+    (both the bottom attachment strip and inline `MediaReceiptLines`
+    banners), with an `outdatedDocumentVersion` tooltip/meta label, instead
+    of offering a link that 409s. Declined options: persisting an
+    immutable per-version blob (real storage/data-model change, needs its
+    own ADR) and doing nothing.
+  - **Not done / residual:** the presentation PDF path
+    (`documentType === "presentation"`) never forwards `versionId` to
+    `buildChatFileUrl` at all today, so an outdated presentation PDF link
+    would *not* 409 — it would silently resolve to the latest content
+    through the same storagePath lookup. The new `isCurrentOutput` guard
+    covers this too (applies regardless of `documentType`), so this residual
+    is closed by the same fix, not left open.
+- **Task 2 — founder fury: "banner appears above narration, not below the
+  last reply, 12th attempt."** Live-reproduced on a fresh diagnostic chat
+  (image + PDF, narrated waiting) by polling
+  `[data-testid="process-live-note-receipt-stream"]` every ~1.2s while the
+  turn streamed. Confirmed: when the model's play-by-play narration
+  ("Генерирую...", "Жду результат.") streams as the final `content` (post
+  tool-loop answer text) rather than as separate `workingNotes` entries —
+  which happens whenever the model does not call another tool between
+  kicking off the deferred job and finishing its reply — the async image
+  delivery has no real tool call left to bind to
+  (`inlineMediaPlacement`/`inlineAfterToolCallId` unclaimed). The live
+  note+receipt stream (`ProcessNoteReceiptStream`) is one position-fixed
+  block that always rendered *before* the streamed answer text, so the
+  banner landed above narration the user had already read.
+  - **Fix:** `buildIterationBlocks` (`chat-message.tsx`) now tags every
+    receipt piece `claimed: boolean` (bound to a real narrated tool call =
+    `true`, fallback/unmatched = `false`). Live rendering splits pieces into
+    `liveBeforeContentPieces` (text + claimed receipts — unchanged position,
+    testid `process-live-note-receipt-stream`) and `liveUnclaimedReceipts`,
+    rendered in a **new** block (testid
+    `process-live-unclaimed-receipt-stream`) placed *after* the streamed
+    answer text. Applied to both the `isStreaming` and `isAssistantReconciling`
+    branches.
+  - **Verified NOT broken:** committed/collapsed "Выполнено" rendering —
+    confirmed via the same live DOM capture (a real diagnostic chat) that
+    order is already correct there (notes, claimed receipt, unclaimed
+    receipt, all before the terminal top-level answer); left untouched.
+  - **Known residual, stated plainly to founder:** this does not solve
+    arbitrary interleaving of *many* notes + receipts + content chunks
+    across one long turn — there is still no unified per-event sequence
+    number across `workingNotes[]` / `content` / `attachments[]` /
+    `inlineMediaPlacement[]`. If the founder still sees banners in the wrong
+    relative slot for a turn with several async deliveries spread across a
+    long narration, the durable fix is a real per-event sequence/timestamp
+    model, not another position heuristic — flag before attempting a 13th
+    heuristic patch.
+- **Gate run this session:** `chat-message.test.tsx` 82/82 green (added 1
+  regression test, updated 1 stale-testid assertion); `@persai/web`,
+  `@persai/api` typecheck clean; repo-wide lint clean; `format:check` clean.
+- **Files touched:** `apps/web/app/app/_components/chat-message.tsx`,
+  `apps/web/app/app/_components/chat-message.test.tsx`,
+  `apps/web/messages/en.json`, `apps/web/messages/ru.json`.
+- **Next:** commit + push (deploy/live-verify both fixes on `persai.dev`:
+  (1) create a document, revise it 2×, confirm v1/v2 chips are greyed-out/
+  non-clickable while v3 downloads; (2) repeat the image+narration live
+  repro and confirm the banner now renders below the narration instead of
+  above it).
+
+## 2026-07-30 — two post-processing regressions fixed (committed `457c7b44`, pushed)
 
 - **Baseline tip:** `a7136051` (the `deriveLiveAnswerText` stream-ordering
   fix below, already committed). This slice is dirty on top of it.

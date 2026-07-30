@@ -1834,9 +1834,51 @@ describe("ChatMessageBubble — pre-response status", () => {
     );
 
     expect(screen.queryByTestId("attachment-strip")).toBeNull();
-    expect(screen.getByTestId("process-live-note-receipt-stream")).toHaveTextContent(
+    // The narrated note ("жду") never bound to this receipt's tool call, so
+    // it is unclaimed: it renders in its own after-notes stream instead of
+    // being bundled ahead of/inside the settled note stream (regression
+    // guard for the banner-above-narration bug).
+    expect(screen.getByTestId("process-live-note-receipt-stream")).toHaveTextContent("жду");
+    expect(screen.getByTestId("process-live-unclaimed-receipt-stream")).toHaveTextContent(
       /Получено изображение.*генерация.*1\.0 MB/
     );
+  });
+
+  it("regression: a receipt that arrives while the model is already narrating its answer renders below that narration, not above it", () => {
+    // Live repro (persai.dev, 2026-07-30): the model finishes its tool loop
+    // and starts streaming its final answer text ("Генерирую...", "Жду
+    // результат.") as `content`, not as separate `workingNotes` — so by the
+    // time the async image job delivers, there is no narrated tool call left
+    // for the receipt to bind to (unclaimed). The banner must not render
+    // above narration the user already read.
+    const image = {
+      ...makeImageAttachment("att-mid-narration-1"),
+      sizeBytes: 1024 * 1024
+    };
+    render(
+      <ChatMessageBubble
+        chatId="chat-1"
+        message={makeAssistantMessage({
+          status: "streaming",
+          content: "Генерирую изображение. Жду результат.",
+          workingNotes: [],
+          toolInvocations: [
+            { name: "image_generate", iteration: 0, ok: true, toolCallId: "call-img-1" }
+          ],
+          attachments: [image]
+        })}
+      />
+    );
+
+    expect(screen.queryByTestId("process-live-note-receipt-stream")).toBeNull();
+    const answer = screen.getByText(/Генерирую изображение\. Жду результат\./);
+    const receiptStream = screen.getByTestId("process-live-unclaimed-receipt-stream");
+    expect(receiptStream).toHaveTextContent(/Получено изображение.*генерация.*1\.0 MB/);
+    // DOM order is render order here (no CSS reordering in this component) —
+    // the answer text node must precede the receipt stream container.
+    expect(
+      answer.compareDocumentPosition(receiptStream) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
   });
 
   it("ADR-167: async-cont delivery-only bubble suppresses technical Получено receipts", () => {
