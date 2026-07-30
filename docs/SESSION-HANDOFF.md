@@ -1,5 +1,102 @@
 # SESSION-HANDOFF
 
+## 2026-07-30 — two post-processing regressions fixed (local, uncommitted)
+
+- **Baseline tip:** `a7136051` (the `deriveLiveAnswerText` stream-ordering
+  fix below, already committed). This slice is dirty on top of it.
+- **Founder report (two regressions + a suspicion of more):**
+  1. Asking the assistant to re-edit a photo produced a genuine, specific
+     reply, which then got overwritten by the generic "Запрос принят.
+     Редактирую изображение и пришлю его отдельно, когда оно будет готово."
+     Founder had *already* asked for this exact behavior before (normalize
+     only when the model says literally nothing alongside a deferred job).
+  2. An inline image delivered mid-turn visibly disappeared (replaced by
+     "Думаю…") during catch-up narration, reappearing only after the final
+     reply.
+  3. Founder: "таких пост обработок больше чем я заметил сейчас выше" —
+     suspects more of these exist; flagged for future attention, not chased
+     further this session (see Residuals below).
+- **Regression 1 root cause:** the 2026-06-22 model-owned-reply policy
+  (preserve non-empty model text verbatim alongside a `pending_delivery`
+  media/document job; canonical "Запрос принят…" text is a fallback for
+  *empty* text only) was silently reverted by an unrelated commit `d4bd3267`
+  ("fix: restore canonical deferred delivery", 2026-07-20) — a drive-by
+  side effect in the same ~10k-line `turn-execution.service.ts` while fixing
+  three unrelated things (Telegram ack replay, document sandbox staging,
+  DeepSeek empty-tools 400). Both
+  `applyDeferredMediaAcknowledgementCorrection` and
+  `applyDeferredDocumentAcknowledgementCorrection` lost their
+  `if (normalizedText.length > 0) return normalizedText;` guard, reverting
+  to the pre-2026-06-22 unconditional overwrite.
+  - **Why nothing caught it:** `deferred-media-acknowledgement.test.ts` and
+    `deferred-document-acknowledgement.test.ts` — the only tests pinning the
+    non-empty-preserve contract — were **never registered** in
+    `run-suite-isolated.ts`. That file is a hand-curated
+    `{ modulePath, exportName }` allowlist, not a glob, so
+    `pnpm --filter @persai/runtime test` silently never ran them. Diffing
+    every `*.test.ts` in `apps/runtime/test` against the registered list
+    found **38 orphaned files total** — a much bigger latent gap than just
+    these two (list captured during this session; not reproduced here to
+    avoid drift — regenerate via `Compare-Object` against the `modulePath`
+    values in `run-suite-isolated.ts` if needed).
+  - **Fix:** restored both `length > 0` guards with clarifying comments.
+    Registered the 2 directly-relevant files via a new
+    `mode: "node-test"` entry kind in `run-suite-isolated.ts` (spawns
+    `tsx --test <file>` for files that use bare `describe`/`test` instead of
+    an exported run function — these two were never written to the
+    exported-function convention, so they could not use the normal
+    `exportName` entries). Fixed 5 stale assertions in
+    `turn-execution.service.test.ts` (`turn-execution.service.test.ts` lines
+    around image_generate/video_generate/image_edit×3 deferred-job cases)
+    that had baked the regressed overwrite behavior into their expected
+    values instead of the model's actual non-empty fixture text.
+  - **Residual:** the other 36 orphaned test files were not triaged or
+    registered this session — deliberately out of scope (bounded slice);
+    some may currently be red against `main` and need individual triage
+    before registration. Recommended next step: a dedicated slice to audit
+    all 38, register the ones that pass, and fix/quarantine the ones that
+    don't, rather than doing it as a drive-by.
+- **Regression 2 root cause:** `applyTurnStatusState` in `use-chat.ts`
+  handles the "accepted"/"running" branch of `turn_status`, which fires on
+  every server-pushed status event over the live reattach bus (`onTurnStatus`
+  in the SSE handler) — not only on reconnect/reattach. In the *ordinary*
+  (non-async-continuation) branch, `preservedAttachments` was hardcoded to
+  `undefined`, and the message-rebuild spread ended with
+  `{ attachments: undefined }` — unconditionally wiping the live bubble's
+  attachments on every such reconcile, even when `fallbackAssistantMessage`
+  (== the actual already-live bubble, `existingAssistant`) already carried a
+  mid-turn delivered image. The `undefined` reset was only meant to guard
+  the *no-existing-bubble* case (a brand-new pending slot for a new turn);
+  it fired even when a live bubble with real media was found.
+  - **Fix:** `preservedAttachments` in the ordinary branch now falls back to
+    `fallbackAssistantMessage.attachments` (previously hardcoded
+    `undefined`), so an already-live bubble's mid-turn media survives every
+    "running" reconcile instead of flashing away until the next terminal
+    snapshot.
+  - **Not unit-tested:** `use-chat.ts` (the whole hook) has zero existing
+    unit test coverage in this repo (`applyTurnStatusState` is private,
+    un-exported, and there is no mock harness for the reattach bus /
+    turn_status SSE plumbing to extend). Verified by code-path tracing only
+    this session; recommend live re-verification on `persai.dev` with a
+    prompt that triggers mid-turn image delivery followed by continued
+    narration (same class of repro as the 2026-07-30 receipt-ordering fix
+    below), watching for the image staying visible throughout.
+- **Gate run this session:** full `@persai/runtime` test suite green
+  (including the 2 newly-registered files); `@persai/runtime`,
+  `@persai/api`, `@persai/web` typecheck clean; lint clean on touched files;
+  `format:check` clean (whole repo).
+- **Files touched:** `apps/runtime/src/modules/turns/turn-execution.service.ts`,
+  `apps/runtime/test/turn-execution.service.test.ts`,
+  `apps/runtime/test/run-suite-isolated.ts`,
+  `apps/web/app/app/_components/use-chat.ts`.
+- **Next:** commit (push only if founder explicitly asks); deploy to
+  `persai-dev`; live-verify both fixes on `persai.dev` — (1) ask for a photo
+  re-edit and confirm the assistant's own reply text survives verbatim next
+  to the pending pill instead of collapsing to "Запрос принят…"; (2) trigger
+  an image delivery followed by continued narration and confirm the image
+  never disappears mid-turn. Then decide whether to open a dedicated slice
+  for the 36 remaining orphaned runtime test files.
+
 ## 2026-07-30 — ADR-167 live receipt root cause + strip fix (local, uncommitted)
 
 - **Baseline tip:** `31405fac` (deployed to `persai-dev`, pods confirmed on

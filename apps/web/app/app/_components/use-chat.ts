@@ -3498,15 +3498,23 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
             : statusAssistantMessage !== null && !primaryStreamStillOwnsTurn
               ? statusAssistantMessage.id
               : fallbackAssistantMessage.id;
-        // Ordinary user-turn status must not stick older media onto a new
-        // pending local bubble. Async-cont overlays the publish row and must
-        // preserve attachments already committed on that id (ADR-162 P4).
+        // Ordinary user-turn status must not stick older media onto a brand
+        // new pending local bubble (no existingAssistant found — the
+        // `local-assistant-${clientTurnId}` default fallback has no
+        // attachments field to begin with). But when `existingAssistant` WAS
+        // found, `fallbackAssistantMessage` IS that live bubble, and its
+        // attachments (if any) are mid-turn media already delivered on this
+        // very turn — a "running" reattach/reconcile must preserve them, not
+        // wipe the image while the turn keeps narrating/continuing (it would
+        // otherwise disappear until the next terminal snapshot). Async-cont
+        // overlays the publish row and must preserve attachments already
+        // committed on that id (ADR-162 P4).
         const preservedAttachments =
           publishAssistantId !== null
             ? (fallbackAssistantMessage.attachments ??
               statusAssistantMessage?.attachments ??
               committedPublishRow?.attachments)
-            : undefined;
+            : fallbackAssistantMessage.attachments;
         // Preserve attachment identity/ordering only; receipt presentation is now
         // derived entirely by the renderer from message status + attachments.
         const liveAssistantMessage: ChatMessage = {

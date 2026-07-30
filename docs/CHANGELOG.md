@@ -5,6 +5,52 @@
 
 ## 2026-07-30
 
+- **fix(runtime): restore model-owned-reply policy for deferred media/document
+  jobs — regression from `d4bd3267` silently reverted it.** Founder report:
+  asking the assistant to re-edit a photo produced a genuine reply ("поставил
+  в очередь фото, теперь осетр будет больше…") that then got overwritten by
+  the generic "Запрос принят. Редактирую изображение и пришлю его отдельно…"
+  fallback. Root cause: the 2026-06-22 model-owned-reply policy
+  (`applyDeferredMediaAcknowledgementCorrection` /
+  `applyDeferredDocumentAcknowledgementCorrection` preserve any non-empty
+  model text alongside a `pending_delivery` job; canonical text is a fallback
+  for empty text only) was silently reverted by an unrelated `2026-07-20`
+  commit ("fix: restore canonical deferred delivery") that bundled three
+  unrelated fixes and, as a drive-by side effect in the same large file,
+  deleted both `if (normalizedText.length > 0) return normalizedText;`
+  guards — restoring the pre-2026-06-22 unconditional overwrite. **This
+  regression was invisible to the standard gate because
+  `deferred-media-acknowledgement.test.ts` and
+  `deferred-document-acknowledgement.test.ts` — the only tests that pinned
+  the non-empty-preserved contract — were never registered in
+  `run-suite-isolated.ts`** (a hand-curated allowlist, not a glob); `pnpm
+  --filter @persai/runtime test` never ran them. A repo-wide diff found 38
+  test files with this problem in total; this fix registers the 2 files
+  actually relevant to this regression under a new `mode: "node-test"` path
+  in the runner (spawns `tsx --test <file>` for files using bare
+  `describe`/`test` instead of the exported-function convention) and fixes 5
+  stale assertions in `turn-execution.service.test.ts` that had baked the
+  regressed (wrong) overwrite behavior into their expected values. The other
+  36 orphaned test files are a separate, larger follow-up (flagged, not
+  fixed here — see SESSION-HANDOFF).
+- **fix(web): ordinary "running" turn-status reconcile no longer wipes
+  mid-turn media attachments.** Founder report: an inline image delivered
+  mid-turn visibly disappeared (replaced by "Думаю…") during catch-up
+  narration and only reappeared after the final reply. Root cause in
+  `applyTurnStatusState` (`use-chat.ts`): for the *ordinary* (non-async-
+  continuation) branch of the "accepted"/"running" reattach/reconcile path —
+  which fires on every server-pushed `turn_status` event over the live
+  reattach bus, not only on reconnect — `preservedAttachments` was
+  unconditionally `undefined` and the message spread ended with
+  `{ attachments: undefined }`, discarding attachments already on the live
+  bubble (`fallbackAssistantMessage`/`existingAssistant`) even when that
+  bubble already carried mid-turn delivered media. The `undefined` reset was
+  only supposed to guard the case where no existing live bubble was found
+  (brand-new pending slot for a new turn); it fired unconditionally instead.
+  Fix: `preservedAttachments` now falls back to
+  `fallbackAssistantMessage.attachments` in the ordinary branch too, so an
+  already-live bubble's mid-turn media survives every reconcile until a
+  terminal snapshot legitimately replaces it.
 - **fix(web): strip raw workingNotes prefix from live content; stream before answer.**
   Live browser DOM (MutationObserver capture, `persai.dev`) proved live
   `message.content` is the raw cumulative provider stream (every tool-loop

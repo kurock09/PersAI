@@ -5641,6 +5641,15 @@ export class TurnExecutionService {
     if (deferredMediaJobs.length === 0 || artifacts.length > 0) {
       return normalizedText;
     }
+    // Model-owned-reply policy: any non-empty model text alongside a deferred
+    // media job is preserved verbatim (including a mixed accepted+rejected
+    // explanation). The canonical "Запрос принят…" line is strictly a
+    // fallback for the rare case where the model said nothing at all.
+    // Honesty about pending delivery stays enforced upstream via
+    // buildDeferredMediaFollowUpInstruction / DELIVERY_HONESTY_CONTRACT.
+    if (normalizedText.length > 0) {
+      return normalizedText;
+    }
     return this.buildDeferredMediaAcknowledgement(locale, deferredMediaJobs);
   }
 
@@ -5652,6 +5661,14 @@ export class TurnExecutionService {
   ): string {
     const normalizedText = this.normalizeOptionalText(assistantText) ?? "";
     if (deferredDocumentJobs.length === 0 || artifacts.length > 0) {
+      return normalizedText;
+    }
+    // Model-owned-reply policy: any non-empty model text alongside a deferred
+    // document job is preserved verbatim. The canonical "Запрос принят…" line
+    // is strictly a fallback for the rare case where the model said nothing
+    // at all. Honesty about pending delivery stays enforced upstream via
+    // buildDeferredDocumentFollowUpInstruction / DELIVERY_HONESTY_CONTRACT.
+    if (normalizedText.length > 0) {
       return normalizedText;
     }
     return this.buildDeferredDocumentAcknowledgement(locale, deferredDocumentJobs);

@@ -3,7 +3,16 @@ import path from "node:path";
 
 const tsxCliPath = require.resolve("tsx/cli");
 
-const TESTS: Array<{ modulePath: string; exportName: string }> = [
+type TestEntry =
+  | { modulePath: string; exportName: string; mode?: undefined }
+  // `mode: "node-test"` runs the whole file under Node's built-in test
+  // runner (`tsx --test <file>`) for files written with bare `describe`/
+  // `test` from `node:test` instead of exporting a named async run
+  // function. Use only for files that cannot be trivially converted to
+  // the exportName convention.
+  | { modulePath: string; exportName?: undefined; mode: "node-test" };
+
+const TESTS: TestEntry[] = [
   { modulePath: "./runtime-config.test.ts", exportName: "runRuntimeConfigTest" },
   {
     modulePath: "./runtime-bundle-coordinator.service.test.ts",
@@ -256,21 +265,31 @@ const TESTS: Array<{ modulePath: string; exportName: string }> = [
   {
     modulePath: "./runtime-text-only-multimodal-sanitizer.test.ts",
     exportName: "runRuntimeTextOnlyMultimodalSanitizerTest"
-  }
+  },
+  // Regression guard (2026-07-30): these two files were never registered in
+  // this suite, so a 2026-07-20 unrelated edit silently reverted the
+  // model-owned-reply policy (any non-empty model text alongside a deferred
+  // media/document job must be preserved verbatim; the canonical "Запрос
+  // принят…" line is a fallback for empty text only) without any test
+  // failing anywhere in the standard gate. Register them so this cannot
+  // regress silently again.
+  { modulePath: "./deferred-media-acknowledgement.test.ts", mode: "node-test" },
+  { modulePath: "./deferred-document-acknowledgement.test.ts", mode: "node-test" }
 ];
 
-function runOneTest(modulePath: string, exportName: string): Promise<void> {
+function runOneTest(entry: TestEntry): Promise<void> {
   return new Promise((resolve, reject) => {
-    const absoluteModulePath = path.resolve(__dirname, modulePath);
-    const child = spawn(
-      process.execPath,
-      [tsxCliPath, path.resolve(__dirname, "run-one.ts"), absoluteModulePath, exportName],
-      {
-        cwd: path.resolve(__dirname, ".."),
-        stdio: "inherit",
-        env: process.env
-      }
-    );
+    const absoluteModulePath = path.resolve(__dirname, entry.modulePath);
+    const modulePath = entry.modulePath;
+    const args =
+      entry.mode === "node-test"
+        ? [tsxCliPath, "--test", absoluteModulePath]
+        : [tsxCliPath, path.resolve(__dirname, "run-one.ts"), absoluteModulePath, entry.exportName];
+    const child = spawn(process.execPath, args, {
+      cwd: path.resolve(__dirname, ".."),
+      stdio: "inherit",
+      env: process.env
+    });
     child.on("error", reject);
     child.on("exit", (code, signal) => {
       if (code === 0) {
@@ -279,9 +298,9 @@ function runOneTest(modulePath: string, exportName: string): Promise<void> {
       }
       reject(
         new Error(
-          `Runtime test ${path.basename(modulePath)} (${exportName}) failed with code ${
-            code ?? "null"
-          } signal ${signal ?? "none"}.`
+          `Runtime test ${path.basename(modulePath)} (${
+            entry.exportName ?? "node-test"
+          }) failed with code ${code ?? "null"} signal ${signal ?? "none"}.`
         )
       );
     });
@@ -290,7 +309,7 @@ function runOneTest(modulePath: string, exportName: string): Promise<void> {
 
 async function run(): Promise<void> {
   for (const test of TESTS) {
-    await runOneTest(test.modulePath, test.exportName);
+    await runOneTest(test);
   }
 }
 
