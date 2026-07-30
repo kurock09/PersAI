@@ -28,7 +28,8 @@ import {
 } from "./assistant-document-job-failure-copy.service";
 import {
   buildAssistantDocumentLinkMetadata,
-  normalizeDocumentWorkspaceFacts
+  normalizeDocumentWorkspaceFacts,
+  updateDocumentAttachmentCurrentness
 } from "./assistant-document-link-metadata";
 import { AssistantAsyncJobHandleStateService } from "./assistant-async-job-handle-state.service";
 import { WebChatLiveTurnPresentService } from "./web-chat-live-turn-present.service";
@@ -444,7 +445,7 @@ export class AssistantDocumentJobDeliveryService {
         const inlineAwait =
           inlineHandle?.narrationOwner === "current_turn" &&
           inlineHandle.narrationDecision === "current_turn_inline";
-        // ADR-162 — only await-inline may invent/reuse a turn bubble here.
+        // ADR-162 вЂ” only await-inline may invent/reuse a turn bubble here.
         // Ordinary owned-handle jobs are deferred above.
         if (!inlineAwait && inlineHandle !== null) {
           throw new Error(
@@ -470,7 +471,7 @@ export class AssistantDocumentJobDeliveryService {
         if (reusedTurnMessage !== null) {
           completionAssistantMessageId = reusedTurnMessage.id;
         } else if (inlineAwait) {
-          // Await same-bubble: empty content (no "Preparing…" invent).
+          // Await same-bubble: empty content (no "PreparingвЂ¦" invent).
           const completionMessage = await this.assistantChatRepository.createMessage({
             chatId: job.chatId,
             assistantId: job.assistantId,
@@ -776,7 +777,7 @@ export class AssistantDocumentJobDeliveryService {
   }
 
   /**
-   * ADR-162 — artifact durability + quota + handle ready without chat invent.
+   * ADR-162 вЂ” artifact durability + quota + handle ready without chat invent.
    * Attachments wait for ConversationalPublish at catch-up present.
    */
   private async finalizeOrdinaryDeferredWithoutChat(input: {
@@ -982,7 +983,7 @@ export class AssistantDocumentJobDeliveryService {
         : "";
     if (cached.length > 0) {
       this.logger.log(
-        `[document-delivery-framing-cached] jobId=${input.job.id} reusing cached framed completion text (length=${String(cached.length)}) — skipping provider framing call.`
+        `[document-delivery-framing-cached] jobId=${input.job.id} reusing cached framed completion text (length=${String(cached.length)}) вЂ” skipping provider framing call.`
       );
       return { text: cached, payload: input.payload };
     }
@@ -1300,7 +1301,7 @@ export class AssistantDocumentJobDeliveryService {
         data: { status: candidateWins ? "ready" : "superseded" }
       });
       if (!candidateWins) {
-        await this.updateDocumentAttachmentCurrentness(tx, {
+        await updateDocumentAttachmentCurrentness(tx, {
           docId: job.docId,
           versionId: job.versionId,
           versionStatus: "superseded",
@@ -1319,7 +1320,7 @@ export class AssistantDocumentJobDeliveryService {
             status: "superseded"
           }
         });
-        await this.updateDocumentAttachmentCurrentness(tx, {
+        await updateDocumentAttachmentCurrentness(tx, {
           docId: job.docId,
           versionId: previousVersionId,
           versionStatus: "superseded",
@@ -1333,7 +1334,7 @@ export class AssistantDocumentJobDeliveryService {
           status: "ready"
         }
       });
-      await this.updateDocumentAttachmentCurrentness(tx, {
+      await updateDocumentAttachmentCurrentness(tx, {
         docId: job.docId,
         versionId: job.versionId,
         versionStatus: "ready",
@@ -1355,49 +1356,6 @@ export class AssistantDocumentJobDeliveryService {
       });
     }
     return finalized;
-  }
-
-  private async updateDocumentAttachmentCurrentness(
-    tx: unknown,
-    input: {
-      docId: string;
-      versionId: string;
-      versionStatus: "ready" | "superseded";
-      isCurrentOutput: boolean;
-      attachmentIds?: string[];
-    }
-  ): Promise<void> {
-    const client = tx as {
-      $executeRaw?: <T = unknown>(query: Prisma.Sql) => Promise<T>;
-    };
-    if (typeof client.$executeRaw !== "function") {
-      // Prisma transaction clients always expose $executeRaw. This lets
-      // narrow legacy unit doubles exercise finalization state independently.
-      return;
-    }
-    const attachmentClause =
-      input.attachmentIds !== undefined && input.attachmentIds.length > 0
-        ? Prisma.sql`AND "id" IN (${Prisma.join(input.attachmentIds.map((id) => Prisma.sql`${id}::uuid`))})`
-        : Prisma.empty;
-    await client.$executeRaw(Prisma.sql`
-      UPDATE "assistant_chat_message_attachments"
-      SET "metadata" = jsonb_set(
-        jsonb_set(
-          COALESCE("metadata", '{}'::jsonb),
-          '{documentLink,versionStatus}',
-          to_jsonb(${input.versionStatus}::text),
-          true
-        ),
-        '{documentLink,isCurrentOutput}',
-        to_jsonb(${input.isCurrentOutput}::boolean),
-        true
-      )
-      WHERE "metadata" @> jsonb_build_object(
-        'documentLink',
-        jsonb_build_object('docId', ${input.docId}::text, 'versionId', ${input.versionId}::text)
-      )
-      ${attachmentClause}
-    `);
   }
 
   private async tryLlmAuthoredFailureCopy(input: {
@@ -1551,7 +1509,7 @@ export class AssistantDocumentJobDeliveryService {
     payload: PersistedDeliveryPayload | null,
     completionAssistantMessageId: string | null
   ): Promise<void> {
-    // ADR-162 — ordinary owned non-inline failures: no worker chat invent.
+    // ADR-162 вЂ” ordinary owned non-inline failures: no worker chat invent.
     // Catch-up ConversationalPublish + narration/settle owns failure visibility
     // (mirrors media failDelivery defer pattern).
     if (await this.shouldDeferConversationalPublish(job.id)) {
@@ -1664,7 +1622,7 @@ export class AssistantDocumentJobDeliveryService {
           message: "Job failed."
         }
       });
-      // ADR-165 D6 — clear Working mid-turn on document terminal failure too.
+      // ADR-165 D6 вЂ” clear Working mid-turn on document terminal failure too.
       await this.publishOpenJobsIfOpenTurn(job, payload ?? null);
     }
     this.logger.warn(`Document delivery failed for ${job.id}: ${message}`);

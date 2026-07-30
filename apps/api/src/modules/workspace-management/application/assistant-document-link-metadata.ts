@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import type {
   AssistantDocumentDescriptorMode,
   AssistantDocumentStatus,
@@ -182,6 +183,74 @@ function readOptionalSourceFormat(value: unknown): DocumentWorkspaceProjectSourc
     (DOCUMENT_WORKSPACE_PROJECT_SOURCE_FORMATS as readonly string[]).includes(value)
     ? (value as DocumentWorkspaceProjectSourceFormat)
     : null;
+}
+
+/**
+ * Retroactively stamps `documentLink.versionStatus`/`isCurrentOutput` on every
+ * already-delivered chat attachment for one docId+versionId pair.
+ *
+ * A document version's `documentLink` is written once, at delivery time, onto
+ * the attachment row that carried it — snapshotting whatever was true *then*.
+ * When a later version supersedes it, that snapshot goes stale unless
+ * something goes back and updates it. Both document delivery paths that
+ * promote a document's current version (the deferred render-job pipeline in
+ * `AssistantDocumentJobDeliveryService.finalizeDelivery`, and the synchronous
+ * workspace-document revision path in
+ * `AssistantDocumentJobService.registerVisibleWorkspaceVersion`) must call
+ * this for the version being superseded — otherwise an outdated version's
+ * attachment forever reports `isCurrentOutput: true` and the client has no
+ * signal to stop treating it as a live download link (confirmed live: v1/v2
+ * both still read `isCurrentOutput: true` after v3 shipped, because
+ * `registerVisibleWorkspaceVersion` demoted `AssistantDocumentVersion.status`
+ * but never touched the attachment's cached `documentLink`).
+ *
+ * Matches by JSONB containment on `documentLink.docId`/`documentLink.versionId`
+ * rather than by attachment id so it also catches inline-receipt/media rows
+ * that mirror the same `documentLink`, not just the single canonical delivery
+ * row — optionally narrowed via `attachmentIds` when the caller already knows
+ * the exact rows to touch.
+ */
+export async function updateDocumentAttachmentCurrentness(
+  tx: unknown,
+  input: {
+    docId: string;
+    versionId: string;
+    versionStatus: "ready" | "superseded";
+    isCurrentOutput: boolean;
+    attachmentIds?: string[];
+  }
+): Promise<void> {
+  const client = tx as {
+    $executeRaw?: <T = unknown>(query: Prisma.Sql) => Promise<T>;
+  };
+  if (typeof client.$executeRaw !== "function") {
+    // Prisma transaction clients always expose $executeRaw. This lets narrow
+    // legacy unit doubles exercise finalization state independently.
+    return;
+  }
+  const attachmentClause =
+    input.attachmentIds !== undefined && input.attachmentIds.length > 0
+      ? Prisma.sql`AND "id" IN (${Prisma.join(input.attachmentIds.map((id) => Prisma.sql`${id}::uuid`))})`
+      : Prisma.empty;
+  await client.$executeRaw(Prisma.sql`
+    UPDATE "assistant_chat_message_attachments"
+    SET "metadata" = jsonb_set(
+      jsonb_set(
+        COALESCE("metadata", '{}'::jsonb),
+        '{documentLink,versionStatus}',
+        to_jsonb(${input.versionStatus}::text),
+        true
+      ),
+      '{documentLink,isCurrentOutput}',
+      to_jsonb(${input.isCurrentOutput}::boolean),
+      true
+    )
+    WHERE "metadata" @> jsonb_build_object(
+      'documentLink',
+      jsonb_build_object('docId', ${input.docId}::text, 'versionId', ${input.versionId}::text)
+    )
+    ${attachmentClause}
+  `);
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {

@@ -241,10 +241,126 @@ async function runFindCurrentDocumentLinkPreservesVisibleProjectProvenance(): Pr
   assert.equal(link.sourceFormat, "xlsx");
 }
 
+async function runRegisterVisibleWorkspaceVersionDemotesSupersededAttachmentLink(): Promise<void> {
+  // Regression: live repro on persai.dev — a plain (non-presentation) PDF
+  // revised twice (v1 -> v2 -> v3) left v1's and v2's chat-attachment
+  // `documentLink.isCurrentOutput` reading `true` forever, because this
+  // synchronous workspace-document revision path promoted
+  // `AssistantDocument.currentVersionId` and demoted
+  // `AssistantDocumentVersion.status` but never retroactively updated the
+  // superseded version's already-delivered attachment metadata (unlike the
+  // deferred render-job delivery path, which always did this via
+  // `updateDocumentAttachmentCurrentness`).
+  const executeRawCalls: Array<{ values: unknown[] }> = [];
+  const updateManyCalls: Array<{ where: unknown; data: unknown }> = [];
+  const documentUpdateCalls: Array<{ where: unknown; data: unknown }> = [];
+
+  class FakeTx {
+    public assistantDocument = {
+      findUnique: async () => ({
+        id: "11111111-1111-4111-8111-111111111111",
+        assistantId: "assistant-1",
+        workspaceId: "workspace-1",
+        currentVersionId: "version-old-1",
+        currentVersion: {
+          id: "version-old-1",
+          versionNumber: 1,
+          sourceSummaryText: "Это версия один."
+        }
+      }),
+      update: async (args: { where: unknown; data: unknown }) => {
+        documentUpdateCalls.push(args);
+        return { id: "11111111-1111-4111-8111-111111111111" };
+      }
+    };
+
+    public assistantDocumentVersion = {
+      create: async () => ({ id: "version-new-2", versionNumber: 2 }),
+      updateMany: async (args: { where: unknown; data: unknown }) => {
+        updateManyCalls.push(args);
+        return { count: 1 };
+      }
+    };
+
+    async $executeRaw(query: { values: unknown[] }): Promise<number> {
+      executeRawCalls.push({ values: query.values });
+      return 1;
+    }
+  }
+
+  class FakePrismaForRevision {
+    private readonly tx = new FakeTx();
+    async $transaction<T>(callback: (tx: FakeTx) => Promise<T>): Promise<T> {
+      return callback(this.tx);
+    }
+  }
+
+  const service = new AssistantDocumentJobService(new FakePrismaForRevision() as never);
+
+  const outcome = await service.registerVisibleWorkspaceVersion({
+    assistantId: "assistant-1",
+    userId: "user-1",
+    workspaceId: "workspace-1",
+    chatId: "chat-1",
+    sourceUserMessageText: "Переделай этот документ: замени текст на «Это версия два.»",
+    sourceUserMessageCreatedAt: "2026-07-30T09:00:00.000Z",
+    descriptorMode: "revise_document",
+    outputFormat: "pdf",
+    requestedName: null,
+    docId: "11111111-1111-4111-8111-111111111111",
+    workspaceFacts: {
+      workspaceProjectPath: null,
+      projectManifestPath: null,
+      projectSourcePath: null,
+      sourceKind: null,
+      outputPath:
+        "/workspace/assistants/assistant-1/sessions/session-1/output/version-document.pdf",
+      sourcePath: null,
+      sourceFormat: null,
+      sourceMimeType: null,
+      sourceManifestPath: null,
+      sourceManifest: null,
+      inspectionPath: null,
+      inspectionSummary: null
+    }
+  });
+
+  assert.equal(outcome.revisedInPlace, false);
+  assert.equal(outcome.versionId, "version-new-2");
+
+  assert.equal(
+    updateManyCalls.length,
+    1,
+    "the superseded AssistantDocumentVersion row must still be demoted"
+  );
+  assert.deepEqual((updateManyCalls[0]?.where as { id: string }).id, "version-old-1");
+  assert.deepEqual((updateManyCalls[0]?.data as { status: string }).status, "superseded");
+
+  assert.equal(
+    executeRawCalls.length,
+    1,
+    "the superseded version's chat-attachment documentLink snapshot must also be demoted " +
+      "(this is the call that was missing before the fix)"
+  );
+  assert.deepEqual(executeRawCalls[0]?.values, [
+    "superseded",
+    false,
+    "11111111-1111-4111-8111-111111111111",
+    "version-old-1"
+  ]);
+
+  assert.equal(documentUpdateCalls.length, 1);
+  assert.deepEqual(
+    (documentUpdateCalls[0]?.data as { currentVersionId: string }).currentVersionId,
+    "version-new-2"
+  );
+}
+
 async function run(): Promise<void> {
   await runEnqueueRevisionUsesLatestPersistedVersionNumber();
   await runEnqueueRevisionRetriesUniqueVersionConflict();
   await runFindCurrentDocumentLinkPreservesVisibleProjectProvenance();
+  await runRegisterVisibleWorkspaceVersionDemotesSupersededAttachmentLink();
 }
 
 void run();

@@ -1,5 +1,90 @@
 # SESSION-HANDOFF
 
+## 2026-07-31 — document-version "still clickable" residual: real backend gap found and closed
+
+- **Baseline tip:** `02cb06b1` (the enqueue-time receipt-binding fix directly
+  below, already committed). This slice is dirty on top of it until commit.
+- **Founder asked, plainly:** "что с версиями документов старые вложения
+  теперь блокируются?" (are old document version attachments actually
+  blocked now?) — a direct follow-up on the earlier "non-clickable outdated
+  version pill" frontend fix (`e17ae825`, already deployed/pinned as the
+  `web` image tag on `persai.dev`).
+- **Live-verified via the browser session already open on `persai.dev`**
+  (reused an existing authenticated tab; fetched
+  `/api/v1/assistant/chats/web/<chatId>/messages` directly from the page's
+  own JS context so the Clerk session cookie/token applied automatically):
+  the actual chat, on the deployed build, still renders v1/v2/v3 of a
+  revised PDF as `role: link` (clickable) in the DOM, and the raw API
+  response confirms why — **all three** versions report
+  `versionStatus: "ready", isCurrentOutput: true`, not just the current one.
+  The frontend guard (`isOutdatedDocumentVersion = documentLink.isCurrentOutput
+  === false`) is correct; the signal it reads from the backend simply never
+  flips for this document type.
+- **Root cause:** two structurally separate paths write/promote document
+  versions in this codebase:
+  1. `AssistantDocumentJobDeliveryService.finalizeDelivery` — the deferred
+     `AssistantDocumentRenderJob` (presentation) pipeline. This one already
+     had a private `updateDocumentAttachmentCurrentness` raw-SQL helper that
+     retroactively demotes a superseded version's *chat attachment* metadata
+     (not just the `AssistantDocumentVersion` row) whenever a newer version
+     is promoted.
+  2. `AssistantDocumentJobService.registerVisibleWorkspaceVersion` — the
+     *synchronous* workspace-document path (plain `create_pdf_document`/
+     `create_data_document`/`workspace_document` outputs via the ADR-132
+     inspect/render/convert tools; this is what our short 1-page PDF test
+     actually used). This one correctly demotes
+     `AssistantDocumentVersion.status` to `"superseded"` and promotes
+     `AssistantDocument.currentVersionId`, but **never had the equivalent
+     attachment-metadata demotion call** — a gap that predates this session
+     entirely (not a regression from recent work; it looks like this
+     mechanism was only ever built for the presentation/render-job pipeline).
+     The attachment's `documentLink` snapshot is written once, at delivery
+     time, by a fully separate service
+     (`register-chat-attachment.service.ts` →
+     `findCurrentDocumentLinkByOutputPath`), and nothing revisited it on
+     later revisions.
+- **Fix:** extracted the existing raw-SQL demotion logic out of
+  `AssistantDocumentJobDeliveryService` into a shared exported function,
+  `updateDocumentAttachmentCurrentness`, in `assistant-document-link-metadata.ts`
+  (both services already imported other helpers from that file). Deleted the
+  now-duplicate private method from the delivery service and pointed its 3
+  call sites at the shared function. Added one new call from
+  `registerVisibleWorkspaceVersion`'s revision branch, right after the
+  existing `AssistantDocumentVersion.updateMany(... "superseded")` demotion,
+  targeting the same superseded `docId`/`versionId` pair.
+- **New regression test:** `assistant-document-job.service.test.ts` — asserts
+  `registerVisibleWorkspaceVersion`'s revision path calls the raw-SQL
+  demotion exactly once, with `["superseded", false, <docId>, <old versionId>]`,
+  in addition to the pre-existing `AssistantDocumentVersion.updateMany` and
+  `AssistantDocument.update(currentVersionId)` calls.
+- **Gate run:** targeted test files green (`assistant-document-job.service.test.ts`
+  1/1, `assistant-document-job-delivery.service.test.ts` 19/19 — confirms the
+  extraction didn't regress the presentation pipeline), full `@persai/api`
+  suite green (`pnpm --filter @persai/api run test`, exit 0), typecheck/lint
+  clean.
+- **Residual, stated plainly:** `ConversationalPublishService.stampDocumentAttachments`
+  (the ADR-162 deferred document delivery path used for catch-up/async
+  document jobs) has the *same shape* of gap in isolation — it stamps only
+  the attachment it is currently delivering, never a prior version's — but
+  it does not independently promote `currentVersionId`; version promotion
+  for jobs going through that path still runs through
+  `AssistantDocumentJobDeliveryService.finalizeDelivery`, which now goes
+  through the shared, fixed helper. Not re-verified live this session with
+  an actual deferred/async document job (only the synchronous workspace-
+  document path was live-repro'd); flag before assuming it is clean.
+- **Files touched:**
+  `apps/api/src/modules/workspace-management/application/assistant-document-link-metadata.ts`,
+  `apps/api/src/modules/workspace-management/application/assistant-document-job.service.ts`,
+  `apps/api/src/modules/workspace-management/application/assistant-document-job-delivery.service.ts`,
+  `apps/api/test/assistant-document-job.service.test.ts`.
+- **Next:** commit + push, deploy, then live-verify on `persai.dev` again with
+  a *fresh* revise-twice PDF test chat (the old diagnostic chat's DB rows
+  will stay stale forever since this fix only changes behavior for *future*
+  revisions — it does not backfill already-superseded attachment rows), and
+  separately exercise one deferred/async document job revision to confirm
+  the ConversationalPublish path residual above is actually clean and not
+  just structurally routed through the fixed helper.
+
 ## 2026-07-30/31 — live receipt banner: backend enqueue-time binding was the real root cause
 
 - **Baseline tip:** the claimed/unclaimed frontend split from the section

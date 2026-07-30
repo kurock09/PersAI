@@ -18,7 +18,8 @@ import { assertActiveBackgroundJobCap } from "./assert-active-background-job-cap
 import {
   buildAssistantDocumentLinkMetadata,
   type AssistantDocumentWorkspaceFacts,
-  normalizeDocumentWorkspaceFacts
+  normalizeDocumentWorkspaceFacts,
+  updateDocumentAttachmentCurrentness
 } from "./assistant-document-link-metadata";
 import type { AssistantWebChatMessageAttachmentDocumentLink } from "./web-chat.types";
 
@@ -896,6 +897,21 @@ export class AssistantDocumentJobService {
           data: {
             status: "superseded"
           }
+        });
+        // The superseded version's own chat attachment(s) carry a
+        // `documentLink` snapshot written at delivery time, claiming
+        // `isCurrentOutput: true` — this is the only place that promotes
+        // `currentVersionId` for this synchronous workspace-document path,
+        // so it must also be the one to retroactively demote that snapshot.
+        // Without this, an old (v1/v2) version's attachment forever reports
+        // itself as current and the web client has no signal to stop
+        // treating it as a live download link (confirmed live: v1/v2 stayed
+        // `isCurrentOutput: true` after v3 shipped).
+        await updateDocumentAttachmentCurrentness(tx, {
+          docId: current.id,
+          versionId: current.currentVersionId,
+          versionStatus: "superseded",
+          isCurrentOutput: false
         });
         await tx.assistantDocument.update({
           where: { id: current.id },

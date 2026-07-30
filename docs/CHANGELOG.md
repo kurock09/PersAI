@@ -5,6 +5,49 @@
 
 ## 2026-07-30
 
+- **fix(api): superseded workspace-document versions (v1/v2 when v3 exists)
+  never actually flipped `isCurrentOutput` to `false`; the earlier non-
+  clickable-pill frontend fix had no live effect for plain (non-presentation)
+  PDF/XLSX/DOCX documents.** Founder asked to re-check the earlier "outdated
+  document versions are non-clickable" fix; live re-verification on
+  `persai.dev` (fetching the chat's messages API directly via the browser
+  session) showed all three delivered versions of a revised PDF still
+  reporting `versionStatus: "ready", isCurrentOutput: true` — even v1 and v2,
+  well after v3 shipped. Root cause: the *synchronous* workspace-document
+  revision path, `AssistantDocumentJobService.registerVisibleWorkspaceVersion`
+  (used for plain `create_pdf_document`/`create_data_document`/`workspace_document`
+  outputs — the ADR-132 inspect/render/convert tools — as opposed to the
+  deferred `AssistantDocumentRenderJob` presentation pipeline), correctly
+  demotes `AssistantDocumentVersion.status` to `"superseded"` and promotes
+  `AssistantDocument.currentVersionId` on every revision, but never touches
+  the *chat attachment's* cached `metadata.documentLink` snapshot for the
+  version being superseded. That snapshot is written once, at delivery time,
+  by an entirely separate code path (`register-chat-attachment.service.ts` →
+  `findCurrentDocumentLinkByOutputPath`) and nothing ever revisits it — so an
+  old version's attachment claims `isCurrentOutput: true` forever. This is
+  the *actual* reason the previous frontend fix (below, "outdated document
+  version chips are no longer clickable") had no visible effect for this
+  document type: the signal it depends on never flips. Fix: extracted the
+  existing raw-SQL demotion helper (`updateDocumentAttachmentCurrentness`,
+  previously private to `AssistantDocumentJobDeliveryService`, the only
+  service that had it) into a shared export in
+  `assistant-document-link-metadata.ts`, and now call it from
+  `registerVisibleWorkspaceVersion`'s revision branch, right after demoting
+  the superseded `AssistantDocumentVersion` row, targeting that same
+  previous `versionId`/`docId` pair's attachment metadata
+  (`versionStatus: "superseded"`, `isCurrentOutput: false`). New regression
+  test in `assistant-document-job.service.test.ts` asserts the `$executeRaw`
+  demotion call happens with the exact superseded docId/versionId. Existing
+  `assistant-document-job-delivery.service.test.ts` (19/19) still green after
+  the extraction; full `@persai/api` suite green; typecheck/lint clean.
+  **Scope note:** ConversationalPublish's own document stamping
+  (`stampDocumentAttachments`, used for the ADR-162 deferred/presentation
+  document delivery path) has the same structural gap — it stamps only the
+  delivered attachment's own link, never retroactively demoting a prior
+  version's — but that path already routes version promotion through
+  `AssistantDocumentJobDeliveryService.finalizeDelivery`, which already calls
+  the (now-shared) demotion helper; not independently re-verified live this
+  session and flagged as a residual to re-check, not silently assumed fixed.
 - **fix(api): live receipt banner still bound to the *enqueue-time* tool call
   — the claimed/unclaimed split alone did not fix it.** Founder repro on
   `persai.dev` after the claimed/unclaimed split shipped below: the banner
