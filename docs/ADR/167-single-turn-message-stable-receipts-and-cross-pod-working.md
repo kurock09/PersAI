@@ -61,11 +61,12 @@ flow owns message height. No viewport measurement is persisted or remembered.
 Ordinary open `USER_TURN` renders exactly one process badge. Short working notes
 and delivery receipts share one process stream (receipt pieces land after their
 producing tool; orphan/placement leftovers append in delivery order). While the
-turn is live, that note+receipt stream stays visible under the badge — clickable
-via the same chat file URLs as the terminal strip — and must not float on a
-separate rail above answer text. After terminal commit, the stream folds into the
-collapsed «Выполнено» expand with the notes; the full attachment strip below the
-answer owns the files.
+turn is live, mid-turn replicas stream in answer `content`, so the note+receipt
+stream renders **after** that streamed text and **before** the streaming cursor
+— clickable via the same chat file URLs as the terminal strip — and must not pin
+under the process badge above those replicas. After terminal commit, the stream
+folds into the collapsed «Выполнено» expand with the notes; the full attachment
+strip below the answer owns the files.
 
 Standalone async continuation may own its own «Выполнено» when it performed real work.
 Attachment-only delivery on a continuation must not show technical internal-delivery

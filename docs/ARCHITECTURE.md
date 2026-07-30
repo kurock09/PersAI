@@ -95,11 +95,11 @@ ADR-109 and ADR-111 add one bounded HeyGen-backed product seam inside the active
   local and durable delivery behind sequence dedupe. Chat attachment creates
   go through one deliver-once coordinator keyed by canonical media/document
   identity; `files.attach` of an already-delivered identity is model-visible
-  `already_delivered`. Ordinary USER_TURN short notes and delivery receipts
-  share one process stream under «Выполнено» (live: visible/clickable; after
-  commit: folded into the expand). The terminal attachment strip below the
-  answer owns the files. `inlineMediaPlacement` remains an F5/history order
-  hint.
+  `already_delivered`.   Ordinary USER_TURN short notes and delivery receipts
+  share one process stream (live: after streamed answer text / before cursor;
+  after commit: folded into the «Выполнено» expand). The terminal attachment
+  strip below the answer owns the files. `inlineMediaPlacement` remains an
+  F5/history order hint.
   Browser-measured assistant-body high-water state is retired. Exact
   media/document terminal identities prevent stale Working snapshots from
   resurrecting an already observed terminal job.

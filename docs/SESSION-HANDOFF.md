@@ -1,5 +1,19 @@
 # SESSION-HANDOFF
 
+## 2026-07-30 — ADR-167 live receipts after replicas (local, uncommitted)
+
+- **Baseline tip:** `6b6559c0`. Tree was clean; this slice dirty until commit.
+- **Browser DOM (prod `persai.dev`, thread `web-1785440038031`):** mid-live
+  bubble order was process badge → `streaming-markdown-live` replica
+  («Генерирую.») → status. Receipts under `process-live-note-receipt-stream`
+  pinned under the badge, so «Получено…» appeared above replicas. Committed
+  expand kept notes+receipts chrono inside «Выполнено».
+- **Fix:** ProcessBadge no longer hosts the live stream; bubble renders
+  `process-live-note-receipt-stream` after answer content / before cursor.
+  ADR-167 D4 + ARCHITECTURE/TEST-PLAN/CHANGELOG updated.
+- **Next:** focused chat-message tests + typecheck; commit/push/deploy; live
+  smoke that receipt sits below streamed replica during the open turn.
+
 ## 2026-07-29 — ADR-167 delivery-flow cleanup audit (CLEAN, dirty tree)
 
 - **Role:** independent auditor+fixer on API delivery path after ADRs

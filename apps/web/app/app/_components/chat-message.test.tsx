@@ -1521,7 +1521,7 @@ describe("ChatMessageBubble — pre-response status", () => {
     ).toBeTruthy();
   });
 
-  it("ADR-167: live USER_TURN shows note+receipt stream under Выполнено and no terminal strip", () => {
+  it("ADR-167: live USER_TURN shows note+receipt stream after answer text, not under badge", () => {
     const image = {
       ...makeImageAttachment("att-inline-1"),
       inlineAfterToolCallId: "call-img-1",
@@ -1532,7 +1532,7 @@ describe("ChatMessageBubble — pre-response status", () => {
         chatId="chat-1"
         message={makeAssistantMessage({
           status: "streaming",
-          content: "",
+          content: "Генерирую.",
           workingNotes: ["сейчас"],
           toolInvocations: [
             { name: "image_generate", iteration: 0, ok: true, toolCallId: "call-img-1" }
@@ -1552,6 +1552,13 @@ describe("ChatMessageBubble — pre-response status", () => {
     expect(stream).toHaveTextContent(/Получено изображение.*генерация.*1\.0 MB/);
     expect(stream.textContent).toMatch(/сейчас[\s\S]*Получено изображение/);
     expect(screen.queryByTestId("process-timeline-receipts")).toBeNull();
+    const badge = screen.getByRole("button", { name: /Выполнено|Сгенерировано/ });
+    // Live stream must not sit under the process badge above streamed replicas.
+    expect(badge.contains(stream)).toBe(false);
+    const answer = screen.getByText("Генерирую.");
+    expect(answer.compareDocumentPosition(stream) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const cursor = screen.getByTestId("streaming-cursor");
+    expect(stream.compareDocumentPosition(cursor) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("ADR-167: live receipt banner opens the received image in the lightbox", () => {

@@ -3,6 +3,14 @@
 > Archive: detailed historical entries from 2026-06-05 and earlier moved to `docs/CHANGELOG.archive-2026-06-05-details-and-earlier.md`; entries from 2026-05-19 and earlier remain in `docs/CHANGELOG.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: current entries plus concise recent summaries only.
 
+## 2026-07-30
+
+- **fix(web): live note+receipt stream after streamed replicas, not under badge.**
+  Prod DOM showed mid-turn answer text in `streaming-markdown-live` below the
+  process badge while «Получено…» pinned under the badge above it. Live stream
+  now renders after answer `content` and before the streaming cursor; commit
+  still folds notes+receipts into «Выполнено». ADR-167 D4.
+
 ## 2026-07-29
 
 - **fix(web): notes+receipts share one process stream under Выполнено.**

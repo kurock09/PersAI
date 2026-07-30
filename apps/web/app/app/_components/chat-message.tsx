@@ -1281,10 +1281,12 @@ function ProcessBadge({
     return null;
   }
 
-  const showLiveStream = live && hasNoteOrReceipt;
+  // Live note+receipt stream is owned by the bubble after streamed answer text
+  // (not under this badge): mid-turn replicas live in `content`, so pinning the
+  // stream here puts «Получено…» above those replicas.
   const showCommittedStream = !live && expanded && hasNoteOrReceipt;
   const showToolMicros = expanded && toolMicroRows.length > 0;
-  const showPanel = showLiveStream || showCommittedStream || showToolMicros;
+  const showPanel = showCommittedStream || showToolMicros;
 
   return (
     <div className="mb-4">
@@ -1303,14 +1305,6 @@ function ProcessBadge({
       </button>
       {showPanel ? (
         <div className="mt-2 border-l border-border/70 pl-3">
-          {showLiveStream ? (
-            <ProcessNoteReceiptStream
-              pieces={pieces}
-              chatId={chatId}
-              live
-              testId="process-live-note-receipt-stream"
-            />
-          ) : null}
           {showCommittedStream ? (
             <ProcessNoteReceiptStream
               pieces={pieces}
@@ -1322,7 +1316,7 @@ function ProcessBadge({
           {showToolMicros ? (
             <div
               className={`space-y-0.5 text-xs leading-snug text-text-subtle/80 ${
-                showLiveStream || showCommittedStream ? "mt-2" : ""
+                showCommittedStream ? "mt-2" : ""
               }`}
             >
               {toolMicroRows.map((row) => (
@@ -2595,8 +2589,9 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
       : [];
     const toolInvocations = Array.isArray(message.toolInvocations) ? message.toolInvocations : [];
     // Receipts are process pieces after their tool (same stream as short notes).
-    // Live: stream stays visible under «Выполнено». Committed: stream folds into
-    // the expand; terminal strip below the answer owns the files.
+    // Live: stream renders after streamed answer text (replicas), not under the
+    // process badge. Committed: stream folds into the expand; terminal strip
+    // below the answer owns the files.
     const receiptAttachments = shouldSuppressMediaReceipts(message)
       ? []
       : resolveReceiptAttachments({
@@ -2641,6 +2636,17 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
   const isAssistantLive =
     message.role === "assistant" &&
     (message.status === "streaming" || message.status === "reconciling");
+  const liveProcessPieces = useMemo(() => {
+    if (!isAssistantLive) {
+      return [] as IterationProcessPiece[];
+    }
+    return assistantSegments.iterationBlocks.flatMap((block) =>
+      block.kind === "process" ? block.pieces : []
+    );
+  }, [assistantSegments.iterationBlocks, isAssistantLive]);
+  const hasLiveNoteOrReceipt = liveProcessPieces.some(
+    (piece) => piece.kind === "text" || piece.kind === "receipt"
+  );
   const hasVisibleAnswerText = assistantSegments.answerText.trim().length > 0;
   const isStreamingTextActive = message.streamingTextActive === true;
   const showInlineStreamingStatus =
@@ -2849,6 +2855,19 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
                     onAction={onAssistantAction}
                   />
                 ) : null}
+                {hasLiveNoteOrReceipt ? (
+                  <div
+                    className={hasVisibleAnswerText ? "mt-2" : undefined}
+                    data-testid="process-live-note-receipt-anchor"
+                  >
+                    <ProcessNoteReceiptStream
+                      pieces={liveProcessPieces}
+                      chatId={chatId}
+                      live
+                      testId="process-live-note-receipt-stream"
+                    />
+                  </div>
+                ) : null}
                 {(showInlineStreamingStatus || showCursorOnlyStatus) && (
                   <div className="mt-2 flex items-start gap-2">
                     {showInlineStreamingStatus ? (
@@ -2874,6 +2893,19 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
                     content={assistantSegments.answerText}
                     onAction={onAssistantAction}
                   />
+                ) : null}
+                {hasLiveNoteOrReceipt ? (
+                  <div
+                    className={hasVisibleAnswerText ? "mt-2" : undefined}
+                    data-testid="process-live-note-receipt-anchor"
+                  >
+                    <ProcessNoteReceiptStream
+                      pieces={liveProcessPieces}
+                      chatId={chatId}
+                      live
+                      testId="process-live-note-receipt-stream"
+                    />
+                  </div>
                 ) : null}
                 {!hasVisibleAnswerText ? (
                   <div className="mt-2 flex items-center gap-2">
