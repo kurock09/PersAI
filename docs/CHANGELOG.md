@@ -3,6 +3,29 @@
 > Archive: detailed historical entries from 2026-06-05 and earlier moved to `docs/CHANGELOG.archive-2026-06-05-details-and-earlier.md`; entries from 2026-05-19 and earlier remain in `docs/CHANGELOG.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: current entries plus concise recent summaries only.
 
+## 2026-07-31
+
+- **chore: pushed `b8eebfee` (live receipt banner enqueue-time-binding fix)
+  and `20ae7f4f` (superseded workspace-document attachment demotion fix) to
+  `main`; deployed and live-verified on `persai.dev`.** GitOps auto-pinned
+  `api` to `20ae7f4f3c966aebdc47cdd78128091c94fea4ae`; both pods rolled;
+  ArgoCD `Synced/Healthy`; CI + Dev Image Publish green. Live-verified: (1)
+  a fresh revise-PDF-twice test chat now returns
+  `isCurrentOutput:false`/`versionStatus:"superseded"` for v1 via direct API
+  fetch, and v1 renders with no clickable link after reload; (2) a two-image
+  live test caught the exact in-flight moment where the receipt banner
+  rendered below already-streamed narration instead of jumping above it —
+  the originally reported bug. Traced the `ConversationalPublish` deferred-
+  document residual noted in the previous commit message and confirmed it
+  is not a separate bug (it already routes through the same fixed
+  `finalizeDelivery` → `updateDocumentAttachmentCurrentness` helper before
+  any chat attachment exists). New lower-severity residual observed and
+  logged (not fixed): when *two* deferred media jobs complete within one
+  turn, their receipt banners group together near the end of the collapsed
+  note list on commit instead of each interleaving immediately after its
+  own delivery note; single-job interleaving is correct. See
+  `docs/SESSION-HANDOFF.md` 2026-07-31 for full detail.
+
 ## 2026-07-30
 
 - **fix(api): superseded workspace-document versions (v1/v2 when v3 exists)

@@ -1,5 +1,77 @@
 # SESSION-HANDOFF
 
+## 2026-07-31 — pushed, deployed, and live-verified both backend fixes on persai.dev
+
+- **Baseline tip:** `20ae7f4f` (rebased onto `origin/main` `78d1852e`, then
+  pushed). GitOps auto-pinned `api` image tag `20ae7f4f3c966aebdc47cdd78128091c94fea4ae`
+  (`chore(dev-gitops)` commit `a62e5410`); ArgoCD `persai-dev` app went
+  `OutOfSync/Progressing` → `Synced/Healthy`; both `api` pods rolled to the
+  new image (`kubectl get deploy api -n persai-dev` confirmed). `Dev Image
+  Publish` and `CI` both green on the push (`gh run list`).
+- **Document-version fix — fully live-verified, not just structurally
+  traced:** opened a brand-new test chat on `persai.dev`, generated a 1-page
+  PDF (v1), then asked for a revision (v2). Fetched
+  `/api/v1/assistant/chats/web/<chatId>/messages` directly from the page's
+  own JS context (Clerk session applies automatically) and got back
+  `[{versionNumber:1, versionStatus:"superseded", isCurrentOutput:false},
+  {versionNumber:2, versionStatus:"ready", isCurrentOutput:true}]` — the
+  exact shape the fix was supposed to produce. Reloaded the chat: v1 now
+  renders with **no** `role: link` at all (non-clickable label), v2 still
+  does. Confirms `registerVisibleWorkspaceVersion`'s new
+  `updateDocumentAttachmentCurrentness` call is correct end-to-end on the
+  deployed build, for the synchronous workspace-document path this session
+  actually touched.
+- **ConversationalPublish deferred-document residual — resolved by code
+  trace, not a separate bug:** re-read
+  `assistant-document-job-delivery.service.ts`'s early-return branch for
+  ADR-162 ordinary deferred jobs (`deferChatPublish` true, no open turn) —
+  `finalizeOrdinaryDeferredWithoutChat` unconditionally calls the same
+  `finalizeDelivery` or (lines ~1300–1343) that already demotes the
+  *previous* version's attachment via the shared `updateDocumentAttachmentCurrentness`
+  helper, **before** any chat-visible attachment exists. `ConversationalPublish
+  Service.stampDocumentAttachments` only stamps the *new* attachment's own
+  `documentLink` (reading `version.status`, already correctly `"ready"` or
+  `"superseded"` by that point) — it was never expected to re-demote the old
+  one. This path was already correct before this session; the registration-
+  path gap fixed this session was specific to the synchronous
+  `AssistantDocumentJobService.registerVisibleWorkspaceVersion` route.
+- **Live receipt banner ordering — the original reported bug (banner jumping
+  to the very top, above already-said narration) is confirmed fixed live,
+  caught mid-stream:** two separate live tests on the deployed build.
+  1. Single deferred image with forced narration before/after the tool
+     call: turn completed too fast to catch the in-flight moment, but the
+     *committed* expanded "Выполнено" panel showed the receipt correctly
+     slotted between `"Формирую запрос к генератору."` and `"Изображение
+     ушло в обработку."` — i.e. exactly where the job was enqueued, not at
+     the top.
+  2. Two sequential deferred images with mandatory narration around each
+     call: **caught the exact live moment** — screenshot shows `"Пока
+     рендерится — у тебя 3:11 ночи, кстати. ... Давай проверю, готово ли."`
+     immediately followed, live, by `"🖼 Получено изображение — генерация
+     (716.5 KB)"` rendered *below* that narration, not above it. This is
+     the precise scenario the founder repeatedly reported as broken; it is
+     now correct on the deployed build.
+- **New residual observed (lower severity, not the reported bug, not fixed
+  this session):** in the same two-image test, once *both* jobs delivered
+  and the turn committed, both receipt banners ended up grouped together
+  near the *end* of the collapsed note list (after both `"Готово — зелёный
+  треугольник пришёл..."` and `"Жёлтый круг тоже в работе..."` notes)
+  rather than each interleaved immediately after its own delivery note. The
+  single-job case above shows correct interleaving, so this looks specific
+  to *multiple* deferred media jobs finishing within one turn — worth a
+  dedicated live repro + fix in a future slice if the founder wants exact
+  per-job interleaving; not addressed here (out of the bounded scope of
+  "push and verify what's already committed").
+- **Video-generation attempt:** a third live test (Kling v2.6, 4s rotating
+  cube) was used to try to widen the live-observation window further, but
+  the generation itself failed server-side ("Генерация упала — модель не
+  смогла выполнить этот запрос.") before any receipt appeared — unrelated to
+  either fix; not investigated further (model/provider-side failure, not
+  the ADR-167/receipt-ordering scope of this session).
+- **Next:** if the founder wants the multi-job-interleaving residual
+  addressed, scope it as its own small slice with a dedicated live repro
+  (2+ deferred media jobs in one turn) before touching code again.
+
 ## 2026-07-31 — document-version "still clickable" residual: real backend gap found and closed
 
 - **Baseline tip:** `02cb06b1` (the enqueue-time receipt-binding fix directly
