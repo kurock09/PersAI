@@ -1,8 +1,50 @@
 # SESSION-HANDOFF
 
-## 2026-07-31 (latest) — live receipt banner: anchored inside the streaming text (the actual fix)
+## 2026-07-31 (latest) — one placement rule for every receipt: never above narration the user already read
 
-- **Baseline tip:** `4d06e21a`. Founder reported the banner *still* glues
+- **Baseline tip:** `955f0394` (deployed web `29a936ab`). Founder's third
+  report on the same symptom, now split by kind: "получено изображение
+  хронологически оставалось в live верно, но 📎 Получен файл —
+  test-output.pdf прилипился в самый верх". The previous slice fixed the
+  **unbound** path (deferred media, no `inlineAfterToolCallId`) — the image.
+  A receipt **bound** to a tool call still rendered immediately after that
+  call unconditionally, which is far above everything already narrated when
+  the job only finishes many steps later. That is the PDF.
+- **Fix 1 — one rule for both paths (`buildIterationBlocks`):** every receipt
+  now resolves to a single target note index, `max(toolCallIteration + 1,
+arrivalNoteIndex)`. The arrival snapshot is a **floor**: a bound receipt
+  keeps its tool-call position when that position is still ahead of what the
+  user has read, and otherwise slides down to where it was actually observed.
+  The `claimed` piece flag is gone — placement no longer branches by path,
+  and live answer-anchoring now applies to bound receipts too.
+- **Fix 2 — arrival snapshots are only taken from trustworthy frames:**
+  - Recorded **only while the turn is live**. A message this component first
+    meets already committed (cold F5) has no arrival information to offer, so
+    bound receipts keep tool chronology as ADR-167 specifies.
+  - Frozen from per-message **high-water marks** of `workingNotes.length` and
+    `content.length`, not the current frame. Mid-turn reconciliation can hand
+    the bubble a message whose attachments are present while notes/content
+    are not reattached yet; freezing from that frame pinned the receipt to
+    index 0, i.e. the very top of the turn.
+  - A bound receipt already present on the **first** frame we render is
+    recorded as "no arrival info" permanently (we did not witness it arrive),
+    so a later frame cannot retroactively invent a late snapshot for it.
+- **New regression tests:** a late-delivered receipt bound to an early tool
+  call lands after all three narrated steps instead of at index 0; and a
+  reconcile frame carrying attachments with empty notes cannot pin a receipt
+  to the top.
+- **Gate run:** `chat-message.test.tsx` 87/87; full serial `@persai/web`
+  suite **86 files / 1146 tests** green; web typecheck clean; workspace lint
+  clean (`--max-warnings=0`); prettier clean.
+- **Residual, stated honestly:** after a hard reload of a committed turn there
+  is no arrival information, so a bound receipt returns to its tool-call
+  position inside the collapsed «Выполнено» expand. That is ADR-167's
+  committed-replay contract (tool chronology) and is intentionally left
+  alone; within one session live → commit keeps the frozen position.
+
+## 2026-07-31 — live receipt banner: anchored inside the streaming text
+
+- **Baseline tip:** `4d06e21a`. Founder reported the banner _still_ glues
   itself above the live cursor: "все равно липнет к курсору сверху и не
   остается на своем месте в хронологии". The previous entry's fix was real
   but only corrected the **committed/collapsed** view; live was still wrong.
@@ -11,7 +53,7 @@
   `workingNotes` once its step finishes. So when a deferred receipt arrives,
   the model is almost always mid-sentence, and there is no finished note for
   the receipt to sit under. The previous slice read "answer text is
-  non-empty" as "this receipt arrived after the model's *final* answer" and
+  non-empty" as "this receipt arrived after the model's _final_ answer" and
   therefore routed it into a fixed block rendered after **all** streamed
   text — which is structurally always immediately above the cursor, sliding
   down with every new sentence. The earlier live "verification" screenshot
@@ -24,13 +66,13 @@
   narration migrates out of it into `workingNotes`.
   - While the sentence it landed under is still streaming, the receipt is
     anchored **inside** the live text at `contentLength -
-    answerStrippedLength`: text written before it stays above, everything
+answerStrippedLength`: text written before it stays above, everything
     said afterwards renders below. New `LiveAnswerSegments` component cuts
     the streaming answer into chunks around each anchored receipt.
   - Once that sentence finishes and becomes a `workingNotes` entry, the
     anchor releases and the receipt renders in the ordinary note stream
     right after that note (`arrivalNoteIndex` = `noteCount + (hadInFlightText
-    ? 1 : 0)`) — the same visual spot, so there is no jump.
+? 1 : 0)`) — the same visual spot, so there is no jump.
   - `deriveLiveAnswerText` → `deriveLiveAnswer`, now also returning the
     stripped prefix length.
   - Removed the `deferUntilAfterAnswer` piece flag and the separate trailing
@@ -51,8 +93,8 @@
   the two new unit tests reproduce the reported behaviour and now pass, and
   on the deployed build a live turn that awaited an image in-turn committed
   with the receipt interleaved between notes (`Генерирую зелёный
-  треугольник.` → receipt → `Жду готовности изображения.` → `Изображение
-  готово...`), i.e. not clumped at the end. **Not verified:** direct
+треугольник.` → receipt → `Жду готовности изображения.` → `Изображение
+готово...`), i.e. not clumped at the end. **Not verified:** direct
   observation of the pre-commit live phase on `persai.dev`. Two attempts
   with a DOM-order sampler failed for harness reasons, not product reasons —
   the automation tab kept losing the live thread, and in the follow-up turn
@@ -71,40 +113,40 @@
   как было теперь банер едет за курсором, появился он там где нада но поехал
   дальше при каждой новой реплтке он над курсором остается" — the backend
   fix (removing the enqueue-time `afterToolCallId` fallback) was correct and
-  necessary, but it only fixed the backend's *claiming* signal. It did not
+  necessary, but it only fixed the backend's _claiming_ signal. It did not
   fix a separate, real frontend bug: once a receipt is "unclaimed", the
   previous frontend design **always** rendered it in its own fixed section
   positioned right before whatever is currently live (the streaming
-  cursor/status), structurally after the entire *current* note list —
+  cursor/status), structurally after the entire _current_ note list —
   which keeps growing underneath it. So a receipt correctly placed right
   after the note that was live when it arrived would visually "slide down"
   with every later note, since it never actually moved — the section
   containing it just always sat immediately above the live tail.
 - **Root cause, precisely:** `buildIterationBlocks` unconditionally appended
-  every unclaimed receipt in one pass *after* the entire iteration loop over
+  every unclaimed receipt in one pass _after_ the entire iteration loop over
   `workingNotes` — i.e., after every note known **at that render**. Because
   this function reruns from scratch on every render as `workingNotes` grows,
   the receipt's position in the array kept moving to stay after the newest
   note, every time. Separately, `ChatMessageBubble`'s live split rendered
-  *all* unclaimed receipts in their own `liveUnclaimedReceipts` stream,
+  _all_ unclaimed receipts in their own `liveUnclaimedReceipts` stream,
   positioned structurally between the streamed answer text and the live
   cursor/status line — reinforcing the same "always just above the tail"
   effect for the live view specifically.
 - **Fix (frontend, `chat-message.tsx`):**
   1. `buildIterationBlocks` now takes a 4th param, `unclaimedReceiptArrival:
-     ReadonlyMap<string, { noteCount; deferUntilAfterAnswer }>`, and
+ReadonlyMap<string, { noteCount; deferUntilAfterAnswer }>`, and
      interleaves each unclaimed receipt at the frozen `noteCount` position
      instead of appending it after the whole loop — a small
      `pushUnclaimedArrivedAt(noteCount)` helper runs both before the loop
      (offset 0) and after each iteration `i` (offset `i + 1`).
   2. `ChatMessageBubble` now owns a `useRef<Map<string,
-     UnclaimedReceiptArrival>>` that freezes, the *first* time an unclaimed
+UnclaimedReceiptArrival>>` that freezes, the _first_ time an unclaimed
      receipt attachment id is observed, `workingNotes.length` at that moment
      plus whether `answerText` (`deriveLiveAnswerText`) was already
      non-empty. Later re-renders (more notes/tools arriving) reuse the same
      frozen entry — the position never moves again for that attachment.
   3. `deferUntilAfterAnswer` replaces the old binary `claimed`-only live
-     split: only a receipt that arrived *after* the model had already
+     split: only a receipt that arrived _after_ the model had already
      started its final answer text still renders in the separate
      after-answer stream (`process-live-unclaimed-receipt-stream`) — the
      narrower, originally-intended protective case (banner must not jump
@@ -129,7 +171,7 @@
 - **New regression test:** "an unclaimed receipt that arrives mid-tool-loop
   does not ride the live cursor as later notes stream in" — renders with 2
   notes (receipt lands at index 2, right after the 2nd note), then
-  `rerender`s the *same* component instance with 2 more notes appended, and
+  `rerender`s the _same_ component instance with 2 more notes appended, and
   asserts the receipt's index in the DOM stays fixed at 2 rather than moving
   to sit just before the newest note.
 - **Gate run:** `chat-message.test.tsx` 83/83 green (incl. the updated and
@@ -146,8 +188,8 @@
   "Выполнено · 14 шагов" panel with **both** receipts correctly interleaved
   at their exact arrival point — `🖼 Получено изображение` immediately after
   `"Картинка готова. Ищу файл в рабочем пространстве."` (and before `"Файл
-  найден..."`), and `📎 Получен файл — test.pdf` immediately after `"PDF
-  готов, 540 КБ. Прикрепляю."` — not grouped together near the end. This
+найден..."`), and `📎 Получен файл — test.pdf` immediately after `"PDF
+готов, 540 КБ. Прикрепляю."` — not grouped together near the end. This
   also directly confirms the "two receipts grouped near the end" residual
   from the prior live-verification pass is gone. A live (pre-commit)
   screenshot caught the image receipt rendering inline right after that
@@ -166,14 +208,14 @@
   (`chore(dev-gitops)` commit `a62e5410`); ArgoCD `persai-dev` app went
   `OutOfSync/Progressing` → `Synced/Healthy`; both `api` pods rolled to the
   new image (`kubectl get deploy api -n persai-dev` confirmed). `Dev Image
-  Publish` and `CI` both green on the push (`gh run list`).
+Publish` and `CI` both green on the push (`gh run list`).
 - **Document-version fix — fully live-verified, not just structurally
   traced:** opened a brand-new test chat on `persai.dev`, generated a 1-page
   PDF (v1), then asked for a revision (v2). Fetched
   `/api/v1/assistant/chats/web/<chatId>/messages` directly from the page's
   own JS context (Clerk session applies automatically) and got back
   `[{versionNumber:1, versionStatus:"superseded", isCurrentOutput:false},
-  {versionNumber:2, versionStatus:"ready", isCurrentOutput:true}]` — the
+{versionNumber:2, versionStatus:"ready", isCurrentOutput:true}]` — the
   exact shape the fix was supposed to produce. Reloaded the chat: v1 now
   renders with **no** `role: link` at all (non-clickable label), v2 still
   does. Confirms `registerVisibleWorkspaceVersion`'s new
@@ -186,9 +228,9 @@
   ADR-162 ordinary deferred jobs (`deferChatPublish` true, no open turn) —
   `finalizeOrdinaryDeferredWithoutChat` unconditionally calls the same
   `finalizeDelivery` or (lines ~1300–1343) that already demotes the
-  *previous* version's attachment via the shared `updateDocumentAttachmentCurrentness`
+  _previous_ version's attachment via the shared `updateDocumentAttachmentCurrentness`
   helper, **before** any chat-visible attachment exists. `ConversationalPublish
-  Service.stampDocumentAttachments` only stamps the *new* attachment's own
+Service.stampDocumentAttachments` only stamps the _new_ attachment's own
   `documentLink` (reading `version.status`, already correctly `"ready"` or
   `"superseded"` by that point) — it was never expected to re-demote the old
   one. This path was already correct before this session; the registration-
@@ -199,25 +241,25 @@
   caught mid-stream:** two separate live tests on the deployed build.
   1. Single deferred image with forced narration before/after the tool
      call: turn completed too fast to catch the in-flight moment, but the
-     *committed* expanded "Выполнено" panel showed the receipt correctly
+     _committed_ expanded "Выполнено" panel showed the receipt correctly
      slotted between `"Формирую запрос к генератору."` and `"Изображение
-     ушло в обработку."` — i.e. exactly where the job was enqueued, not at
+ушло в обработку."` — i.e. exactly where the job was enqueued, not at
      the top.
   2. Two sequential deferred images with mandatory narration around each
      call: **caught the exact live moment** — screenshot shows `"Пока
-     рендерится — у тебя 3:11 ночи, кстати. ... Давай проверю, готово ли."`
+рендерится — у тебя 3:11 ночи, кстати. ... Давай проверю, готово ли."`
      immediately followed, live, by `"🖼 Получено изображение — генерация
-     (716.5 KB)"` rendered *below* that narration, not above it. This is
+(716.5 KB)"` rendered _below_ that narration, not above it. This is
      the precise scenario the founder repeatedly reported as broken; it is
      now correct on the deployed build.
 - **New residual observed (lower severity, not the reported bug, not fixed
-  this session):** in the same two-image test, once *both* jobs delivered
+  this session):** in the same two-image test, once _both_ jobs delivered
   and the turn committed, both receipt banners ended up grouped together
-  near the *end* of the collapsed note list (after both `"Готово — зелёный
-  треугольник пришёл..."` and `"Жёлтый круг тоже в работе..."` notes)
+  near the _end_ of the collapsed note list (after both `"Готово — зелёный
+треугольник пришёл..."` and `"Жёлтый круг тоже в работе..."` notes)
   rather than each interleaved immediately after its own delivery note. The
   single-job case above shows correct interleaving, so this looks specific
-  to *multiple* deferred media jobs finishing within one turn — worth a
+  to _multiple_ deferred media jobs finishing within one turn — worth a
   dedicated live repro + fix in a future slice if the founder wants exact
   per-job interleaving; not addressed here (out of the bounded scope of
   "push and verify what's already committed").
@@ -249,18 +291,18 @@
   response confirms why — **all three** versions report
   `versionStatus: "ready", isCurrentOutput: true`, not just the current one.
   The frontend guard (`isOutdatedDocumentVersion = documentLink.isCurrentOutput
-  === false`) is correct; the signal it reads from the backend simply never
+=== false`) is correct; the signal it reads from the backend simply never
   flips for this document type.
 - **Root cause:** two structurally separate paths write/promote document
   versions in this codebase:
   1. `AssistantDocumentJobDeliveryService.finalizeDelivery` — the deferred
      `AssistantDocumentRenderJob` (presentation) pipeline. This one already
      had a private `updateDocumentAttachmentCurrentness` raw-SQL helper that
-     retroactively demotes a superseded version's *chat attachment* metadata
+     retroactively demotes a superseded version's _chat attachment_ metadata
      (not just the `AssistantDocumentVersion` row) whenever a newer version
      is promoted.
   2. `AssistantDocumentJobService.registerVisibleWorkspaceVersion` — the
-     *synchronous* workspace-document path (plain `create_pdf_document`/
+     _synchronous_ workspace-document path (plain `create_pdf_document`/
      `create_data_document`/`workspace_document` outputs via the ADR-132
      inspect/render/convert tools; this is what our short 1-page PDF test
      actually used). This one correctly demotes
@@ -295,7 +337,7 @@
   clean.
 - **Residual, stated plainly:** `ConversationalPublishService.stampDocumentAttachments`
   (the ADR-162 deferred document delivery path used for catch-up/async
-  document jobs) has the *same shape* of gap in isolation — it stamps only
+  document jobs) has the _same shape_ of gap in isolation — it stamps only
   the attachment it is currently delivering, never a prior version's — but
   it does not independently promote `currentVersionId`; version promotion
   for jobs going through that path still runs through
@@ -309,8 +351,8 @@
   `apps/api/src/modules/workspace-management/application/assistant-document-job-delivery.service.ts`,
   `apps/api/test/assistant-document-job.service.test.ts`.
 - **Next:** commit + push, deploy, then live-verify on `persai.dev` again with
-  a *fresh* revise-twice PDF test chat (the old diagnostic chat's DB rows
-  will stay stale forever since this fix only changes behavior for *future*
+  a _fresh_ revise-twice PDF test chat (the old diagnostic chat's DB rows
+  will stay stale forever since this fix only changes behavior for _future_
   revisions — it does not backfill already-superseded attachment rows), and
   separately exercise one deferred/async document job revision to confirm
   the ConversationalPublish path residual above is actually clean and not
@@ -331,13 +373,13 @@
   `AssistantMediaJobCompletionDeliveryService.publishOpenTurnMediaPresent`
   (`apps/api/.../workspace-media-job-completion-delivery.service.ts`) computed
   `afterToolCallId = firstProducingToolCallId(artifacts) ??
-  sourceToolCallIdFromRequestJson(job.requestJson)`. Worker-delivered media
+sourceToolCallIdFromRequestJson(job.requestJson)`. Worker-delivered media
   artifacts never carry `producingToolCallId` (confirmed: only
   `turn-execution.service.ts`'s synchronous tool-outcome mapping sets that
   field, never the async worker/completion-delivery path), so the fallback
-  — the **enqueue-time** tool call, i.e. the one that *started* the async
+  — the **enqueue-time** tool call, i.e. the one that _started_ the async
   job — was used on essentially every deferred media delivery. Because that
-  id matches a *real* entry in `toolInvocations`, the frontend's
+  id matches a _real_ entry in `toolInvocations`, the frontend's
   claimed/unclaimed split (below) still classified it as "claimed" and
   rendered the receipt right after that early call, above every note said
   afterward while the job was in flight.
@@ -360,7 +402,7 @@
   only.
 - **Gate run this session:** full targeted test file (23/23 green, incl. new
   regression), full `@persai/api` suite (`pnpm --filter @persai/api run
-  test`, all green, exit 0), `@persai/api`/`@persai/web` typecheck clean,
+test`, all green, exit 0), `@persai/api`/`@persai/web` typecheck clean,
   repo-wide lint clean, `format:check` clean.
 - **Files touched:**
   `apps/api/src/modules/workspace-management/application/workspace-media-job-completion-delivery.service.ts`,
@@ -387,13 +429,13 @@
   current version) returns `200`. Not literally "downloads v3" as founder
   first described from memory — it is a dead link, confirmed by direct
   `fetch()`, not a silent wrong-content download.
-  - **Root cause:** a revised document reuses the *same* canonical
+  - **Root cause:** a revised document reuses the _same_ canonical
     workspace storage path across every version (ADR-132 single-door
     identity) — the object in GCS storage is physically overwritten in
     place on each revision. `PrismaAssistantChatMessageAttachmentRepository
-    .findByChatIdAndStoragePath` resolves `(chatId, storagePath)` via
+.findByChatIdAndStoragePath` resolves `(chatId, storagePath)` via
     `findFirst(... orderBy: { createdAt: "desc" })`, which always returns
-    the *latest* attachment row for that path — the version check in
+    the _latest_ attachment row for that path — the version check in
     `MediaDeliveryService.assertRequestedDocumentVersionAccessible` then
     correctly rejects any `versionId` that isn't the latest one's, hence
     `409`. Even bypassing that check would not help: the old bytes are
@@ -409,7 +451,7 @@
   - **Not done / residual:** the presentation PDF path
     (`documentType === "presentation"`) never forwards `versionId` to
     `buildChatFileUrl` at all today, so an outdated presentation PDF link
-    would *not* 409 — it would silently resolve to the latest content
+    would _not_ 409 — it would silently resolve to the latest content
     through the same storagePath lookup. The new `isCurrentOutput` guard
     covers this too (applies regardless of `documentType`), so this residual
     is closed by the same fix, not left open.
@@ -425,7 +467,7 @@
   delivery has no real tool call left to bind to
   (`inlineMediaPlacement`/`inlineAfterToolCallId` unclaimed). The live
   note+receipt stream (`ProcessNoteReceiptStream`) is one position-fixed
-  block that always rendered *before* the streamed answer text, so the
+  block that always rendered _before_ the streamed answer text, so the
   banner landed above narration the user had already read.
   - **Fix:** `buildIterationBlocks` (`chat-message.tsx`) now tags every
     receipt piece `claimed: boolean` (bound to a real narrated tool call =
@@ -433,7 +475,7 @@
     `liveBeforeContentPieces` (text + claimed receipts — unchanged position,
     testid `process-live-note-receipt-stream`) and `liveUnclaimedReceipts`,
     rendered in a **new** block (testid
-    `process-live-unclaimed-receipt-stream`) placed *after* the streamed
+    `process-live-unclaimed-receipt-stream`) placed _after_ the streamed
     answer text. Applied to both the `isStreaming` and `isAssistantReconciling`
     branches.
   - **Verified NOT broken:** committed/collapsed "Выполнено" rendering —
@@ -441,7 +483,7 @@
     order is already correct there (notes, claimed receipt, unclaimed
     receipt, all before the terminal top-level answer); left untouched.
   - **Known residual, stated plainly to founder:** this does not solve
-    arbitrary interleaving of *many* notes + receipts + content chunks
+    arbitrary interleaving of _many_ notes + receipts + content chunks
     across one long turn — there is still no unified per-event sequence
     number across `workingNotes[]` / `content` / `attachments[]` /
     `inlineMediaPlacement[]`. If the founder still sees banners in the wrong
@@ -469,7 +511,7 @@
   1. Asking the assistant to re-edit a photo produced a genuine, specific
      reply, which then got overwritten by the generic "Запрос принят.
      Редактирую изображение и пришлю его отдельно, когда оно будет готово."
-     Founder had *already* asked for this exact behavior before (normalize
+     Founder had _already_ asked for this exact behavior before (normalize
      only when the model says literally nothing alongside a deferred job).
   2. An inline image delivered mid-turn visibly disappeared (replaced by
      "Думаю…") during catch-up narration, reappearing only after the final
@@ -480,7 +522,7 @@
 - **Regression 1 root cause:** the 2026-06-22 model-owned-reply policy
   (preserve non-empty model text verbatim alongside a `pending_delivery`
   media/document job; canonical "Запрос принят…" text is a fallback for
-  *empty* text only) was silently reverted by an unrelated commit `d4bd3267`
+  _empty_ text only) was silently reverted by an unrelated commit `d4bd3267`
   ("fix: restore canonical deferred delivery", 2026-07-20) — a drive-by
   side effect in the same ~10k-line `turn-execution.service.ts` while fixing
   three unrelated things (Telegram ack replay, document sandbox staging,
@@ -520,14 +562,14 @@
 - **Regression 2 root cause:** `applyTurnStatusState` in `use-chat.ts`
   handles the "accepted"/"running" branch of `turn_status`, which fires on
   every server-pushed status event over the live reattach bus (`onTurnStatus`
-  in the SSE handler) — not only on reconnect/reattach. In the *ordinary*
+  in the SSE handler) — not only on reconnect/reattach. In the _ordinary_
   (non-async-continuation) branch, `preservedAttachments` was hardcoded to
   `undefined`, and the message-rebuild spread ended with
   `{ attachments: undefined }` — unconditionally wiping the live bubble's
   attachments on every such reconcile, even when `fallbackAssistantMessage`
   (== the actual already-live bubble, `existingAssistant`) already carried a
   mid-turn delivered image. The `undefined` reset was only meant to guard
-  the *no-existing-bubble* case (a brand-new pending slot for a new turn);
+  the _no-existing-bubble_ case (a brand-new pending slot for a new turn);
   it fired even when a live bubble with real media was found.
   - **Fix:** `preservedAttachments` in the ordinary branch now falls back to
     `fallbackAssistantMessage.attachments` (previously hardcoded
@@ -647,7 +689,7 @@
 - **Gate:** recursive lint + `format:check`; api/web/runtime/provider-gateway
   typecheck; API suite with SQL probes forced unavailable
   (`PERSAI_POSTGRES_INTEGRATION_URL` closed port); runtime + provider-gateway
-  + sandbox tests; web `86/1138`; API `test:step2`; API+web production builds.
+  - sandbox tests; web `86/1138`; API `test:step2`; API+web production builds.
 - **Next:** after CI probe fix lands — authenticated live smoke that collapsed
   «Выполнено» still shows clickable ordered receipts.
 

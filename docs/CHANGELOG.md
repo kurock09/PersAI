@@ -5,6 +5,25 @@
 
 ## 2026-07-31 (latest)
 
+- **fix(web): every delivery receipt follows one placement rule — it never
+  renders above narration the user has already read.** Founder reported the
+  image receipt finally held its place in live while the delivered PDF
+  «прилипился в самый верх». Cause: the prior slice only fixed receipts with
+  no tool-call binding; a receipt bound to a tool call still rendered right
+  after that call unconditionally, which sits far above later narration when
+  the job finishes many steps afterwards. Additionally, mid-turn
+  reconciliation can present attachments while notes/content are momentarily
+  unreattached, and freezing a position from that frame pinned the receipt to
+  index 0. Fix: one target index per receipt, `max(toolCallIteration + 1,
+arrivalNoteIndex)`, with the arrival snapshot acting as a floor; arrivals
+  are recorded only while live and only from per-message high-water marks of
+  note count and raw content length; a bound receipt already present on the
+  first rendered frame is permanently treated as having no arrival info so
+  tool chronology still governs cold committed replay. The `claimed` piece
+  flag is removed. Two regression tests added (late-delivered bound receipt;
+  reconcile frame with attachments but no notes). Full serial web suite 86
+  files / 1146 tests green.
+
 - **fix(web): live delivery receipts are now anchored inside the streaming
   text instead of gluing themselves above the live cursor.** Founder
   reported the banner still stuck above the cursor and never held its place
@@ -33,7 +52,7 @@
   placement, not the backend.** Founder screenshot showed the banner
   correctly placed right after the note that was live when it arrived, then
   sliding down with every later note. Root cause: `buildIterationBlocks`
-  appended every unclaimed receipt after the *entire* current note list on
+  appended every unclaimed receipt after the _entire_ current note list on
   every render (recomputed fresh each time as `workingNotes` grows), and the
   live split rendered all unclaimed receipts in a separate stream pinned
   just above the live cursor/status line. Fix: `ChatMessageBubble` now
@@ -71,7 +90,7 @@
   is not a separate bug (it already routes through the same fixed
   `finalizeDelivery` → `updateDocumentAttachmentCurrentness` helper before
   any chat attachment exists). New lower-severity residual observed and
-  logged (not fixed): when *two* deferred media jobs complete within one
+  logged (not fixed): when _two_ deferred media jobs complete within one
   turn, their receipt banners group together near the end of the collapsed
   note list on commit instead of each interleaving immediately after its
   own delivery note; single-job interleaving is correct. See
@@ -87,19 +106,19 @@
   `persai.dev` (fetching the chat's messages API directly via the browser
   session) showed all three delivered versions of a revised PDF still
   reporting `versionStatus: "ready", isCurrentOutput: true` — even v1 and v2,
-  well after v3 shipped. Root cause: the *synchronous* workspace-document
+  well after v3 shipped. Root cause: the _synchronous_ workspace-document
   revision path, `AssistantDocumentJobService.registerVisibleWorkspaceVersion`
   (used for plain `create_pdf_document`/`create_data_document`/`workspace_document`
   outputs — the ADR-132 inspect/render/convert tools — as opposed to the
   deferred `AssistantDocumentRenderJob` presentation pipeline), correctly
   demotes `AssistantDocumentVersion.status` to `"superseded"` and promotes
   `AssistantDocument.currentVersionId` on every revision, but never touches
-  the *chat attachment's* cached `metadata.documentLink` snapshot for the
+  the _chat attachment's_ cached `metadata.documentLink` snapshot for the
   version being superseded. That snapshot is written once, at delivery time,
   by an entirely separate code path (`register-chat-attachment.service.ts` →
   `findCurrentDocumentLinkByOutputPath`) and nothing ever revisits it — so an
   old version's attachment claims `isCurrentOutput: true` forever. This is
-  the *actual* reason the previous frontend fix (below, "outdated document
+  the _actual_ reason the previous frontend fix (below, "outdated document
   version chips are no longer clickable") had no visible effect for this
   document type: the signal it depends on never flips. Fix: extracted the
   existing raw-SQL demotion helper (`updateDocumentAttachmentCurrentness`,
@@ -122,17 +141,17 @@
   `AssistantDocumentJobDeliveryService.finalizeDelivery`, which already calls
   the (now-shared) demotion helper; not independently re-verified live this
   session and flagged as a residual to re-check, not silently assumed fixed.
-- **fix(api): live receipt banner still bound to the *enqueue-time* tool call
+- **fix(api): live receipt banner still bound to the _enqueue-time_ tool call
   — the claimed/unclaimed split alone did not fix it.** Founder repro on
   `persai.dev` after the claimed/unclaimed split shipped below: the banner
   was still rendered at the very top of the expanded "Выполнено" panel,
   above every note. Root cause, confirmed by founder ("РАННЕМУ (enqueue-time)
   вызову инструмента, а не к моменту реальной доставки"):
   `AssistantMediaJobCompletionDeliveryService.publishOpenTurnMediaPresent`
-  fell back to `requestJson.sourceToolCallId` — the tool call that *started*
+  fell back to `requestJson.sourceToolCallId` — the tool call that _started_
   the async job at enqueue time — whenever the worker artifact carried no
   `producingToolCallId` (the ordinary case; worker artifacts never set that
-  field). Because that enqueue-time id matches a *real* tool call in
+  field). Because that enqueue-time id matches a _real_ tool call in
   `toolInvocations`, the frontend's claimed/unclaimed split (previous entry
   below) still classified it as "claimed" and rendered it right after that
   early call — i.e. above any note said afterward while the job was still in
@@ -157,7 +176,7 @@
   in storage is overwritten in place on each revision, and
   `AssistantChatMessageAttachmentRepository.findByChatIdAndStoragePath`
   (`orderBy: { createdAt: "desc" }`) always resolves that path to the
-  *latest* attachment row regardless of which historical (`v1`/`v2`/`v3`)
+  _latest_ attachment row regardless of which historical (`v1`/`v2`/`v3`)
   chip the user clicked. Confirmed by direct `fetch()` against three real
   revisions: clicking `v1` or `v2` returned `409 Conflict` ("The requested
   document version does not match this attachment anymore"); only the
@@ -165,18 +184,18 @@
   per-version blob to serve even if the version check were bypassed — the
   bytes are gone. Minimal, non-destructive fix (founder-selected scope):
   render a superseded document attachment (`documentLink.isCurrentOutput
-  === false`) as a non-clickable pill with an `outdatedDocumentVersion`
+=== false`) as a non-clickable pill with an `outdatedDocumentVersion`
   tooltip instead of a broken download link, in both the attachment strip
   and the inline `MediaReceiptLines` receipt banners. A durable fix (persist
   each version's bytes at an immutable per-version object key) is a real
   storage/data-model change and would need its own ADR — not done here.
 - **fix(web): live receipt banner ("🖼 Получено...") no longer renders above
   narration the model already streamed.** Founder report ("баннер появился
-  выше" + exact desired behavior: image arrives → banner appears *below*
+  выше" + exact desired behavior: image arrives → banner appears _below_
   the last reply, then narration continues below the banner) confirmed live
   on `persai.dev` via a fresh multi-step repro (image + PDF, narrated
   waiting). Root cause: `ProcessNoteReceiptStream` (the live note+receipt
-  block) is a single, position-fixed block that always renders *before* the
+  block) is a single, position-fixed block that always renders _before_ the
   streamed answer `content`. That is correct for receipts bound
   ("claimed") to a real, already-narrated tool call — those are
   chronologically earlier than the currently-streaming answer by
@@ -188,11 +207,11 @@
   instead of a fresh `workingNotes` entry, there is nothing left to bind
   to): the banner rendered above narration the user had already read.
   `buildIterationBlocks` now tags each receipt piece with `claimed:
-  boolean`. Live rendering (`chat-message.tsx`) splits `liveProcessPieces`
+boolean`. Live rendering (`chat-message.tsx`) splits `liveProcessPieces`
   into `liveBeforeContentPieces` (text + claimed receipts, unchanged
   position/testid `process-live-note-receipt-stream`) and
   `liveUnclaimedReceipts`, rendered in a new block
-  (`process-live-unclaimed-receipt-stream`) *after* the streamed answer
+  (`process-live-unclaimed-receipt-stream`) _after_ the streamed answer
   text. Committed/collapsed "Выполнено" rendering is untouched (already
   verified correct via live DOM capture on a real diagnostic chat: notes,
   then claimed receipt, then unclaimed receipt, all before the terminal
@@ -219,7 +238,7 @@
   `deferred-document-acknowledgement.test.ts` — the only tests that pinned
   the non-empty-preserved contract — were never registered in
   `run-suite-isolated.ts`** (a hand-curated allowlist, not a glob); `pnpm
-  --filter @persai/runtime test` never ran them. A repo-wide diff found 38
+--filter @persai/runtime test` never ran them. A repo-wide diff found 38
   test files with this problem in total; this fix registers the 2 files
   actually relevant to this regression under a new `mode: "node-test"` path
   in the runner (spawns `tsx --test <file>` for files using bare
@@ -232,7 +251,7 @@
   mid-turn media attachments.** Founder report: an inline image delivered
   mid-turn visibly disappeared (replaced by "Думаю…") during catch-up
   narration and only reappeared after the final reply. Root cause in
-  `applyTurnStatusState` (`use-chat.ts`): for the *ordinary* (non-async-
+  `applyTurnStatusState` (`use-chat.ts`): for the _ordinary_ (non-async-
   continuation) branch of the "accepted"/"running" reattach/reconcile path —
   which fires on every server-pushed `turn_status` event over the live
   reattach bus, not only on reconnect — `preservedAttachments` was

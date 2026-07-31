@@ -1966,6 +1966,94 @@ describe("ChatMessageBubble — pre-response status", () => {
     expect(screen.getByText("Картинка готова.")).toBeInTheDocument();
   });
 
+  it("regression: a late-delivered receipt bound to an early tool call does not jump to the top of the turn", () => {
+    // Live repro (persai.dev, 2026-07-31, third founder report): the image
+    // receipt held its place, but «Получен файл — test-output.pdf» stuck to
+    // the very top. A receipt bound to a tool call used to render right
+    // after that call unconditionally — which is far above narration the
+    // user already read when the job only finishes much later.
+    const pdf = {
+      ...makeDocumentAttachment("att-late-pdf-1"),
+      originalFilename: "test-output.pdf",
+      sizeBytes: 502100
+    };
+    const baseMessage = makeAssistantMessage({
+      status: "streaming",
+      content: "",
+      toolInvocations: [{ name: "document", iteration: 0, ok: true, toolCallId: "call-doc-1" }]
+    });
+
+    // Frames before delivery: the model narrates several steps.
+    const { rerender } = render(
+      <ChatMessageBubble
+        chatId="chat-1"
+        message={{ ...baseMessage, workingNotes: ["Первый шаг.", "Второй шаг."] }}
+      />
+    );
+
+    // Delivery lands now, bound to the *early* document tool call.
+    rerender(
+      <ChatMessageBubble
+        chatId="chat-1"
+        message={{
+          ...baseMessage,
+          workingNotes: ["Первый шаг.", "Второй шаг.", "Третий шаг."],
+          inlineMediaPlacement: [{ toolCallId: "call-doc-1", attachmentIds: ["att-late-pdf-1"] }],
+          attachments: [pdf]
+        }}
+      />
+    );
+
+    const stream = screen.getByTestId("process-live-note-receipt-stream");
+    const rows = Array.from(stream.children).map((node) => node.textContent);
+    const receiptIndex = rows.findIndex((text) => /Получен файл/.test(text ?? ""));
+    // Must sit after everything already narrated, not at index 0.
+    expect(receiptIndex).toBe(3);
+    expect(rows[0]).toMatch("Первый шаг.");
+    expect(rows[2]).toMatch("Третий шаг.");
+  });
+
+  it("regression: mid-turn reconciliation with attachments but no notes yet cannot pin a receipt to the top", () => {
+    // Mid-turn reconcile can briefly hand the bubble a message whose
+    // attachments are present while notes/content are not reattached yet.
+    // Freezing from that frame used to place the receipt above everything.
+    const image = {
+      ...makeImageAttachment("att-reconcile-1"),
+      sizeBytes: 1024 * 1024
+    };
+    const baseMessage = makeAssistantMessage({ status: "streaming", content: "" });
+
+    const { rerender } = render(
+      <ChatMessageBubble
+        chatId="chat-1"
+        message={{ ...baseMessage, workingNotes: ["Шаг один.", "Шаг два."] }}
+      />
+    );
+    // The bad frame: attachments arrive, notes momentarily empty.
+    rerender(
+      <ChatMessageBubble
+        chatId="chat-1"
+        message={{ ...baseMessage, workingNotes: [], attachments: [image] }}
+      />
+    );
+    // Notes come back.
+    rerender(
+      <ChatMessageBubble
+        chatId="chat-1"
+        message={{
+          ...baseMessage,
+          workingNotes: ["Шаг один.", "Шаг два.", "Шаг три."],
+          attachments: [image]
+        }}
+      />
+    );
+
+    const stream = screen.getByTestId("process-live-note-receipt-stream");
+    const rows = Array.from(stream.children).map((node) => node.textContent);
+    expect(rows.findIndex((text) => /Получено изображение/.test(text ?? ""))).toBe(2);
+    expect(rows[0]).toMatch("Шаг один.");
+  });
+
   it("regression: a receipt anchored mid-sentence moves into the note stream once that sentence becomes a finished note", () => {
     // Same receipt, one step later: the sentence it landed under has
     // finished and moved into `workingNotes`. The banner must keep the same

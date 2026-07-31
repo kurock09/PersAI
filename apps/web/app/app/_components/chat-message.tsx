@@ -920,11 +920,10 @@ function MarkdownFragment({ content }: { content: string }) {
 type IterationProcessPiece =
   | { kind: "text"; markdown: string }
   | { kind: "tool"; tool: RuntimeTurnToolInvocation }
-  // `claimed` distinguishes a receipt bound to a real, already-narrated tool
-  // call from one that never matched a known tool call ("unclaimed"), whose
-  // position instead comes from the arrival snapshot `ChatMessageBubble`
+  // Receipt position comes from `buildIterationBlocks` — the note it was
+  // narrated under, floored by the arrival snapshot `ChatMessageBubble`
   // freezes the first time it sees the attachment.
-  | { kind: "receipt"; attachment: ChatAttachment; claimed: boolean };
+  | { kind: "receipt"; attachment: ChatAttachment };
 
 type IterationBlock =
   | { kind: "content"; markdown: string }
@@ -1015,11 +1014,11 @@ type UnclaimedReceiptArrival = {
   hadInFlightText: boolean;
 };
 
-/** Where an unclaimed receipt belongs among the finished notes: after the
- * note it was narrated under. While the model was still mid-sentence that
- * note is note number `noteCount + 1`, which has not been committed yet —
- * until it is, the live view anchors the receipt inside the streaming text
- * instead (see `liveAnswerSegments` in `ChatMessageBubble`). */
+/** Where a receipt belongs among the finished notes, from the caller's
+ * arrival snapshot: after the note it was narrated under. While the model
+ * was still mid-sentence that note is number `noteCount + 1`, which has not
+ * been committed yet — until it is, the live view anchors the receipt inside
+ * the streaming text (see `liveAnswerSegments` in `ChatMessageBubble`). */
 function arrivalNoteIndex(arrival: UnclaimedReceiptArrival): number {
   return arrival.noteCount + (arrival.hadInFlightText ? 1 : 0);
 }
@@ -1028,65 +1027,68 @@ function buildIterationBlocks(
   workingNotes: string[],
   toolInvocations: RuntimeTurnToolInvocation[],
   receiptAttachments: ChatAttachment[] = [],
-  unclaimedReceiptArrival: ReadonlyMap<string, UnclaimedReceiptArrival> = new Map()
+  receiptArrival: ReadonlyMap<string, UnclaimedReceiptArrival> = new Map()
 ): IterationBlock[] {
   const allPieces: IterationProcessPiece[] = [];
   const contentBlocks: string[] = [];
-  const claimedReceiptIds = new Set<string>();
+  const placedReceiptIds = new Set<string>();
   const iterations = Math.max(
     workingNotes.length,
     ...toolInvocations.map((tool) => tool.iteration + 1),
     0
   );
 
-  const pushReceiptsForToolCall = (toolCallId: string | undefined) => {
-    if (toolCallId === undefined || toolCallId.length === 0) {
-      return;
+  const iterationByToolCallId = new Map<string, number>();
+  for (const tool of toolInvocations) {
+    if (typeof tool.toolCallId === "string" && tool.toolCallId.length > 0) {
+      iterationByToolCallId.set(tool.toolCallId, tool.iteration);
     }
-    for (const attachment of receiptAttachments) {
-      if (claimedReceiptIds.has(attachment.id)) {
-        continue;
-      }
-      if (attachment.inlineAfterToolCallId !== toolCallId) {
-        continue;
-      }
-      allPieces.push({ kind: "receipt", attachment, claimed: true });
-      claimedReceiptIds.add(attachment.id);
-    }
-  };
+  }
 
-  // Unclaimed receipts interleave at the note they arrived under (frozen by
-  // the caller) instead of being appended after every note currently known —
-  // see `UnclaimedReceiptArrival` above.
-  const unclaimedByArrivalNoteCount = new Map<number, ChatAttachment[]>();
+  // One rule for every receipt, whichever delivery path produced it: it sits
+  // after the note it was narrated under, and never earlier than where it
+  // was first seen. A receipt bound to a tool call normally lands right
+  // after that call — but for a job that finishes long after the call that
+  // started it, that position is far above narration the user has already
+  // read (live repro 2026-07-31: a delivered PDF stuck to the very top of
+  // the turn). The arrival snapshot is the floor that prevents that.
+  const byNoteIndex = new Map<number, ChatAttachment[]>();
   for (const attachment of receiptAttachments) {
-    if (attachment.inlineAfterToolCallId !== undefined) {
-      continue; // still a claim candidate — handled by pushReceiptsForToolCall
-    }
-    const arrival = unclaimedReceiptArrival.get(attachment.id);
-    const noteIndex = arrival === undefined ? workingNotes.length : arrivalNoteIndex(arrival);
-    const bucket = unclaimedByArrivalNoteCount.get(noteIndex);
+    const toolIteration =
+      attachment.inlineAfterToolCallId === undefined
+        ? undefined
+        : iterationByToolCallId.get(attachment.inlineAfterToolCallId);
+    const arrival = receiptArrival.get(attachment.id);
+    const arrivalIndex = arrival === undefined ? undefined : arrivalNoteIndex(arrival);
+    const toolIndex = toolIteration === undefined ? undefined : toolIteration + 1;
+    const noteIndex =
+      toolIndex === undefined
+        ? (arrivalIndex ?? workingNotes.length)
+        : arrivalIndex === undefined
+          ? toolIndex
+          : Math.max(toolIndex, arrivalIndex);
+    const bucket = byNoteIndex.get(noteIndex);
     if (bucket === undefined) {
-      unclaimedByArrivalNoteCount.set(noteIndex, [attachment]);
+      byNoteIndex.set(noteIndex, [attachment]);
     } else {
       bucket.push(attachment);
     }
   }
-  const pushUnclaimedArrivedAt = (noteCount: number) => {
-    const bucket = unclaimedByArrivalNoteCount.get(noteCount);
+  const pushReceiptsAt = (noteIndex: number) => {
+    const bucket = byNoteIndex.get(noteIndex);
     if (bucket === undefined) {
       return;
     }
     for (const attachment of bucket) {
-      if (claimedReceiptIds.has(attachment.id)) {
+      if (placedReceiptIds.has(attachment.id)) {
         continue;
       }
-      allPieces.push({ kind: "receipt", attachment, claimed: false });
-      claimedReceiptIds.add(attachment.id);
+      allPieces.push({ kind: "receipt", attachment });
+      placedReceiptIds.add(attachment.id);
     }
   };
 
-  pushUnclaimedArrivedAt(0);
+  pushReceiptsAt(0);
   for (let i = 0; i < iterations; i += 1) {
     const text = (workingNotes[i] ?? "").trim();
     if (text.length > 0) {
@@ -1100,22 +1102,21 @@ function buildIterationBlocks(
     const toolsAtIteration = toolInvocations.filter((tool) => tool.iteration === i);
     for (const tool of toolsAtIteration) {
       allPieces.push({ kind: "tool", tool });
-      pushReceiptsForToolCall(tool.toolCallId);
     }
 
-    pushUnclaimedArrivedAt(i + 1);
+    pushReceiptsAt(i + 1);
   }
 
-  // Safety net: a receipt whose toolCallId never actually matched a real
-  // tool invocation above (stale/missing), or whose arrival was never
-  // recorded by the caller, still joins the stream at the end rather than
-  // vanishing.
+  // Safety net: a receipt whose target index sits beyond the notes known so
+  // far (its note has not been committed yet) still joins the stream at the
+  // end rather than vanishing — live rendering anchors those inside the
+  // streaming text instead.
   for (const attachment of receiptAttachments) {
-    if (claimedReceiptIds.has(attachment.id)) {
+    if (placedReceiptIds.has(attachment.id)) {
       continue;
     }
-    allPieces.push({ kind: "receipt", attachment, claimed: false });
-    claimedReceiptIds.add(attachment.id);
+    allPieces.push({ kind: "receipt", attachment });
+    placedReceiptIds.add(attachment.id);
   }
 
   const blocks: IterationBlock[] = [];
@@ -1404,7 +1405,7 @@ function LiveAnswerSegments({
         return (
           <ProcessNoteReceiptStream
             key={segment.attachment.id}
-            pieces={[{ kind: "receipt", attachment: segment.attachment, claimed: false }]}
+            pieces={[{ kind: "receipt", attachment: segment.attachment }]}
             chatId={chatId}
             live
             testId="process-live-answer-receipt-stream"
@@ -2758,12 +2759,33 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
   // ADR-158: non-live reattach uses reconciling — show a quiet wait cursor, not «Думаю».
   const isAssistantReconciling = message.role === "assistant" && message.status === "reconciling";
   // Freezes, per attachment id, exactly how much the model had already said
-  // the *first* time an unclaimed receipt is observed. Without this every
-  // re-render re-derives the position from whatever is on screen now, so the
-  // banner keeps moving to sit just above the live cursor as the model keeps
+  // the *first* time a receipt is observed. Without this every re-render
+  // re-derives the position from whatever is on screen now, so the banner
+  // keeps moving to sit just above the live cursor as the model keeps
   // talking (regression, 2026-07-31). Keyed by attachment id so it survives
   // this message's own re-renders but resets for a different message.
-  const unclaimedReceiptArrivalRef = useRef<Map<string, UnclaimedReceiptArrival>>(new Map());
+  //
+  // Only recorded while the turn is live: a message this component first
+  // meets already committed has no arrival information to offer, and must
+  // keep using the tool-call position for bound receipts instead of a
+  // meaningless "arrived after everything" snapshot.
+  const receiptArrivalRef = useRef<Map<string, UnclaimedReceiptArrival>>(new Map());
+  // High-water marks, not the current frame: mid-turn reconciliation can
+  // briefly hand us a message whose attachments are present while its notes
+  // or content are not yet reattached. Freezing from such a frame would pin
+  // a receipt to the very top of the turn (live repro 2026-07-31: a
+  // delivered PDF stuck above everything). Notes and the raw stream only
+  // grow, so the maximum seen so far is the honest picture.
+  const liveTextHighWaterRef = useRef<{ noteCount: number; contentLength: number }>({
+    noteCount: 0,
+    contentLength: 0
+  });
+  const hasObservedLiveFrameRef = useRef(false);
+  // Receipts already present on the first live frame we rendered: we did not
+  // witness them arrive, so we have no honest arrival snapshot for them and
+  // must never invent one later. A tool-bound receipt keeps its tool-call
+  // position; an unbound one is frozen on that first sighting instead.
+  const receiptsWithoutArrivalInfoRef = useRef<Set<string>>(new Set());
   const assistantSegments = useMemo(() => {
     if (message.role !== "assistant") {
       return { iterationBlocks: [], answerText: message.content, answerStrippedLength: 0 };
@@ -2797,30 +2819,45 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
             : attachment;
         });
     const { text: answerText, strippedLength } = deriveLiveAnswer(message.content, workingNotes);
-    for (const attachment of receiptAttachments) {
-      if (attachment.inlineAfterToolCallId !== undefined) {
-        continue; // may still become a claimed receipt once its tool call is seen
+    const live = message.status === "streaming" || message.status === "reconciling";
+    if (live) {
+      const highWater = liveTextHighWaterRef.current;
+      highWater.noteCount = Math.max(highWater.noteCount, workingNotes.length);
+      highWater.contentLength = Math.max(highWater.contentLength, message.content.length);
+      const witnessedArrivals = hasObservedLiveFrameRef.current;
+      for (const attachment of receiptAttachments) {
+        if (
+          receiptArrivalRef.current.has(attachment.id) ||
+          receiptsWithoutArrivalInfoRef.current.has(attachment.id)
+        ) {
+          continue; // already decided on an earlier render
+        }
+        if (attachment.inlineAfterToolCallId !== undefined && !witnessedArrivals) {
+          // Was already delivered before we rendered anything, and it carries
+          // a real tool call to sit under — that position is the honest one.
+          receiptsWithoutArrivalInfoRef.current.add(attachment.id);
+          continue;
+        }
+        receiptArrivalRef.current.set(attachment.id, {
+          noteCount: highWater.noteCount,
+          contentLength: highWater.contentLength,
+          hadInFlightText: highWater.contentLength > strippedLength || answerText.trim().length > 0
+        });
       }
-      if (unclaimedReceiptArrivalRef.current.has(attachment.id)) {
-        continue; // already frozen on an earlier render
-      }
-      unclaimedReceiptArrivalRef.current.set(attachment.id, {
-        noteCount: workingNotes.length,
-        contentLength: message.content.length,
-        hadInFlightText: answerText.trim().length > 0
-      });
+      hasObservedLiveFrameRef.current = true;
     }
     return {
       iterationBlocks: buildIterationBlocks(
         workingNotes,
         toolInvocations,
         receiptAttachments,
-        unclaimedReceiptArrivalRef.current
+        receiptArrivalRef.current
       ),
       answerText,
       answerStrippedLength: strippedLength
     };
   }, [
+    message.status,
     message.attachments,
     message.content,
     message.id,
@@ -2866,10 +2903,10 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
     const answerLength = assistantSegments.answerText.length;
     const anchored: Array<{ attachment: ChatAttachment; offset: number }> = [];
     for (const piece of liveProcessPieces) {
-      if (piece.kind !== "receipt" || piece.claimed) {
+      if (piece.kind !== "receipt") {
         continue;
       }
-      const arrival = unclaimedReceiptArrivalRef.current.get(piece.attachment.id);
+      const arrival = receiptArrivalRef.current.get(piece.attachment.id);
       if (arrival === undefined || !arrival.hadInFlightText) {
         continue;
       }
