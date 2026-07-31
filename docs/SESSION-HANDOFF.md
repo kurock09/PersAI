@@ -45,9 +45,23 @@
   clean (`--max-warnings=0`), prettier clean.
 - **Files touched:** `apps/web/app/app/_components/chat-message.tsx`,
   `apps/web/app/app/_components/chat-message.test.tsx`.
-- **Residual/next:** live acceptance on `persai.dev` by the founder. Note
-  that the previous entry's committed-view interleave fix stands and was
-  genuinely verified; this slice is strictly about the live phase.
+- **Deployed** as `web` image `29a936ab60cc14a9bbbf6e37ecb01dccc6592f7e`;
+  both pods rolled, ArgoCD Synced/Healthy.
+- **What is verified vs not — do not overstate this again.** Verified:
+  the two new unit tests reproduce the reported behaviour and now pass, and
+  on the deployed build a live turn that awaited an image in-turn committed
+  with the receipt interleaved between notes (`Генерирую зелёный
+  треугольник.` → receipt → `Жду готовности изображения.` → `Изображение
+  готово...`), i.e. not clumped at the end. **Not verified:** direct
+  observation of the pre-commit live phase on `persai.dev`. Two attempts
+  with a DOM-order sampler failed for harness reasons, not product reasons —
+  the automation tab kept losing the live thread, and in the follow-up turn
+  the image was delivered as a separate ConversationalPublish message
+  (a different code path with no in-turn banner at all). The previous entry
+  in this file claimed a live verification that, on review, had actually
+  captured the bug (the "note" above the banner was a truncated,
+  still-streaming sentence).
+- **Residual/next:** founder live acceptance of the live phase itself.
 
 ## 2026-07-31 (later) — live receipt banner: fixed the real "rides the live cursor" bug (frontend architecture, not backend)
 
