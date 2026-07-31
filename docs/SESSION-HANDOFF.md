@@ -75,12 +75,26 @@
   after one `--write` pass.
 - **Files touched:** `apps/web/app/app/_components/chat-message.tsx`,
   `apps/web/app/app/_components/chat-message.test.tsx`.
-- **Next:** commit, push, deploy, then live-verify on `persai.dev` with a
-  fresh multi-step image+PDF turn (same shape as the founder's screenshot)
-  to confirm the banner settles once and does not slide with later notes;
-  separately re-check the two-sequential-images live scenario from the
-  prior session's verification pass to confirm the "grouped near the end"
-  residual is actually gone now, not just structurally expected to be.
+- **Live-verified on `persai.dev` (deployed `web` image
+  `8bfc7db747ac58b593a43d479d5d0340ba962d3a`, both pods rolled, ArgoCD
+  Synced/Healthy):** a fresh image+PDF turn shaped like the founder's
+  screenshot (generate a circle, then embed it in a short PDF, forced 5-6+
+  narration notes around each step) produced, after commit, the expanded
+  "Выполнено · 14 шагов" panel with **both** receipts correctly interleaved
+  at their exact arrival point — `🖼 Получено изображение` immediately after
+  `"Картинка готова. Ищу файл в рабочем пространстве."` (and before `"Файл
+  найден..."`), and `📎 Получен файл — test.pdf` immediately after `"PDF
+  готов, 540 КБ. Прикрепляю."` — not grouped together near the end. This
+  also directly confirms the "two receipts grouped near the end" residual
+  from the prior live-verification pass is gone. A live (pre-commit)
+  screenshot caught the image receipt rendering inline right after that
+  same note, with the streaming cursor directly beneath it, matching the
+  new inline-interleave design.
+- **Next:** none required for this specific bug; if the founder wants
+  additional live confidence, repeat the two-sequential-images scenario
+  from the prior pass and confirm the banners settle without any visible
+  jump during the live phase itself (not just the already-confirmed
+  committed replay).
 
 ## 2026-07-31 — pushed, deployed, and live-verified both backend fixes on persai.dev
 

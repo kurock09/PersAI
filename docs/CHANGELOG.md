@@ -24,8 +24,12 @@
   position. This also fixes the "two receipts grouped near the end"
   residual from the previous live-verification pass, since committed replay
   reads the same interleaved `allPieces`. New/updated tests in
-  `chat-message.test.tsx`; `@persai/web` typecheck/lint/prettier clean. See
-  `docs/SESSION-HANDOFF.md` 2026-07-31 (later) for full detail.
+  `chat-message.test.tsx`; `@persai/web` typecheck/lint/prettier clean.
+  Deployed (`web` image `8bfc7db7...`) and live-verified on `persai.dev`: a
+  fresh image+PDF turn now shows both receipts correctly interleaved at
+  their exact arrival point in the committed "Выполнено" panel, not grouped
+  near the end. See `docs/SESSION-HANDOFF.md` 2026-07-31 (later) for full
+  detail.
 
 ## 2026-07-31
 
