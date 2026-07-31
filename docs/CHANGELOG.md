@@ -3,6 +3,29 @@
 > Archive: detailed historical entries from 2026-06-05 and earlier moved to `docs/CHANGELOG.archive-2026-06-05-details-and-earlier.md`; entries from 2026-05-19 and earlier remain in `docs/CHANGELOG.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: current entries plus concise recent summaries only.
 
+## 2026-07-31 (latest)
+
+- **fix(web): live delivery receipts are now anchored inside the streaming
+  text instead of gluing themselves above the live cursor.** Founder
+  reported the banner still stuck above the cursor and never held its place
+  in chronology; the prior slice had only fixed the committed/collapsed
+  view. Cause: live narration streams through `message.content`, not
+  `workingNotes` (a note only lands there once its step finishes), so a
+  receipt almost always arrives mid-sentence with no finished note to sit
+  under — and the prior slice routed exactly that case into a fixed block
+  after all streamed text, i.e. permanently just above the cursor. Fix:
+  freeze the absolute offset into the raw cumulative content stream (which
+  only appends, so it stays valid all turn) and render the streaming answer
+  cut into chunks around each anchored receipt via a new
+  `LiveAnswerSegments` component; once the sentence becomes a finished note
+  the receipt transfers to the note stream at the same visual spot.
+  `deriveLiveAnswerText` → `deriveLiveAnswer` (also returns stripped prefix
+  length); the `deferUntilAfterAnswer` flag and the trailing after-answer
+  stream it fed are gone. Two new regression tests; 85/85 in
+  `chat-message.test.tsx`, 657/657 across `app/app/_components`;
+  typecheck/lint/prettier clean. See `docs/SESSION-HANDOFF.md` 2026-07-31
+  (latest).
+
 ## 2026-07-31 (later)
 
 - **fix(web): live receipt banner still "rode" the live cursor as later

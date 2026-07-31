@@ -921,23 +921,10 @@ type IterationProcessPiece =
   | { kind: "text"; markdown: string }
   | { kind: "tool"; tool: RuntimeTurnToolInvocation }
   // `claimed` distinguishes a receipt bound to a real, already-narrated tool
-  // call from one that never matched a known tool call ("unclaimed" — see
-  // `ChatMessageBubble`'s arrival-freeze ref). `deferUntilAfterAnswer` is a
-  // separate, narrower live-only concern: it is true only when an unclaimed
-  // receipt first arrived *after* the model had already started streaming
-  // its final answer text — that one case must render after that text, not
-  // interleaved with it, so a banner never appears above narration the user
-  // already read. Every other unclaimed receipt (the common case: it arrives
-  // mid-tool-loop, before any final answer text exists) renders inline in
-  // the ordinary note/receipt stream at its frozen arrival position — this
-  // is what stops it from visually "riding" the live cursor as later notes
-  // keep streaming in underneath it (regression, 2026-07-31).
-  | {
-      kind: "receipt";
-      attachment: ChatAttachment;
-      claimed: boolean;
-      deferUntilAfterAnswer: boolean;
-    };
+  // call from one that never matched a known tool call ("unclaimed"), whose
+  // position instead comes from the arrival snapshot `ChatMessageBubble`
+  // freezes the first time it sees the attachment.
+  | { kind: "receipt"; attachment: ChatAttachment; claimed: boolean };
 
 type IterationBlock =
   | { kind: "content"; markdown: string }
@@ -985,7 +972,10 @@ function isContentBlock(text: string): boolean {
  * remains live. Committed messages already have clean answerText content,
  * so the notes will not be found and this is a safe no-op.
  */
-function deriveLiveAnswerText(content: string, workingNotes: readonly string[]): string {
+function deriveLiveAnswer(
+  content: string,
+  workingNotes: readonly string[]
+): { text: string; strippedLength: number } {
   let cursor = 0;
   for (const note of workingNotes) {
     if (note.length === 0) {
@@ -995,29 +985,44 @@ function deriveLiveAnswerText(content: string, workingNotes: readonly string[]):
     if (idx === -1) {
       // Raw stream doesn't match the note prefix exactly (e.g. already-clean
       // committed content, or a correction changed the text) — do not guess.
-      return content;
+      return { text: content, strippedLength: 0 };
     }
     cursor = idx + note.length;
   }
   while (cursor < content.length && /\s/.test(content.charAt(cursor))) {
     cursor += 1;
   }
-  return content.slice(cursor);
+  // `strippedLength` lets the caller map an absolute offset into the raw
+  // cumulative stream onto the live text currently on screen — the raw
+  // stream only ever grows, so an offset frozen in it stays valid even as
+  // finished narration migrates out of it into `workingNotes`.
+  return { text: content.slice(cursor), strippedLength: cursor };
 }
 
 /** Per-attachment snapshot the caller freezes the first time it sees an
  * unclaimed receipt, keyed by attachment id — see `ChatMessageBubble`. */
 type UnclaimedReceiptArrival = {
-  /** `workingNotes.length` at first observation — the receipt is interleaved
-   * right after that many notes have been pushed, not appended after every
-   * note currently known (which is what let it visually "ride" the live
-   * cursor as later notes kept streaming in). */
+  /** `workingNotes.length` at first observation. */
   noteCount: number;
-  /** True only if the model had already started streaming final answer text
-   * when this receipt was first observed — the one case that still needs to
-   * defer to after that text (see the live split in `ChatMessageBubble`). */
-  deferUntilAfterAnswer: boolean;
+  /** Length of the raw cumulative `message.content` stream at first
+   * observation. The raw stream only ever appends, so this offset stays a
+   * valid anchor for the whole turn: everything the user had already read
+   * when the receipt landed is before it, everything the model says
+   * afterwards is after it. */
+  contentLength: number;
+  /** True if the model was mid-sentence (streaming narration that had not
+   * yet become a finished `workingNotes` entry) when the receipt landed. */
+  hadInFlightText: boolean;
 };
+
+/** Where an unclaimed receipt belongs among the finished notes: after the
+ * note it was narrated under. While the model was still mid-sentence that
+ * note is note number `noteCount + 1`, which has not been committed yet —
+ * until it is, the live view anchors the receipt inside the streaming text
+ * instead (see `liveAnswerSegments` in `ChatMessageBubble`). */
+function arrivalNoteIndex(arrival: UnclaimedReceiptArrival): number {
+  return arrival.noteCount + (arrival.hadInFlightText ? 1 : 0);
+}
 
 function buildIterationBlocks(
   workingNotes: string[],
@@ -1045,24 +1050,24 @@ function buildIterationBlocks(
       if (attachment.inlineAfterToolCallId !== toolCallId) {
         continue;
       }
-      allPieces.push({ kind: "receipt", attachment, claimed: true, deferUntilAfterAnswer: false });
+      allPieces.push({ kind: "receipt", attachment, claimed: true });
       claimedReceiptIds.add(attachment.id);
     }
   };
 
-  // Unclaimed receipts interleave at the note-count they first arrived at
-  // (frozen by the caller) instead of being appended after every note
-  // currently known — see `UnclaimedReceiptArrival` above.
+  // Unclaimed receipts interleave at the note they arrived under (frozen by
+  // the caller) instead of being appended after every note currently known —
+  // see `UnclaimedReceiptArrival` above.
   const unclaimedByArrivalNoteCount = new Map<number, ChatAttachment[]>();
   for (const attachment of receiptAttachments) {
     if (attachment.inlineAfterToolCallId !== undefined) {
       continue; // still a claim candidate — handled by pushReceiptsForToolCall
     }
     const arrival = unclaimedReceiptArrival.get(attachment.id);
-    const noteCount = arrival?.noteCount ?? workingNotes.length;
-    const bucket = unclaimedByArrivalNoteCount.get(noteCount);
+    const noteIndex = arrival === undefined ? workingNotes.length : arrivalNoteIndex(arrival);
+    const bucket = unclaimedByArrivalNoteCount.get(noteIndex);
     if (bucket === undefined) {
-      unclaimedByArrivalNoteCount.set(noteCount, [attachment]);
+      unclaimedByArrivalNoteCount.set(noteIndex, [attachment]);
     } else {
       bucket.push(attachment);
     }
@@ -1076,9 +1081,7 @@ function buildIterationBlocks(
       if (claimedReceiptIds.has(attachment.id)) {
         continue;
       }
-      const deferUntilAfterAnswer =
-        unclaimedReceiptArrival.get(attachment.id)?.deferUntilAfterAnswer ?? false;
-      allPieces.push({ kind: "receipt", attachment, claimed: false, deferUntilAfterAnswer });
+      allPieces.push({ kind: "receipt", attachment, claimed: false });
       claimedReceiptIds.add(attachment.id);
     }
   };
@@ -1111,7 +1114,7 @@ function buildIterationBlocks(
     if (claimedReceiptIds.has(attachment.id)) {
       continue;
     }
-    allPieces.push({ kind: "receipt", attachment, claimed: false, deferUntilAfterAnswer: false });
+    allPieces.push({ kind: "receipt", attachment, claimed: false });
     claimedReceiptIds.add(attachment.id);
   }
 
@@ -1357,6 +1360,54 @@ function ProcessNoteReceiptStream({
             galleryAttachments={receiptAttachments}
             live={live}
             embedded
+          />
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * Streaming answer text with delivery receipts cut into it at the point the
+ * model had reached when each one landed — see `answerAnchoredReceipts`.
+ */
+function LiveAnswerSegments({
+  segments,
+  chatId,
+  streaming,
+  onAction,
+  className
+}: {
+  segments: Array<{ kind: "text"; text: string } | { kind: "receipt"; attachment: ChatAttachment }>;
+  chatId?: string | null | undefined;
+  streaming: boolean;
+  onAction?: ((text: string) => void) | undefined;
+  className?: string | undefined;
+}) {
+  if (segments.length === 0) {
+    return null;
+  }
+  return (
+    <div className={cn("space-y-2", className)} data-testid="live-answer-segments">
+      {segments.map((segment, index) => {
+        if (segment.kind === "text") {
+          return (
+            <div key={`answer-${index}`}>
+              {streaming ? (
+                <StreamingMarkdownMessageContent content={segment.text} onAction={onAction} />
+              ) : (
+                <MarkdownMessageContent content={segment.text} onAction={onAction} />
+              )}
+            </div>
+          );
+        }
+        return (
+          <ProcessNoteReceiptStream
+            key={segment.attachment.id}
+            pieces={[{ kind: "receipt", attachment: segment.attachment, claimed: false }]}
+            chatId={chatId}
+            live
+            testId="process-live-answer-receipt-stream"
           />
         );
       })}
@@ -2706,18 +2757,16 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
   const isStreaming = message.status === "streaming" && message.role === "assistant";
   // ADR-158: non-live reattach uses reconciling — show a quiet wait cursor, not «Думаю».
   const isAssistantReconciling = message.role === "assistant" && message.status === "reconciling";
-  // Freezes, per attachment id, the `workingNotes` count (and whether final
-  // answer text had already started) the *first* time an unclaimed receipt
-  // is observed. Without this, every re-render recomputes "unclaimed" from
-  // scratch and `buildIterationBlocks` would keep placing it after whatever
-  // notes are currently known — visually "riding" the live cursor as later
-  // notes stream in underneath it (regression, 2026-07-31). Keyed by
-  // attachment id so it survives across this message's own re-renders but
-  // resets naturally for a different message (new component instance).
+  // Freezes, per attachment id, exactly how much the model had already said
+  // the *first* time an unclaimed receipt is observed. Without this every
+  // re-render re-derives the position from whatever is on screen now, so the
+  // banner keeps moving to sit just above the live cursor as the model keeps
+  // talking (regression, 2026-07-31). Keyed by attachment id so it survives
+  // this message's own re-renders but resets for a different message.
   const unclaimedReceiptArrivalRef = useRef<Map<string, UnclaimedReceiptArrival>>(new Map());
   const assistantSegments = useMemo(() => {
     if (message.role !== "assistant") {
-      return { iterationBlocks: [], answerText: message.content };
+      return { iterationBlocks: [], answerText: message.content, answerStrippedLength: 0 };
     }
     // workingNotes is the structured multi-step field from the server (one entry
     // per tool-loop step). Committed content is the clean final answer, but
@@ -2747,7 +2796,7 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
             ? { ...attachment, inlineAfterToolCallId: placementToolCallId }
             : attachment;
         });
-    const answerText = deriveLiveAnswerText(message.content, workingNotes);
+    const { text: answerText, strippedLength } = deriveLiveAnswer(message.content, workingNotes);
     for (const attachment of receiptAttachments) {
       if (attachment.inlineAfterToolCallId !== undefined) {
         continue; // may still become a claimed receipt once its tool call is seen
@@ -2757,7 +2806,8 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
       }
       unclaimedReceiptArrivalRef.current.set(attachment.id, {
         noteCount: workingNotes.length,
-        deferUntilAfterAnswer: answerText.trim().length > 0
+        contentLength: message.content.length,
+        hadInFlightText: answerText.trim().length > 0
       });
     }
     return {
@@ -2767,7 +2817,8 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
         receiptAttachments,
         unclaimedReceiptArrivalRef.current
       ),
-      answerText
+      answerText,
+      answerStrippedLength: strippedLength
     };
   }, [
     message.attachments,
@@ -2801,33 +2852,76 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
       block.kind === "process" ? block.pieces : []
     );
   }, [assistantSegments.iterationBlocks, isAssistantLive]);
-  // Only a receipt that first arrived *after* the model had already started
-  // streaming its final answer text defers to a separate after-answer
-  // stream (narration the user already read must not get a banner shoved
-  // above it). Every other receipt — claimed, or unclaimed but arriving
-  // mid-tool-loop before any answer text exists — renders inline, in its
-  // frozen arrival position (see `UnclaimedReceiptArrival`), so it settles
-  // once and does not visually "ride" the live cursor as later notes keep
-  // streaming in underneath it.
-  const liveBeforeContentPieces = useMemo(
-    () =>
-      liveProcessPieces.filter(
-        (piece) => !(piece.kind === "receipt" && piece.deferUntilAfterAnswer)
-      ),
-    [liveProcessPieces]
-  );
-  const liveUnclaimedReceipts = useMemo(
-    () =>
-      liveProcessPieces.filter(
-        (piece): piece is Extract<IterationProcessPiece, { kind: "receipt" }> =>
-          piece.kind === "receipt" && piece.deferUntilAfterAnswer
-      ),
-    [liveProcessPieces]
-  );
+  // Live narration streams through `message.content`, not `workingNotes` —
+  // a note only lands in `workingNotes` once its step finishes. So a receipt
+  // that arrives while the model is mid-sentence has no finished note to sit
+  // under yet. Anchor it inside the streaming text at the exact point the
+  // model had reached when it landed: text written before stays above it,
+  // everything said afterwards renders below it. That is what keeps it in
+  // chronological place instead of gluing it above the live cursor.
+  const answerAnchoredReceipts = useMemo(() => {
+    if (!isAssistantLive) {
+      return [] as Array<{ attachment: ChatAttachment; offset: number }>;
+    }
+    const answerLength = assistantSegments.answerText.length;
+    const anchored: Array<{ attachment: ChatAttachment; offset: number }> = [];
+    for (const piece of liveProcessPieces) {
+      if (piece.kind !== "receipt" || piece.claimed) {
+        continue;
+      }
+      const arrival = unclaimedReceiptArrivalRef.current.get(piece.attachment.id);
+      if (arrival === undefined || !arrival.hadInFlightText) {
+        continue;
+      }
+      // Once the sentence it landed under has finished, it becomes a real
+      // note and the receipt goes back to the note stream at the same
+      // visual spot — no anchor needed anymore.
+      if (arrival.contentLength <= assistantSegments.answerStrippedLength) {
+        continue;
+      }
+      const offset = Math.min(
+        arrival.contentLength - assistantSegments.answerStrippedLength,
+        answerLength
+      );
+      anchored.push({ attachment: piece.attachment, offset });
+    }
+    return anchored.sort((left, right) => left.offset - right.offset);
+  }, [
+    assistantSegments.answerStrippedLength,
+    assistantSegments.answerText.length,
+    isAssistantLive,
+    liveProcessPieces
+  ]);
+  const liveBeforeContentPieces = useMemo(() => {
+    const anchoredIds = new Set(answerAnchoredReceipts.map((entry) => entry.attachment.id));
+    return liveProcessPieces.filter(
+      (piece) => !(piece.kind === "receipt" && anchoredIds.has(piece.attachment.id))
+    );
+  }, [answerAnchoredReceipts, liveProcessPieces]);
+  /** Streaming answer text cut into chunks around any anchored receipt. */
+  const liveAnswerSegments = useMemo(() => {
+    const answerText = assistantSegments.answerText;
+    const segments: Array<
+      { kind: "text"; text: string } | { kind: "receipt"; attachment: ChatAttachment }
+    > = [];
+    let cursor = 0;
+    for (const entry of answerAnchoredReceipts) {
+      const chunk = answerText.slice(cursor, entry.offset);
+      if (chunk.trim().length > 0) {
+        segments.push({ kind: "text", text: chunk });
+      }
+      segments.push({ kind: "receipt", attachment: entry.attachment });
+      cursor = entry.offset;
+    }
+    const tail = answerText.slice(cursor);
+    if (tail.trim().length > 0) {
+      segments.push({ kind: "text", text: tail });
+    }
+    return segments;
+  }, [answerAnchoredReceipts, assistantSegments.answerText]);
   const hasLiveNoteOrReceipt = liveBeforeContentPieces.some(
     (piece) => piece.kind === "text" || piece.kind === "receipt"
   );
-  const hasLiveUnclaimedReceipt = liveUnclaimedReceipts.length > 0;
   const hasVisibleAnswerText = assistantSegments.answerText.trim().length > 0;
   const isStreamingTextActive = message.streamingTextActive === true;
   const showInlineStreamingStatus =
@@ -3040,27 +3134,13 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
                     />
                   </div>
                 ) : null}
-                {hasVisibleAnswerText ? (
-                  <div className={hasLiveNoteOrReceipt ? "mt-2" : undefined}>
-                    <StreamingMarkdownMessageContent
-                      content={assistantSegments.answerText}
-                      onAction={onAssistantAction}
-                    />
-                  </div>
-                ) : null}
-                {hasLiveUnclaimedReceipt ? (
-                  <div
-                    className={hasLiveNoteOrReceipt || hasVisibleAnswerText ? "mt-2" : undefined}
-                    data-testid="process-live-unclaimed-receipt-anchor"
-                  >
-                    <ProcessNoteReceiptStream
-                      pieces={liveUnclaimedReceipts}
-                      chatId={chatId}
-                      live
-                      testId="process-live-unclaimed-receipt-stream"
-                    />
-                  </div>
-                ) : null}
+                <LiveAnswerSegments
+                  segments={liveAnswerSegments}
+                  chatId={chatId}
+                  streaming
+                  onAction={onAssistantAction}
+                  className={hasLiveNoteOrReceipt ? "mt-2" : undefined}
+                />
                 {(showInlineStreamingStatus || showCursorOnlyStatus) && (
                   <div className="mt-2 flex items-start gap-2">
                     {showInlineStreamingStatus ? (
@@ -3091,27 +3171,13 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
                     />
                   </div>
                 ) : null}
-                {hasVisibleAnswerText ? (
-                  <div className={hasLiveNoteOrReceipt ? "mt-2" : undefined}>
-                    <MarkdownMessageContent
-                      content={assistantSegments.answerText}
-                      onAction={onAssistantAction}
-                    />
-                  </div>
-                ) : null}
-                {hasLiveUnclaimedReceipt ? (
-                  <div
-                    className={hasLiveNoteOrReceipt || hasVisibleAnswerText ? "mt-2" : undefined}
-                    data-testid="process-live-unclaimed-receipt-anchor"
-                  >
-                    <ProcessNoteReceiptStream
-                      pieces={liveUnclaimedReceipts}
-                      chatId={chatId}
-                      live
-                      testId="process-live-unclaimed-receipt-stream"
-                    />
-                  </div>
-                ) : null}
+                <LiveAnswerSegments
+                  segments={liveAnswerSegments}
+                  chatId={chatId}
+                  streaming={false}
+                  onAction={onAssistantAction}
+                  className={hasLiveNoteOrReceipt ? "mt-2" : undefined}
+                />
                 {!hasVisibleAnswerText ? (
                   <div className="mt-2 flex items-center gap-2">
                     <span

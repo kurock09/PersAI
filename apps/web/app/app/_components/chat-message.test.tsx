@@ -1913,6 +1913,101 @@ describe("ChatMessageBubble — pre-response status", () => {
     expect(notesAfter[4]).toMatch("Готовлю документ.");
   });
 
+  it("regression: a receipt that lands mid-sentence stays anchored in the streaming text as the model keeps talking", () => {
+    // Live repro (persai.dev, 2026-07-31, second founder report): live
+    // narration streams through `content`, not `workingNotes` — a note only
+    // lands in `workingNotes` once its step finishes. The receipt therefore
+    // arrives while the model is mid-sentence, and the old design put every
+    // such receipt in a fixed block after all streamed text, i.e. glued
+    // right above the live cursor forever ("липнет к курсору сверху").
+    const image = {
+      ...makeImageAttachment("att-midsentence-1"),
+      sizeBytes: 1024 * 1024
+    };
+    const baseMessage = makeAssistantMessage({
+      status: "streaming",
+      workingNotes: [],
+      toolInvocations: [
+        { name: "image_generate", iteration: 0, ok: true, toolCallId: "call-img-1" }
+      ],
+      attachments: [image]
+    });
+
+    // The receipt lands right here, while "Картинка готова." is on screen.
+    const { rerender } = render(
+      <ChatMessageBubble
+        chatId="chat-1"
+        message={{ ...baseMessage, content: "Картинка готова." }}
+      />
+    );
+    const receipt = screen.getByTestId("process-live-answer-receipt-stream");
+    expect(receipt).toHaveTextContent(/Получено изображение.*генерация.*1\.0 MB/);
+    expect(
+      screen.getByText("Картинка готова.").compareDocumentPosition(receipt) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+
+    // The model keeps talking. The new text must render BELOW the banner —
+    // the banner must not follow the cursor down.
+    rerender(
+      <ChatMessageBubble
+        chatId="chat-1"
+        message={{
+          ...baseMessage,
+          content: "Картинка готова. Теперь собираю PDF. Осталось подписать."
+        }}
+      />
+    );
+    const settledReceipt = screen.getByTestId("process-live-answer-receipt-stream");
+    const laterText = screen.getByText(/Теперь собираю PDF\. Осталось подписать\./);
+    expect(
+      settledReceipt.compareDocumentPosition(laterText) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    expect(screen.getByText("Картинка готова.")).toBeInTheDocument();
+  });
+
+  it("regression: a receipt anchored mid-sentence moves into the note stream once that sentence becomes a finished note", () => {
+    // Same receipt, one step later: the sentence it landed under has
+    // finished and moved into `workingNotes`. The banner must keep the same
+    // visual spot — right after that note — instead of jumping.
+    const image = {
+      ...makeImageAttachment("att-settle-1"),
+      sizeBytes: 1024 * 1024
+    };
+    const baseMessage = makeAssistantMessage({
+      status: "streaming",
+      toolInvocations: [
+        { name: "image_generate", iteration: 0, ok: true, toolCallId: "call-img-1" }
+      ],
+      attachments: [image]
+    });
+
+    const { rerender } = render(
+      <ChatMessageBubble
+        chatId="chat-1"
+        message={{ ...baseMessage, workingNotes: [], content: "Картинка готова." }}
+      />
+    );
+    expect(screen.getByTestId("process-live-answer-receipt-stream")).toBeInTheDocument();
+
+    rerender(
+      <ChatMessageBubble
+        chatId="chat-1"
+        message={{
+          ...baseMessage,
+          workingNotes: ["Картинка готова.", "Собираю PDF."],
+          content: "Картинка готова. Собираю PDF."
+        }}
+      />
+    );
+    expect(screen.queryByTestId("process-live-answer-receipt-stream")).toBeNull();
+    const stream = screen.getByTestId("process-live-note-receipt-stream");
+    const rows = Array.from(stream.children).map((node) => node.textContent);
+    expect(rows[0]).toMatch("Картинка готова.");
+    expect(rows[1]).toMatch(/Получено изображение/);
+    expect(rows[2]).toMatch("Собираю PDF.");
+  });
+
   it("regression: a receipt that arrives while the model is already narrating its answer renders below that narration, not above it", () => {
     // Live repro (persai.dev, 2026-07-30): the model finishes its tool loop
     // and starts streaming its final answer text ("Генерирую...", "Жду
@@ -1941,7 +2036,7 @@ describe("ChatMessageBubble — pre-response status", () => {
 
     expect(screen.queryByTestId("process-live-note-receipt-stream")).toBeNull();
     const answer = screen.getByText(/Генерирую изображение\. Жду результат\./);
-    const receiptStream = screen.getByTestId("process-live-unclaimed-receipt-stream");
+    const receiptStream = screen.getByTestId("process-live-answer-receipt-stream");
     expect(receiptStream).toHaveTextContent(/Получено изображение.*генерация.*1\.0 MB/);
     // DOM order is render order here (no CSS reordering in this component) —
     // the answer text node must precede the receipt stream container.

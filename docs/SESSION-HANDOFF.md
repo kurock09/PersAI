@@ -1,5 +1,54 @@
 # SESSION-HANDOFF
 
+## 2026-07-31 (latest) — live receipt banner: anchored inside the streaming text (the actual fix)
+
+- **Baseline tip:** `4d06e21a`. Founder reported the banner *still* glues
+  itself above the live cursor: "все равно липнет к курсору сверху и не
+  остается на своем месте в хронологии". The previous entry's fix was real
+  but only corrected the **committed/collapsed** view; live was still wrong.
+- **Root cause (the one that actually mattered):** live narration streams
+  through `message.content`, **not** `workingNotes` — a note only lands in
+  `workingNotes` once its step finishes. So when a deferred receipt arrives,
+  the model is almost always mid-sentence, and there is no finished note for
+  the receipt to sit under. The previous slice read "answer text is
+  non-empty" as "this receipt arrived after the model's *final* answer" and
+  therefore routed it into a fixed block rendered after **all** streamed
+  text — which is structurally always immediately above the cursor, sliding
+  down with every new sentence. The earlier live "verification" screenshot
+  actually captured this bug (the note above the banner was a truncated,
+  still-streaming sentence, i.e. answer text), not the fix.
+- **Fix (`chat-message.tsx`):** freeze, per attachment id on first
+  observation, the absolute offset into the raw cumulative `content` stream
+  (`contentLength`) plus `hadInFlightText`. The raw stream only ever appends,
+  so that offset stays a valid anchor for the whole turn even as finished
+  narration migrates out of it into `workingNotes`.
+  - While the sentence it landed under is still streaming, the receipt is
+    anchored **inside** the live text at `contentLength -
+    answerStrippedLength`: text written before it stays above, everything
+    said afterwards renders below. New `LiveAnswerSegments` component cuts
+    the streaming answer into chunks around each anchored receipt.
+  - Once that sentence finishes and becomes a `workingNotes` entry, the
+    anchor releases and the receipt renders in the ordinary note stream
+    right after that note (`arrivalNoteIndex` = `noteCount + (hadInFlightText
+    ? 1 : 0)`) — the same visual spot, so there is no jump.
+  - `deriveLiveAnswerText` → `deriveLiveAnswer`, now also returning the
+    stripped prefix length.
+  - Removed the `deferUntilAfterAnswer` piece flag and the separate trailing
+    after-answer receipt stream it fed (`process-live-unclaimed-receipt-*`);
+    answer-anchored receipts use `process-live-answer-receipt-stream`.
+- **New regression tests** covering exactly what was reported: a receipt
+  landing mid-sentence stays put while the model keeps talking (later text
+  renders below it), and it transfers into the note stream at the same spot
+  once that sentence becomes a finished note.
+- **Gate run:** `chat-message.test.tsx` 85/85; all `app/app/_components`
+  suites 39 files / 657 tests green; `@persai/web` typecheck clean, lint
+  clean (`--max-warnings=0`), prettier clean.
+- **Files touched:** `apps/web/app/app/_components/chat-message.tsx`,
+  `apps/web/app/app/_components/chat-message.test.tsx`.
+- **Residual/next:** live acceptance on `persai.dev` by the founder. Note
+  that the previous entry's committed-view interleave fix stands and was
+  genuinely verified; this slice is strictly about the live phase.
+
 ## 2026-07-31 (later) — live receipt banner: fixed the real "rides the live cursor" bug (frontend architecture, not backend)
 
 - **Baseline tip:** `b52d6093` (the live-verification docs commit directly
