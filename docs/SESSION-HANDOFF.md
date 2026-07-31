@@ -1,5 +1,87 @@
 # SESSION-HANDOFF
 
+## 2026-07-31 (later) — live receipt banner: fixed the real "rides the live cursor" bug (frontend architecture, not backend)
+
+- **Baseline tip:** `b52d6093` (the live-verification docs commit directly
+  below). This slice is dirty on top of it until commit.
+- **Founder screenshot + report, plainly:** "ты ничего не сделал это опять
+  как было теперь банер едет за курсором, появился он там где нада но поехал
+  дальше при каждой новой реплтке он над курсором остается" — the backend
+  fix (removing the enqueue-time `afterToolCallId` fallback) was correct and
+  necessary, but it only fixed the backend's *claiming* signal. It did not
+  fix a separate, real frontend bug: once a receipt is "unclaimed", the
+  previous frontend design **always** rendered it in its own fixed section
+  positioned right before whatever is currently live (the streaming
+  cursor/status), structurally after the entire *current* note list —
+  which keeps growing underneath it. So a receipt correctly placed right
+  after the note that was live when it arrived would visually "slide down"
+  with every later note, since it never actually moved — the section
+  containing it just always sat immediately above the live tail.
+- **Root cause, precisely:** `buildIterationBlocks` unconditionally appended
+  every unclaimed receipt in one pass *after* the entire iteration loop over
+  `workingNotes` — i.e., after every note known **at that render**. Because
+  this function reruns from scratch on every render as `workingNotes` grows,
+  the receipt's position in the array kept moving to stay after the newest
+  note, every time. Separately, `ChatMessageBubble`'s live split rendered
+  *all* unclaimed receipts in their own `liveUnclaimedReceipts` stream,
+  positioned structurally between the streamed answer text and the live
+  cursor/status line — reinforcing the same "always just above the tail"
+  effect for the live view specifically.
+- **Fix (frontend, `chat-message.tsx`):**
+  1. `buildIterationBlocks` now takes a 4th param, `unclaimedReceiptArrival:
+     ReadonlyMap<string, { noteCount; deferUntilAfterAnswer }>`, and
+     interleaves each unclaimed receipt at the frozen `noteCount` position
+     instead of appending it after the whole loop — a small
+     `pushUnclaimedArrivedAt(noteCount)` helper runs both before the loop
+     (offset 0) and after each iteration `i` (offset `i + 1`).
+  2. `ChatMessageBubble` now owns a `useRef<Map<string,
+     UnclaimedReceiptArrival>>` that freezes, the *first* time an unclaimed
+     receipt attachment id is observed, `workingNotes.length` at that moment
+     plus whether `answerText` (`deriveLiveAnswerText`) was already
+     non-empty. Later re-renders (more notes/tools arriving) reuse the same
+     frozen entry — the position never moves again for that attachment.
+  3. `deferUntilAfterAnswer` replaces the old binary `claimed`-only live
+     split: only a receipt that arrived *after* the model had already
+     started its final answer text still renders in the separate
+     after-answer stream (`process-live-unclaimed-receipt-stream`) — the
+     narrower, originally-intended protective case (banner must not jump
+     above narration already read). Every other unclaimed receipt (the
+     ordinary case: arrives mid-tool-loop, before any answer text exists)
+     now renders inline in the same stream as the notes
+     (`process-live-note-receipt-stream`), at its frozen position — this is
+     what stops the "riding the cursor" illusion.
+  4. Committed/final replay was already reading `allPieces` directly
+     (`ProcessBadge`'s `showCommittedStream` panel), so the same interleave
+     fix also directly resolves the "two receipts grouped near the end"
+     residual noted in the previous session's live-verification pass — both
+     now settle at their own frozen position once committed, not clumped
+     together after every note.
+- **Updated test:** "ADR-165: live USER_TURN shows orphan media receipts
+  when placement is missing" — now asserts the receipt renders inline in
+  `process-live-note-receipt-stream` alongside the note (`content` is empty
+  in that fixture, so `deferUntilAfterAnswer` is false) and that
+  `process-live-unclaimed-receipt-stream` does not exist, instead of the old
+  two-separate-streams expectation (which was itself testing the buggy
+  split).
+- **New regression test:** "an unclaimed receipt that arrives mid-tool-loop
+  does not ride the live cursor as later notes stream in" — renders with 2
+  notes (receipt lands at index 2, right after the 2nd note), then
+  `rerender`s the *same* component instance with 2 more notes appended, and
+  asserts the receipt's index in the DOM stays fixed at 2 rather than moving
+  to sit just before the newest note.
+- **Gate run:** `chat-message.test.tsx` 83/83 green (incl. the updated and
+  new tests above), `@persai/web` typecheck clean, `@persai/web` lint clean
+  (`--max-warnings=0`), `prettier --check` on the two touched files clean
+  after one `--write` pass.
+- **Files touched:** `apps/web/app/app/_components/chat-message.tsx`,
+  `apps/web/app/app/_components/chat-message.test.tsx`.
+- **Next:** commit, push, deploy, then live-verify on `persai.dev` with a
+  fresh multi-step image+PDF turn (same shape as the founder's screenshot)
+  to confirm the banner settles once and does not slide with later notes;
+  separately re-check the two-sequential-images live scenario from the
+  prior session's verification pass to confirm the "grouped near the end"
+  residual is actually gone now, not just structurally expected to be.
+
 ## 2026-07-31 — pushed, deployed, and live-verified both backend fixes on persai.dev
 
 - **Baseline tip:** `20ae7f4f` (rebased onto `origin/main` `78d1852e`, then

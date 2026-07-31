@@ -1835,13 +1835,82 @@ describe("ChatMessageBubble — pre-response status", () => {
 
     expect(screen.queryByTestId("attachment-strip")).toBeNull();
     // The narrated note ("жду") never bound to this receipt's tool call, so
-    // it is unclaimed: it renders in its own after-notes stream instead of
-    // being bundled ahead of/inside the settled note stream (regression
-    // guard for the banner-above-narration bug).
-    expect(screen.getByTestId("process-live-note-receipt-stream")).toHaveTextContent("жду");
-    expect(screen.getByTestId("process-live-unclaimed-receipt-stream")).toHaveTextContent(
-      /Получено изображение.*генерация.*1\.0 MB/
+    // it is unclaimed — but no final answer text has started yet (`content`
+    // is empty), so it renders inline in the ordinary note/receipt stream at
+    // its frozen arrival position, not shunted into a separate after-answer
+    // stream (that stream is reserved for the narrower case where the
+    // receipt arrives *after* answer text already started — see the
+    // dedicated regression test below).
+    const stream = screen.getByTestId("process-live-note-receipt-stream");
+    expect(stream).toHaveTextContent("жду");
+    expect(stream).toHaveTextContent(/Получено изображение.*генерация.*1\.0 MB/);
+    expect(screen.queryByTestId("process-live-unclaimed-receipt-stream")).toBeNull();
+  });
+
+  it("regression: an unclaimed receipt that arrives mid-tool-loop does not ride the live cursor as later notes stream in", () => {
+    // Live repro (persai.dev, 2026-07-31, founder screenshot): the receipt
+    // rendered correctly right after the note that was live when it
+    // arrived, but then kept "sliding down" to stay glued just above
+    // whatever note/status was currently live, as each *later* note
+    // streamed in — because the old design appended every unclaimed receipt
+    // after whatever notes were known *at render time*, recomputed fresh on
+    // every render. This asserts the receipt settles once, between the note
+    // that was live when it arrived and the very next note, and does not
+    // move as later notes are appended.
+    const image = {
+      ...makeImageAttachment("att-riding-1"),
+      sizeBytes: 1024 * 1024
+    };
+    const baseMessage = makeAssistantMessage({
+      status: "streaming",
+      content: "",
+      toolInvocations: [
+        { name: "image_generate", iteration: 0, ok: true, toolCallId: "call-img-1" }
+      ],
+      attachments: [image]
+    });
+
+    const { rerender } = render(
+      <ChatMessageBubble
+        chatId="chat-1"
+        message={{
+          ...baseMessage,
+          workingNotes: ["Генерирую жёлтый круг.", "Изображение готово."]
+        }}
+      />
     );
+    const streamBeforeMoreNotes = screen.getByTestId("process-live-note-receipt-stream");
+    const notesBefore = Array.from(streamBeforeMoreNotes.children).map((node) => node.textContent);
+    const receiptIndexBefore = notesBefore.findIndex((text) =>
+      /Получено изображение/.test(text ?? "")
+    );
+    expect(receiptIndexBefore).toBe(2); // right after "Изображение готово." (index 1)
+
+    // Two more notes stream in after the receipt already arrived.
+    rerender(
+      <ChatMessageBubble
+        chatId="chat-1"
+        message={{
+          ...baseMessage,
+          workingNotes: [
+            "Генерирую жёлтый круг.",
+            "Изображение готово.",
+            "Формирую PDF.",
+            "Готовлю документ."
+          ]
+        }}
+      />
+    );
+    const streamAfterMoreNotes = screen.getByTestId("process-live-note-receipt-stream");
+    const notesAfter = Array.from(streamAfterMoreNotes.children).map((node) => node.textContent);
+    const receiptIndexAfter = notesAfter.findIndex((text) =>
+      /Получено изображение/.test(text ?? "")
+    );
+    // Must stay pinned right after "Изображение готово." — not slide down to
+    // sit just before "Готовлю документ." (the new live tail/cursor).
+    expect(receiptIndexAfter).toBe(2);
+    expect(notesAfter[3]).toMatch("Формирую PDF.");
+    expect(notesAfter[4]).toMatch("Готовлю документ.");
   });
 
   it("regression: a receipt that arrives while the model is already narrating its answer renders below that narration, not above it", () => {

@@ -3,6 +3,30 @@
 > Archive: detailed historical entries from 2026-06-05 and earlier moved to `docs/CHANGELOG.archive-2026-06-05-details-and-earlier.md`; entries from 2026-05-19 and earlier remain in `docs/CHANGELOG.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: current entries plus concise recent summaries only.
 
+## 2026-07-31 (later)
+
+- **fix(web): live receipt banner still "rode" the live cursor as later
+  notes streamed in — real bug was in the frontend's unclaimed-receipt
+  placement, not the backend.** Founder screenshot showed the banner
+  correctly placed right after the note that was live when it arrived, then
+  sliding down with every later note. Root cause: `buildIterationBlocks`
+  appended every unclaimed receipt after the *entire* current note list on
+  every render (recomputed fresh each time as `workingNotes` grows), and the
+  live split rendered all unclaimed receipts in a separate stream pinned
+  just above the live cursor/status line. Fix: `ChatMessageBubble` now
+  freezes, per attachment id, the note count (and whether answer text had
+  already started) the first time an unclaimed receipt is observed, via a
+  `useRef`; `buildIterationBlocks` interleaves each unclaimed receipt at
+  that frozen position instead of appending after the whole loop. The live
+  split now only defers a receipt to the separate after-answer stream if it
+  arrived after final answer text had already started (the narrower,
+  originally-intended case); everything else renders inline at its settled
+  position. This also fixes the "two receipts grouped near the end"
+  residual from the previous live-verification pass, since committed replay
+  reads the same interleaved `allPieces`. New/updated tests in
+  `chat-message.test.tsx`; `@persai/web` typecheck/lint/prettier clean. See
+  `docs/SESSION-HANDOFF.md` 2026-07-31 (later) for full detail.
+
 ## 2026-07-31
 
 - **chore: pushed `b8eebfee` (live receipt banner enqueue-time-binding fix)

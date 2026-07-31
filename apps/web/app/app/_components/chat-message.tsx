@@ -921,14 +921,23 @@ type IterationProcessPiece =
   | { kind: "text"; markdown: string }
   | { kind: "tool"; tool: RuntimeTurnToolInvocation }
   // `claimed` distinguishes a receipt bound to a real, already-narrated tool
-  // call (chronologically settled — belongs before any later content) from
-  // one that never matched a known tool call (arrived "just now", concurrent
-  // with whatever the model is currently saying in `content`/answer text).
-  // Live rendering needs this split: the note+receipt stream is a fixed
-  // block rendered before the streamed answer, so an unclaimed receipt that
-  // shows up while the model is already narrating its final answer must NOT
-  // render above text the user already saw — see `ChatMessageBubble`.
-  | { kind: "receipt"; attachment: ChatAttachment; claimed: boolean };
+  // call from one that never matched a known tool call ("unclaimed" — see
+  // `ChatMessageBubble`'s arrival-freeze ref). `deferUntilAfterAnswer` is a
+  // separate, narrower live-only concern: it is true only when an unclaimed
+  // receipt first arrived *after* the model had already started streaming
+  // its final answer text — that one case must render after that text, not
+  // interleaved with it, so a banner never appears above narration the user
+  // already read. Every other unclaimed receipt (the common case: it arrives
+  // mid-tool-loop, before any final answer text exists) renders inline in
+  // the ordinary note/receipt stream at its frozen arrival position — this
+  // is what stops it from visually "riding" the live cursor as later notes
+  // keep streaming in underneath it (regression, 2026-07-31).
+  | {
+      kind: "receipt";
+      attachment: ChatAttachment;
+      claimed: boolean;
+      deferUntilAfterAnswer: boolean;
+    };
 
 type IterationBlock =
   | { kind: "content"; markdown: string }
@@ -996,10 +1005,25 @@ function deriveLiveAnswerText(content: string, workingNotes: readonly string[]):
   return content.slice(cursor);
 }
 
+/** Per-attachment snapshot the caller freezes the first time it sees an
+ * unclaimed receipt, keyed by attachment id — see `ChatMessageBubble`. */
+type UnclaimedReceiptArrival = {
+  /** `workingNotes.length` at first observation — the receipt is interleaved
+   * right after that many notes have been pushed, not appended after every
+   * note currently known (which is what let it visually "ride" the live
+   * cursor as later notes kept streaming in). */
+  noteCount: number;
+  /** True only if the model had already started streaming final answer text
+   * when this receipt was first observed — the one case that still needs to
+   * defer to after that text (see the live split in `ChatMessageBubble`). */
+  deferUntilAfterAnswer: boolean;
+};
+
 function buildIterationBlocks(
   workingNotes: string[],
   toolInvocations: RuntimeTurnToolInvocation[],
-  receiptAttachments: ChatAttachment[] = []
+  receiptAttachments: ChatAttachment[] = [],
+  unclaimedReceiptArrival: ReadonlyMap<string, UnclaimedReceiptArrival> = new Map()
 ): IterationBlock[] {
   const allPieces: IterationProcessPiece[] = [];
   const contentBlocks: string[] = [];
@@ -1021,11 +1045,45 @@ function buildIterationBlocks(
       if (attachment.inlineAfterToolCallId !== toolCallId) {
         continue;
       }
-      allPieces.push({ kind: "receipt", attachment, claimed: true });
+      allPieces.push({ kind: "receipt", attachment, claimed: true, deferUntilAfterAnswer: false });
       claimedReceiptIds.add(attachment.id);
     }
   };
 
+  // Unclaimed receipts interleave at the note-count they first arrived at
+  // (frozen by the caller) instead of being appended after every note
+  // currently known — see `UnclaimedReceiptArrival` above.
+  const unclaimedByArrivalNoteCount = new Map<number, ChatAttachment[]>();
+  for (const attachment of receiptAttachments) {
+    if (attachment.inlineAfterToolCallId !== undefined) {
+      continue; // still a claim candidate — handled by pushReceiptsForToolCall
+    }
+    const arrival = unclaimedReceiptArrival.get(attachment.id);
+    const noteCount = arrival?.noteCount ?? workingNotes.length;
+    const bucket = unclaimedByArrivalNoteCount.get(noteCount);
+    if (bucket === undefined) {
+      unclaimedByArrivalNoteCount.set(noteCount, [attachment]);
+    } else {
+      bucket.push(attachment);
+    }
+  }
+  const pushUnclaimedArrivedAt = (noteCount: number) => {
+    const bucket = unclaimedByArrivalNoteCount.get(noteCount);
+    if (bucket === undefined) {
+      return;
+    }
+    for (const attachment of bucket) {
+      if (claimedReceiptIds.has(attachment.id)) {
+        continue;
+      }
+      const deferUntilAfterAnswer =
+        unclaimedReceiptArrival.get(attachment.id)?.deferUntilAfterAnswer ?? false;
+      allPieces.push({ kind: "receipt", attachment, claimed: false, deferUntilAfterAnswer });
+      claimedReceiptIds.add(attachment.id);
+    }
+  };
+
+  pushUnclaimedArrivedAt(0);
   for (let i = 0; i < iterations; i += 1) {
     const text = (workingNotes[i] ?? "").trim();
     if (text.length > 0) {
@@ -1041,15 +1099,19 @@ function buildIterationBlocks(
       allPieces.push({ kind: "tool", tool });
       pushReceiptsForToolCall(tool.toolCallId);
     }
+
+    pushUnclaimedArrivedAt(i + 1);
   }
 
-  // Placement-ordered receipts that did not match a tool call still join the
-  // same note/receipt stream in delivery order (unclaimed — see live split).
+  // Safety net: a receipt whose toolCallId never actually matched a real
+  // tool invocation above (stale/missing), or whose arrival was never
+  // recorded by the caller, still joins the stream at the end rather than
+  // vanishing.
   for (const attachment of receiptAttachments) {
     if (claimedReceiptIds.has(attachment.id)) {
       continue;
     }
-    allPieces.push({ kind: "receipt", attachment, claimed: false });
+    allPieces.push({ kind: "receipt", attachment, claimed: false, deferUntilAfterAnswer: false });
     claimedReceiptIds.add(attachment.id);
   }
 
@@ -2644,6 +2706,15 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
   const isStreaming = message.status === "streaming" && message.role === "assistant";
   // ADR-158: non-live reattach uses reconciling — show a quiet wait cursor, not «Думаю».
   const isAssistantReconciling = message.role === "assistant" && message.status === "reconciling";
+  // Freezes, per attachment id, the `workingNotes` count (and whether final
+  // answer text had already started) the *first* time an unclaimed receipt
+  // is observed. Without this, every re-render recomputes "unclaimed" from
+  // scratch and `buildIterationBlocks` would keep placing it after whatever
+  // notes are currently known — visually "riding" the live cursor as later
+  // notes stream in underneath it (regression, 2026-07-31). Keyed by
+  // attachment id so it survives across this message's own re-renders but
+  // resets naturally for a different message (new component instance).
+  const unclaimedReceiptArrivalRef = useRef<Map<string, UnclaimedReceiptArrival>>(new Map());
   const assistantSegments = useMemo(() => {
     if (message.role !== "assistant") {
       return { iterationBlocks: [], answerText: message.content };
@@ -2676,9 +2747,27 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
             ? { ...attachment, inlineAfterToolCallId: placementToolCallId }
             : attachment;
         });
+    const answerText = deriveLiveAnswerText(message.content, workingNotes);
+    for (const attachment of receiptAttachments) {
+      if (attachment.inlineAfterToolCallId !== undefined) {
+        continue; // may still become a claimed receipt once its tool call is seen
+      }
+      if (unclaimedReceiptArrivalRef.current.has(attachment.id)) {
+        continue; // already frozen on an earlier render
+      }
+      unclaimedReceiptArrivalRef.current.set(attachment.id, {
+        noteCount: workingNotes.length,
+        deferUntilAfterAnswer: answerText.trim().length > 0
+      });
+    }
     return {
-      iterationBlocks: buildIterationBlocks(workingNotes, toolInvocations, receiptAttachments),
-      answerText: deriveLiveAnswerText(message.content, workingNotes)
+      iterationBlocks: buildIterationBlocks(
+        workingNotes,
+        toolInvocations,
+        receiptAttachments,
+        unclaimedReceiptArrivalRef.current
+      ),
+      answerText
     };
   }, [
     message.attachments,
@@ -2712,22 +2801,26 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
       block.kind === "process" ? block.pieces : []
     );
   }, [assistantSegments.iterationBlocks, isAssistantLive]);
-  // A receipt that never matched a real narrated tool call ("unclaimed")
-  // arrived concurrently with whatever the model is currently saying in its
-  // answer text, not before it — narration the user already read must not
-  // get a banner shoved above it. Claimed receipts stay with their notes
-  // (legitimately earlier); unclaimed ones render after the answer text so
-  // far, then further narration/receipts keep appending below in arrival
-  // order (matches committed replay once the turn settles).
+  // Only a receipt that first arrived *after* the model had already started
+  // streaming its final answer text defers to a separate after-answer
+  // stream (narration the user already read must not get a banner shoved
+  // above it). Every other receipt — claimed, or unclaimed but arriving
+  // mid-tool-loop before any answer text exists — renders inline, in its
+  // frozen arrival position (see `UnclaimedReceiptArrival`), so it settles
+  // once and does not visually "ride" the live cursor as later notes keep
+  // streaming in underneath it.
   const liveBeforeContentPieces = useMemo(
-    () => liveProcessPieces.filter((piece) => !(piece.kind === "receipt" && !piece.claimed)),
+    () =>
+      liveProcessPieces.filter(
+        (piece) => !(piece.kind === "receipt" && piece.deferUntilAfterAnswer)
+      ),
     [liveProcessPieces]
   );
   const liveUnclaimedReceipts = useMemo(
     () =>
       liveProcessPieces.filter(
         (piece): piece is Extract<IterationProcessPiece, { kind: "receipt" }> =>
-          piece.kind === "receipt" && !piece.claimed
+          piece.kind === "receipt" && piece.deferUntilAfterAnswer
       ),
     [liveProcessPieces]
   );
