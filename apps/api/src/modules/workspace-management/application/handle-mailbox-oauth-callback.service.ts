@@ -152,12 +152,6 @@ export class HandleMailboxOAuthCallbackService {
     const tokenExpiresAt =
       expiresInSeconds !== null ? new Date(connectedAt.getTime() + expiresInSeconds * 1000) : null;
 
-    // `status`/`verifiedAt` are the ADR-168 Postmark verification fields on
-    // this shared row and are deliberately left untouched here: S3 still
-    // owns swapping the `email_send` transport off Postmark, and flipping
-    // `status` to `verified` now would let the existing Postmark-based send
-    // path fire with this (Postmark-unverified) mailbox address — exactly
-    // the unauthenticated-sender problem ADR-169 exists to remove.
     await this.prisma.workspaceEmailSenderIdentity.upsert({
       where: { workspaceId },
       create: {
@@ -168,8 +162,7 @@ export class HandleMailboxOAuthCallbackService {
         mailboxStatus: WorkspaceEmailMailboxStatus.connected,
         tokenExpiresAt,
         connectedAt,
-        lastErrorReason: null,
-        requestedAt: connectedAt
+        lastErrorReason: null
       },
       update: {
         email,

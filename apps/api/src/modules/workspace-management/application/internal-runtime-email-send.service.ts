@@ -64,7 +64,8 @@ function isProviderQuotaRejection(outcome: {
  * `PersaiInternalApiClientService`. The transport is now the customer's own
  * connected mailbox over SMTP XOAUTH2, resolved and refreshed by
  * `MailboxTokenLifecycleService`; there is no Postmark call and no
- * `AssistantEmailSenderIdentityService` involvement anywhere in this path.
+ * Postmark sender-signature involvement anywhere in this path (that layer
+ * was deleted in ADR-169 S5).
  *
  * Fail-closed (D5): with no connected mailbox, or a mailbox whose token
  * refresh was rejected as revoked, this makes **no** SMTP call at all and

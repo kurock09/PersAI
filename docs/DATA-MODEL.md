@@ -653,19 +653,32 @@ ADR-099 Session C keeps the same additive money ledger table: `ModelCostLedgerEv
 
 ADR-099 Block 2 adds `platform_runtime_provider_settings.tool_path_pricing_catalog` as the operator-owned tariff catalog for non-model tool paths (`web_search`, `web_fetch`, `browser`, `document_render`), keyed by `pathKey = {toolCode}:{providerId}` with the same billing-mode shapes as the Runtime catalog (`fixed_operation`, `time_metered`, `tiered_operation`). Ledger rows reuse `model_cost_ledger_events` with purposes `web_search`, `web_fetch`, `browser`, and `document_render`, priced through `recordToolPathBillingFactsEvent` when durable tool-path `billingFacts` exist.
 
-## Assistant email sender identity (ADR-168)
+## Assistant email — mailbox-connected sending (ADR-168, superseded in part by ADR-169)
 
-`workspace_email_sender_identities` holds the verified outbound sender address a
-workspace's assistants send from. One row per workspace (`workspace_id` unique):
-`email`, optional `display_name`, `status` (`pending | verified | failed`),
-`postmark_signature_id`, `last_error_reason`, `requested_at`, `verified_at`.
+`workspace_email_sender_identities` holds the workspace's connected mailbox for
+model-initiated `email_send`. One row per workspace (`workspace_id` unique):
+`email` (the connected mailbox address), optional `display_name`, `provider`
+(`mailru | yandex`, nullable), `mailbox_status` (`connected | token_invalid`,
+nullable), `token_expires_at`, `connected_at`, `last_error_reason`.
 
-The row stores no secrets. `verified` is set only after Postmark reports the
-Sender Signature as confirmed (`GET /senders/{id}`), which happens through a
-bounded, demand-driven re-check — Postmark has no confirmation webhook.
-Without a `verified` row the `email_send` tool performs no Postmark call at all,
-so this table is the fail-closed gate for assistant-sent mail. It is independent
-of the ADR-088 notification tables, which keep their own platform-owned sender.
+ADR-168 originally shaped this row as a Postmark-verified sender identity
+(`status`, `postmark_signature_id`, `requested_at`, `verified_at`). ADR-169 S5
+dropped those four columns and the `WorkspaceEmailSenderIdentityStatus` enum
+once the mailbox columns above became the only send-eligibility truth
+(migration `20260801170000_adr169_s5_drop_postmark_sender_signature_layer`).
+`email`/`displayName`/`lastErrorReason` survive, repurposed for the connected
+mailbox's own address/display name and its last connection error.
+
+The row stores no OAuth tokens — those live in the encrypted
+`platform_runtime_provider_secrets` store under `mailbox_oauth:${workspaceId}`
+via `PlatformRuntimeProviderSecretStoreService`, refreshed ahead of expiry by
+`MailboxTokenLifecycleService`. Without a `connected` `mailbox_status` the
+`email_send` tool performs no SMTP call at all, so this table is the
+fail-closed gate for assistant-sent mail. `workspace_email_oauth_states` holds
+the single-use, expiring CSRF `state` (SHA-256 digest only) guarding the
+provider OAuth redirect, which carries no Clerk session. This model is
+independent of the ADR-088 notification tables, which keep their own
+platform-owned Postmark sender.
 
 Daily and per-turn limits for `email_send` are not stored here: they reuse the
 existing `plan_catalog_tool_activations` fields and the shared daily tool-usage

@@ -203,18 +203,15 @@ export const CLERK_AUTHENTICATED_ROUTES: Array<{ path: string; method: RequestMe
     path: "api/v1/assistant/integrations/telegram/groups/refresh",
     method: RequestMethod.POST
   },
-  // ADR-168 Email integration card. Same trap as the ADR-138 note below:
-  // the routes existed and were mapped, but without registration here the
-  // card only ever saw 401.
-  { path: "api/v1/assistant/integrations/email-sender", method: RequestMethod.GET },
-  { path: "api/v1/assistant/integrations/email-sender", method: RequestMethod.POST },
-  { path: "api/v1/assistant/integrations/email-sender/resend", method: RequestMethod.POST },
-  { path: "api/v1/assistant/integrations/email-sender", method: RequestMethod.DELETE },
-  // ADR-169 S2 — mailbox OAuth connect card. The provider redirect target
+  // ADR-169 S2 — mailbox OAuth connect card (the Email integration card;
+  // ADR-168's Postmark sender-signature routes were deleted in ADR-169 S5).
+  // The provider redirect target
   // (`api/v1/public/integrations/email-mailbox/callback`) is deliberately
   // NOT registered here: it carries no Clerk session and is guarded solely
   // by the single-use, expiring `state` (ADR-169 D11). Same 401 trap as the
-  // ADR-168 Email note above for the three routes that DO need a session.
+  // ADR-138 note below for the three routes that DO need a session: a mapped
+  // route missing from this list reaches its handler with no resolved user
+  // and returns 401 forever.
   { path: "api/v1/assistant/integrations/email-mailbox", method: RequestMethod.GET },
   { path: "api/v1/assistant/integrations/email-mailbox/connect", method: RequestMethod.POST },
   { path: "api/v1/assistant/integrations/email-mailbox", method: RequestMethod.DELETE },

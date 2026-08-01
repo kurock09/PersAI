@@ -1,6 +1,9 @@
 # ADR-169 — Mailbox-connected assistant email (OAuth XOAUTH2)
 
-- Status: **open** (documentation only at opening)
+- Status: **implemented locally 2026-08-01** (S1–S5 landed; deploy + S6
+  authenticated live acceptance pending — the founder still needs to register
+  the Mail.ru and Yandex OAuth applications and store their client id/secret
+  in `Admin > Tools` before a real end-to-end send can be exercised).
 - Date: 2026-08-01
 - Supersedes: the sender-verification layer of ADR-168 only. The `email_send`
   tool, its plan/limit/audit mechanics, and the Integrations card survive.
@@ -116,12 +119,23 @@ surprise to work around.
 sit above our own `dailyCallLimit`; a provider rejection surfaces as a
 `skipped` result naming the provider limit, never as a silent success.
 
-## Removed by this ADR
+## Removed by this ADR (S5, landed)
 
-- `postmark-account-senders.client.ts` (Sender Signatures API).
-- The `notification/email/postmark/account-token` credential and its Admin
-  field.
-- Address-confirmation polling and its UI/i18n in the Email card.
+- `postmark-account-senders.client.ts` (Sender Signatures API) and
+  `assistant-email-sender-identity.service.ts`.
+- The `assistant-integrations-email-sender` controller and its four routes
+  (`GET`/`POST`/`POST /resend`/`DELETE` on
+  `/api/v1/assistant/integrations/email-sender`), their OpenAPI paths/schemas,
+  the regenerated typed client, and their `CLERK_AUTHENTICATED_ROUTES` entries.
+- The `notification/email/postmark/account-token` credential
+  (`notification_email_postmark_account`) and its Admin Tools field/copy.
+- The ADR-168 address-confirmation columns/enum on
+  `WorkspaceEmailSenderIdentity` — `status`, `postmarkSignatureId`,
+  `requestedAt`, `verifiedAt`, `WorkspaceEmailSenderIdentityStatus` — dropped
+  by a hand-written migration. `email`/`displayName`/`lastErrorReason` and the
+  table itself survive, repurposed for the connected mailbox.
+- Address-confirmation polling and its UI/i18n in the Email card (superseded
+  by the S4 mailbox-connect card).
 
 ## Non-goals
 
@@ -134,15 +148,34 @@ sit above our own `dailyCallLimit`; a provider rejection surfaces as a
 
 ## Slices
 
-- **S1** — contracts, schema migration, secret-ref envelope extension.
-- **S2** — OAuth connect/callback/disconnect for Mail.ru and Yandex, including
-  the redirect URI registration and CSRF `state` handling.
-- **S3** — SMTP XOAUTH2 transport with pre-send token refresh, replacing the
-  Postmark call inside the internal send service.
-- **S4** — Email card rebuilt around "connect mailbox", connection state, and
-  disconnect.
-- **S5** — deletion of the Postmark sender-signature layer and docs
-  reconciliation (ADR-168 marked superseded in its sender-verification part).
+- **S1** (landed) — contracts, schema migration, secret-ref envelope
+  extension. `WorkspaceEmailOAuthState` (single-use CSRF `state`) and the
+  mailbox columns on `WorkspaceEmailSenderIdentity` (`provider`,
+  `mailboxStatus`, `tokenExpiresAt`, `connectedAt`) shipped additively in
+  migration `20260801160000_adr169_s1_mailbox_oauth`, alongside the four
+  `MAILBOX_OAUTH_CREDENTIAL_IDS` (Mail.ru/Yandex client id + secret).
+- **S2** (landed) — OAuth connect/callback/disconnect for Mail.ru and Yandex
+  (`AssistantEmailMailboxService`, `HandleMailboxOAuthCallbackService`),
+  including the redirect URI registration and single-use CSRF `state`
+  handling; the connect-initiate/read/disconnect routes are in
+  `CLERK_AUTHENTICATED_ROUTES`, the provider callback is not (D11).
+- **S3** (landed) — `MailboxTokenLifecycleService` (pre-send refresh, revoked
+  grant → `mailboxStatus=token_invalid`) and `MailboxSmtpSendClientService`
+  (nodemailer + XOAUTH2) replaced the Postmark call inside
+  `InternalRuntimeEmailSendService`; provider quota rejections map to an
+  honest `skipped`, never a silent success (D9).
+- **S4** (landed) — the Email integration card rebuilt around "connect
+  mailbox" / connection state / disconnect, with a provider choice and a
+  plain reconnect prompt for `token_invalid` instead of a generic error.
+- **S5** (landed) — deleted the ADR-168 Postmark sender-signature layer:
+  `PostmarkAccountSendersClientService`, `AssistantEmailSenderIdentityService`,
+  the `assistant-integrations-email-sender` controller and its four routes,
+  their OpenAPI paths/schemas and regenerated typed client, the
+  `notification/email/postmark/account-token` credential and its Admin Tools
+  copy, and the now-dead `status`/`postmarkSignatureId`/`requestedAt`/
+  `verifiedAt` columns and `WorkspaceEmailSenderIdentityStatus` enum (migration
+  `20260801170000_adr169_s5_drop_postmark_sender_signature_layer`). Docs
+  reconciled; ADR-168 marked superseded in its sender-verification part only.
 Slice notes carried from the opening investigation: `apps/web` has no existing
 "leave to an external consent page and come back" integration flow — Telegram
 pastes a token and WhatsApp/MAX are stubs — so S4 is new UI state-machine work

@@ -39,7 +39,6 @@ import type {
   ArchiveWorkspaceVideoPersona200,
   AssistantDraftUpdateRequest,
   AssistantEmailMailboxConnectRequest,
-  AssistantEmailSenderIdentityRequest,
   AssistantMemoryDoNotRememberRequest,
   AssistantRoleSelectionResponse,
   AssistantRollbackRequest,
@@ -66,7 +65,6 @@ import type {
   DeleteAdminSkillKnowledgeCardResponse,
   DeleteAdminSkillResponse,
   DeleteAssistantEmailMailboxResponse,
-  DeleteAssistantEmailSenderIdentityResponse,
   DeleteAssistantKnowledgeSourceResponse,
   DeleteAssistantWebChatResponse,
   DeleteProductKnowledgeTextEntryResponse,
@@ -124,7 +122,6 @@ import type {
   GetAssistantBillingPaymentIntentResponse,
   GetAssistantBillingSubscriptionResponse,
   GetAssistantEmailMailboxResponse,
-  GetAssistantEmailSenderIdentityResponse,
   GetAssistantKnowledgeSourceResponse,
   GetAssistantKnowledgeSourcesResponse,
   GetAssistantListResponse,
@@ -1383,229 +1380,6 @@ export const getAssistantRuntimePreflight = async (
     ...options,
     method: "GET"
   });
-};
-
-/**
- * @summary Get verified email sender identity state for current assistant's workspace
- */
-export type getAssistantEmailSenderIdentityResponse200 = {
-  data: GetAssistantEmailSenderIdentityResponse;
-  status: 200;
-};
-
-export type getAssistantEmailSenderIdentityResponse401 = {
-  data: ErrorEnvelope;
-  status: 401;
-};
-
-export type getAssistantEmailSenderIdentityResponse500 = {
-  data: ErrorEnvelope;
-  status: 500;
-};
-
-export type getAssistantEmailSenderIdentityResponseSuccess =
-  getAssistantEmailSenderIdentityResponse200 & {
-    headers: Headers;
-  };
-export type getAssistantEmailSenderIdentityResponseError = (
-  | getAssistantEmailSenderIdentityResponse401
-  | getAssistantEmailSenderIdentityResponse500
-) & {
-  headers: Headers;
-};
-
-export type getAssistantEmailSenderIdentityResponse =
-  | getAssistantEmailSenderIdentityResponseSuccess
-  | getAssistantEmailSenderIdentityResponseError;
-
-export const getGetAssistantEmailSenderIdentityUrl = () => {
-  return `/assistant/integrations/email-sender`;
-};
-
-export const getAssistantEmailSenderIdentity = async (
-  options?: RequestInit
-): Promise<getAssistantEmailSenderIdentityResponse> => {
-  return customFetch<getAssistantEmailSenderIdentityResponse>(
-    getGetAssistantEmailSenderIdentityUrl(),
-    {
-      ...options,
-      method: "GET"
-    }
-  );
-};
-
-/**
- * @summary Request or replace the verified email sender identity for current assistant's workspace
- */
-export type postAssistantEmailSenderIdentityResponse200 = {
-  data: GetAssistantEmailSenderIdentityResponse;
-  status: 200;
-};
-
-export type postAssistantEmailSenderIdentityResponse400 = {
-  data: ErrorEnvelope;
-  status: 400;
-};
-
-export type postAssistantEmailSenderIdentityResponse401 = {
-  data: ErrorEnvelope;
-  status: 401;
-};
-
-export type postAssistantEmailSenderIdentityResponse409 = {
-  data: ErrorEnvelope;
-  status: 409;
-};
-
-export type postAssistantEmailSenderIdentityResponse500 = {
-  data: ErrorEnvelope;
-  status: 500;
-};
-
-export type postAssistantEmailSenderIdentityResponseSuccess =
-  postAssistantEmailSenderIdentityResponse200 & {
-    headers: Headers;
-  };
-export type postAssistantEmailSenderIdentityResponseError = (
-  | postAssistantEmailSenderIdentityResponse400
-  | postAssistantEmailSenderIdentityResponse401
-  | postAssistantEmailSenderIdentityResponse409
-  | postAssistantEmailSenderIdentityResponse500
-) & {
-  headers: Headers;
-};
-
-export type postAssistantEmailSenderIdentityResponse =
-  | postAssistantEmailSenderIdentityResponseSuccess
-  | postAssistantEmailSenderIdentityResponseError;
-
-export const getPostAssistantEmailSenderIdentityUrl = () => {
-  return `/assistant/integrations/email-sender`;
-};
-
-export const postAssistantEmailSenderIdentity = async (
-  assistantEmailSenderIdentityRequest: AssistantEmailSenderIdentityRequest,
-  options?: RequestInit
-): Promise<postAssistantEmailSenderIdentityResponse> => {
-  return customFetch<postAssistantEmailSenderIdentityResponse>(
-    getPostAssistantEmailSenderIdentityUrl(),
-    {
-      ...options,
-      method: "POST",
-      headers: { "Content-Type": "application/json", ...options?.headers },
-      body: JSON.stringify(assistantEmailSenderIdentityRequest)
-    }
-  );
-};
-
-/**
- * @summary Remove the verified email sender identity for current assistant's workspace
- */
-export type deleteAssistantEmailSenderIdentityResponse200 = {
-  data: DeleteAssistantEmailSenderIdentityResponse;
-  status: 200;
-};
-
-export type deleteAssistantEmailSenderIdentityResponse401 = {
-  data: ErrorEnvelope;
-  status: 401;
-};
-
-export type deleteAssistantEmailSenderIdentityResponse500 = {
-  data: ErrorEnvelope;
-  status: 500;
-};
-
-export type deleteAssistantEmailSenderIdentityResponseSuccess =
-  deleteAssistantEmailSenderIdentityResponse200 & {
-    headers: Headers;
-  };
-export type deleteAssistantEmailSenderIdentityResponseError = (
-  | deleteAssistantEmailSenderIdentityResponse401
-  | deleteAssistantEmailSenderIdentityResponse500
-) & {
-  headers: Headers;
-};
-
-export type deleteAssistantEmailSenderIdentityResponse =
-  | deleteAssistantEmailSenderIdentityResponseSuccess
-  | deleteAssistantEmailSenderIdentityResponseError;
-
-export const getDeleteAssistantEmailSenderIdentityUrl = () => {
-  return `/assistant/integrations/email-sender`;
-};
-
-export const deleteAssistantEmailSenderIdentity = async (
-  options?: RequestInit
-): Promise<deleteAssistantEmailSenderIdentityResponse> => {
-  return customFetch<deleteAssistantEmailSenderIdentityResponse>(
-    getDeleteAssistantEmailSenderIdentityUrl(),
-    {
-      ...options,
-      method: "DELETE"
-    }
-  );
-};
-
-/**
- * @summary Resend the Postmark confirmation email for current assistant's workspace sender identity
- */
-export type postAssistantEmailSenderIdentityResendResponse200 = {
-  data: GetAssistantEmailSenderIdentityResponse;
-  status: 200;
-};
-
-export type postAssistantEmailSenderIdentityResendResponse401 = {
-  data: ErrorEnvelope;
-  status: 401;
-};
-
-export type postAssistantEmailSenderIdentityResendResponse404 = {
-  data: ErrorEnvelope;
-  status: 404;
-};
-
-export type postAssistantEmailSenderIdentityResendResponse409 = {
-  data: ErrorEnvelope;
-  status: 409;
-};
-
-export type postAssistantEmailSenderIdentityResendResponse500 = {
-  data: ErrorEnvelope;
-  status: 500;
-};
-
-export type postAssistantEmailSenderIdentityResendResponseSuccess =
-  postAssistantEmailSenderIdentityResendResponse200 & {
-    headers: Headers;
-  };
-export type postAssistantEmailSenderIdentityResendResponseError = (
-  | postAssistantEmailSenderIdentityResendResponse401
-  | postAssistantEmailSenderIdentityResendResponse404
-  | postAssistantEmailSenderIdentityResendResponse409
-  | postAssistantEmailSenderIdentityResendResponse500
-) & {
-  headers: Headers;
-};
-
-export type postAssistantEmailSenderIdentityResendResponse =
-  | postAssistantEmailSenderIdentityResendResponseSuccess
-  | postAssistantEmailSenderIdentityResendResponseError;
-
-export const getPostAssistantEmailSenderIdentityResendUrl = () => {
-  return `/assistant/integrations/email-sender/resend`;
-};
-
-export const postAssistantEmailSenderIdentityResend = async (
-  options?: RequestInit
-): Promise<postAssistantEmailSenderIdentityResendResponse> => {
-  return customFetch<postAssistantEmailSenderIdentityResendResponse>(
-    getPostAssistantEmailSenderIdentityResendUrl(),
-    {
-      ...options,
-      method: "POST"
-    }
-  );
 };
 
 /**

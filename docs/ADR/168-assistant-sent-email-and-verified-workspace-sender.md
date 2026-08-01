@@ -2,7 +2,25 @@
 
 ## Status
 
-**Implemented locally 2026-07-31. Deploy + authenticated live acceptance pending.**
+**Superseded 2026-08-01 by `docs/ADR/169-mailbox-connected-assistant-email.md`
+for its sender-verification layer only.** Live acceptance on 2026-07-31 showed
+the Postmark Sender Signature model always landed the assistant's mail in Spam
+under "sender is not authenticated" — Postmark verified the address but still
+sent from `pm.mtasv.net`, so the customer's own SPF/DKIM/DMARC never aligned.
+ADR-169 replaced D1/D2 (`WorkspaceEmailSenderIdentity` as a Postmark signature,
+Sender Signatures API verification) with a connected mailbox over OAuth +
+SMTP XOAUTH2, and ADR-169 S5 deleted the now-orphaned Postmark
+sender-verification code, routes, credential, and columns described below.
+
+**What survives from this ADR, unchanged:** the `email_send` tool contract
+(D3), fail-closed skip+guidance shape (D4, now `mailbox_not_connected` instead
+of `sender_email_not_verified`), the anti-spam/anti-injection rules in the
+model-facing description (D5), governance/plan-limit/per-turn-cap/audit
+mechanics (D6), the ADR-088 boundary (D7), and the fourth `IntegrationCard` in
+Settings → Интеграции (now showing mailbox-connect state instead of an
+address-verification form). Do not re-derive scope from this ADR for the
+sender-identity/verification parts below (D1, D2) — they are historical only.
+
 Baseline at docs open: `53abcce7`, clean tree.
 
 Parent orchestrates, audits, and commits. Implementation and independent audits

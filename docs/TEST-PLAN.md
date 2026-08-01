@@ -4,39 +4,60 @@ This document defines the current verification baseline for the active PersAI-na
 
 ADR-072 is closed as the historical native migration ADR. Current continuation work should be checked against `docs/ADR/078-consolidated-follow-through-program.md`. `Step 15a` is cancelled and is not an active verification track. ADR-087 defines the unified quota-advisory and paid light-mode target state. ADR-088 defines the unified notification platform target state.
 
-## 2026-07-31 ADR-168 assistant-sent email + verified workspace sender
+## 2026-08-01 ADR-169 mailbox-connected assistant email (S1-S5)
 
-- **Sender identity** (`apps/api/test/assistant-email-sender-identity.service.test.ts`):
-  signature request stores a `pending` row; the bounded re-check flips it to
-  `verified` when Postmark reports the signature confirmed; replacing an address
-  deletes the previous signature first; a missing Postmark **Account** token
-  surfaces `postmark_account_token_unavailable` instead of stranding the row.
+ADR-169 replaced ADR-168's Postmark Sender Signature verification with a
+mailbox connected over OAuth + SMTP XOAUTH2; S5 deleted the sender-signature
+test below it superseded (`assistant-email-sender-identity.service.test.ts`).
+
+- **Mailbox connect/disconnect** (`apps/api/test/assistant-email-mailbox.service.test.ts`):
+  the OAuth `state` is persisted only as its SHA-256 digest, never the raw
+  value that goes into the authorization URL; missing provider credentials
+  fail connect closed (`mailbox_oauth_credentials_unavailable`); disconnect
+  clears the mailbox columns and best-effort deletes the stored OAuth secret.
+- **OAuth callback** (`apps/api/test/handle-mailbox-oauth-callback.service.test.ts`):
+  an unknown/expired/already-consumed `state` is rejected identically (no
+  distinguishing signal for an attacker); a successful exchange upserts the
+  identity row and stores the token bundle under the workspace-scoped
+  `mailbox_oauth:${workspaceId}` providerKey — never the per-assistant
+  `persai.secretRefs.v1` envelope.
 - **Fail-closed send** (`apps/api/test/internal-runtime-email-send.service.test.ts`):
-  with no verified identity the endpoint returns `skipped:sender_email_not_verified`
-  and the fetch stub is asserted to have zero calls; a verified send produces the
-  exact Postmark request shape and returns the `MessageID`; Postmark 4xx maps to
-  `failed` with a reason.
-- **Shared Postmark transport** (`apps/api/test/postmark-email-send.client.test.ts`,
-  `apps/api/test/email-channel.adapter.test.ts`): the adapter test now imports and
-  exercises the real `EmailChannelAdapter` — it previously re-implemented a
-  fictional adapter inline and never touched the class, so it could not have
-  caught a regression. It pins the live ADR-088 wire shape for both the raw and
-  templated paths (URL, `X-Postmark-Server-Token`, `List-Unsubscribe` pair,
-  `Metadata`, `MessageStream`), `fromAddress` override and domain fallback, and
-  the token-missing / recipient-missing early returns that must perform no HTTP
-  call. The client test pins success / `http_error` / `network_error`.
+  exercises the real `MailboxTokenLifecycleService` + refresh client + SMTP
+  client, faking only Prisma/the secret store/`global.fetch`/the nodemailer
+  transport factory. Covers: non-expired token sends without refreshing;
+  expired token refreshes exactly once then sends; a revoked refresh token
+  flips `mailboxStatus` to `token_invalid` and fails closed with zero SMTP
+  calls; no connected mailbox skips with zero SMTP calls; an SMTP network
+  failure maps to `failed`; a provider quota rejection maps to an honest
+  `skipped`, never a silent success.
+- **Shared Postmark transport unaffected** (`apps/api/test/postmark-email-send.client.test.ts`,
+  `apps/api/test/email-channel.adapter.test.ts`): `PostmarkEmailSendClientService`
+  and `EmailChannelAdapter` keep pinning the live ADR-088 wire shape for
+  platform notifications (URL, `X-Postmark-Server-Token`, `List-Unsubscribe`
+  pair, `Metadata`, `MessageStream`); assistant-sent customer mail no longer
+  goes through either.
 - **Runtime tool** (`apps/runtime/test/runtime-email-send-tool.service.test.ts`,
-  registered in the `run-suite-isolated.ts` allowlist): verified send returns
-  `sent`; unverified maps to `skipped` with the settings guidance; an exhausted
-  daily limit short-circuits before any send call; malformed address, multiple
-  recipients, cc/bcc and HTML are rejected as invalid arguments; `describe`
-  returns the contract; projection follows policy and stays present when the
-  workspace sender is unverified.
-- **Web card** (`apps/web/app/app/_components/assistant-settings.test.tsx`):
-  «Не подключён» with no identity; submit moves to pending; a poll returning
-  `verified` flips the card with no reload; polling stops after verification,
-  on dialog close, and on unmount (stable call count after advancing timers);
-  a missing Account token is visible rather than a silent stuck pending state.
+  registered in the `run-suite-isolated.ts` allowlist): a connected mailbox
+  send returns `sent`; `mailbox_not_connected`/`mailbox_token_invalid` map to
+  `skipped` with settings guidance; an exhausted daily limit short-circuits
+  before any send call; malformed address, multiple recipients, cc/bcc and
+  HTML are rejected as invalid arguments; `describe` returns the contract;
+  projection follows policy and stays present with no connected mailbox.
+- **Web card** (`apps/web/app/app/_components/assistant-settings.test.tsx`,
+  "Email integration card"): renders not-connected with no mailbox; offers a
+  provider choice and navigates to the returned authorization URL on connect;
+  renders the connected mailbox's provider/address and disconnects after
+  confirming; a `token_invalid` mailbox surfaces a plain reconnect prompt, not
+  a generic error.
+- **Credential settings** (`apps/api/test/tool-credential-settings.test.ts`):
+  the deleted Postmark Account Token credential is gone from
+  `ADMIN_TOOL_CREDENTIAL_KEYS` (17, not 18); the four ADR-169 mailbox OAuth
+  app credential ids remain.
+- **Route registration** (`apps/api/test/identity-access.module.test.ts`):
+  derives every `api/v1/assistant/*`/`api/v1/admin/*` route from controller
+  metadata and fails if one is unregistered in `CLERK_AUTHENTICATED_ROUTES` —
+  now covering only the three mailbox routes that need a Clerk session, since
+  the four ADR-168 sender-identity routes no longer exist.
 
 ## 2026-07-29 ADR-167 deliver-once + unified timeline amend
 

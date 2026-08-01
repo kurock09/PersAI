@@ -1,5 +1,56 @@
 # SESSION-HANDOFF
 
+## 2026-08-01 — ADR-169 S5: deleted the ADR-168 Postmark sender-signature layer
+
+- **Baseline:** clean tree on top of the landed S1–S4 mailbox-connect work
+  (migration `20260801160000_adr169_s1_mailbox_oauth` already present).
+  Implemented locally; deploy and authenticated live acceptance still pending.
+- **What this slice removed, now that nothing routes through it:**
+  `PostmarkAccountSendersClientService` and `AssistantEmailSenderIdentityService`;
+  the `assistant-integrations-email-sender` controller and its four routes
+  (`GET`/`POST`/`POST /resend`/`DELETE` on
+  `/api/v1/assistant/integrations/email-sender`) plus their OpenAPI
+  paths/schemas and the regenerated typed client; their four
+  `CLERK_AUTHENTICATED_ROUTES` entries; the
+  `notification/email/postmark/account-token` credential
+  (`notification_email_postmark_account`) and its Admin Tools helper copy; and
+  the now-dead ADR-168 columns on `WorkspaceEmailSenderIdentity` — `status`,
+  `postmarkSignatureId`, `requestedAt`, `verifiedAt` — plus the
+  `WorkspaceEmailSenderIdentityStatus` enum, dropped by a hand-written
+  migration (`20260801170000_adr169_s5_drop_postmark_sender_signature_layer`).
+  `email`/`displayName`/`lastErrorReason` and the table itself survive,
+  repurposed for the connected mailbox by S1–S4.
+- **What was verified before deleting:** every symbol/route/credential id/
+  column was grep-confirmed unreferenced outside the deleted files before
+  removal (the internal send path, mailbox connect/callback/token-lifecycle
+  services, and the web Email card were already fully mailbox-based from
+  S1–S4 with zero remaining reads of the dropped columns).
+- **Credential count shift:** `ADMIN_TOOL_CREDENTIAL_KEYS` drops from 18 to 17
+  (11 tool + 2 notification + 4 ADR-169 mailbox OAuth), updated in
+  `tool-credential-settings.test.ts`.
+- **Docs reconciled:** ADR-169 marked implemented locally (S1–S5) with a
+  landed-slice breakdown; ADR-168 marked superseded for its
+  sender-verification layer only (D1/D2), with the surviving tool
+  contract/limits/audit/Integrations-card parts stated explicitly;
+  `API-BOUNDARY.md`, `DATA-MODEL.md`, `ARCHITECTURE.md`, and `TEST-PLAN.md`
+  updated to describe the mailbox model instead of Postmark Sender
+  Signatures; `AGENTS.md`'s ADR-169 paragraph updated to reflect S1–S5 landed.
+- **Left alone (deliberately):** two runtime comments
+  (`native-tool-projection.ts`, `persai-internal-api.client.service.ts`) that
+  cite ADR-168 D4's "no verification-status gate" decision — still accurate
+  under ADR-169 D5, so reworded to drop the word "Postmark" rather than
+  deleted; a stale mock `description` string in
+  `runtime-email-send-tool.service.test.ts` ("workspace's verified sender")
+  that is unused test-fixture input, not asserted against production copy;
+  the Admin Tools page has no rendered section for the four ADR-169 mailbox
+  OAuth credential ids at all (a pre-existing S1–S4 gap, out of this slice's
+  scope — the founder currently has no UI path to enter Mail.ru/Yandex client
+  id/secret and must get one before S6 live acceptance).
+- **Verification:** API/web typecheck, repo-wide lint, `format:check`, and the
+  seven affected/adjacent test files (`tool-credential-settings`,
+  `assistant-email-mailbox.service`, `handle-mailbox-oauth-callback.service`,
+  `internal-runtime-email-send.service`, `identity-access.module`) all pass.
+
 ## 2026-08-01 — ADR-169 opened: verified address was the wrong sender model
 
 - **Baseline:** `9779dae6`, documentation only — no schema, no code, no deploy.

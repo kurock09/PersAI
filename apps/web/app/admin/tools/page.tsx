@@ -1364,12 +1364,6 @@ export default function AdminToolsPage() {
                         Postmark credentials for transactional email. Save with{" "}
                         <span className="font-medium text-text">Save tool credentials</span> below.
                       </p>
-                      <p className="mt-1 text-[11px] text-text-muted">
-                        <span className="font-medium text-text">Postmark Account Token</span> comes
-                        from Postmark → Account → API Tokens (not a Server Token). Without it,
-                        workspaces cannot add or verify a customer sender address in Settings →
-                        Интеграции, so the assistant email-send tool stays fail-closed for everyone.
-                      </p>
                     </div>
                   </div>
                   <div className="grid gap-3 sm:grid-cols-2">

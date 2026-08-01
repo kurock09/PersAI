@@ -5,6 +5,32 @@
 
 ## 2026-08-01 (latest)
 
+- **chore(api, web, contracts): deleted the ADR-168 Postmark sender-signature
+  layer now that assistant mail sends over the customer's own connected
+  mailbox (ADR-169 S5).** Removed `PostmarkAccountSendersClientService`,
+  `AssistantEmailSenderIdentityService`, the
+  `assistant-integrations-email-sender` controller and its four routes
+  (`/api/v1/assistant/integrations/email-sender` `GET`/`POST`/`POST
+  /resend`/`DELETE`), their OpenAPI paths/schemas and regenerated typed
+  client, their `CLERK_AUTHENTICATED_ROUTES` entries, the
+  `notification/email/postmark/account-token` credential
+  (`notification_email_postmark_account`) and its Admin Tools helper copy
+  (`ADMIN_TOOL_CREDENTIAL_KEYS` drops 18 → 17), and the now-dead ADR-168
+  columns/enum on `WorkspaceEmailSenderIdentity` — `status`,
+  `postmarkSignatureId`, `requestedAt`, `verifiedAt`,
+  `WorkspaceEmailSenderIdentityStatus` — via a hand-written migration.
+  `email`/`displayName`/`lastErrorReason` and the table itself survive,
+  already repurposed for the connected mailbox by ADR-169 S1–S4. Nothing in
+  the surviving mailbox-connect/OAuth-callback/token-refresh/SMTP-send path
+  or the Email integration card referenced any of the deleted symbols before
+  removal (verified by grep). `PostmarkEmailSendClientService`,
+  `EmailChannelAdapter`, the Postmark **Server** token, and the whole
+  `email_send` tool contract/limits/audit/skip+guidance mechanics are
+  untouched. Docs (`API-BOUNDARY.md`, `DATA-MODEL.md`, `ARCHITECTURE.md`,
+  `TEST-PLAN.md`, `AGENTS.md`, ADR-168, ADR-169) reconciled to describe the
+  mailbox model; ADR-168 is now marked superseded for its
+  sender-verification decisions only, with the surviving tool
+  contract/limits/audit/Integrations-card parts stated explicitly.
 - **fix(api): `email_send` was activated in the plan but invisible to the model
   because it was never classified as natively executable.** `hasNativeModelExecution`
   in `runtime-tool-policy.ts` answered by an if-chain that fell through to

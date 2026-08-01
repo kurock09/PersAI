@@ -353,10 +353,11 @@ export function projectRuntimeNativeTools(
   ) {
     projectedTools.push(createTtsToolDefinition(ttsPolicy));
   }
-  // ADR-168 — no credential/provider gate: the runtime holds no Postmark
-  // secrets and the internal API resolves sender identity. The tool stays
-  // projected even with no verified sender so the model can explain the
-  // one concrete fix (D4) — do not add a verification-status gate here.
+  // ADR-168 D4 (unchanged by ADR-169 D5) — no credential/provider gate: the
+  // runtime holds no mailbox OAuth secrets and the internal API resolves the
+  // connected mailbox itself. The tool stays projected even with no
+  // connected mailbox so the model can explain the one concrete fix —
+  // do not add a connection-status gate here.
   const emailSendPolicy = resolveAllowedModelVisibleToolPolicy(bundle, "email_send", "worker");
   if (emailSendPolicy !== null) {
     projectedTools.push(createEmailSendToolDefinition(emailSendPolicy));

@@ -96,9 +96,11 @@ async function run(): Promise<void> {
     }
   });
 
-  // 11 visible tool credentials + 3 notification credentials + 4 ADR-169
-  // mailbox OAuth app credentials (client id/secret for Mail.ru and Yandex).
-  assert.equal(state.credentials.length, 18);
+  // 11 visible tool credentials + 2 notification credentials (Server Token +
+  // Webhook Token — the ADR-168 Postmark Account Token was deleted in
+  // ADR-169 S5) + 4 ADR-169 mailbox OAuth app credentials (client id/secret
+  // for Mail.ru and Yandex).
+  assert.equal(state.credentials.length, 17);
   assert.equal(
     state.credentials.find((credential) => credential.credentialKey === "tool_memory_search"),
     undefined

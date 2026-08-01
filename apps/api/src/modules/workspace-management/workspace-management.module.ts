@@ -57,7 +57,6 @@ import { InternalRuntimeFilesController } from "./interface/http/internal-runtim
 import { InternalRuntimeBrowserProfilesController } from "./interface/http/internal-runtime-browser-profiles.controller";
 import { AssistantBrowserProfilesController } from "./interface/http/assistant-browser-profiles.controller";
 import { AssistantSandboxEgressController } from "./interface/http/assistant-sandbox-egress.controller";
-import { AssistantIntegrationsEmailSenderController } from "./interface/http/assistant-integrations-email-sender.controller";
 import { AssistantIntegrationsEmailMailboxController } from "./interface/http/assistant-integrations-email-mailbox.controller";
 import { PublicIntegrationsEmailMailboxCallbackController } from "./interface/http/public-integrations-email-mailbox-callback.controller";
 import { InternalRuntimeEmailController } from "./interface/http/internal-runtime-email-controller";
@@ -97,7 +96,6 @@ import { ResendTelegramOwnerMessageService } from "./application/resend-telegram
 import { ResolvePlanVisibilityService } from "./application/resolve-plan-visibility.service";
 import { AppendAssistantAuditEventService } from "./application/append-assistant-audit-event.service";
 import { ManageAssistantSandboxEgressService } from "./application/manage-assistant-sandbox-egress.service";
-import { AssistantEmailSenderIdentityService } from "./application/assistant-email-sender-identity.service";
 import { AssistantEmailMailboxService } from "./application/assistant-email-mailbox.service";
 import { HandleMailboxOAuthCallbackService } from "./application/handle-mailbox-oauth-callback.service";
 import { MailboxOAuthTokenExchangeClientService } from "./application/mailbox-oauth-token-exchange.client";
@@ -107,7 +105,6 @@ import {
   MailboxSmtpSendClientService,
   NodemailerMailboxSmtpTransportFactory
 } from "./application/mailbox-smtp-send.client";
-import { PostmarkAccountSendersClientService } from "./application/postmark-account-senders.client";
 import { PostmarkEmailSendClientService } from "./application/postmark-email-send.client";
 import { InternalRuntimeEmailSendService } from "./application/internal-runtime-email-send.service";
 import { AdminAuthorizationService } from "./application/admin-authorization.service";
@@ -471,7 +468,6 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     AssistantController,
     AssistantBrowserProfilesController,
     AssistantSandboxEgressController,
-    AssistantIntegrationsEmailSenderController,
     AssistantIntegrationsEmailMailboxController,
     PublicIntegrationsEmailMailboxCallbackController,
     InternalRuntimeEmailController,
@@ -557,7 +553,6 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     },
     AppendAssistantAuditEventService,
     ManageAssistantSandboxEgressService,
-    AssistantEmailSenderIdentityService,
     AssistantEmailMailboxService,
     HandleMailboxOAuthCallbackService,
     MailboxOAuthTokenExchangeClientService,
@@ -565,7 +560,6 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     MailboxTokenLifecycleService,
     NodemailerMailboxSmtpTransportFactory,
     MailboxSmtpSendClientService,
-    PostmarkAccountSendersClientService,
     PostmarkEmailSendClientService,
     InternalRuntimeEmailSendService,
     AdminAuthorizationService,

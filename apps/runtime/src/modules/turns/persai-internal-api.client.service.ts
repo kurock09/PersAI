@@ -505,10 +505,10 @@ export type RegisterChatAttachmentOutcome = {
 };
 
 /**
- * ADR-168 — runtime side of the `email_send` native tool. Mirrors the internal
- * endpoint contract (`POST /api/v1/internal/runtime/email/send`)
- * exactly; the runtime holds no Postmark secrets and never resolves sender
- * identity itself.
+ * ADR-168/169 — runtime side of the `email_send` native tool. Mirrors the
+ * internal endpoint contract (`POST /api/v1/internal/runtime/email/send`)
+ * exactly; the runtime holds no mailbox OAuth secrets and never resolves the
+ * connected mailbox itself.
  */
 export type SendAssistantEmailInput = {
   workspaceId: string;

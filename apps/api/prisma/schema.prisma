@@ -3993,16 +3993,6 @@ enum WorkspaceEmailMailboxProvider {
   yandex
 }
 
-/// ADR-168 address-confirmation lifecycle. Removed together with the Postmark
-/// sender-signature layer in ADR-169 S5; ADR-169 tracks mailbox connection in
-/// its own `WorkspaceEmailMailboxStatus` so neither model has to lie about the
-/// other's states.
-enum WorkspaceEmailSenderIdentityStatus {
-  pending
-  verified
-  failed
-}
-
 /// ADR-169 — state of the connected mailbox itself. `token_invalid` means the
 /// customer revoked access or the refresh token stopped working: sending must
 /// fail closed with guidance, not retry silently.
@@ -4011,23 +4001,24 @@ enum WorkspaceEmailMailboxStatus {
   token_invalid
 }
 
+/// ADR-168 opened this row as a Postmark-verified sender identity; ADR-169
+/// S5 dropped the address-confirmation columns (`status`, `postmarkSignatureId`,
+/// `requestedAt`, `verifiedAt`) once the mailbox OAuth columns below became
+/// the only send-eligibility truth. `email`/`displayName` are now the
+/// connected mailbox's own address/display name, not a Postmark signature.
 model WorkspaceEmailSenderIdentity {
-  id                  String                             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  workspaceId         String                             @unique @map("workspace_id") @db.Uuid
-  email               String                             @db.VarChar(320)
-  displayName         String?                            @map("display_name") @db.VarChar(120)
-  status              WorkspaceEmailSenderIdentityStatus  @default(pending)
-  postmarkSignatureId String?                             @map("postmark_signature_id") @db.VarChar(64)
-  provider            WorkspaceEmailMailboxProvider?
-  mailboxStatus       WorkspaceEmailMailboxStatus?        @map("mailbox_status")
-  tokenExpiresAt      DateTime?                           @map("token_expires_at") @db.Timestamptz(6)
-  connectedAt         DateTime?                           @map("connected_at") @db.Timestamptz(6)
-  lastErrorReason     String?                             @map("last_error_reason") @db.VarChar(128)
-  requestedAt         DateTime                            @map("requested_at") @db.Timestamptz(6)
-  verifiedAt          DateTime?                           @map("verified_at") @db.Timestamptz(6)
-  createdAt           DateTime                            @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt           DateTime                            @updatedAt @map("updated_at") @db.Timestamptz(6)
-  workspace           Workspace                           @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  id              String                        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId     String                        @unique @map("workspace_id") @db.Uuid
+  email           String                        @db.VarChar(320)
+  displayName     String?                       @map("display_name") @db.VarChar(120)
+  provider        WorkspaceEmailMailboxProvider?
+  mailboxStatus   WorkspaceEmailMailboxStatus?  @map("mailbox_status")
+  tokenExpiresAt  DateTime?                     @map("token_expires_at") @db.Timestamptz(6)
+  connectedAt     DateTime?                     @map("connected_at") @db.Timestamptz(6)
+  lastErrorReason String?                       @map("last_error_reason") @db.VarChar(128)
+  createdAt       DateTime                      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime                      @updatedAt @map("updated_at") @db.Timestamptz(6)
+  workspace       Workspace                     @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
   @@map("workspace_email_sender_identities")
 }

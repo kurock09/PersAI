@@ -18,9 +18,6 @@ export const TOOL_CREDENTIAL_IDS = {
   // so the existing tool-credential save endpoint can store and expose them).
   notification_email_postmark: "notification/email/postmark/api-key",
   notification_email_postmark_webhook: "notification/email/postmark/webhook-token",
-  // ADR-168 — Postmark Account API token (Sender Signatures API), distinct
-  // from the Server Token above which is used only for sending.
-  notification_email_postmark_account: "notification/email/postmark/account-token",
   // ADR-169 — platform OAuth app credentials for the mailbox-connected
   // assistant email flow (one client id + secret per provider).
   mailbox_oauth_mailru_client_id: "mailbox-oauth/mailru/client-id",
@@ -40,10 +37,7 @@ export const DEFAULT_MEDIA_RESERVE_BASE_URL = "https://api.proxyapi.ru/openai/v1
 /** Notification-platform specific credentials — canonical path aliases used by adapters. */
 export const NOTIFICATION_CREDENTIAL_IDS = {
   email_postmark: "notification/email/postmark/api-key",
-  email_postmark_webhook: "notification/email/postmark/webhook-token",
-  // ADR-168 — Postmark Account API token, used by the Sender Signatures API
-  // (`/senders`) for workspace email sender identity verification.
-  email_postmark_account: "notification/email/postmark/account-token"
+  email_postmark_webhook: "notification/email/postmark/webhook-token"
 } as const;
 
 export type NotificationCredentialKey = keyof typeof NOTIFICATION_CREDENTIAL_IDS;
@@ -91,7 +85,6 @@ export const TOOL_CODE_BY_CREDENTIAL_KEY: Record<ToolCredentialKey, string> = {
   tool_memory_search: "memory_search",
   notification_email_postmark: "notifications",
   notification_email_postmark_webhook: "notifications",
-  notification_email_postmark_account: "notifications",
   mailbox_oauth_mailru_client_id: "email_mailbox",
   mailbox_oauth_mailru_client_secret: "email_mailbox",
   mailbox_oauth_yandex_client_id: "email_mailbox",
@@ -403,7 +396,6 @@ export function buildAdminToolCredentialsState(params: {
     tool_memory_search: "Knowledge Search / Embedding Index API Key",
     notification_email_postmark: "Postmark Server Token",
     notification_email_postmark_webhook: "Postmark Webhook Token",
-    notification_email_postmark_account: "Postmark Account Token",
     mailbox_oauth_mailru_client_id: "Mailbox OAuth Client ID (Mail.ru)",
     mailbox_oauth_mailru_client_secret: "Mailbox OAuth Client Secret (Mail.ru)",
     mailbox_oauth_yandex_client_id: "Mailbox OAuth Client ID (Yandex)",
