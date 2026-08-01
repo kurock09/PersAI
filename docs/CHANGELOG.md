@@ -3,7 +3,37 @@
 > Archive: detailed historical entries from 2026-06-05 and earlier moved to `docs/CHANGELOG.archive-2026-06-05-details-and-earlier.md`; entries from 2026-05-19 and earlier remain in `docs/CHANGELOG.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: current entries plus concise recent summaries only.
 
-## 2026-08-01 (latest)
+## 2026-08-02 (latest)
+
+- **fix(web, docs): ADR-169 mailbox-connect web audit repair — OAuth return,
+  Admin Tools credentials UI, honest failures.** Two independent audits of
+  the S1–S5 mailbox-connect implementation found real gaps, all inside
+  `apps/web`. Fixed: (1) `chat/page.tsx` now reads the OAuth callback's
+  `mailboxConnect=success|error` return param once on mount and reopens
+  Settings on the Email card via the existing `openSettings`/`initialSection`
+  deep-link mechanism with a fresh mailbox read and an honest outcome
+  message, instead of leaving the user on a bare chat screen; (2)
+  `handleConnectEmailMailbox` distinguishes the backend's
+  `mailbox_oauth_credentials_unavailable` code with its own "retrying won't
+  help" copy instead of a generic try-again message; (3) `Admin > Tools`
+  gained a "Mailbox-connected email" section rendering the four
+  `mailbox_oauth_{mailru,yandex}_client_{id,secret}` credential fields the
+  server already returned but the page never drew, with the exact redirect
+  URI to register (`https://api.persai.dev/api/v1/public/integrations/email-mailbox/callback`
+  in dev, derived from `PERSAI_PUBLIC_API_BASE_URL` +
+  `resolveMailboxOAuthCallbackRedirectUri`'s fixed callback path) — without
+  this the feature could not be turned on at all; (4) a failed mailbox status
+  read now renders a neutral could-not-load-with-retry state instead of the
+  connect-a-mailbox prompt; (5) the collapsed Email card now shows the
+  mailbox address in the `token_invalid` state too, and the Mail.ru/Yandex
+  connect buttons are now equally `primary`-styled. New i18n:
+  `emailMailboxConnectSuccess`, `emailMailboxConnectReturnError`,
+  `emailMailboxConnectCredentialsUnavailable` in both locales. `apps/api`/
+  `apps/runtime` findings from the same audits were fixed separately and are
+  not part of this entry. Deploy and authenticated live acceptance (S6)
+  remain pending; the OAuth applications remain unregistered.
+
+## 2026-08-01
 
 - **chore(api, web, contracts): deleted the ADR-168 Postmark sender-signature
   layer now that assistant mail sends over the customer's own connected

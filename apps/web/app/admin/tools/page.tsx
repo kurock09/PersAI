@@ -18,7 +18,8 @@ import {
   CreditCard,
   FileOutput,
   Coins,
-  RefreshCcw
+  RefreshCcw,
+  Mail
 } from "lucide-react";
 import { ToolPathEconomicsPanel } from "./tool-path-economics-panel";
 import {
@@ -185,6 +186,19 @@ const VIDEO_PROVIDER_CREDENTIAL_KEYS = [
   "tool_video_generate_heygen"
 ] as const;
 const DOCUMENT_GENERATION_CREDENTIAL_KEYS = ["tool_document_gamma"] as const;
+// ADR-169 — Mail.ru/Yandex OAuth apps for the mailbox-connected assistant
+// email flow. The redirect URI below must be byte-identical to what
+// `resolveMailboxOAuthCallbackRedirectUri` in apps/api builds from
+// `PERSAI_PUBLIC_API_BASE_URL` (dev: `infra/helm/values-dev.yaml`) joined
+// with the fixed callback path — a mismatch fails the OAuth exchange with an
+// opaque provider error (ADR-169 Risks).
+const MAILBOX_OAUTH_CALLBACK_PATH = "/api/v1/public/integrations/email-mailbox/callback";
+const MAILBOX_OAUTH_CREDENTIAL_KEYS = [
+  "mailbox_oauth_mailru_client_id",
+  "mailbox_oauth_mailru_client_secret",
+  "mailbox_oauth_yandex_client_id",
+  "mailbox_oauth_yandex_client_secret"
+] as const;
 
 function pickCredentials(
   credentials: ToolCredentialStatus[],
@@ -1379,6 +1393,56 @@ export default function AdminToolsPage() {
                           onProviderChange={updateProviderInput}
                         />
                       ))}
+                  </div>
+                </section>
+              )}
+
+              {state.credentials.some((c) => c.toolCode === "email_mailbox") && (
+                <section className="rounded-xl border border-border bg-surface-raised p-4">
+                  <div className="mb-4 flex items-start gap-2">
+                    <Mail className="mt-0.5 h-4 w-4 shrink-0 text-accent" />
+                    <div>
+                      <p className="text-sm font-semibold text-text">Mailbox-connected email</p>
+                      <p className="text-[11px] text-text-muted">
+                        ADR-169 — Mail.ru/Yandex OAuth apps so assistants send from the
+                        customer&apos;s own connected mailbox. Register each app with the provider
+                        console, then save the client id/secret here with{" "}
+                        <span className="font-medium text-text">Save tool credentials</span> below.
+                        The tool ships inactive until both are configured and enabled per plan in{" "}
+                        <Link href="/admin/plans" className="text-accent hover:underline">
+                          Admin → Plans
+                        </Link>
+                        .
+                      </p>
+                    </div>
+                  </div>
+                  <div className="mb-3 rounded-lg border border-border/70 bg-surface p-3">
+                    <p className="mb-1 text-[11px] font-medium text-text">
+                      Redirect URI to register with each provider
+                    </p>
+                    <p className="font-mono text-[11px] text-text-muted">
+                      https://api.persai.dev{MAILBOX_OAUTH_CALLBACK_PATH}
+                    </p>
+                    <p className="mt-1 text-[10px] text-text-muted">
+                      Must be byte-identical to what this environment&apos;s{" "}
+                      <code className="text-text">PERSAI_PUBLIC_API_BASE_URL</code> resolves to
+                      joined with <code className="text-text">{MAILBOX_OAUTH_CALLBACK_PATH}</code> —
+                      a mismatch fails the OAuth exchange with an opaque provider error.
+                    </p>
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {pickCredentials(state.credentials, MAILBOX_OAUTH_CREDENTIAL_KEYS).map(
+                      (cred) => (
+                        <ToolCredentialCard
+                          key={cred.credentialKey}
+                          cred={cred}
+                          keyInputs={keyInputs}
+                          providerInputs={providerInputs}
+                          onKeyChange={updateKeyInput}
+                          onProviderChange={updateProviderInput}
+                        />
+                      )
+                    )}
                   </div>
                 </section>
               )}

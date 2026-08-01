@@ -1,5 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import type { MailboxOAuthHttpOutcome } from "./mailbox-oauth-token-exchange.client";
+import { postMailboxOAuthTokenForm } from "./mailbox-oauth-http-transport";
 
 const MAILBOX_OAUTH_REFRESH_HTTP_TIMEOUT_MS = 10_000;
 
@@ -9,9 +10,8 @@ const MAILBOX_OAUTH_REFRESH_HTTP_TIMEOUT_MS = 10_000;
  * `authorization_code` grant only) rather than an extension of it: S2's
  * client is locked as already-landed foundation, so the refresh grant gets
  * its own equally-thin transport instead of a modification. Owns only the
- * HTTP POST, the bounded AbortController timeout, and the JSON parse; it
- * never resolves secrets and never decides what a caller does with the
- * response body.
+ * grant body; the abort-timeout/form-post/parse mechanic is shared with the
+ * exchange client via `postMailboxOAuthTokenForm`.
  */
 @Injectable()
 export class MailboxOAuthTokenRefreshClientService {
@@ -28,33 +28,10 @@ export class MailboxOAuthTokenRefreshClientService {
       client_secret: params.clientSecret
     });
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => {
-      controller.abort();
-    }, MAILBOX_OAUTH_REFRESH_HTTP_TIMEOUT_MS);
-
-    let response: Response;
-    try {
-      response = await fetch(params.tokenEndpoint, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-          Accept: "application/json"
-        },
-        body: body.toString(),
-        signal: controller.signal
-      });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      return { kind: "network_error", message };
-    } finally {
-      clearTimeout(timeout);
-    }
-
-    const responseBody = (await response.json().catch(() => ({}))) as Record<string, unknown>;
-    if (!response.ok) {
-      return { kind: "http_error", httpStatus: response.status, body: responseBody };
-    }
-    return { kind: "success", httpStatus: response.status, body: responseBody };
+    return postMailboxOAuthTokenForm(
+      params.tokenEndpoint,
+      body,
+      MAILBOX_OAUTH_REFRESH_HTTP_TIMEOUT_MS
+    );
   }
 }

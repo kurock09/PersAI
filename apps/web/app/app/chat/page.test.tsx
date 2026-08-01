@@ -449,4 +449,48 @@ describe("ChatPage", () => {
     });
     expect(navigationMocks.replace).toHaveBeenCalledWith("/app/chat");
   });
+
+  // ADR-169 — the mailbox OAuth callback always sends the browser back to
+  // `/app/chat?mailboxConnect=success|error`. This must reopen Settings on
+  // the Integrations/Email card with a fresh read, not leave the user on a
+  // bare chat screen, and the one-shot param must not survive a refresh.
+  it("re-opens the Email mailbox card on a successful OAuth return and strips the one-shot param", async () => {
+    navigationMocks.searchParams = new URLSearchParams("mailboxConnect=success");
+    appDataMocks.chats = [];
+    chatHookMocks.markHistoryEmpty.mockReset();
+
+    render(<ChatPage />);
+
+    await waitFor(() => {
+      expect(shellActionMocks.openSettings).toHaveBeenCalledWith("emailConnectSuccess");
+    });
+    expect(navigationMocks.replace).toHaveBeenCalledWith("/app/chat");
+  });
+
+  it("re-opens the Email mailbox card on a failed OAuth return and strips the one-shot param", async () => {
+    navigationMocks.searchParams = new URLSearchParams("mailboxConnect=error");
+    appDataMocks.chats = [];
+    chatHookMocks.markHistoryEmpty.mockReset();
+
+    render(<ChatPage />);
+
+    await waitFor(() => {
+      expect(shellActionMocks.openSettings).toHaveBeenCalledWith("emailConnectError");
+    });
+    expect(navigationMocks.replace).toHaveBeenCalledWith("/app/chat");
+  });
+
+  it("ignores an unrecognized mailboxConnect value instead of opening settings", async () => {
+    navigationMocks.searchParams = new URLSearchParams("mailboxConnect=bogus");
+    appDataMocks.chats = [];
+    chatHookMocks.markHistoryEmpty.mockReset();
+
+    render(<ChatPage />);
+
+    await waitFor(() => {
+      expect(chatHookMocks.markHistoryEmpty).toHaveBeenCalled();
+    });
+    expect(shellActionMocks.openSettings).not.toHaveBeenCalled();
+    expect(navigationMocks.replace).not.toHaveBeenCalledWith("/app/chat");
+  });
 });

@@ -104,6 +104,17 @@ export class AssistantEmailMailboxService {
 
     const state = randomBytes(STATE_BYTES).toString("base64url");
     const stateHash = createHash("sha256").update(state).digest("hex");
+
+    // Opportunistic bounded cleanup, no scheduler: every connect attempt is
+    // a natural, infrequent trigger to drop this workspace's own
+    // consumed/expired states before the table grows unbounded.
+    await this.prisma.workspaceEmailOAuthState.deleteMany({
+      where: {
+        workspaceId,
+        OR: [{ consumedAt: { not: null } }, { expiresAt: { lt: new Date() } }]
+      }
+    });
+
     await this.prisma.workspaceEmailOAuthState.create({
       data: {
         workspaceId,

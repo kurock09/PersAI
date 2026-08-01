@@ -1,4 +1,5 @@
 import { Injectable } from "@nestjs/common";
+import { postMailboxOAuthTokenForm } from "./mailbox-oauth-http-transport";
 
 const MAILBOX_OAUTH_HTTP_TIMEOUT_MS = 10_000;
 
@@ -62,30 +63,7 @@ export class MailboxOAuthTokenExchangeClientService {
   }
 
   private async post(url: string, body: URLSearchParams): Promise<MailboxOAuthHttpOutcome> {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => {
-      controller.abort();
-    }, MAILBOX_OAUTH_HTTP_TIMEOUT_MS);
-
-    let response: Response;
-    try {
-      response = await fetch(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-          Accept: "application/json"
-        },
-        body: body.toString(),
-        signal: controller.signal
-      });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      return { kind: "network_error", message };
-    } finally {
-      clearTimeout(timeout);
-    }
-
-    return this.parseResponse(response);
+    return postMailboxOAuthTokenForm(url, body, MAILBOX_OAUTH_HTTP_TIMEOUT_MS);
   }
 
   private async parseResponse(response: Response): Promise<MailboxOAuthHttpOutcome> {

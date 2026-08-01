@@ -3,7 +3,8 @@
  * Covers: connect state is persisted only as a SHA-256 digest (never the raw
  * state that goes into the authorization URL); missing provider credentials
  * fail connect closed; disconnect clears the mailbox columns and best-effort
- * deletes the stored OAuth secret.
+ * deletes the stored OAuth secret; each connect attempt opportunistically
+ * clears this workspace's own consumed/expired OAuth states first.
  */
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
@@ -37,12 +38,17 @@ type CreatedStateCall = {
 
 function createFakePrisma(identityRows: Map<string, FakeIdentityRow>) {
   const createdStates: CreatedStateCall[] = [];
+  const deleteManyCalls: Array<Record<string, unknown>> = [];
   const identityUpdates: Array<{ workspaceId: string; data: Partial<FakeIdentityRow> }> = [];
   const prisma = {
     workspaceEmailOAuthState: {
       async create({ data }: { data: CreatedStateCall }) {
         createdStates.push(data);
         return { id: "state-1", consumedAt: null, createdAt: new Date(), ...data };
+      },
+      async deleteMany(args: { where: Record<string, unknown> }) {
+        deleteManyCalls.push(args.where);
+        return { count: 0 };
       }
     },
     workspaceEmailSenderIdentity: {
@@ -70,6 +76,7 @@ function createFakePrisma(identityRows: Map<string, FakeIdentityRow>) {
   return {
     prisma: prisma as unknown as WorkspaceManagementPrismaService,
     createdStates,
+    deleteManyCalls,
     identityUpdates
   };
 }
@@ -108,7 +115,7 @@ function createAuditMock() {
 }
 
 async function testStateIsStoredHashedAndNeverRaw(): Promise<void> {
-  const { prisma, createdStates } = createFakePrisma(new Map());
+  const { prisma, createdStates, deleteManyCalls } = createFakePrisma(new Map());
   const { store } = createSecretStoreMock({
     clientIdByCredentialId: {
       "mailbox-oauth/mailru/client-id": "mailru-client-id",
@@ -140,7 +147,42 @@ async function testStateIsStoredHashedAndNeverRaw(): Promise<void> {
     expectedHash,
     "only the SHA-256 digest of the state is persisted"
   );
+  assert.equal(
+    deleteManyCalls.length,
+    1,
+    "connect opportunistically clears this workspace's old OAuth states before creating a new one"
+  );
+  assert.equal(deleteManyCalls[0]?.["workspaceId"], "workspace-1");
   console.log("✓ connect state is stored only as its SHA-256 digest, never the raw value");
+}
+
+async function testConnectOpportunisticallyCleansConsumedAndExpiredStates(): Promise<void> {
+  const { prisma, deleteManyCalls } = createFakePrisma(new Map());
+  const { store } = createSecretStoreMock({
+    clientIdByCredentialId: {
+      "mailbox-oauth/mailru/client-id": "mailru-client-id",
+      "mailbox-oauth/mailru/client-secret": "mailru-client-secret"
+    }
+  });
+  const { service: audit } = createAuditMock();
+  const service = new AssistantEmailMailboxService(prisma, store, audit);
+
+  await service.initiateConnect("workspace-9", { provider: "mailru" });
+
+  assert.equal(deleteManyCalls.length, 1);
+  const where = deleteManyCalls[0] as {
+    workspaceId: string;
+    OR: Array<Record<string, unknown>>;
+  };
+  assert.equal(where.workspaceId, "workspace-9");
+  assert.deepEqual(where.OR[0], { consumedAt: { not: null } });
+  assert.ok(
+    "expiresAt" in (where.OR[1] ?? {}),
+    "the cleanup also drops expired-but-unconsumed states"
+  );
+  console.log(
+    "✓ each connect attempt opportunistically deletes this workspace's consumed/expired OAuth states, no scheduler"
+  );
 }
 
 async function testMissingProviderCredentialsFailClosed(): Promise<void> {
@@ -199,6 +241,7 @@ async function run(): Promise<void> {
   await testStateIsStoredHashedAndNeverRaw();
   await testMissingProviderCredentialsFailClosed();
   await testDisconnectClearsColumnsAndDeletesSecret();
+  await testConnectOpportunisticallyCleansConsumedAndExpiredStates();
   console.log("\n✅ All assistant-email-mailbox.service tests passed");
 }
 

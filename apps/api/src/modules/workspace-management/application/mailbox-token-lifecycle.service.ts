@@ -8,9 +8,23 @@ import {
   type MailboxOAuthProviderId
 } from "./mailbox-oauth-provider-registry";
 import { mailboxOAuthSecretProviderKey } from "./assistant-email-mailbox.service";
+import { SchedulerLeaseService } from "./scheduler-lease.service";
 
 /** ADR-169 S3 — refresh ahead of expiry rather than racing the provider's own clock. */
 const TOKEN_EXPIRY_SKEW_MS = 2 * 60 * 1000;
+
+/**
+ * ADR-169 repair — Mail.ru/Yandex rotate refresh tokens on every use, so two
+ * concurrent sends racing the same stale refresh token would make the
+ * loser's now-consumed token look exactly like a revoked grant. This is the
+ * same per-key dynamic lease `ChatWakeCoordinator` already uses for
+ * `async-catchup:{chatId}` (`SchedulerLeaseService.acquireOrCreate`) —
+ * reused here rather than inventing a second locking mechanism.
+ */
+const MAILBOX_REFRESH_LOCK_PREFIX = "mailbox-refresh:";
+const MAILBOX_REFRESH_LOCK_TTL_MS = 15_000;
+const MAILBOX_REFRESH_LOCK_ACQUIRE_TIMEOUT_MS = 5_000;
+const MAILBOX_REFRESH_LOCK_POLL_INTERVAL_MS = 150;
 
 export type MailboxTokenLifecycleResult =
   | { kind: "ready"; accessToken: string }
@@ -30,6 +44,12 @@ type MailboxTokenBundle = { accessToken: string; refreshToken: string | null };
  * either provider's ordinary token-endpoint error shape gives us) flips
  * `mailboxStatus` to `token_invalid` and returns fail-closed; this service
  * never retries and never falls back to another transport.
+ *
+ * Refresh is serialized per workspace behind the existing dynamic scheduler
+ * lease (see `MAILBOX_REFRESH_LOCK_PREFIX` below) because both v1 providers
+ * rotate refresh tokens on use: without the lock, a losing concurrent call
+ * would present an already-consumed refresh token and get `invalid_grant`
+ * back, indistinguishable from a real revocation.
  */
 @Injectable()
 export class MailboxTokenLifecycleService {
@@ -38,7 +58,8 @@ export class MailboxTokenLifecycleService {
   constructor(
     private readonly prisma: WorkspaceManagementPrismaService,
     private readonly secretStore: PlatformRuntimeProviderSecretStoreService,
-    private readonly tokenRefreshClient: MailboxOAuthTokenRefreshClientService
+    private readonly tokenRefreshClient: MailboxOAuthTokenRefreshClientService,
+    private readonly schedulerLease: SchedulerLeaseService
   ) {}
 
   async resolveFreshAccessToken(
@@ -51,18 +72,85 @@ export class MailboxTokenLifecycleService {
       return { kind: "not_connected" };
     }
 
+    // Cheap unlocked fast path: the caller-supplied `tokenExpiresAt` can be
+    // a hair stale, but that only ever costs an unnecessary lock attempt
+    // below, never a wrong "ready" — the locked re-check is what decides.
     if (!this.isExpiringSoon(tokenExpiresAt)) {
       return { kind: "ready", accessToken: bundle.accessToken };
     }
 
-    if (bundle.refreshToken === null) {
-      // Expiring/expired with nothing to refresh with is functionally the
-      // same dead end as a revoked grant: fail closed the same way.
-      await this.markTokenInvalid(workspaceId);
-      return { kind: "token_invalid" };
+    const lockKey = this.refreshLockKey(workspaceId);
+    const lock = await this.acquireRefreshLock(lockKey);
+    if (lock === null) {
+      return {
+        kind: "refresh_unavailable",
+        message: "Mailbox token refresh is already in progress for this workspace."
+      };
     }
+    try {
+      // Re-read under the per-workspace lock: a concurrent call that just
+      // won the race already wrote a fresh bundle/expiry, so the token that
+      // looked "expiring soon" a moment ago may already be replaced. Reusing
+      // it here — instead of refreshing again with our own now-stale
+      // `refreshToken` — is exactly what stops the loser's rotated-away
+      // token from coming back `invalid_grant` and mislabeling a healthy
+      // mailbox.
+      const freshBundle = await this.loadTokenBundle(workspaceId);
+      if (freshBundle === null) {
+        return { kind: "not_connected" };
+      }
+      const freshRow = await this.prisma.workspaceEmailSenderIdentity.findUnique({
+        where: { workspaceId },
+        select: { tokenExpiresAt: true }
+      });
+      if (!this.isExpiringSoon(freshRow?.tokenExpiresAt ?? null)) {
+        return { kind: "ready", accessToken: freshBundle.accessToken };
+      }
 
-    return this.refresh(workspaceId, provider, bundle.refreshToken);
+      if (freshBundle.refreshToken === null) {
+        // Expiring/expired with nothing to refresh with is functionally the
+        // same dead end as a revoked grant: fail closed the same way.
+        await this.markTokenInvalid(workspaceId);
+        return { kind: "token_invalid" };
+      }
+
+      return await this.refresh(workspaceId, provider, freshBundle.refreshToken);
+    } finally {
+      await this.schedulerLease.releaseKey(lockKey, lock.token);
+    }
+  }
+
+  private refreshLockKey(workspaceId: string): string {
+    return `${MAILBOX_REFRESH_LOCK_PREFIX}${workspaceId}`;
+  }
+
+  /**
+   * Polls the existing dynamic scheduler lease rather than blocking a
+   * database transaction across the provider's network round trip. Bounded
+   * by `MAILBOX_REFRESH_LOCK_ACQUIRE_TIMEOUT_MS`; a lock that cannot be
+   * acquired in time degrades to `refresh_unavailable` (never a silent
+   * success and never a wrongful `token_invalid`).
+   */
+  private async acquireRefreshLock(lockKey: string): Promise<{ token: string } | null> {
+    const deadline = Date.now() + MAILBOX_REFRESH_LOCK_ACQUIRE_TIMEOUT_MS;
+    for (;;) {
+      const lock = await this.schedulerLease.acquireOrCreate(lockKey, {
+        ttlMs: MAILBOX_REFRESH_LOCK_TTL_MS
+      });
+      if (lock !== null) {
+        return lock;
+      }
+      if (Date.now() >= deadline) {
+        return null;
+      }
+      await this.sleep(MAILBOX_REFRESH_LOCK_POLL_INTERVAL_MS);
+    }
+  }
+
+  private sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => {
+      setTimeout(resolve, ms);
+    });
   }
 
   private async refresh(
@@ -149,11 +237,18 @@ export class MailboxTokenLifecycleService {
     return { kind: "ready", accessToken };
   }
 
+  /**
+   * ADR-169 repair — an unknown expiry is not evidence of validity. Both v1
+   * providers document `expires_in` on every token response, so a null
+   * `tokenExpiresAt` means a prior response was missing it, not that the
+   * token is good forever. Chosen behaviour: treat "unknown" the same as
+   * "due for refresh" rather than "never refresh again" — worst case is an
+   * extra refresh call; the alternative (this branch's prior behaviour) was
+   * a mailbox that silently stopped refreshing forever.
+   */
   private isExpiringSoon(tokenExpiresAt: Date | null): boolean {
-    // No expiry on record means the provider never told us one; there is no
-    // evidence a refresh is needed, so use the stored token as-is.
     if (tokenExpiresAt === null) {
-      return false;
+      return true;
     }
     return tokenExpiresAt.getTime() - Date.now() <= TOKEN_EXPIRY_SKEW_MS;
   }
@@ -180,7 +275,13 @@ export class MailboxTokenLifecycleService {
     }
   }
 
-  private async markTokenInvalid(workspaceId: string): Promise<void> {
+  /**
+   * Public so `InternalRuntimeEmailSendService` can flip a mailbox to
+   * `token_invalid` when the SMTP layer classifies a send-time rejection as
+   * an authentication failure — the same fail-closed destination as a
+   * refresh-time revocation, reached from a different detection point.
+   */
+  async markTokenInvalid(workspaceId: string): Promise<void> {
     await this.prisma.workspaceEmailSenderIdentity.update({
       where: { workspaceId },
       data: { mailboxStatus: WorkspaceEmailMailboxStatus.token_invalid }

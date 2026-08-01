@@ -1,9 +1,12 @@
 # ADR-169 — Mailbox-connected assistant email (OAuth XOAUTH2)
 
-- Status: **implemented locally 2026-08-01** (S1–S5 landed; deploy + S6
-  authenticated live acceptance pending — the founder still needs to register
-  the Mail.ru and Yandex OAuth applications and store their client id/secret
-  in `Admin > Tools` before a real end-to-end send can be exercised).
+- Status: **implemented locally 2026-08-01** (S1–S5 landed); **web audit
+  findings fixed locally 2026-08-02** (see "Audit repair" below — deploy +
+  S6 authenticated live acceptance still pending. `Admin > Tools` now
+  renders the four Mail.ru/Yandex OAuth credential fields with the exact
+  redirect URI to register, but the founder still needs to register the
+  OAuth applications with each provider and enter the resulting client
+  id/secret before a real end-to-end send can be exercised).
 - Date: 2026-08-01
 - Supersedes: the sender-verification layer of ADR-168 only. The `email_send`
   tool, its plan/limit/audit mechanics, and the Integrations card survive.
@@ -188,6 +191,67 @@ allowed one regression to ship.
   a real assistant-sent message that arrives in Inbox with no authentication
   warning.
 - **S7 (deferred)** — Google via Gmail API `gmail.send`.
+
+## Audit repair (web) — 2026-08-02
+
+Two independent audits of the S1–S5 implementation found real product gaps,
+all inside `apps/web` (a parallel subagent covered the `apps/api`/
+`apps/runtime` findings separately). Fixed locally, `apps/web` + `docs` only:
+
+- **OAuth return was silent.** The callback always redirects the browser to
+  `/app/chat?mailboxConnect=success|error` (every failure mode — expired or
+  replayed `state`, missing OAuth app credentials, provider rejection, an
+  unresolved address — degrades to `error`), but nothing in `apps/web` read
+  that parameter; a returning user landed on a bare chat screen. `chat/page.tsx`
+  now reads it once on mount, reopens Settings on the Integrations section
+  (reusing the existing `openSettings(section)`/`initialSection` deep-link
+  mechanism — no new plumbing), does a fresh mailbox read, shows an honest
+  success/failure message in the card's existing feedback line, and strips
+  the param via the same one-shot `router.replace` pattern already used for
+  `settings=limits` and the billing return banner.
+- **"Try again" was dishonest during setup.** `handleConnectEmailMailbox` now
+  distinguishes the backend's `mailbox_oauth_credentials_unavailable` code
+  (thrown fail-closed while the founder has not yet registered the OAuth
+  apps) from a genuine transient failure, with its own message stating that
+  retrying will not help.
+- **The founder had no UI to enter the OAuth credentials at all.** `Admin >
+  Tools` returned the four `mailbox_oauth_{mailru,yandex}_client_{id,secret}`
+  credential ids from the server but rendered no section for them. A
+  "Mailbox-connected email" section was added following the existing
+  per-section pattern, including the exact redirect URI to register with each
+  provider (below) — without this, the feature could not be turned on at all,
+  regardless of S1–S5 being otherwise complete.
+- **A failed status read looked identical to "not connected".** The Email
+  card now renders a neutral could-not-load state with retry instead of
+  falling through to the connect-a-mailbox prompt when the initial `GET`
+  throws.
+- **Two small honesty nits.** The collapsed card now shows the mailbox
+  address in the `token_invalid` state too (not just when connected), so the
+  user can tell which mailbox needs reconnecting; the Mail.ru and Yandex
+  connect buttons are now both `primary`-styled (previously only Mail.ru
+  was), matching D3's stated absence of a provider preference.
+
+**Redirect URI to register with each provider** (dev):
+`https://api.persai.dev/api/v1/public/integrations/email-mailbox/callback` —
+`PERSAI_PUBLIC_API_BASE_URL` (`infra/helm/values-dev.yaml`:
+`https://api.persai.dev`) joined with the fixed callback path resolved by
+`resolveMailboxOAuthCallbackRedirectUri` in `mailbox-oauth-redirect.ts`. Now
+shown in the new `Admin > Tools` section as well, so the founder does not
+need to derive it from source.
+
+**Residual, not fixed here:** the native mobile shell (ADR-075, a separate
+repository) restricts in-webview navigation to an allowlist that does not
+include the Mail.ru/Yandex authorization domains, so the connect redirect is
+unverified on the Capacitor build. This is a mobile-shell-repo concern, not an
+`apps/web` defect, and is out of this repo's fix scope.
+
+Verification: `apps/web` lint and typecheck clean; `assistant-settings.test.tsx`
+(extended, 99/99) and `chat/page.test.tsx` (extended, 16/16) pass; `prettier
+--check` clean on every touched source/i18n file (the pre-existing prose in
+this ADR and in `SESSION-HANDOFF.md`/`CHANGELOG.md` predates Prettier
+coverage of `docs/**/*.md` and was left as-is rather than machine-reflowed).
+Deploy and authenticated live acceptance (S6) remain pending; the OAuth
+applications remain unregistered — this repair does not change that.
 
 ## Risks
 

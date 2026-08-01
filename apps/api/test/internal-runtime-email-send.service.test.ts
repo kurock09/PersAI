@@ -3,15 +3,20 @@
  * Exercises the real `MailboxTokenLifecycleService` +
  * `MailboxOAuthTokenRefreshClientService` + `MailboxSmtpSendClientService`
  * wiring, faking only the true edges: Prisma, the secret store, the OAuth
- * refresh HTTP call (`global.fetch`), and the nodemailer transport factory.
- * No network, no database.
+ * refresh HTTP call (`global.fetch`), the nodemailer transport factory, and
+ * the scheduler lease (an in-memory mutex standing in for the real
+ * Postgres-backed one). No network, no database.
  *
  * Covers: non-expired token sends without refreshing; expired token
  * refreshes exactly once then sends; a revoked refresh token flips
  * `mailboxStatus` to `token_invalid` and fails closed with zero SMTP calls;
  * no connected mailbox skips with zero SMTP calls; an SMTP network failure
  * maps to `failed`, never a silent success; a provider quota rejection maps
- * to an honest `skipped`, never a silent success.
+ * to an honest `skipped`, never a silent success; an SMTP auth rejection
+ * (revoked mid-lifetime) skips fail-closed and marks `token_invalid`; an
+ * unknown token expiry always attempts a refresh instead of assuming the
+ * cached token stays valid; a losing concurrent refresh reuses the winner's
+ * token instead of flipping a healthy mailbox to `token_invalid`.
  */
 import assert from "node:assert/strict";
 import { BadRequestException } from "@nestjs/common";
@@ -24,6 +29,7 @@ import type { WorkspaceManagementPrismaService } from "../src/modules/workspace-
 import type { PlatformRuntimeProviderSecretStoreService } from "../src/modules/workspace-management/application/platform-runtime-provider-secret-store.service";
 import type { AppendAssistantAuditEventService } from "../src/modules/workspace-management/application/append-assistant-audit-event.service";
 import type { NodemailerMailboxSmtpTransportFactory } from "../src/modules/workspace-management/application/mailbox-smtp-send.client";
+import type { SchedulerLeaseService } from "../src/modules/workspace-management/application/scheduler-lease.service";
 
 const WORKSPACE_ID = "workspace-1";
 
@@ -77,6 +83,35 @@ function createFakeSecretStore(
   return { secretStore, upsertCalls, getBundle: () => bundle };
 }
 
+/**
+ * Stands in for `SchedulerLeaseService`'s Postgres-backed CAS with an
+ * in-memory Map: `acquireOrCreate` returns null while the key is held,
+ * exactly like the real per-key dynamic lease used for `async-catchup:*`.
+ */
+function createFakeSchedulerLease() {
+  const held = new Map<string, string>();
+  const acquireCalls: string[] = [];
+  let nextToken = 0;
+  const lease = {
+    async acquireOrCreate(key: string) {
+      acquireCalls.push(key);
+      if (held.has(key)) {
+        return null;
+      }
+      nextToken += 1;
+      const token = `lease-token-${String(nextToken)}`;
+      held.set(key, token);
+      return { token };
+    },
+    async releaseKey(key: string, token: string) {
+      if (held.get(key) === token) {
+        held.delete(key);
+      }
+    }
+  } as unknown as SchedulerLeaseService;
+  return { lease, acquireCalls, isHeld: (key: string) => held.has(key) };
+}
+
 function createAuditMock() {
   const events: Array<{ eventCode: string; outcome: string | undefined; details: unknown }> = [];
   return {
@@ -117,10 +152,12 @@ function buildService(params: {
   const secretStoreFake = createFakeSecretStore(params.bundle);
   const auditMock = createAuditMock();
   const tokenRefreshClient = new MailboxOAuthTokenRefreshClientService();
+  const schedulerLeaseFake = createFakeSchedulerLease();
   const tokenLifecycle = new MailboxTokenLifecycleService(
     prismaFake.prisma,
     secretStoreFake.secretStore,
-    tokenRefreshClient
+    tokenRefreshClient,
+    schedulerLeaseFake.lease
   );
   const transportFake = createFakeTransportFactory(params.sendMail);
   const smtpClient = new MailboxSmtpSendClientService(transportFake.factory);
@@ -130,7 +167,7 @@ function buildService(params: {
     tokenLifecycle,
     smtpClient
   );
-  return { service, prismaFake, secretStoreFake, auditMock, transportFake };
+  return { service, prismaFake, secretStoreFake, auditMock, transportFake, schedulerLeaseFake };
 }
 
 const baseInput = {
@@ -304,6 +341,151 @@ async function testProviderQuotaRejectionIsReportedHonestly(): Promise<void> {
   console.log("✓ provider quota rejection reported honestly as skipped, never a silent success");
 }
 
+async function testSmtpAuthRejectionSkipsClosedAndMarksTokenInvalid(): Promise<void> {
+  const { service, prismaFake, transportFake } = buildService({
+    row: connectedRow(),
+    bundle: { accessToken: "AT1", refreshToken: "RT1" },
+    sendMail: async () => {
+      const err = new Error("535 5.7.8 Authentication failed") as Error & {
+        code: string;
+        responseCode: number;
+      };
+      err.code = "EAUTH";
+      err.responseCode = 535;
+      throw err;
+    }
+  });
+
+  const result = await service.execute(baseInput);
+
+  assert.deepEqual(result, {
+    status: "skipped",
+    reason: "mailbox_token_invalid",
+    message: "535 5.7.8 Authentication failed"
+  });
+  assert.equal(transportFake.getCloseCalls(), 1, "the transporter is still closed on rejection");
+  assert.equal(
+    prismaFake.getRow()?.mailboxStatus,
+    WorkspaceEmailMailboxStatus.token_invalid,
+    "a stale-but-cached-valid token rejected by the provider must flip mailboxStatus honestly"
+  );
+  console.log(
+    "✓ SMTP auth rejection (revoked mid-lifetime) skips fail-closed and marks mailboxStatus token_invalid"
+  );
+}
+
+async function testUnknownExpiryAlwaysAttemptsRefresh(): Promise<void> {
+  let fetchCalls = 0;
+  const { service, transportFake, prismaFake } = buildService({
+    row: connectedRow({ tokenExpiresAt: null }),
+    bundle: { accessToken: "AT-OLD", refreshToken: "RT-OLD" },
+    sendMail: async () => ({ messageId: "smtp-msg-unknown-expiry" })
+  });
+
+  const result = await withFetch(
+    (async () => {
+      fetchCalls += 1;
+      return new Response(
+        JSON.stringify({ access_token: "AT-NEW", refresh_token: "RT-NEW", expires_in: 3600 }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    }) as typeof fetch,
+    () => service.execute(baseInput)
+  );
+
+  assert.deepEqual(result, { status: "sent", messageId: "smtp-msg-unknown-expiry" });
+  assert.equal(
+    fetchCalls,
+    1,
+    "an unknown expiry must be treated as due for refresh, not evidence of validity"
+  );
+  assert.equal(transportFake.createTransportCalls[0]?.["accessToken"], "AT-NEW");
+  assert.ok(
+    prismaFake.getRow()?.tokenExpiresAt instanceof Date,
+    "a successful refresh records a real expiry once the provider supplies one"
+  );
+  console.log(
+    "✓ unknown token expiry always attempts a refresh instead of assuming the cached token stays valid forever"
+  );
+}
+
+async function testConcurrentRefreshLoserReusesWinnerTokenWithoutFlippingInvalid(): Promise<void> {
+  let fetchCalls = 0;
+  let resolveFetch: ((value: Response) => void) | null = null;
+  const fetchMock = (async () => {
+    fetchCalls += 1;
+    if (fetchCalls > 1) {
+      throw new Error(
+        "must not call the provider refresh endpoint more than once for a losing concurrent refresh"
+      );
+    }
+    return await new Promise<Response>((resolve) => {
+      resolveFetch = resolve;
+    });
+  }) as typeof fetch;
+
+  let sendCount = 0;
+  const { service, prismaFake, secretStoreFake } = buildService({
+    row: connectedRow({ tokenExpiresAt: new Date(Date.now() - 1000) }),
+    bundle: { accessToken: "AT-OLD", refreshToken: "RT-OLD" },
+    sendMail: async () => {
+      sendCount += 1;
+      return { messageId: `smtp-msg-${String(sendCount)}` };
+    }
+  });
+
+  const originalFetch = global.fetch;
+  global.fetch = fetchMock;
+  try {
+    const promiseA = service.execute(baseInput);
+    // Let call A run (all microtasks) up to its pending fetch of the
+    // provider's refresh endpoint, where it now blocks on `resolveFetch`.
+    await new Promise((resolve) => {
+      setImmediate(resolve);
+    });
+
+    const promiseB = service.execute(baseInput);
+    // Let call B run up to its first (losing) lock attempt and enter its
+    // poll wait — it must not reach the provider at all while A holds it.
+    await new Promise((resolve) => {
+      setImmediate(resolve);
+    });
+
+    assert.equal(fetchCalls, 1, "only the lock holder calls the provider refresh endpoint");
+    assert.ok(resolveFetch !== null, "call A must be waiting on the provider response");
+    resolveFetch!(
+      new Response(
+        JSON.stringify({ access_token: "AT-NEW", refresh_token: "RT-NEW", expires_in: 3600 }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      )
+    );
+
+    const [resultA, resultB] = await Promise.all([promiseA, promiseB]);
+
+    assert.equal(resultA.status, "sent");
+    assert.equal(resultB.status, "sent");
+    assert.equal(
+      fetchCalls,
+      1,
+      "the waiting call must reuse the winner's refreshed token instead of retrying the provider with its now-rotated-away token"
+    );
+    assert.equal(
+      prismaFake.getRow()?.mailboxStatus,
+      WorkspaceEmailMailboxStatus.connected,
+      "a losing concurrent refresh must never flip a healthy mailbox to token_invalid"
+    );
+    assert.deepEqual(secretStoreFake.getBundle(), {
+      accessToken: "AT-NEW",
+      refreshToken: "RT-NEW"
+    });
+  } finally {
+    global.fetch = originalFetch;
+  }
+  console.log(
+    "✓ a losing concurrent refresh reuses the winner's token instead of flipping mailboxStatus to token_invalid"
+  );
+}
+
 const REJECTED_BODY_KEYS = ["cc", "bcc", "attachments", "html", "htmlBody"] as const;
 
 async function testParseInputRejectsUnsupportedBodyKeys(): Promise<void> {
@@ -346,6 +528,9 @@ async function run(): Promise<void> {
   await testNoConnectedMailboxSkipsWithNoSmtpCall();
   await testSmtpNetworkFailureMapsToFailedNotSuccess();
   await testProviderQuotaRejectionIsReportedHonestly();
+  await testSmtpAuthRejectionSkipsClosedAndMarksTokenInvalid();
+  await testUnknownExpiryAlwaysAttemptsRefresh();
+  await testConcurrentRefreshLoserReusesWinnerTokenWithoutFlippingInvalid();
   await testParseInputRejectsUnsupportedBodyKeys();
   console.log("\n✅ All internal-runtime-email-send.service tests passed");
 }

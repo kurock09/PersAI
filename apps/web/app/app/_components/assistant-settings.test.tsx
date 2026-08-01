@@ -604,7 +604,80 @@ describe("integrations section", () => {
       expect(screen.getByRole("button", { name: "Reconnect" })).toBeInTheDocument();
 
       const emailCard = screen.getByRole("button", { name: /Email/i });
-      expect(within(emailCard).getByText("Reconnect needed")).toBeInTheDocument();
+      // The address must stay visible when access was revoked — otherwise
+      // there is no way to tell which mailbox needs reconnecting.
+      expect(
+        within(emailCard).getByText("Reconnect needed · sales@example.com")
+      ).toBeInTheDocument();
+    });
+
+    it("renders a neutral could-not-load state with retry instead of inviting a connect", async () => {
+      assistantApiMocks.getAssistantEmailMailbox.mockRejectedValueOnce(new Error("boom"));
+
+      renderSettings(makeAppData(), "channels");
+
+      fireEvent.click(await screen.findByRole("button", { name: /Email/i }));
+
+      expect(await screen.findByText("Couldn't load the mailbox status.")).toBeInTheDocument();
+      // The empty "connect a mailbox" prompt must not appear alongside a load
+      // failure — a connected mailbox could be the actual current truth.
+      expect(screen.queryByRole("button", { name: "Connect Mail.ru" })).not.toBeInTheDocument();
+
+      assistantApiMocks.getAssistantEmailMailbox.mockResolvedValueOnce(
+        emailMailboxState({ email: "owner@example.com" })
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+
+      expect(await screen.findByText("owner@example.com")).toBeInTheDocument();
+    });
+
+    it("shows an honest, distinct message when the platform's OAuth apps aren't configured yet", async () => {
+      assistantApiMocks.getAssistantEmailMailbox.mockResolvedValue(null);
+      assistantApiMocks.connectAssistantEmailMailbox.mockRejectedValueOnce(
+        new ApiStructuredError(
+          "Mailbox OAuth credentials for Mail.ru are not configured.",
+          "mailbox_oauth_credentials_unavailable"
+        )
+      );
+
+      renderSettings(makeAppData(), "channels");
+
+      fireEvent.click(await screen.findByRole("button", { name: /Email/i }));
+      fireEvent.click(await screen.findByRole("button", { name: "Connect Mail.ru" }));
+
+      expect(
+        await screen.findByText(
+          "Mailbox connections aren't fully set up on the platform yet. Retrying won't help — please contact support."
+        )
+      ).toBeInTheDocument();
+    });
+
+    it("re-opens with fresh state and an honest message after a successful OAuth return", async () => {
+      assistantApiMocks.getAssistantEmailMailbox.mockResolvedValue(
+        emailMailboxState({ email: "owner@example.com" })
+      );
+
+      renderSettings(makeAppData(), "emailConnectSuccess");
+
+      await waitFor(() => {
+        expect(assistantApiMocks.getAssistantEmailMailbox).toHaveBeenCalled();
+      });
+      expect(await screen.findByText("Mailbox connected.")).toBeInTheDocument();
+      expect(await screen.findByText("owner@example.com")).toBeInTheDocument();
+      expect(assistantApiMocks.getAssistantEmailMailbox).toHaveBeenCalled();
+    });
+
+    it("re-opens with an honest failure message after a failed OAuth return", async () => {
+      assistantApiMocks.getAssistantEmailMailbox.mockResolvedValue(null);
+
+      renderSettings(makeAppData(), "emailConnectError");
+
+      expect(
+        await screen.findByText("Couldn't connect the mailbox. Please try again.")
+      ).toBeInTheDocument();
+      // Landing on the failed-return outcome with no mailbox connected still
+      // shows the ordinary connect choices beneath the honest message.
+      expect(screen.getByRole("button", { name: "Connect Mail.ru" })).toBeInTheDocument();
     });
   });
 });

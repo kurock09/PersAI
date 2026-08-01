@@ -70,7 +70,11 @@ function isProviderQuotaRejection(outcome: {
  * Fail-closed (D5): with no connected mailbox, or a mailbox whose token
  * refresh was rejected as revoked, this makes **no** SMTP call at all and
  * returns `skipped` with a reason naming the gap so the model can relay
- * guidance pointing at Settings → Интеграции → Email.
+ * guidance pointing at Settings → Интеграции → Email. A mid-lifetime
+ * revocation the pre-send refresh check missed (the cached token still
+ * looked valid) is caught by the SMTP client's own auth-rejection
+ * classification and lands on the same `skipped`/`mailbox_token_invalid`
+ * path, never a bare `smtp_rejected` failure.
  *
  * Daily-limit accounting is intentionally NOT implemented here — the runtime
  * owns that through the existing shared `consumeToolDailyLimit` mechanism.
@@ -220,6 +224,29 @@ export class InternalRuntimeEmailSendService {
         details: { reason: "email_send_error", message: outcome.message }
       });
       return { status: "failed", reason: "email_send_error", message: outcome.message };
+    }
+
+    if (outcome.kind === "auth_rejected") {
+      // A cached access token that looked valid (per `tokenExpiresAt`) but
+      // was revoked mid-lifetime is caught here, not at the pre-send
+      // refresh check — tokens live about an hour, so this is the ordinary
+      // revocation path, not the rare one. Same fail-closed destination as
+      // a refresh-time `invalid_grant`: skip, guide to reconnect, and make
+      // `mailboxStatus` tell the truth for the settings card.
+      this.logger.warn({
+        event: "internal_runtime_email_send.smtp_auth_rejected",
+        workspaceId: input.workspaceId,
+        assistantId: input.assistantId,
+        responseCode: outcome.responseCode,
+        message: outcome.message
+      });
+      await this.tokenLifecycle.markTokenInvalid(input.workspaceId);
+      return this.skip(
+        input,
+        "mailbox_token_invalid",
+        "Assistant email send skipped: mailbox token was revoked.",
+        outcome.message
+      );
     }
 
     if (outcome.kind === "rejected") {

@@ -84,6 +84,7 @@ function buildChatHrefWithoutBillingParams(
   next.delete("billingPlan");
   next.delete("billingPaymentIntentId");
   next.delete("settings");
+  next.delete("mailboxConnect");
   const query = next.toString();
   return (query.length > 0 ? `/app/chat?${query}` : "/app/chat") as Route;
 }
@@ -155,6 +156,7 @@ function ChatPageInner() {
   const threadFromUrl = searchParams.get("thread");
   const welcomeFromUrl = searchParams.get("welcome") === "1";
   const settingsFromUrl = searchParams.get("settings");
+  const mailboxConnectFromUrl = searchParams.get("mailboxConnect");
   const [billingBanner, setBillingBanner] = useState<BillingReturnBannerState>(() =>
     readBillingReturnBannerState(searchParams)
   );
@@ -312,6 +314,20 @@ function ChatPageInner() {
     openSettings("limits");
     router.replace(buildChatHrefWithoutBillingParams(searchParams));
   }, [openSettings, router, searchParams, settingsFromUrl]);
+
+  // ADR-169 — the mailbox OAuth callback (see `mailbox-oauth-redirect.ts` in
+  // apps/api) sends the browser back here with `mailboxConnect=success` or
+  // `=error` after every outcome, including provider rejection and an
+  // expired/replayed `state`. Read it once, reopen Settings on the
+  // Integrations section with a fresh mailbox read, then strip the param so
+  // a refresh or back-navigation cannot replay the one-shot message.
+  useEffect(() => {
+    if (mailboxConnectFromUrl !== "success" && mailboxConnectFromUrl !== "error") {
+      return;
+    }
+    openSettings(mailboxConnectFromUrl === "success" ? "emailConnectSuccess" : "emailConnectError");
+    router.replace(buildChatHrefWithoutBillingParams(searchParams));
+  }, [mailboxConnectFromUrl, openSettings, router, searchParams]);
 
   useEffect(() => {
     if (billingBanner.kind !== "success" && billingBanner.kind !== "pending") {

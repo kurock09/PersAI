@@ -50,8 +50,6 @@ export const MAILBOX_OAUTH_PROVIDERS: Record<MailboxOAuthProviderId, MailboxOAut
   }
 };
 
-export const MAILBOX_OAUTH_PROVIDER_IDS: MailboxOAuthProviderId[] = ["mailru", "yandex"];
-
 export function isMailboxOAuthProviderId(value: string): value is MailboxOAuthProviderId {
   return value === "mailru" || value === "yandex";
 }

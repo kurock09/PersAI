@@ -203,7 +203,9 @@ function resolveEmailMailboxCardStatusLabel(
   if (mailbox.status === "connected") {
     return `${t("channelConnected")} · ${mailbox.email}`;
   }
-  return t("emailMailboxTokenInvalidStatus");
+  // Reveal the address even when the grant was revoked — otherwise the user
+  // has no way to tell which mailbox needs reconnecting.
+  return `${t("emailMailboxTokenInvalidStatus")} · ${mailbox.email}`;
 }
 
 function resolveEmailMailboxProviderLabel(
@@ -574,6 +576,11 @@ function normalizeInitialSection(value: string | undefined): SettingsSectionId {
     case "role":
     case "memory":
       return "character";
+    // ADR-169 — the mailbox OAuth return trip reuses this same
+    // section-deep-link plumbing; both outcomes land on Integrations.
+    case "emailConnectSuccess":
+    case "emailConnectError":
+      return "channels";
     default:
       return "character";
   }
@@ -1435,6 +1442,7 @@ export function AssistantSettings({
     null
   );
   const [emailMailboxLoading, setEmailMailboxLoading] = useState(false);
+  const [emailMailboxLoadFailed, setEmailMailboxLoadFailed] = useState(false);
   const [emailMailboxConnectingProvider, setEmailMailboxConnectingProvider] =
     useState<AssistantEmailMailboxConnectRequestProvider | null>(null);
   const [emailMailboxDisconnecting, setEmailMailboxDisconnecting] = useState(false);
@@ -2184,10 +2192,15 @@ export function AssistantSettings({
     const token = (await getToken({ skipCache: true })) ?? (await getToken());
     if (!token) return;
     setEmailMailboxLoading(true);
+    setEmailMailboxLoadFailed(false);
     try {
       const mailbox = await getAssistantEmailMailbox(token);
       setEmailMailboxState(mailbox);
     } catch {
+      // A failed read is not evidence of "not connected" — render a neutral
+      // could-not-load state instead of inviting a reconnect of a mailbox
+      // that may already be connected.
+      setEmailMailboxLoadFailed(true);
       setEmailMailboxFb({ type: "err", text: t("emailMailboxLoadError") });
     } finally {
       setEmailMailboxLoading(false);
@@ -2209,10 +2222,10 @@ export function AssistantSettings({
 
   // ADR-169 D11 — the connect endpoint only hands back the provider
   // authorization URL; the OAuth exchange itself requires a full top-level
-  // browser redirect, so the browser leaves the app here. The user's next
-  // view of this component is a fresh mount after the provider callback
-  // redirects back into the app, which is when `handleOpenEmailMailbox`
-  // naturally refetches current truth — no polling loop is needed.
+  // browser redirect, so the browser leaves the app here. The component
+  // unmounts on that navigation; the app's `mailboxConnect` return-param
+  // handling (see the `initialSection` effect below) is what shows fresh
+  // state after the provider sends the browser back, not this callback.
   const handleConnectEmailMailbox = useCallback(
     async (provider: AssistantEmailMailboxConnectRequestProvider) => {
       const token = (await getToken({ skipCache: true })) ?? (await getToken());
@@ -2222,8 +2235,18 @@ export function AssistantSettings({
       try {
         const authorizationUrl = await connectAssistantEmailMailbox(token, provider);
         window.location.assign(authorizationUrl);
-      } catch {
-        setEmailMailboxFb({ type: "err", text: t("emailMailboxConnectError") });
+      } catch (error) {
+        // The backend fails connect closed with this code while the founder
+        // has not yet registered the OAuth apps in Admin Tools — an honest,
+        // distinct message beats "try again" for a retry that cannot help.
+        const code = error instanceof ApiStructuredError ? error.code : null;
+        setEmailMailboxFb({
+          type: "err",
+          text:
+            code === "mailbox_oauth_credentials_unavailable"
+              ? t("emailMailboxConnectCredentialsUnavailable")
+              : t("emailMailboxConnectError")
+        });
         setEmailMailboxConnectingProvider(null);
       }
     },
@@ -2660,7 +2683,23 @@ export function AssistantSettings({
     if (initialSection === "role") {
       setChangeRoleOpen(true);
     }
-  }, [initialSection]);
+    // ADR-169 — the browser lands back here straight from the Mail.ru/Yandex
+    // OAuth redirect (see the app's `mailboxConnect` return-param handling).
+    // Re-open the mailbox dialog with a fresh read and an honest outcome
+    // message instead of leaving the user on a bare chat screen.
+    if (initialSection === "emailConnectSuccess" || initialSection === "emailConnectError") {
+      setEmailMailboxOpen(true);
+      setEmailMailboxFb({
+        type: initialSection === "emailConnectSuccess" ? "ok" : "err",
+        text: t(
+          initialSection === "emailConnectSuccess"
+            ? "emailMailboxConnectSuccess"
+            : "emailMailboxConnectReturnError"
+        )
+      });
+      void loadEmailMailboxState();
+    }
+  }, [initialSection, loadEmailMailboxState, t]);
 
   useEffect(() => {
     return () => {
@@ -5101,6 +5140,19 @@ export function AssistantSettings({
             <div className="flex items-center justify-center py-10">
               <Loader2 className="h-5 w-5 animate-spin text-text-subtle" />
             </div>
+          ) : emailMailboxLoadFailed ? (
+            <div className="space-y-4">
+              <div className="flex items-start gap-3 rounded-lg border border-border/70 bg-surface-raised/40 px-3 py-2.5">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-text-muted" />
+                <p className="text-xs leading-5 text-text-muted">{t("emailMailboxLoadError")}</p>
+              </div>
+              <ActionButton
+                icon={<RotateCcw className="h-3.5 w-3.5" />}
+                label={t("retry")}
+                onClick={() => void loadEmailMailboxState()}
+                busy={false}
+              />
+            </div>
           ) : emailMailboxState !== null ? (
             <div className="space-y-4">
               <div>
@@ -5188,6 +5240,7 @@ export function AssistantSettings({
                   onClick={() => void handleConnectEmailMailbox("yandex")}
                   busy={emailMailboxConnectingProvider === "yandex"}
                   disabled={emailMailboxConnectingProvider !== null}
+                  variant="primary"
                   className="w-full"
                 />
               </div>

@@ -1,5 +1,69 @@
 # SESSION-HANDOFF
 
+## 2026-08-02 — ADR-169 web audit repair: OAuth return, Admin Tools credentials UI, honest failures
+
+- **Baseline:** clean tree on top of the landed S1–S5 mailbox-connect work.
+  Scope for this slice was `apps/web` + `docs` only — a parallel subagent
+  fixed the `apps/api`/`apps/runtime` findings from the same two independent
+  audits separately; this session did not touch either app.
+- **P1 — OAuth return was silent.** The mailbox OAuth callback always sends
+  the browser back to `/app/chat?mailboxConnect=success|error` (every
+  failure mode degrades to `error`), but nothing in `apps/web` read that
+  param — a returning user landed on a bare chat screen with no dialog, no
+  message, no state change. `chat/page.tsx` now reads it once on mount,
+  calls the existing `openSettings("emailConnectSuccess" |
+  "emailConnectError")` deep link (reusing the same `initialSection`
+  mechanism as `settings=limits`, no new plumbing), which reopens the Email
+  mailbox dialog with a fresh read and an honest success/failure message in
+  its existing feedback line, then strips the param the same way the billing
+  return banner already does.
+- **P1 — "try again" was dishonest during setup.** `handleConnectEmailMailbox`
+  now distinguishes the backend's `mailbox_oauth_credentials_unavailable`
+  code (the exact state the product is in until the OAuth apps are
+  registered) from a genuine transient failure, with its own Russian copy
+  stating that retrying will not help.
+- **P1 — no founder UI to enter the OAuth credentials at all.** `Admin >
+  Tools` (`apps/web/app/admin/tools/page.tsx`) already received the four
+  `mailbox_oauth_{mailru,yandex}_client_{id,secret}` credential rows from the
+  server but rendered no section for them — the feature could not be turned
+  on regardless of S1–S5 being otherwise complete. Added a "Mailbox-connected
+  email" section following the existing per-section pattern, with the exact
+  redirect URI to register with each provider.
+- **Exact redirect URI** (dev): `https://api.persai.dev` +
+  `/api/v1/public/integrations/email-mailbox/callback` = confirmed from
+  `resolveMailboxOAuthCallbackRedirectUri` in
+  `apps/api/.../mailbox-oauth-redirect.ts` joined with the dev
+  `PERSAI_PUBLIC_API_BASE_URL` in `infra/helm/values-dev.yaml`. Now recorded
+  in ADR-169 and shown directly in the new Admin Tools section.
+- **P2 — a failed status read looked like "not connected".** The Email card
+  now renders a neutral could-not-load state with retry instead of falling
+  through to the connect-a-mailbox prompt when the initial `GET` throws.
+- **P3 — two small honesty nits.** The collapsed card shows the mailbox
+  address in the `token_invalid` state too, not only when connected; the
+  Mail.ru and Yandex connect buttons are now both `primary`-styled (only
+  Mail.ru was before), matching D3's stated absence of a provider preference.
+- **Residual, recorded not fixed:** the native mobile shell (ADR-075, a
+  separate repository) restricts in-webview navigation to an allowlist that
+  does not include the Mail.ru/Yandex authorization domains, so the connect
+  redirect is unverified on the Capacitor build — out of this repo's scope.
+- **i18n:** added `emailMailboxConnectSuccess`, `emailMailboxConnectReturnError`,
+  `emailMailboxConnectCredentialsUnavailable` to both `ru.json`/`en.json`
+  (namespace `settings`); no orphans.
+- **Verification:** `@persai/web` lint and typecheck clean;
+  `assistant-settings.test.tsx` extended and passing 99/99;
+  `chat/page.test.tsx` extended and passing 16/16; `prettier --check` clean
+  on every touched `apps/web` source/i18n file (this file and `CHANGELOG.md`
+  predate Prettier coverage of `docs/**/*.md` — new prose here follows the
+  file's existing hand-formatting instead of a whole-file machine reflow).
+- **Still true after this session:** deploy and authenticated live
+  acceptance (S6) remain pending, and the Mail.ru/Yandex OAuth applications
+  remain unregistered — the founder must still register them and enter the
+  resulting client id/secret in the new Admin Tools section.
+- **Next recommended step:** founder registers both OAuth apps using the
+  redirect URI now documented in Admin Tools and ADR-169, enters the client
+  id/secret, then the program proceeds to push + deploy + S6 live
+  acceptance.
+
 ## 2026-08-01 — ADR-169 S5: deleted the ADR-168 Postmark sender-signature layer
 
 - **Baseline:** clean tree on top of the landed S1–S4 mailbox-connect work
