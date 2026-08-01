@@ -1,5 +1,32 @@
 # SESSION-HANDOFF
 
+## 2026-08-01 — ADR-168 hotfix 4: a plan-activated tool the model cannot see
+
+- **What happened:** with `email_send` active in the plan, the assistant listed
+  its tools and email was absent; it offered to send mail via `shell` + SMTP
+  instead. Runtime logs confirmed the bundle, not the model: every turn ran at
+  `toolCount=25` with no email tool projected.
+- **Cause — a third registry:** `hasNativeModelExecution` in
+  `runtime-tool-policy.ts` decided native executability with an if-chain ending
+  in `return false`. An unlisted code is therefore materialized as
+  `enabled: false` / `visibleToModel: false`, and the runtime's
+  `resolveAllowedModelVisibleToolPolicy` requires `visibleToModel === true`,
+  `enabled === true`, `usageRule === "allowed"`, and a matching execution mode.
+  So plan activation was real and completely inert.
+- **Why the earlier guard missed it:** the guard added in hotfix 1/2 proves a
+  catalog code has an execution mode and a worker baseline — both of which
+  `email_send` now has. Neither says the tool is reachable by the model.
+- **Fix + guard:** the if-chain is now `NATIVE_MODEL_EXECUTION_BY_CODE`, an
+  explicit map that also names the codes which are deliberately `false`
+  (`cron`, `memory_get`, `memory_search`, `persai_workspace_attach`). The
+  catalog test now fails on any unclassified code; confirmed it reports
+  `email_send` exactly when the entry is removed. Deliberately fail-soft: an
+  unclassified code hides one tool rather than throwing and killing every
+  bundle, which is how hotfixes 1 and 2 became fleet-wide outages.
+- **Adding a tool now means four places:** catalog row, execution mode, worker
+  baseline (if worker), and native-execution classification. All four are
+  covered by `apps/api/test/tool-catalog-data.test.ts`.
+
 ## 2026-08-01 — ADR-168 hotfix 3: an unregistered route is a silent permanent 401
 
 - **What happened:** the Email card in Settings → Интеграции showed "Не удалось

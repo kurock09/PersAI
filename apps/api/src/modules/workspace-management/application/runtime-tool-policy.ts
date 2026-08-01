@@ -295,89 +295,102 @@ function supportsCurrentNativePresentationProvider(
   return candidates.some((entry) => entry.configured === true && entry.providerId === "gamma");
 }
 
-function hasNativeModelExecution(
-  runtimeToolCode: string,
-  params: {
-    toolCredentialRefs: Record<string, AssistantRuntimeBundleToolCredentialRef>;
-    knowledgeAccessEnabled: boolean;
-    sandboxEnabled: boolean;
-  }
-): boolean {
-  if (
-    runtimeToolCode === "summarize_context" ||
-    runtimeToolCode === "compact_context" ||
-    runtimeToolCode === "memory_write" ||
-    runtimeToolCode === "quota_status" ||
-    runtimeToolCode === "scheduled_action" ||
-    runtimeToolCode === "background_task" ||
-    runtimeToolCode === "skill" ||
-    runtimeToolCode === "todo_write"
-  ) {
-    return true;
-  }
-  if (runtimeToolCode === "knowledge_search" || runtimeToolCode === "knowledge_fetch") {
-    return params.knowledgeAccessEnabled;
-  }
-  if (runtimeToolCode === "web_search") {
+type NativeModelExecutionParams = {
+  toolCredentialRefs: Record<string, AssistantRuntimeBundleToolCredentialRef>;
+  knowledgeAccessEnabled: boolean;
+  sandboxEnabled: boolean;
+};
+
+/**
+ * Whether a runtime tool code can execute natively for the model. A code that
+ * is absent here materializes as `enabled: false` / `visibleToModel: false`,
+ * so the tool exists in the plan and the catalog yet the model never sees it —
+ * that is how ADR-168 `email_send` shipped invisible. Every catalog code must
+ * be classified, including the ones that resolve to `false`; the guard test in
+ * `tool-catalog-data.test.ts` enforces it.
+ */
+const NATIVE_MODEL_EXECUTION_BY_CODE: Record<
+  string,
+  (params: NativeModelExecutionParams) => boolean
+> = {
+  summarize_context: () => true,
+  compact_context: () => true,
+  memory_write: () => true,
+  quota_status: () => true,
+  scheduled_action: () => true,
+  background_task: () => true,
+  skill: () => true,
+  todo_write: () => true,
+  // ADR-168 — no credential gate: the runtime holds no Postmark secrets and
+  // the internal API resolves the workspace sender identity, so an
+  // unverified workspace still gets the tool plus its skip guidance.
+  email_send: () => true,
+  knowledge_search: (params) => params.knowledgeAccessEnabled,
+  knowledge_fetch: (params) => params.knowledgeAccessEnabled,
+  web_search: (params) => {
     const credential = hasConfiguredCredential(params.toolCredentialRefs, "web_search");
     return (
       credential !== null && supportsCurrentNativeWebSearchProvider(credential.providerId ?? null)
     );
-  }
-  if (runtimeToolCode === "web_fetch") {
-    return hasConfiguredCredential(params.toolCredentialRefs, "web_fetch") !== null;
-  }
-  if (runtimeToolCode === "browser") {
+  },
+  web_fetch: (params) => hasConfiguredCredential(params.toolCredentialRefs, "web_fetch") !== null,
+  browser: (params) => {
     const credential = hasConfiguredCredential(params.toolCredentialRefs, "browser");
     return (
       credential !== null && supportsCurrentNativeBrowserProvider(credential.providerId ?? null)
     );
-  }
-  if (runtimeToolCode === "image_generate") {
+  },
+  image_generate: (params) => {
     const credential = hasConfiguredCredential(params.toolCredentialRefs, "image_generate");
     return (
       credential !== null &&
       supportsCurrentNativeImageGenerateProvider(credential.providerId ?? null)
     );
-  }
-  if (runtimeToolCode === "image_edit") {
+  },
+  image_edit: (params) => {
     const credential = hasConfiguredCredential(params.toolCredentialRefs, "image_edit");
     return (
       credential !== null && supportsCurrentNativeImageEditProvider(credential.providerId ?? null)
     );
-  }
-  if (runtimeToolCode === "video_generate") {
+  },
+  video_generate: (params) => {
     const credential = hasConfiguredCredential(params.toolCredentialRefs, "video_generate");
     return (
       credential !== null &&
       supportsCurrentNativeVideoGenerateProvider(credential.providerId ?? null)
     );
-  }
-  if (runtimeToolCode === "tts") {
-    return supportsCurrentNativeTtsProvider(
-      hasConfiguredCredential(params.toolCredentialRefs, "tts")
-    );
-  }
-  if (runtimeToolCode === "document") {
-    return supportsCurrentNativeDocumentProvider(
+  },
+  tts: (params) =>
+    supportsCurrentNativeTtsProvider(hasConfiguredCredential(params.toolCredentialRefs, "tts")),
+  document: (params) =>
+    supportsCurrentNativeDocumentProvider(
       hasConfiguredCredential(params.toolCredentialRefs, "document")
-    );
-  }
-  if (runtimeToolCode === "presentation") {
-    return supportsCurrentNativePresentationProvider(
+    ),
+  presentation: (params) =>
+    supportsCurrentNativePresentationProvider(
       hasConfiguredCredential(params.toolCredentialRefs, "document")
-    );
-  }
-  if (
-    runtimeToolCode === "files" ||
-    runtimeToolCode === "exec" ||
-    runtimeToolCode === "shell" ||
-    runtimeToolCode === "grep" ||
-    runtimeToolCode === "glob"
-  ) {
-    return params.sandboxEnabled;
-  }
-  return false;
+    ),
+  files: (params) => params.sandboxEnabled,
+  exec: (params) => params.sandboxEnabled,
+  shell: (params) => params.sandboxEnabled,
+  grep: (params) => params.sandboxEnabled,
+  glob: (params) => params.sandboxEnabled,
+  // Internal or migration-only inventory entries: never model-facing.
+  cron: () => false,
+  memory_get: () => false,
+  memory_search: () => false,
+  persai_workspace_attach: () => false
+};
+
+export function isNativeModelExecutionClassified(runtimeToolCode: string): boolean {
+  return runtimeToolCode in NATIVE_MODEL_EXECUTION_BY_CODE;
+}
+
+function hasNativeModelExecution(
+  runtimeToolCode: string,
+  params: NativeModelExecutionParams
+): boolean {
+  return NATIVE_MODEL_EXECUTION_BY_CODE[runtimeToolCode]?.(params) ?? false;
 }
 
 function buildSyntheticSystemToolPolicy(

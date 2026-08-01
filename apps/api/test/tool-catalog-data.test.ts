@@ -14,6 +14,7 @@ import {
 } from "../src/modules/workspace-management/application/prompt-constructor-tool-metadata";
 import type { RuntimeToolPolicy } from "@persai/runtime-contract";
 import {
+  isNativeModelExecutionClassified,
   RUNTIME_TOOL_CODE_BY_INVENTORY_CODE,
   TOOL_EXECUTION_MODE_BY_CODE
 } from "../src/modules/workspace-management/application/runtime-tool-policy";
@@ -576,6 +577,17 @@ function testEveryCatalogToolResolvesThroughBundleMaterialization(): void {
     missingExecutionMode,
     [],
     `TOOL_EXECUTION_MODE_BY_CODE is missing an entry for: ${missingExecutionMode.join(", ")}`
+  );
+
+  // An unclassified code materializes as enabled:false / visibleToModel:false,
+  // so the tool is activated in the plan and still never reaches the model.
+  const unclassifiedNativeExecution = runtimeCodes.filter(
+    (runtimeCode) => !isNativeModelExecutionClassified(runtimeCode)
+  );
+  assert.deepStrictEqual(
+    unclassifiedNativeExecution,
+    [],
+    `NATIVE_MODEL_EXECUTION_BY_CODE is missing an entry for: ${unclassifiedNativeExecution.join(", ")}`
   );
 
   const policies: RuntimeToolPolicy[] = runtimeCodes.map((runtimeCode) => ({

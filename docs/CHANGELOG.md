@@ -5,6 +5,21 @@
 
 ## 2026-08-01 (latest)
 
+- **fix(api): `email_send` was activated in the plan but invisible to the model
+  because it was never classified as natively executable.** `hasNativeModelExecution`
+  in `runtime-tool-policy.ts` answered by an if-chain that fell through to
+  `false` for unknown codes, so the materialized policy carried
+  `enabled: false` / `visibleToModel: false`; the runtime's
+  `resolveAllowedModelVisibleToolPolicy` then dropped the tool and the model
+  listed everything except email (live evidence: `toolCount=25` with no email
+  entry). This is the third separate registry ADR-168 had to touch and the
+  second one it missed. The if-chain is now the explicit
+  `NATIVE_MODEL_EXECUTION_BY_CODE` map — including the codes that legitimately
+  resolve to `false` (`cron`, `memory_get`, `memory_search`,
+  `persai_workspace_attach`) — and the catalog guard test fails when a code is
+  unclassified, verified against the missing `email_send` entry. It fails soft
+  rather than throwing: an unclassified code hides one tool instead of taking
+  bundle materialization down fleet-wide.
 - **fix(api): the ADR-168 Email card, the assistant-wide Working Files list, and
   three Admin routes answered 401 because they were never registered with
   `ClerkAuthMiddleware`.** Live symptom: "Не удалось загрузить статус адреса
