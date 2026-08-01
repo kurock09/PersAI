@@ -1,5 +1,30 @@
 # SESSION-HANDOFF
 
+## 2026-08-01 — ADR-168 hotfix: a catalog row without an execution mode kills every bundle
+
+- **What happened:** minutes after the ADR-168 deploy, assistants failed with
+  `materialization_failed: Missing explicit runtime tool execution mode for
+  "email_send"` (generation 1463). Fixed in `eafdc4e2`.
+- **Why it was fleet-wide even though the tool ships disabled:**
+  `resolveToolExecutionMode` (`runtime-tool-policy.ts`) throws on an unmapped
+  code, and it runs for every catalog tool while materializing each assistant's
+  bundle. Plan activation is irrelevant at that point, so an inactive tool with
+  a missing map entry is exactly as fatal as an active one.
+- **Why nothing caught it:** adding a tool touches two places that are not near
+  each other — the catalog row in `apps/api/prisma/tool-catalog-data.ts` and the
+  execution-mode map in `runtime-tool-policy.ts`. The ADR-168 briefs, the
+  implementation, and all three audits worked from the catalog row and the
+  runtime tool service and never looked at the map. No existing test asserted
+  the two stay in sync.
+- **Guard added:** `apps/api/test/tool-catalog-data.test.ts` now asserts every
+  `TOOL_CATALOG` code (after inventory→runtime code mapping) resolves to an
+  execution mode. Confirmed it fails with the exact missing-entry message when
+  the fix is removed, so it is a real regression net.
+- **Rule for future tool additions:** a new catalog code is not complete until
+  it exists in `TOOL_EXECUTION_MODE_BY_CODE` and in
+  `PLAN_VISIBLE_MODEL_TOOL_DEFAULT_EXPOSURE`; both gaps shipped in ADR-168 and
+  only the second one was caught by an audit.
+
 ## 2026-07-31 — ADR-168 assistant email opened (docs only)
 
 - **Baseline:** `53abcce7`, clean tree. Documentation only — no schema, no

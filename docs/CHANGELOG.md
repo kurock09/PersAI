@@ -3,7 +3,23 @@
 > Archive: detailed historical entries from 2026-06-05 and earlier moved to `docs/CHANGELOG.archive-2026-06-05-details-and-earlier.md`; entries from 2026-05-19 and earlier remain in `docs/CHANGELOG.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: current entries plus concise recent summaries only.
 
-## 2026-07-31 (latest)
+## 2026-08-01 (latest)
+
+- **fix(api): `email_send` had no runtime execution mode, which failed bundle
+  materialization for every assistant (ADR-168 hotfix, `eafdc4e2`).** Live
+  symptom right after the ADR-168 deploy: `materialization_failed: Missing
+  explicit runtime tool execution mode for "email_send"` on generation 1463
+  across assistants. Cause: `resolveToolExecutionMode` in `runtime-tool-policy.ts`
+  throws when a catalog code is absent from `TOOL_EXECUTION_MODE_BY_CODE`, and
+  that resolution runs for every catalog tool while materializing each
+  assistant's bundle — including plans where the tool is inactive — so shipping
+  the catalog row without the map entry took the whole fleet down even though
+  the tool itself was disabled everywhere. Neither the ADR-168 implementation
+  nor its three audits looked at this map. Fix adds `email_send: "worker"` and a
+  guard test asserting every `TOOL_CATALOG` code resolves to an execution mode,
+  verified to fail without the fix so a future catalog addition cannot repeat it.
+
+## 2026-07-31
 
 - **feat(api, runtime, web): assistants can send email, and only from an address
   the workspace actually verified (ADR-168).** New model-visible `email_send`
