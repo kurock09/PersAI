@@ -106,11 +106,11 @@ import {
   reconnectAssistantBrowserProfile,
   type AssistantBrowserProfileListItem,
   type PendingBrowserLoginState,
-  getAssistantEmailSenderIdentity,
-  requestAssistantEmailSenderIdentity,
-  resendAssistantEmailSenderConfirmation,
-  removeAssistantEmailSenderIdentity,
-  type WorkspaceEmailSenderIdentityState
+  getAssistantEmailMailbox,
+  connectAssistantEmailMailbox,
+  disconnectAssistantEmailMailbox,
+  type WorkspaceEmailMailboxState,
+  type AssistantEmailMailboxConnectRequestProvider
 } from "../assistant-api-client";
 import { AssistantAvatar } from "./assistant-avatar";
 import { BrowserLoginModal } from "./browser-login-modal";
@@ -172,10 +172,6 @@ type PersonaVideoFormatChoice = "auto" | PersonaVideoFormat;
 
 const CHARACTERS_PRICING_URL = "https://persai.dev/app/pricing";
 const MEMORY_INLINE_EXPAND_MIN_CHARS = 72;
-// ADR-168 — bounded, demand-driven confirmation poll for the Email
-// integration card (never a background poller once the dialog is closed).
-const EMAIL_SENDER_POLL_INTERVAL_MS = 5_000;
-const EMAIL_SENDER_POLL_MAX_WINDOW_MS = 10 * 60 * 1000;
 
 function detectPersonaVideoFormatFromDimensions(width: number, height: number): PersonaVideoFormat {
   if (width <= 0 || height <= 0) {
@@ -197,20 +193,24 @@ function formatPersonaVideoFormatLabel(
   return t("charactersFormVideoFormatSquare");
 }
 
-function resolveEmailSenderCardStatusLabel(
-  identity: WorkspaceEmailSenderIdentityState | null,
+function resolveEmailMailboxCardStatusLabel(
+  mailbox: WorkspaceEmailMailboxState | null,
   t: (key: string, params?: Record<string, string | number>) => string
 ): string {
-  if (identity === null) {
-    return t("emailSenderNotConnected");
+  if (mailbox === null) {
+    return t("emailMailboxNotConnectedStatus");
   }
-  if (identity.status === "verified") {
-    return `${t("channelConnected")} · ${identity.email}`;
+  if (mailbox.status === "connected") {
+    return `${t("channelConnected")} · ${mailbox.email}`;
   }
-  if (identity.status === "pending") {
-    return t("emailSenderPendingStatus");
-  }
-  return t("emailSenderFailedStatus");
+  return t("emailMailboxTokenInvalidStatus");
+}
+
+function resolveEmailMailboxProviderLabel(
+  provider: AssistantEmailMailboxConnectRequestProvider,
+  t: (key: string, params?: Record<string, string | number>) => string
+): string {
+  return provider === "mailru" ? t("emailMailboxProviderMailru") : t("emailMailboxProviderYandex");
 }
 
 function encodeAudioBufferAsWav(audioBuffer: AudioBuffer): Blob {
@@ -1430,19 +1430,16 @@ export function AssistantSettings({
     null
   );
   const [nativeAssistProfileKey, setNativeAssistProfileKey] = useState<string | null>(null);
-  const [emailSenderOpen, setEmailSenderOpen] = useState(false);
-  const [emailSenderIdentity, setEmailSenderIdentity] =
-    useState<WorkspaceEmailSenderIdentityState | null>(null);
-  const [emailSenderLoading, setEmailSenderLoading] = useState(false);
-  const [emailSenderSubmitting, setEmailSenderSubmitting] = useState(false);
-  const [emailSenderMode, setEmailSenderMode] = useState<"view" | "edit">("edit");
-  const [emailSenderAddressInput, setEmailSenderAddressInput] = useState("");
-  const [emailSenderDisplayNameInput, setEmailSenderDisplayNameInput] = useState("");
-  const [emailSenderFb, setEmailSenderFb] = useState<ActionFeedback>(null);
-  const [emailSenderConfigMissing, setEmailSenderConfigMissing] = useState(false);
-  const [emailSenderPollTimedOut, setEmailSenderPollTimedOut] = useState(false);
-  const [emailSenderPollCheckFailed, setEmailSenderPollCheckFailed] = useState(false);
-  const emailSenderPollFailureStreakRef = useRef(0);
+  const [emailMailboxOpen, setEmailMailboxOpen] = useState(false);
+  const [emailMailboxState, setEmailMailboxState] = useState<WorkspaceEmailMailboxState | null>(
+    null
+  );
+  const [emailMailboxLoading, setEmailMailboxLoading] = useState(false);
+  const [emailMailboxConnectingProvider, setEmailMailboxConnectingProvider] =
+    useState<AssistantEmailMailboxConnectRequestProvider | null>(null);
+  const [emailMailboxDisconnecting, setEmailMailboxDisconnecting] = useState(false);
+  const [emailMailboxDisconnectConfirmOpen, setEmailMailboxDisconnectConfirmOpen] = useState(false);
+  const [emailMailboxFb, setEmailMailboxFb] = useState<ActionFeedback>(null);
   const assistant = data.assistant;
   const latestWebChatId =
     [...data.chats]
@@ -2183,202 +2180,72 @@ export function AssistantSettings({
     [assistant?.id, getToken, refreshBrowserProfiles]
   );
 
-  const loadEmailSenderIdentity = useCallback(
-    async (options?: { background?: boolean }): Promise<boolean> => {
+  const loadEmailMailboxState = useCallback(async (): Promise<void> => {
+    const token = (await getToken({ skipCache: true })) ?? (await getToken());
+    if (!token) return;
+    setEmailMailboxLoading(true);
+    try {
+      const mailbox = await getAssistantEmailMailbox(token);
+      setEmailMailboxState(mailbox);
+    } catch {
+      setEmailMailboxFb({ type: "err", text: t("emailMailboxLoadError") });
+    } finally {
+      setEmailMailboxLoading(false);
+    }
+  }, [getToken, t]);
+
+  const handleOpenEmailMailbox = useCallback(() => {
+    setEmailMailboxOpen(true);
+    setEmailMailboxFb(null);
+    setEmailMailboxDisconnectConfirmOpen(false);
+    void loadEmailMailboxState();
+  }, [loadEmailMailboxState]);
+
+  const handleCloseEmailMailbox = useCallback(() => {
+    if (emailMailboxConnectingProvider !== null || emailMailboxDisconnecting) return;
+    setEmailMailboxOpen(false);
+    setEmailMailboxFb(null);
+  }, [emailMailboxConnectingProvider, emailMailboxDisconnecting]);
+
+  // ADR-169 D11 — the connect endpoint only hands back the provider
+  // authorization URL; the OAuth exchange itself requires a full top-level
+  // browser redirect, so the browser leaves the app here. The user's next
+  // view of this component is a fresh mount after the provider callback
+  // redirects back into the app, which is when `handleOpenEmailMailbox`
+  // naturally refetches current truth — no polling loop is needed.
+  const handleConnectEmailMailbox = useCallback(
+    async (provider: AssistantEmailMailboxConnectRequestProvider) => {
       const token = (await getToken({ skipCache: true })) ?? (await getToken());
-      if (!token) return false;
-      if (options?.background !== true) {
-        setEmailSenderLoading(true);
-      }
+      if (!token) return;
+      setEmailMailboxConnectingProvider(provider);
+      setEmailMailboxFb(null);
       try {
-        const identity = await getAssistantEmailSenderIdentity(token);
-        setEmailSenderIdentity(identity);
-        setEmailSenderConfigMissing(
-          identity?.lastErrorReason === "postmark_account_token_unavailable"
-        );
-        if (identity === null) {
-          setEmailSenderMode("edit");
-          setEmailSenderAddressInput("");
-          setEmailSenderDisplayNameInput("");
-        } else if (options?.background !== true) {
-          setEmailSenderMode("view");
-        }
-        return true;
-      } catch (error) {
-        if (
-          error instanceof ApiStructuredError &&
-          error.code === "postmark_account_token_unavailable"
-        ) {
-          setEmailSenderConfigMissing(true);
-          return true;
-        }
-        if (options?.background !== true) {
-          setEmailSenderFb({ type: "err", text: t("emailSenderLoadError") });
-        }
-        return false;
-      } finally {
-        if (options?.background !== true) {
-          setEmailSenderLoading(false);
-        }
+        const authorizationUrl = await connectAssistantEmailMailbox(token, provider);
+        window.location.assign(authorizationUrl);
+      } catch {
+        setEmailMailboxFb({ type: "err", text: t("emailMailboxConnectError") });
+        setEmailMailboxConnectingProvider(null);
       }
     },
     [getToken, t]
   );
 
-  const handleOpenEmailSender = useCallback(() => {
-    setEmailSenderOpen(true);
-    setEmailSenderFb(null);
-    setEmailSenderPollTimedOut(false);
-    setEmailSenderPollCheckFailed(false);
-    emailSenderPollFailureStreakRef.current = 0;
-    void loadEmailSenderIdentity();
-  }, [loadEmailSenderIdentity]);
-
-  const handleCloseEmailSender = useCallback(() => {
-    if (emailSenderSubmitting) return;
-    setEmailSenderOpen(false);
-    setEmailSenderFb(null);
-  }, [emailSenderSubmitting]);
-
-  const enterEmailSenderEditMode = useCallback(() => {
-    setEmailSenderAddressInput(emailSenderIdentity?.email ?? "");
-    setEmailSenderDisplayNameInput(emailSenderIdentity?.displayName ?? "");
-    setEmailSenderFb(null);
-    setEmailSenderMode("edit");
-  }, [emailSenderIdentity]);
-
-  const handleSubmitEmailSenderIdentity = useCallback(async () => {
-    const trimmedEmail = emailSenderAddressInput.trim();
-    if (trimmedEmail.length === 0 || !trimmedEmail.includes("@")) {
-      setEmailSenderFb({ type: "err", text: t("emailSenderInvalidEmail") });
-      return;
-    }
+  const handleDisconnectEmailMailbox = useCallback(async () => {
     const token = (await getToken({ skipCache: true })) ?? (await getToken());
     if (!token) return;
-    setEmailSenderSubmitting(true);
-    setEmailSenderFb(null);
+    setEmailMailboxDisconnecting(true);
+    setEmailMailboxFb(null);
     try {
-      const trimmedDisplayName = emailSenderDisplayNameInput.trim();
-      const identity = await requestAssistantEmailSenderIdentity(token, {
-        email: trimmedEmail,
-        displayName: trimmedDisplayName.length > 0 ? trimmedDisplayName : null
-      });
-      setEmailSenderIdentity(identity);
-      setEmailSenderMode("view");
-      setEmailSenderPollTimedOut(false);
-      setEmailSenderConfigMissing(
-        identity?.lastErrorReason === "postmark_account_token_unavailable"
-      );
-    } catch (error) {
-      if (
-        error instanceof ApiStructuredError &&
-        error.code === "postmark_account_token_unavailable"
-      ) {
-        setEmailSenderConfigMissing(true);
-        setEmailSenderFb({ type: "err", text: t("emailSenderConfigMissing") });
-      } else {
-        setEmailSenderFb({ type: "err", text: t("emailSenderGenericError") });
-      }
-    } finally {
-      setEmailSenderSubmitting(false);
-    }
-  }, [emailSenderAddressInput, emailSenderDisplayNameInput, getToken, t]);
-
-  const handleResendEmailSenderConfirmation = useCallback(async () => {
-    const token = (await getToken({ skipCache: true })) ?? (await getToken());
-    if (!token) return;
-    setEmailSenderSubmitting(true);
-    setEmailSenderFb(null);
-    try {
-      const identity = await resendAssistantEmailSenderConfirmation(token);
-      setEmailSenderIdentity(identity);
-      const configMissing = identity?.lastErrorReason === "postmark_account_token_unavailable";
-      setEmailSenderConfigMissing(configMissing);
-      setEmailSenderFb(
-        configMissing
-          ? { type: "err", text: t("emailSenderConfigMissing") }
-          : { type: "ok", text: t("emailSenderResendSuccess") }
-      );
-    } catch (error) {
-      if (
-        error instanceof ApiStructuredError &&
-        error.code === "postmark_account_token_unavailable"
-      ) {
-        setEmailSenderConfigMissing(true);
-        setEmailSenderFb({ type: "err", text: t("emailSenderConfigMissing") });
-      } else {
-        setEmailSenderFb({ type: "err", text: t("emailSenderGenericError") });
-      }
-    } finally {
-      setEmailSenderSubmitting(false);
-    }
-  }, [getToken, t]);
-
-  const handleRemoveEmailSenderIdentity = useCallback(async () => {
-    const token = (await getToken({ skipCache: true })) ?? (await getToken());
-    if (!token) return;
-    setEmailSenderSubmitting(true);
-    setEmailSenderFb(null);
-    try {
-      await removeAssistantEmailSenderIdentity(token);
-      setEmailSenderIdentity(null);
-      setEmailSenderMode("edit");
-      setEmailSenderAddressInput("");
-      setEmailSenderDisplayNameInput("");
-      setEmailSenderConfigMissing(false);
-      setEmailSenderPollTimedOut(false);
-      setEmailSenderFb({ type: "ok", text: t("emailSenderRemoveSuccess") });
+      await disconnectAssistantEmailMailbox(token);
+      setEmailMailboxState(null);
+      setEmailMailboxDisconnectConfirmOpen(false);
+      setEmailMailboxFb({ type: "ok", text: t("emailMailboxDisconnectSuccess") });
     } catch {
-      setEmailSenderFb({ type: "err", text: t("emailSenderGenericError") });
+      setEmailMailboxFb({ type: "err", text: t("emailMailboxDisconnectError") });
     } finally {
-      setEmailSenderSubmitting(false);
+      setEmailMailboxDisconnecting(false);
     }
   }, [getToken, t]);
-
-  // ADR-168 — bounded, demand-driven confirmation poll. Runs only
-  // while the Email dialog is open AND the identity is `pending`; stops on
-  // verified/failed, on a detected platform misconfiguration, after the
-  // ~10 minute window, on dialog close, and always on unmount via the
-  // effect cleanup below (single `setInterval`, cleared in every path).
-  // Reuses `loadEmailSenderIdentity` (background mode) as the single
-  // load-and-classify implementation shared with the initial dialog load.
-  useEffect(() => {
-    if (
-      !emailSenderOpen ||
-      emailSenderIdentity?.status !== "pending" ||
-      emailSenderConfigMissing ||
-      emailSenderPollTimedOut
-    ) {
-      return;
-    }
-    emailSenderPollFailureStreakRef.current = 0;
-    setEmailSenderPollCheckFailed(false);
-    const pollStartedAt = Date.now();
-    const intervalId = window.setInterval(() => {
-      if (Date.now() - pollStartedAt >= EMAIL_SENDER_POLL_MAX_WINDOW_MS) {
-        setEmailSenderPollTimedOut(true);
-        return;
-      }
-      void loadEmailSenderIdentity({ background: true }).then((ok) => {
-        if (ok) {
-          emailSenderPollFailureStreakRef.current = 0;
-          setEmailSenderPollCheckFailed(false);
-          return;
-        }
-        emailSenderPollFailureStreakRef.current += 1;
-        if (emailSenderPollFailureStreakRef.current >= 2) {
-          setEmailSenderPollCheckFailed(true);
-        }
-      });
-    }, EMAIL_SENDER_POLL_INTERVAL_MS);
-    return () => window.clearInterval(intervalId);
-  }, [
-    emailSenderOpen,
-    emailSenderIdentity?.status,
-    emailSenderConfigMissing,
-    emailSenderPollTimedOut,
-    loadEmailSenderIdentity
-  ]);
 
   const handleCancelSettingsBrowserLogin = useCallback(async () => {
     setSettingsBrowserLogin(null);
@@ -5183,9 +5050,9 @@ export function AssistantSettings({
             <IntegrationCard
               name="Email"
               logoSrc="/integrations/email-logo.svg"
-              statusLabel={resolveEmailSenderCardStatusLabel(emailSenderIdentity, t)}
-              active={emailSenderIdentity?.status === "verified"}
-              onClick={handleOpenEmailSender}
+              statusLabel={resolveEmailMailboxCardStatusLabel(emailMailboxState, t)}
+              active={emailMailboxState?.status === "connected"}
+              onClick={handleOpenEmailMailbox}
             />
           </div>
           <div className="my-4 border-t border-border/60" />
@@ -5225,152 +5092,107 @@ export function AssistantSettings({
         </Section>
 
         <AssistantSettingsDialogShell
-          open={emailSenderOpen}
+          open={emailMailboxOpen}
           title="Email"
-          onClose={handleCloseEmailSender}
-          closeDisabled={emailSenderSubmitting}
+          onClose={handleCloseEmailMailbox}
+          closeDisabled={emailMailboxConnectingProvider !== null || emailMailboxDisconnecting}
         >
-          {emailSenderLoading ? (
+          {emailMailboxLoading ? (
             <div className="flex items-center justify-center py-10">
               <Loader2 className="h-5 w-5 animate-spin text-text-subtle" />
             </div>
-          ) : emailSenderMode === "edit" ? (
+          ) : emailMailboxState !== null ? (
             <div className="space-y-4">
-              <p className="text-xs leading-5 text-text-muted">{t("emailSenderIntro")}</p>
-              {emailSenderConfigMissing ? (
-                <p
-                  role="alert"
-                  className="rounded-lg border border-warning/25 bg-warning/[0.06] px-3 py-2 text-xs leading-5 text-text-muted"
-                >
-                  {t("emailSenderConfigMissing")}
+              <div>
+                <p className="text-sm font-medium text-text">{emailMailboxState.email}</p>
+                <p className="text-xs text-text-muted">
+                  {resolveEmailMailboxProviderLabel(emailMailboxState.provider, t)}
+                  {emailMailboxState.displayName ? ` · ${emailMailboxState.displayName}` : ""}
                 </p>
-              ) : null}
-              <div>
-                <label className="mb-1.5 block text-xs font-medium text-text">
-                  {t("emailSenderAddressLabel")}
-                </label>
-                <input
-                  type="email"
-                  value={emailSenderAddressInput}
-                  onChange={(e) => setEmailSenderAddressInput(e.target.value)}
-                  placeholder={t("emailSenderAddressPlaceholder")}
-                  disabled={emailSenderSubmitting}
-                  className={userFieldClassName()}
-                />
-              </div>
-              <div>
-                <label className="mb-1.5 block text-xs font-medium text-text">
-                  {t("emailSenderDisplayNameLabel")}
-                </label>
-                <input
-                  type="text"
-                  value={emailSenderDisplayNameInput}
-                  onChange={(e) => setEmailSenderDisplayNameInput(e.target.value)}
-                  placeholder={t("emailSenderDisplayNamePlaceholder")}
-                  disabled={emailSenderSubmitting}
-                  className={userFieldClassName()}
-                />
-              </div>
-              <FeedbackLine fb={emailSenderFb} />
-              <div className="flex justify-end gap-2">
-                {emailSenderIdentity !== null ? (
-                  <button
-                    type="button"
-                    onClick={() => setEmailSenderMode("view")}
-                    disabled={emailSenderSubmitting}
-                    className="inline-flex h-9 items-center justify-center rounded-xl border border-border/80 bg-transparent px-4 text-sm font-medium text-text transition-colors hover:bg-surface-hover disabled:opacity-60"
-                  >
-                    {t("emailSenderCancel")}
-                  </button>
-                ) : null}
-                <ActionButton
-                  icon={<Send className="h-3.5 w-3.5" />}
-                  label={t("emailSenderSubmit")}
-                  onClick={() => void handleSubmitEmailSenderIdentity()}
-                  busy={emailSenderSubmitting}
-                  variant="primary"
-                />
-              </div>
-            </div>
-          ) : emailSenderIdentity !== null ? (
-            <div className="space-y-4">
-              <div>
-                <p className="text-sm font-medium text-text">{emailSenderIdentity.email}</p>
-                {emailSenderIdentity.displayName ? (
-                  <p className="text-xs text-text-muted">{emailSenderIdentity.displayName}</p>
-                ) : null}
               </div>
 
-              {emailSenderIdentity.status === "pending" ? (
-                <>
-                  <p className="text-xs leading-5 text-text-muted">
-                    {t("emailSenderPendingHint", { email: emailSenderIdentity.email })}
-                  </p>
-                  {emailSenderConfigMissing ? (
-                    <p
-                      role="alert"
-                      className="rounded-lg border border-warning/25 bg-warning/[0.06] px-3 py-2 text-xs leading-5 text-text-muted"
-                    >
-                      {t("emailSenderConfigMissing")}
-                    </p>
-                  ) : emailSenderPollTimedOut ? (
-                    <p className="rounded-lg border border-border/60 bg-surface-raised/40 px-3 py-2 text-xs leading-5 text-text-muted">
-                      {t("emailSenderPollTimeout")}
-                    </p>
-                  ) : emailSenderPollCheckFailed ? (
-                    <p className="rounded-lg border border-border/60 bg-surface-raised/40 px-3 py-2 text-xs leading-5 text-text-muted">
-                      {t("emailSenderPollCheckError")}
-                    </p>
-                  ) : null}
-                </>
-              ) : emailSenderIdentity.status === "failed" ? (
+              {emailMailboxState.status === "token_invalid" ? (
                 <p
                   role="alert"
                   className="rounded-lg border border-destructive/20 bg-destructive/10 px-3 py-2 text-xs leading-5 text-destructive"
                 >
-                  {emailSenderIdentity.lastErrorReason
-                    ? t("emailSenderFailedDetailPrefix", {
-                        reason: emailSenderIdentity.lastErrorReason
-                      })
-                    : t("emailSenderFailedStatus")}
-                </p>
-              ) : emailSenderIdentity.verifiedAt ? (
-                <p className="text-xs text-success">
-                  {t("emailSenderVerifiedAt", {
-                    date: new Date(emailSenderIdentity.verifiedAt).toLocaleDateString()
-                  })}
+                  {t("emailMailboxTokenInvalidMessage")}
                 </p>
               ) : null}
 
-              <FeedbackLine fb={emailSenderFb} />
+              <FeedbackLine fb={emailMailboxFb} />
 
-              <div className="flex flex-wrap justify-end gap-2">
-                {emailSenderIdentity.status === "pending" ? (
+              {emailMailboxDisconnectConfirmOpen ? (
+                <div className="space-y-3 rounded-2xl border border-border/80 bg-surface-raised/40 p-4">
+                  <p className="text-sm font-medium text-text">
+                    {t("emailMailboxDisconnectConfirm")}
+                  </p>
+                  <div className="flex justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setEmailMailboxDisconnectConfirmOpen(false)}
+                      disabled={emailMailboxDisconnecting}
+                      className="inline-flex h-9 items-center justify-center rounded-xl border border-border/80 bg-transparent px-4 text-sm font-medium text-text transition-colors hover:bg-surface-hover disabled:opacity-60"
+                    >
+                      {t("emailMailboxCancel")}
+                    </button>
+                    <ActionButton
+                      icon={<Trash2 className="h-3.5 w-3.5" />}
+                      label={t("emailMailboxDisconnectConfirmButton")}
+                      onClick={() => void handleDisconnectEmailMailbox()}
+                      busy={emailMailboxDisconnecting}
+                      variant="danger"
+                    />
+                  </div>
+                </div>
+              ) : (
+                <div className="flex flex-wrap justify-end gap-2">
+                  {emailMailboxState.status === "token_invalid" ? (
+                    <ActionButton
+                      icon={<RotateCcw className="h-3.5 w-3.5" />}
+                      label={t("emailMailboxReconnect")}
+                      onClick={() => void handleConnectEmailMailbox(emailMailboxState.provider)}
+                      busy={emailMailboxConnectingProvider === emailMailboxState.provider}
+                      disabled={emailMailboxConnectingProvider !== null}
+                      variant="primary"
+                    />
+                  ) : null}
                   <ActionButton
-                    icon={<RotateCcw className="h-3.5 w-3.5" />}
-                    label={t("emailSenderResend")}
-                    onClick={() => void handleResendEmailSenderConfirmation()}
-                    busy={emailSenderSubmitting}
+                    icon={<Trash2 className="h-3.5 w-3.5" />}
+                    label={t("emailMailboxDisconnect")}
+                    onClick={() => setEmailMailboxDisconnectConfirmOpen(true)}
+                    busy={false}
+                    disabled={emailMailboxConnectingProvider !== null}
+                    variant="danger"
                   />
-                ) : null}
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <p className="text-xs leading-5 text-text-muted">{t("emailMailboxIntro")}</p>
+              <FeedbackLine fb={emailMailboxFb} />
+              <div className="grid gap-2">
                 <ActionButton
-                  icon={<Trash2 className="h-3.5 w-3.5" />}
-                  label={t("emailSenderRemove")}
-                  onClick={() => void handleRemoveEmailSenderIdentity()}
-                  busy={emailSenderSubmitting}
-                  variant="danger"
+                  icon={<ExternalLink className="h-3.5 w-3.5" />}
+                  label={t("emailMailboxConnectMailru")}
+                  onClick={() => void handleConnectEmailMailbox("mailru")}
+                  busy={emailMailboxConnectingProvider === "mailru"}
+                  disabled={emailMailboxConnectingProvider !== null}
+                  variant="primary"
+                  className="w-full"
                 />
                 <ActionButton
-                  icon={<Send className="h-3.5 w-3.5" />}
-                  label={t("emailSenderChangeAddress")}
-                  onClick={enterEmailSenderEditMode}
-                  busy={false}
-                  disabled={emailSenderSubmitting}
-                  variant="primary"
+                  icon={<ExternalLink className="h-3.5 w-3.5" />}
+                  label={t("emailMailboxConnectYandex")}
+                  onClick={() => void handleConnectEmailMailbox("yandex")}
+                  busy={emailMailboxConnectingProvider === "yandex"}
+                  disabled={emailMailboxConnectingProvider !== null}
+                  className="w-full"
                 />
               </div>
             </div>
-          ) : null}
+          )}
         </AssistantSettingsDialogShell>
 
         {assistant?.id ? (
