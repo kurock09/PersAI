@@ -45,7 +45,7 @@ type SyntheticPromptToolOverrideMap = Record<
   }
 >;
 
-const TOOL_EXECUTION_MODE_BY_CODE: Record<string, RuntimeToolPolicy["executionMode"]> = {
+export const TOOL_EXECUTION_MODE_BY_CODE: Record<string, RuntimeToolPolicy["executionMode"]> = {
   summarize_context: "inline",
   compact_context: "inline",
   memory_write: "inline",
@@ -74,10 +74,11 @@ const TOOL_EXECUTION_MODE_BY_CODE: Record<string, RuntimeToolPolicy["executionMo
   persai_tool_quota_status: "inline",
   cron: "worker",
   skill: "inline",
-  todo_write: "inline"
+  todo_write: "inline",
+  email_send: "worker"
 };
 
-const RUNTIME_TOOL_CODE_BY_INVENTORY_CODE: Record<string, string> = {
+export const RUNTIME_TOOL_CODE_BY_INVENTORY_CODE: Record<string, string> = {
   persai_tool_quota_status: "quota_status"
 };
 

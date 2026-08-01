@@ -12,6 +12,10 @@ import {
   PROMPT_CONSTRUCTOR_MODEL_TOOL_ORDER,
   isPromptConstructorModelToolCode
 } from "../src/modules/workspace-management/application/prompt-constructor-tool-metadata";
+import {
+  RUNTIME_TOOL_CODE_BY_INVENTORY_CODE,
+  TOOL_EXECUTION_MODE_BY_CODE
+} from "../src/modules/workspace-management/application/runtime-tool-policy";
 
 function toolText(code: string): string {
   const row = TOOL_CATALOG.find((tool) => tool.code === code);
@@ -546,7 +550,25 @@ function testPlanSeedFullProjectionCounts(): void {
   );
 }
 
+/**
+ * Every catalog tool must have an execution mode. `resolveToolExecutionMode`
+ * throws on a missing entry, and that throw happens while materializing the
+ * runtime bundle for **every** assistant — including plans where the tool is
+ * inactive — so one unmapped catalog code takes the whole fleet down.
+ */
+function testEveryCatalogToolHasAnExecutionMode(): void {
+  const missing = TOOL_CATALOG.map(
+    (tool) => RUNTIME_TOOL_CODE_BY_INVENTORY_CODE[tool.code] ?? tool.code
+  ).filter((runtimeCode) => TOOL_EXECUTION_MODE_BY_CODE[runtimeCode] === undefined);
+  assert.deepStrictEqual(
+    missing,
+    [],
+    `TOOL_EXECUTION_MODE_BY_CODE is missing an entry for: ${missing.join(", ")}`
+  );
+}
+
 export async function runToolCatalogDataTest(): Promise<void> {
+  testEveryCatalogToolHasAnExecutionMode();
   testTodoWriteCatalogRow();
   testSkillCatalogRowMentionsPlanIntake();
   testDocumentCatalogRowTeachesThreeVerbSurface();
