@@ -896,6 +896,92 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /assistant/integrations/email-mailbox:
+    get:
+      operationId: getAssistantEmailMailbox
+      summary: Get connected OAuth mailbox state for current assistant's workspace
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Email mailbox connection state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAssistantEmailMailboxResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    delete:
+      operationId: deleteAssistantEmailMailbox
+      summary: Disconnect the OAuth mailbox for current assistant's workspace
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Email mailbox disconnected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeleteAssistantEmailMailboxResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /assistant/integrations/email-mailbox/connect:
+    post:
+      operationId: postAssistantEmailMailboxConnect
+      summary: Start the OAuth mailbox connect flow for current assistant's workspace
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AssistantEmailMailboxConnectRequest"
+      responses:
+        "200":
+          description: Mailbox provider authorization URL to redirect the user to
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PostAssistantEmailMailboxConnectResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /assistant/integrations/telegram:
     get:
       operationId: getAssistantTelegramIntegration
@@ -6537,6 +6623,36 @@ paths:
                 $ref: "#/components/schemas/ErrorEnvelope"
         "404":
           description: Rollout not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /public/integrations/email-mailbox/callback:
+    get:
+      operationId: getPublicEmailMailboxCallback
+      summary: Handle the Mail.ru/Yandex OAuth mailbox connect redirect
+      description: >-
+        Provider redirect target for the mailbox OAuth connect flow. This
+        route is intentionally unauthenticated (Mail.ru/Yandex call it with no
+        Clerk session) and is guarded solely by the single-use, expiring
+        `state` bound to the workspace; it must not be registered in
+        CLERK_AUTHENTICATED_ROUTES.
+      parameters:
+        - in: query
+          name: code
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: state
+          required: true
+          schema:
+            type: string
+      responses:
+        "302":
+          description: Redirect back into the app after handling the mailbox OAuth callback
+        "400":
+          description: Invalid, expired, or already-used state
           content:
             application/json:
               schema:
@@ -12742,6 +12858,46 @@ components:
         lastErrorReason:
           type: string
           nullable: true
+    WorkspaceEmailMailboxState:
+      type: object
+      required:
+        - provider
+        - email
+        - displayName
+        - status
+        - connectedAt
+        - lastErrorReason
+      properties:
+        provider:
+          type: string
+          enum:
+            - mailru
+            - yandex
+        email:
+          type: string
+        displayName:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum:
+            - connected
+            - token_invalid
+        connectedAt:
+          type: string
+        lastErrorReason:
+          type: string
+          nullable: true
+    AssistantEmailMailboxConnectRequest:
+      type: object
+      required:
+        - provider
+      properties:
+        provider:
+          type: string
+          enum:
+            - mailru
+            - yandex
     AssistantTelegramConnectRequest:
       type: object
       required:
@@ -14890,6 +15046,40 @@ components:
             - $ref: "#/components/schemas/WorkspaceEmailSenderIdentityState"
           nullable: true
     DeleteAssistantEmailSenderIdentityResponse:
+      type: object
+      required:
+        - removed
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        removed:
+          type: boolean
+          enum:
+            - true
+    GetAssistantEmailMailboxResponse:
+      type: object
+      required:
+        - mailbox
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        mailbox:
+          allOf:
+            - $ref: "#/components/schemas/WorkspaceEmailMailboxState"
+          nullable: true
+    PostAssistantEmailMailboxConnectResponse:
+      type: object
+      required:
+        - authorizationUrl
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        authorizationUrl:
+          type: string
+    DeleteAssistantEmailMailboxResponse:
       type: object
       required:
         - removed

@@ -38,6 +38,7 @@ import type {
   AdminUpdateSkillScenarioRequest,
   ArchiveWorkspaceVideoPersona200,
   AssistantDraftUpdateRequest,
+  AssistantEmailMailboxConnectRequest,
   AssistantEmailSenderIdentityRequest,
   AssistantMemoryDoNotRememberRequest,
   AssistantRoleSelectionResponse,
@@ -64,6 +65,7 @@ import type {
   DeleteAdminSkillDocumentResponse,
   DeleteAdminSkillKnowledgeCardResponse,
   DeleteAdminSkillResponse,
+  DeleteAssistantEmailMailboxResponse,
   DeleteAssistantEmailSenderIdentityResponse,
   DeleteAssistantKnowledgeSourceResponse,
   DeleteAssistantWebChatResponse,
@@ -121,6 +123,7 @@ import type {
   GetAppBootstrapResponse,
   GetAssistantBillingPaymentIntentResponse,
   GetAssistantBillingSubscriptionResponse,
+  GetAssistantEmailMailboxResponse,
   GetAssistantEmailSenderIdentityResponse,
   GetAssistantKnowledgeSourceResponse,
   GetAssistantKnowledgeSourcesResponse,
@@ -148,6 +151,7 @@ import type {
   GetNotificationQuietHoursResponse,
   GetNotificationTemplatesResponse,
   GetProductKnowledgeTextEntriesResponse,
+  GetPublicEmailMailboxCallbackParams,
   GetPublicGeoHintResponse,
   GetPublicPricingPlansResponse,
   GetPublicSitePageParams,
@@ -200,6 +204,7 @@ import type {
   PostAssistantBillingEnableAutoRenewResponse,
   PostAssistantBillingPaymentIntentRequest,
   PostAssistantBillingPaymentIntentResponse,
+  PostAssistantEmailMailboxConnectResponse,
   PostAssistantKnowledgeSourceUploadBody,
   PostAssistantMemoryDoNotRememberResponse,
   PostAssistantMemoryItemCloseOpenLoopResponse,
@@ -1599,6 +1604,154 @@ export const postAssistantEmailSenderIdentityResend = async (
     {
       ...options,
       method: "POST"
+    }
+  );
+};
+
+/**
+ * @summary Get connected OAuth mailbox state for current assistant's workspace
+ */
+export type getAssistantEmailMailboxResponse200 = {
+  data: GetAssistantEmailMailboxResponse;
+  status: 200;
+};
+
+export type getAssistantEmailMailboxResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type getAssistantEmailMailboxResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type getAssistantEmailMailboxResponseSuccess = getAssistantEmailMailboxResponse200 & {
+  headers: Headers;
+};
+export type getAssistantEmailMailboxResponseError = (
+  | getAssistantEmailMailboxResponse401
+  | getAssistantEmailMailboxResponse500
+) & {
+  headers: Headers;
+};
+
+export type getAssistantEmailMailboxResponse =
+  | getAssistantEmailMailboxResponseSuccess
+  | getAssistantEmailMailboxResponseError;
+
+export const getGetAssistantEmailMailboxUrl = () => {
+  return `/assistant/integrations/email-mailbox`;
+};
+
+export const getAssistantEmailMailbox = async (
+  options?: RequestInit
+): Promise<getAssistantEmailMailboxResponse> => {
+  return customFetch<getAssistantEmailMailboxResponse>(getGetAssistantEmailMailboxUrl(), {
+    ...options,
+    method: "GET"
+  });
+};
+
+/**
+ * @summary Disconnect the OAuth mailbox for current assistant's workspace
+ */
+export type deleteAssistantEmailMailboxResponse200 = {
+  data: DeleteAssistantEmailMailboxResponse;
+  status: 200;
+};
+
+export type deleteAssistantEmailMailboxResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type deleteAssistantEmailMailboxResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type deleteAssistantEmailMailboxResponseSuccess = deleteAssistantEmailMailboxResponse200 & {
+  headers: Headers;
+};
+export type deleteAssistantEmailMailboxResponseError = (
+  | deleteAssistantEmailMailboxResponse401
+  | deleteAssistantEmailMailboxResponse500
+) & {
+  headers: Headers;
+};
+
+export type deleteAssistantEmailMailboxResponse =
+  | deleteAssistantEmailMailboxResponseSuccess
+  | deleteAssistantEmailMailboxResponseError;
+
+export const getDeleteAssistantEmailMailboxUrl = () => {
+  return `/assistant/integrations/email-mailbox`;
+};
+
+export const deleteAssistantEmailMailbox = async (
+  options?: RequestInit
+): Promise<deleteAssistantEmailMailboxResponse> => {
+  return customFetch<deleteAssistantEmailMailboxResponse>(getDeleteAssistantEmailMailboxUrl(), {
+    ...options,
+    method: "DELETE"
+  });
+};
+
+/**
+ * @summary Start the OAuth mailbox connect flow for current assistant's workspace
+ */
+export type postAssistantEmailMailboxConnectResponse200 = {
+  data: PostAssistantEmailMailboxConnectResponse;
+  status: 200;
+};
+
+export type postAssistantEmailMailboxConnectResponse400 = {
+  data: ErrorEnvelope;
+  status: 400;
+};
+
+export type postAssistantEmailMailboxConnectResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type postAssistantEmailMailboxConnectResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type postAssistantEmailMailboxConnectResponseSuccess =
+  postAssistantEmailMailboxConnectResponse200 & {
+    headers: Headers;
+  };
+export type postAssistantEmailMailboxConnectResponseError = (
+  | postAssistantEmailMailboxConnectResponse400
+  | postAssistantEmailMailboxConnectResponse401
+  | postAssistantEmailMailboxConnectResponse500
+) & {
+  headers: Headers;
+};
+
+export type postAssistantEmailMailboxConnectResponse =
+  | postAssistantEmailMailboxConnectResponseSuccess
+  | postAssistantEmailMailboxConnectResponseError;
+
+export const getPostAssistantEmailMailboxConnectUrl = () => {
+  return `/assistant/integrations/email-mailbox/connect`;
+};
+
+export const postAssistantEmailMailboxConnect = async (
+  assistantEmailMailboxConnectRequest: AssistantEmailMailboxConnectRequest,
+  options?: RequestInit
+): Promise<postAssistantEmailMailboxConnectResponse> => {
+  return customFetch<postAssistantEmailMailboxConnectResponse>(
+    getPostAssistantEmailMailboxConnectUrl(),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(assistantEmailMailboxConnectRequest)
     }
   );
 };
@@ -9603,6 +9756,59 @@ export const postAdminPlatformRolloutCancelPending = async (
     {
       ...options,
       method: "POST"
+    }
+  );
+};
+
+/**
+ * Provider redirect target for the mailbox OAuth connect flow. This route is intentionally unauthenticated (Mail.ru/Yandex call it with no Clerk session) and is guarded solely by the single-use, expiring `state` bound to the workspace; it must not be registered in CLERK_AUTHENTICATED_ROUTES.
+ * @summary Handle the Mail.ru/Yandex OAuth mailbox connect redirect
+ */
+export type getPublicEmailMailboxCallbackResponse302 = {
+  data: void;
+  status: 302;
+};
+
+export type getPublicEmailMailboxCallbackResponse400 = {
+  data: ErrorEnvelope;
+  status: 400;
+};
+export type getPublicEmailMailboxCallbackResponseError = (
+  | getPublicEmailMailboxCallbackResponse302
+  | getPublicEmailMailboxCallbackResponse400
+) & {
+  headers: Headers;
+};
+
+export type getPublicEmailMailboxCallbackResponse = getPublicEmailMailboxCallbackResponseError;
+
+export const getGetPublicEmailMailboxCallbackUrl = (
+  params: GetPublicEmailMailboxCallbackParams
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/public/integrations/email-mailbox/callback?${stringifiedParams}`
+    : `/public/integrations/email-mailbox/callback`;
+};
+
+export const getPublicEmailMailboxCallback = async (
+  params: GetPublicEmailMailboxCallbackParams,
+  options?: RequestInit
+): Promise<getPublicEmailMailboxCallbackResponse> => {
+  return customFetch<getPublicEmailMailboxCallbackResponse>(
+    getGetPublicEmailMailboxCallbackUrl(params),
+    {
+      ...options,
+      method: "GET"
     }
   );
 };
