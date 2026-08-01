@@ -1,5 +1,47 @@
 # SESSION-HANDOFF
 
+## 2026-08-01 — ADR-169 opened: verified address was the wrong sender model
+
+- **Baseline:** `9779dae6`, documentation only — no schema, no code, no deploy.
+- **What live acceptance actually proved:** the assistant composed and sent a
+  real message and it arrived — in Spam, under "sender is not authenticated",
+  shown as "via pm.mtasv.net". Measured on the founder's domain: SPF lists
+  mail.ru and unisender but not Postmark, no Postmark DKIM, no Return-Path
+  CNAME, and DMARC `p=quarantine`. So the receiver was required to quarantine
+  it. Every customer enabling the tool reproduces this exactly.
+- **Why ADR-168's model was wrong, not its code:** a Sender Signature proves
+  ownership of an address, nothing more. The message still leaves through the
+  PersAI Postmark account and is signed with Postmark's domain, so neither DKIM
+  nor SPF aligns with the customer's domain.
+- **Why not just add DKIM:** Postmark domain authentication was the excluded
+  option in ADR-168 and is the wrong default for 1000+ small businesses whose
+  DNS is held by whoever built their website. Requiring DNS before the first
+  email is a sales blocker.
+- **Direction (founder-chosen):** connect the customer's own mailbox over OAuth
+  and send through their provider's SMTP with XOAUTH2. Mail.ru and Yandex
+  first, Google later. Both provider paths verified against vendor docs at
+  opening, including that Google SMTP would need the restricted
+  `https://mail.google.com/` scope and must therefore go through the Gmail API
+  with `gmail.send` instead.
+- **What survives from ADR-168:** the whole tool — contract, schema, model
+  projection, runtime dispatch, plan daily limit, per-turn cap, skip+guidance,
+  audit, internal endpoint — plus the Integrations card shell and today's four
+  registry fixes. Only the transport inside `InternalRuntimeEmailSendService`
+  and the sender-verification layer change.
+- **Two corrections the opening investigation forced into the ADR:**
+  `backend_vault_kms` is not a KMS but AES-256-GCM in Postgres keyed by an env
+  master key, and its `secretRefs` envelope is per-assistant and
+  Telegram-specific, so a workspace-scoped mailbox stores tokens through
+  `PlatformRuntimeProviderSecretStoreService` instead. And there is no "public
+  route" concept: anything not in `CLERK_AUTHENTICATED_ROUTES` is already
+  unauthenticated, so the provider redirect target guards itself with a
+  single-use `state` while the connect-initiate route must be registered.
+- **Founder is on the critical path:** OAuth applications at Mail.ru and Yandex
+  need registration and moderation before live acceptance. S1–S5 can proceed
+  without them.
+- **Accepted risk meanwhile:** sending stays enabled in production and will
+  keep landing in Spam until this program ships.
+
 ## 2026-08-01 — ADR-168 hotfix 4: a plan-activated tool the model cannot see
 
 - **What happened:** with `email_send` active in the plan, the assistant listed
