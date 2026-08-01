@@ -5,6 +5,22 @@
 
 ## 2026-08-01 (latest)
 
+- **fix(api): the ADR-168 Email card, the assistant-wide Working Files list, and
+  three Admin routes answered 401 because they were never registered with
+  `ClerkAuthMiddleware`.** Live symptom: "Не удалось загрузить статус адреса
+  отправителя" in Settings → Интеграции → Email, with API logs showing the route
+  mapped but completing `401` at `userId: null`. `ClerkAuthMiddleware` is applied
+  per hand-listed path, so a mapped route absent from that list reaches its
+  handler with no resolved user and returns 401 forever — the same trap that
+  already hit the ADR-125 plan routes. Fix registers the four email-sender
+  routes, `GET /api/v1/assistant/workspace-files`, `POST` admin
+  `memory-backfill/preview|apply`, and admin
+  `knowledge-sources/retrieval-policy/embedding-change-preview` (the last four
+  were pre-existing, silently broken, and found by the new guard). The route
+  list is now the exported `CLERK_AUTHENTICATED_ROUTES`, and a coverage test
+  derives every `api/v1/assistant/*` and `api/v1/admin/*` route from controller
+  metadata across the whole `AppModule` graph and fails if one is unregistered;
+  verified to fail when a registration is removed.
 - **fix(api): `email_send` had no runtime execution mode, which failed bundle
   materialization for every assistant (ADR-168 hotfix, `eafdc4e2`).** Live
   symptom right after the ADR-168 deploy: `materialization_failed: Missing

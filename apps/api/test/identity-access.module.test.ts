@@ -1,6 +1,11 @@
+import "reflect-metadata";
 import assert from "node:assert/strict";
 import { RequestMethod, type MiddlewareConsumer } from "@nestjs/common";
-import { IdentityAccessModule } from "../src/modules/identity-access/identity-access.module";
+import {
+  CLERK_AUTHENTICATED_ROUTES,
+  IdentityAccessModule
+} from "../src/modules/identity-access/identity-access.module";
+import { AppModule } from "../src/app.module";
 
 type RecordedRoute = string | { path: string; method: RequestMethod };
 
@@ -558,7 +563,105 @@ export async function runIdentityAccessModuleTest(): Promise<void> {
   );
 }
 
-void runIdentityAccessModuleTest().catch((error: unknown) => {
-  console.error(error);
-  process.exitCode = 1;
-});
+type ControllerClass = new (...args: never[]) => unknown;
+
+function normalizeRoutePath(path: string): string {
+  return `/${path.replace(/^\/+|\/+$/g, "").replace(/:[^/]+/g, ":param")}`;
+}
+
+function isClerkRegistered(method: RequestMethod, path: string): boolean {
+  const target = normalizeRoutePath(path);
+  return CLERK_AUTHENTICATED_ROUTES.some((route) => {
+    if (route.method !== RequestMethod.ALL && route.method !== method) {
+      return false;
+    }
+    const registered = normalizeRoutePath(route.path);
+    return (
+      registered === target ||
+      (registered.endsWith("/*") && target.startsWith(registered.slice(0, -1)))
+    );
+  });
+}
+
+function collectControllers(root: unknown): Set<ControllerClass> {
+  const visited = new Set<unknown>();
+  const controllers = new Set<ControllerClass>();
+  const walk = (candidate: unknown): void => {
+    const moduleClass =
+      typeof candidate === "object" && candidate !== null && "module" in candidate
+        ? (candidate as { module: unknown }).module
+        : candidate;
+    if (typeof moduleClass !== "function" || visited.has(moduleClass)) {
+      return;
+    }
+    visited.add(moduleClass);
+    for (const controller of (Reflect.getMetadata("controllers", moduleClass) as
+      | ControllerClass[]
+      | undefined) ?? []) {
+      controllers.add(controller);
+    }
+    for (const imported of (Reflect.getMetadata("imports", moduleClass) as unknown[] | undefined) ??
+      []) {
+      walk(imported);
+    }
+  };
+  walk(root);
+  return controllers;
+}
+
+/**
+ * Every session-authenticated route must appear in CLERK_AUTHENTICATED_ROUTES.
+ * A missing entry does not fail loudly: the route stays mapped, reaches its
+ * handler with no resolved user, and answers 401 until a human opens the
+ * feature. That has now shipped three times (ADR-125 plan routes, the
+ * assistant-wide Working Files list, ADR-168 Email). The hand-written
+ * assertions above only cover routes someone remembered, so derive the real
+ * surface from controller metadata instead.
+ *
+ * Internal (`api/v1/internal/*`) and public routes are excluded: they
+ * authenticate by service token, webhook signature, or not at all.
+ */
+export function runClerkRouteCoverageTest(): void {
+  const uncovered: string[] = [];
+  for (const controller of collectControllers(AppModule)) {
+    const basePath = (Reflect.getMetadata("path", controller) as string | undefined) ?? "";
+    const prototype = controller.prototype as object;
+    for (const property of Object.getOwnPropertyNames(prototype)) {
+      if (property === "constructor") {
+        continue;
+      }
+      const handler = Object.getOwnPropertyDescriptor(prototype, property)?.value as unknown;
+      if (typeof handler !== "function") {
+        continue;
+      }
+      const handlerPath = Reflect.getMetadata("path", handler) as string | undefined;
+      if (handlerPath === undefined) {
+        continue;
+      }
+      const method = Reflect.getMetadata("method", handler) as RequestMethod;
+      const fullPath = `${basePath}/${handlerPath}`.replace(/\/+/g, "/").replace(/^\/|\/$/g, "");
+      const isSessionAuthenticated =
+        fullPath.startsWith("api/v1/assistant") || fullPath.startsWith("api/v1/admin");
+      if (!isSessionAuthenticated || isClerkRegistered(method, fullPath)) {
+        continue;
+      }
+      uncovered.push(`${RequestMethod[method]} /${fullPath} (${controller.name}.${property})`);
+    }
+  }
+
+  assert.deepEqual(
+    uncovered.sort(),
+    [],
+    `Routes missing from CLERK_AUTHENTICATED_ROUTES in identity-access.module.ts; ` +
+      `they answer 401 in production:\n  ${uncovered.join("\n  ")}`
+  );
+}
+
+void runIdentityAccessModuleTest()
+  .then(() => {
+    runClerkRouteCoverageTest();
+  })
+  .catch((error: unknown) => {
+    console.error(error);
+    process.exitCode = 1;
+  });

@@ -1,5 +1,34 @@
 # SESSION-HANDOFF
 
+## 2026-08-01 — ADR-168 hotfix 3: an unregistered route is a silent permanent 401
+
+- **What happened:** the Email card in Settings → Интеграции showed "Не удалось
+  загрузить статус адреса отправителя". API logs showed the routes correctly
+  mapped at boot (`RouterExplorer`) yet the request completing `401` with
+  `userId: null` — the handler ran without an authenticated user.
+- **Cause:** `ClerkAuthMiddleware` is attached by an explicit hand-written path
+  list in `identity-access.module.ts`. A mapped route missing from that list is
+  not rejected anywhere obvious; it simply never resolves a user and returns 401
+  for as long as it exists. ADR-168 added the controller and never added the
+  four entries. The same trap already cost the ADR-125 plan routes, which is why
+  a warning comment sits in the middle of the list — comments do not hold.
+- **What the guard found beyond the reported bug:** deriving the route surface
+  from controller metadata surfaced four more routes that were already broken in
+  production and unreported — `GET /api/v1/assistant/workspace-files` (the
+  assistant-wide Working Files list, used whenever the gallery opens outside a
+  chat), both `POST /api/v1/admin/memory-backfill/*`, and admin
+  `knowledge-sources/retrieval-policy/embedding-change-preview`. All four are
+  now registered.
+- **Guard added:** the list is exported as `CLERK_AUTHENTICATED_ROUTES`, and
+  `apps/api/test/identity-access.module.test.ts` walks the whole `AppModule`
+  import graph, collects every `api/v1/assistant/*` and `api/v1/admin/*` route
+  from Nest controller metadata, and fails when one is unregistered. Internal
+  and public routes are excluded (service token / webhook signature auth).
+  Verified it fails with the exact route name when a registration is removed.
+- **Rule:** adding a session-authenticated controller is not complete until its
+  routes are in `CLERK_AUTHENTICATED_ROUTES`. The hand-written per-route
+  assertions in that test file are historical; the coverage test is the net.
+
 ## 2026-08-01 — ADR-168 hotfix: a catalog row without an execution mode kills every bundle
 
 - **What happened:** minutes after the ADR-168 deploy, assistants failed with

@@ -12,6 +12,556 @@ import { ClerkAuthMiddleware } from "./interface/http/clerk-auth.middleware";
 import { AuthVerifyController } from "./interface/http/auth-verify.controller";
 import { MeController } from "./interface/http/me.controller";
 
+/**
+ * Authenticated route registry. A mapped controller route that is absent here
+ * reaches the handler with no resolved user and answers 401 forever, which is
+ * invisible until someone opens the feature. Exported so tests can assert
+ * every authenticated assistant route is covered.
+ */
+export const CLERK_AUTHENTICATED_ROUTES: Array<{ path: string; method: RequestMethod }> = [
+  { path: "api/v1/auth/*", method: RequestMethod.ALL },
+  { path: "api/v1/me", method: RequestMethod.GET },
+  { path: "api/v1/me/preferences", method: RequestMethod.PATCH },
+  { path: "api/v1/me/onboarding", method: RequestMethod.POST },
+  { path: "api/v1/app/bootstrap", method: RequestMethod.GET },
+  { path: "api/v1/app/user-safety-standing", method: RequestMethod.GET },
+  { path: "api/v1/assistant", method: RequestMethod.GET },
+  { path: "api/v1/assistant/list", method: RequestMethod.GET },
+  { path: "api/v1/assistant/persona-archetypes", method: RequestMethod.GET },
+  { path: "api/v1/assistant/plan-visibility", method: RequestMethod.GET },
+  { path: "api/v1/assistant/voice/settings", method: RequestMethod.GET },
+  { path: "api/v1/assistant/voice/elevenlabs/curation", method: RequestMethod.PATCH },
+  { path: "api/v1/assistant/voice/elevenlabs/refresh", method: RequestMethod.POST },
+  { path: "api/v1/assistant/notification-preference", method: RequestMethod.GET },
+  { path: "api/v1/assistant", method: RequestMethod.POST },
+  { path: "api/v1/assistant/switch", method: RequestMethod.POST },
+  { path: "api/v1/assistant/draft", method: RequestMethod.PATCH },
+  { path: "api/v1/assistant/setup/preview", method: RequestMethod.POST },
+  { path: "api/v1/assistant/notification-preference", method: RequestMethod.PATCH },
+  { path: "api/v1/assistant/avatar", method: RequestMethod.POST },
+  { path: "api/v1/assistant/avatar/:hash", method: RequestMethod.GET },
+  { path: "api/v1/assistant/publish", method: RequestMethod.POST },
+  { path: "api/v1/assistant/rollback", method: RequestMethod.POST },
+  { path: "api/v1/assistant/reset", method: RequestMethod.POST },
+  { path: "api/v1/assistant/reapply", method: RequestMethod.POST },
+  { path: "api/v1/assistant/runtime/preflight", method: RequestMethod.GET },
+  { path: "api/v1/assistant/chat/web", method: RequestMethod.POST },
+  { path: "api/v1/assistant/chat/web/stream", method: RequestMethod.POST },
+  { path: "api/v1/assistant/chat/web/stop", method: RequestMethod.POST },
+  { path: "api/v1/assistant/chat/web/turns/:clientTurnId", method: RequestMethod.GET },
+  {
+    path: "api/v1/assistant/chat/web/turns/:clientTurnId/stream",
+    method: RequestMethod.GET
+  },
+  { path: "api/v1/assistant/chat/web/stage-attachment", method: RequestMethod.POST },
+  {
+    path: "api/v1/assistant/chats/web/:chatId/files",
+    method: RequestMethod.GET
+  },
+  {
+    path: "api/v1/assistant/chats/web/:chatId/files/preview",
+    method: RequestMethod.GET
+  },
+  // ADR-126 v3 W5 — new web tile-gallery + delete surfaces. Without
+  // explicit ClerkAuthMiddleware registration the controller receives
+  // req.resolvedAppUser === undefined and the resolveRequestUserId guard
+  // returns 401 "Authenticated user context is missing." Same regression
+  // class as ADR-074 / ADR-088 / ADR-115 / ADR-118 / ADR-125 — pin both
+  // routes here AND in identity-access.module.test.ts so a future audit
+  // surfaces any miss.
+  {
+    path: "api/v1/assistant/workspace-files",
+    method: RequestMethod.GET
+  },
+  {
+    path: "api/v1/assistant/chats/web/:chatId/workspace-files",
+    method: RequestMethod.GET
+  },
+  {
+    path: "api/v1/assistant/chats/web/:chatId/files",
+    method: RequestMethod.DELETE
+  },
+  // ADR-127 W1+W3 follow-up (2026-06-25 founder report): workspace-scoped
+  // tile gallery routes added by W1 (download/preview) and W3 (delete)
+  // for the assistant Files panel were missing from this allowlist, so
+  // the UI returned 401 "Authenticated user context is missing." when
+  // the user tried to delete or open a file via the workspace-scoped
+  // panel. Same regression class as the W5 chat-scoped fix above.
+  {
+    path: "api/v1/assistant/workspaces/:workspaceId/files",
+    method: RequestMethod.GET
+  },
+  {
+    path: "api/v1/assistant/workspaces/:workspaceId/files/preview",
+    method: RequestMethod.GET
+  },
+  {
+    path: "api/v1/assistant/workspaces/:workspaceId/files",
+    method: RequestMethod.DELETE
+  },
+  {
+    path: "api/v1/assistant/documents/:docId/prepare-pptx",
+    method: RequestMethod.POST
+  },
+  { path: "api/v1/assistant/knowledge-sources", method: RequestMethod.POST },
+  { path: "api/v1/assistant/knowledge-sources", method: RequestMethod.GET },
+  { path: "api/v1/assistant/knowledge-sources/:sourceId", method: RequestMethod.GET },
+  {
+    path: "api/v1/assistant/knowledge-sources/:sourceId/inspect",
+    method: RequestMethod.GET
+  },
+  { path: "api/v1/assistant/knowledge-sources/:sourceId", method: RequestMethod.DELETE },
+  {
+    path: "api/v1/assistant/knowledge-sources/:sourceId/reindex",
+    method: RequestMethod.POST
+  },
+  { path: "api/v1/assistant/knowledge-indexing/jobs", method: RequestMethod.GET },
+  { path: "api/v1/assistant/roles", method: RequestMethod.GET },
+  { path: "api/v1/assistant/:assistantId/role", method: RequestMethod.GET },
+  { path: "api/v1/assistant/:assistantId/role", method: RequestMethod.PUT },
+  { path: "api/v1/assistant/billing/payment-intents", method: RequestMethod.POST },
+  {
+    path: "api/v1/assistant/billing/payment-intents/:paymentIntentId",
+    method: RequestMethod.GET
+  },
+  { path: "api/v1/assistant/billing/packages/catalog", method: RequestMethod.GET },
+  {
+    path: "api/v1/assistant/billing/packages/payment-intents",
+    method: RequestMethod.POST
+  },
+  { path: "api/v1/assistant/billing/subscription", method: RequestMethod.GET },
+  {
+    path: "api/v1/assistant/billing/subscription/disable-auto-renew",
+    method: RequestMethod.POST
+  },
+  {
+    path: "api/v1/assistant/billing/subscription/enable-auto-renew",
+    method: RequestMethod.POST
+  },
+  {
+    path: "api/v1/assistant/billing/subscription/change-plan",
+    method: RequestMethod.POST
+  },
+  { path: "api/v1/assistant/chats/web", method: RequestMethod.GET },
+  { path: "api/v1/assistant/chats/web/:chatId/messages", method: RequestMethod.GET },
+  {
+    path: "api/v1/assistant/chats/web/:chatId/continuations/stream",
+    method: RequestMethod.GET
+  },
+  { path: "api/v1/assistant/chats/web/:chatId/compaction", method: RequestMethod.GET },
+  { path: "api/v1/assistant/chats/web/:chatId/compact", method: RequestMethod.POST },
+  { path: "api/v1/assistant/chats/web/:chatId/plan", method: RequestMethod.GET },
+  { path: "api/v1/assistant/chats/web/:chatId/plan", method: RequestMethod.DELETE },
+  { path: "api/v1/assistant/chats/web/:chatId", method: RequestMethod.PATCH },
+  { path: "api/v1/assistant/chats/web/:chatId/archive", method: RequestMethod.POST },
+  { path: "api/v1/assistant/chats/web/:chatId/unarchive", method: RequestMethod.POST },
+  { path: "api/v1/assistant/chats/web/:chatId", method: RequestMethod.DELETE },
+  { path: "api/v1/assistant/memory/items", method: RequestMethod.GET },
+  { path: "api/v1/assistant/memory/items/:itemId/forget", method: RequestMethod.POST },
+  {
+    path: "api/v1/assistant/memory/items/:itemId/close-open-loop",
+    method: RequestMethod.POST
+  },
+  { path: "api/v1/assistant/memory/do-not-remember", method: RequestMethod.POST },
+  { path: "api/v1/assistant/memory/workspace/items", method: RequestMethod.GET },
+  { path: "api/v1/assistant/memory/workspace/add", method: RequestMethod.POST },
+  { path: "api/v1/assistant/memory/workspace/edit", method: RequestMethod.PATCH },
+  { path: "api/v1/assistant/memory/workspace/forget", method: RequestMethod.POST },
+  { path: "api/v1/assistant/memory/workspace/search", method: RequestMethod.GET },
+  { path: "api/v1/assistant/tasks/items", method: RequestMethod.GET },
+  { path: "api/v1/assistant/tasks/items/:itemId/disable", method: RequestMethod.POST },
+  { path: "api/v1/assistant/tasks/items/:itemId/enable", method: RequestMethod.POST },
+  { path: "api/v1/assistant/tasks/items/:itemId/cancel", method: RequestMethod.POST },
+  { path: "api/v1/assistant/background-tasks/items", method: RequestMethod.GET },
+  {
+    path: "api/v1/assistant/background-tasks/items/:itemId/disable",
+    method: RequestMethod.POST
+  },
+  {
+    path: "api/v1/assistant/background-tasks/items/:itemId/enable",
+    method: RequestMethod.POST
+  },
+  {
+    path: "api/v1/assistant/background-tasks/items/:itemId/cancel",
+    method: RequestMethod.POST
+  },
+  { path: "api/v1/assistant/integrations/telegram", method: RequestMethod.GET },
+  { path: "api/v1/assistant/integrations/telegram/connect", method: RequestMethod.POST },
+  { path: "api/v1/assistant/integrations/telegram/rotate", method: RequestMethod.POST },
+  { path: "api/v1/assistant/integrations/telegram/revoke", method: RequestMethod.POST },
+  {
+    path: "api/v1/assistant/integrations/telegram/emergency-revoke",
+    method: RequestMethod.POST
+  },
+  {
+    path: "api/v1/assistant/integrations/telegram/resend-owner-message",
+    method: RequestMethod.POST
+  },
+  { path: "api/v1/assistant/integrations/telegram/config", method: RequestMethod.PATCH },
+  { path: "api/v1/assistant/integrations/telegram/groups", method: RequestMethod.GET },
+  {
+    path: "api/v1/assistant/integrations/telegram/groups/refresh",
+    method: RequestMethod.POST
+  },
+  // ADR-168 Email integration card. Same trap as the ADR-138 note below:
+  // the routes existed and were mapped, but without registration here the
+  // card only ever saw 401.
+  { path: "api/v1/assistant/integrations/email-sender", method: RequestMethod.GET },
+  { path: "api/v1/assistant/integrations/email-sender", method: RequestMethod.POST },
+  { path: "api/v1/assistant/integrations/email-sender/resend", method: RequestMethod.POST },
+  { path: "api/v1/assistant/integrations/email-sender", method: RequestMethod.DELETE },
+  // ADR-138 browser profile settings + live login modal (complete/cancel).
+  // Without explicit ClerkAuthMiddleware registration requests reach the
+  // controller with req.resolvedAppUser === undefined and return 401.
+  {
+    path: "api/v1/assistant/:assistantId/browser-profiles",
+    method: RequestMethod.GET
+  },
+  {
+    path: "api/v1/assistant/:assistantId/browser-profiles/:profileId",
+    method: RequestMethod.DELETE
+  },
+  {
+    path: "api/v1/assistant/:assistantId/browser-profiles/:profileId/reconnect",
+    method: RequestMethod.POST
+  },
+  {
+    path: "api/v1/assistant/:assistantId/browser-profiles/:profileId/complete-login",
+    method: RequestMethod.POST
+  },
+  {
+    path: "api/v1/assistant/:assistantId/browser-profiles/:profileId/open-live",
+    method: RequestMethod.POST
+  },
+  {
+    path: "api/v1/assistant/:assistantId/browser-profiles/:profileId/dismiss-live",
+    method: RequestMethod.POST
+  },
+  // ADR-146 Slice 1 — owner sandbox egress mode GET/PUT.
+  {
+    path: "api/v1/assistant/:assistantId/sandbox-egress",
+    method: RequestMethod.GET
+  },
+  {
+    path: "api/v1/assistant/:assistantId/sandbox-egress",
+    method: RequestMethod.PUT
+  },
+  {
+    path: "api/v1/assistant/browser-bridge/devices",
+    method: RequestMethod.POST
+  },
+  { path: "api/v1/admin/abuse-controls/assistants", method: RequestMethod.GET },
+  { path: "api/v1/admin/abuse-controls/active-overrides", method: RequestMethod.GET },
+  { path: "api/v1/admin/abuse-controls/unblock", method: RequestMethod.POST },
+  { path: "api/v1/admin/assistants/ownership/transfer", method: RequestMethod.POST },
+  { path: "api/v1/admin/assistants/ownership/recover", method: RequestMethod.POST },
+  { path: "api/v1/admin/plans", method: RequestMethod.GET },
+  { path: "api/v1/admin/site-pages", method: RequestMethod.GET },
+  { path: "api/v1/admin/site-pages/:slug", method: RequestMethod.PUT },
+  { path: "api/v1/admin/site-pages/:slug/publish", method: RequestMethod.POST },
+  { path: "api/v1/admin/plans/visibility", method: RequestMethod.GET },
+  { path: "api/v1/admin/plans/packages", method: RequestMethod.GET },
+  { path: "api/v1/admin/plans/packages", method: RequestMethod.POST },
+  { path: "api/v1/admin/plans/packages/:id", method: RequestMethod.PATCH },
+  { path: "api/v1/admin/plans/packages/:id", method: RequestMethod.DELETE },
+  { path: "api/v1/admin/billing/lifecycle-settings", method: RequestMethod.GET },
+  { path: "api/v1/admin/billing/lifecycle-settings", method: RequestMethod.PUT },
+  { path: "api/v1/support/tickets", method: RequestMethod.POST },
+  { path: "api/v1/support/assistants/:assistantId/tickets", method: RequestMethod.GET },
+  { path: "api/v1/support/tickets/:ticketId", method: RequestMethod.GET },
+  { path: "api/v1/support/tickets/:ticketId/read", method: RequestMethod.POST },
+  { path: "api/v1/support/attachments/:attachmentId", method: RequestMethod.GET },
+  { path: "api/v1/admin/support/tickets", method: RequestMethod.GET },
+  { path: "api/v1/admin/support/tickets/:ticketId", method: RequestMethod.GET },
+  { path: "api/v1/admin/support/attachments/:attachmentId", method: RequestMethod.GET },
+  {
+    path: "api/v1/admin/support/tickets/:ticketId/reply",
+    method: RequestMethod.POST
+  },
+  {
+    path: "api/v1/admin/support/tickets/:ticketId/pending",
+    method: RequestMethod.POST
+  },
+  {
+    path: "api/v1/admin/support/tickets/:ticketId/close",
+    method: RequestMethod.POST
+  },
+  { path: "api/v1/admin/ops/cockpit", method: RequestMethod.GET },
+  { path: "api/v1/admin/ops/users", method: RequestMethod.GET },
+  { path: "api/v1/admin/ops/users/:userId/reapply", method: RequestMethod.POST },
+  { path: "api/v1/admin/ops/users/:userId/plan-override", method: RequestMethod.POST },
+  { path: "api/v1/admin/ops/users/:userId/plan-override", method: RequestMethod.DELETE },
+  {
+    path: "api/v1/admin/ops/users/:userId/billing-support-action",
+    method: RequestMethod.POST
+  },
+  { path: "api/v1/admin/ops/users/:userId/workspace-subscription", method: RequestMethod.POST },
+  {
+    path: "api/v1/admin/ops/users/:userId/workspace-subscription",
+    method: RequestMethod.DELETE
+  },
+  { path: "api/v1/admin/ops/users/:userId", method: RequestMethod.DELETE },
+  // ADR-115 inbound safety admin surfaces — without ClerkAuthMiddleware registration
+  // requests reach controllers with req.resolvedAppUser undefined and return 401.
+  { path: "api/v1/admin/safety-policy/heuristic-rules", method: RequestMethod.GET },
+  { path: "api/v1/admin/safety-policy/heuristic-rules", method: RequestMethod.PUT },
+  { path: "api/v1/admin/safety-policy/settings", method: RequestMethod.GET },
+  { path: "api/v1/admin/safety-policy/settings", method: RequestMethod.PUT },
+  { path: "api/v1/admin/safety-controls/restrictions", method: RequestMethod.GET },
+  { path: "api/v1/admin/safety-controls/cases", method: RequestMethod.GET },
+  { path: "api/v1/admin/safety-controls/unblock", method: RequestMethod.POST },
+  { path: "api/v1/admin/safety-controls/restrict", method: RequestMethod.POST },
+  { path: "api/v1/admin/business/cockpit", method: RequestMethod.GET },
+  { path: "api/v1/admin/business/platform", method: RequestMethod.GET },
+  { path: "api/v1/admin/overview/dashboard", method: RequestMethod.GET },
+  { path: "api/v1/admin/overview/latency-trace", method: RequestMethod.POST },
+  // ADR-088 unified notification platform — admin control plane
+  { path: "api/v1/admin/notifications/channels", method: RequestMethod.GET },
+  { path: "api/v1/admin/notifications/channels/:channelType", method: RequestMethod.PATCH },
+  {
+    path: "api/v1/admin/notifications/channels/:channelType/test-send",
+    method: RequestMethod.POST
+  },
+  { path: "api/v1/admin/notifications/templates", method: RequestMethod.GET },
+  { path: "api/v1/admin/notifications/policies", method: RequestMethod.GET },
+  { path: "api/v1/admin/notifications/policies/:source", method: RequestMethod.PATCH },
+  { path: "api/v1/admin/notifications/policies/:source/test", method: RequestMethod.POST },
+  { path: "api/v1/admin/notifications/quiet-hours", method: RequestMethod.GET },
+  { path: "api/v1/admin/notifications/quiet-hours", method: RequestMethod.PATCH },
+  { path: "api/v1/admin/notifications/deliveries", method: RequestMethod.GET },
+  { path: "api/v1/admin/notifications/deliveries/:intentId", method: RequestMethod.GET },
+  { path: "api/v1/admin/notifications/dead-letters", method: RequestMethod.GET },
+  {
+    path: "api/v1/admin/notifications/dead-letters/:id/replay",
+    method: RequestMethod.POST
+  },
+  {
+    path: "api/v1/admin/notifications/dead-letters/:id/discard",
+    method: RequestMethod.POST
+  },
+  { path: "api/v1/admin/notifications/preview", method: RequestMethod.POST },
+  { path: "api/v1/admin/runtime/provider-settings", method: RequestMethod.GET },
+  { path: "api/v1/admin/runtime/provider-settings", method: RequestMethod.PUT },
+  { path: "api/v1/admin/platform-rollouts", method: RequestMethod.GET },
+  { path: "api/v1/admin/platform-rollouts/:rolloutId/failed-items", method: RequestMethod.GET },
+  {
+    path: "api/v1/admin/platform-rollouts/:rolloutId/retry-failed",
+    method: RequestMethod.POST
+  },
+  {
+    path: "api/v1/admin/platform-rollouts/:rolloutId/cancel-pending",
+    method: RequestMethod.POST
+  },
+  { path: "api/v1/admin/step-up/challenge", method: RequestMethod.POST },
+  { path: "api/v1/admin/plans", method: RequestMethod.POST },
+  { path: "api/v1/admin/plans/:code", method: RequestMethod.PATCH },
+  { path: "api/v1/admin/plans/:code", method: RequestMethod.DELETE },
+  { path: "api/v1/admin/runtime/tool-credentials", method: RequestMethod.GET },
+  { path: "api/v1/admin/runtime/tool-credentials", method: RequestMethod.PUT },
+  {
+    path: "api/v1/admin/runtime/tool-credentials/heygen-voice-catalog/refresh",
+    method: RequestMethod.POST
+  },
+  {
+    path: "api/v1/admin/runtime/tool-credentials/heygen-voice-catalog/curation",
+    method: RequestMethod.GET
+  },
+  {
+    path: "api/v1/admin/runtime/tool-credentials/heygen-voice-catalog/curation",
+    method: RequestMethod.PATCH
+  },
+  {
+    path: "api/v1/admin/runtime/tool-credentials/heygen-voice-catalog/:voiceId/preview",
+    method: RequestMethod.GET
+  },
+  { path: "api/v1/admin/tools/billing", method: RequestMethod.GET },
+  { path: "api/v1/admin/tools/billing", method: RequestMethod.PUT },
+  { path: "api/v1/admin/tools/metadata", method: RequestMethod.GET },
+  { path: "api/v1/admin/tools/metadata/:toolCode", method: RequestMethod.PATCH },
+  { path: "api/v1/admin/prompt-templates", method: RequestMethod.GET },
+  { path: "api/v1/admin/prompt-templates/:id", method: RequestMethod.PATCH },
+  {
+    path: "api/v1/admin/prompt-templates/:id/reset-to-default",
+    method: RequestMethod.POST
+  },
+  { path: "api/v1/admin/persona-archetypes", method: RequestMethod.GET },
+  { path: "api/v1/admin/persona-archetypes/:key", method: RequestMethod.PATCH },
+  {
+    path: "api/v1/admin/persona-archetypes/:key/reset-to-default",
+    method: RequestMethod.POST
+  },
+  { path: "api/v1/admin/knowledge-sources", method: RequestMethod.GET },
+  { path: "api/v1/admin/knowledge-sources/observability", method: RequestMethod.GET },
+  { path: "api/v1/admin/knowledge-sources/connectors", method: RequestMethod.GET },
+  { path: "api/v1/admin/knowledge-sources/retrieval-policy", method: RequestMethod.GET },
+  { path: "api/v1/admin/knowledge-sources/retrieval-policy", method: RequestMethod.POST },
+  { path: "api/v1/admin/knowledge-sources/product/text-entries", method: RequestMethod.GET },
+  { path: "api/v1/admin/knowledge-sources/product/text-entries", method: RequestMethod.POST },
+  {
+    path: "api/v1/admin/knowledge-sources/product/text-entries/:entryId",
+    method: RequestMethod.PATCH
+  },
+  {
+    path: "api/v1/admin/knowledge-sources/product/text-entries/:entryId",
+    method: RequestMethod.DELETE
+  },
+  {
+    path: "api/v1/admin/knowledge-sources/product/text-entries/:entryId/reindex",
+    method: RequestMethod.POST
+  },
+  {
+    path: "api/v1/admin/knowledge-sources/retrieval-policy/embedding-change-preview",
+    method: RequestMethod.POST
+  },
+  { path: "api/v1/admin/memory-backfill/preview", method: RequestMethod.POST },
+  { path: "api/v1/admin/memory-backfill/apply", method: RequestMethod.POST },
+  { path: "api/v1/admin/knowledge-sources/:scope", method: RequestMethod.POST },
+  { path: "api/v1/admin/knowledge-sources/:sourceId", method: RequestMethod.DELETE },
+  { path: "api/v1/admin/knowledge-sources/:sourceId/reindex", method: RequestMethod.POST },
+  { path: "api/v1/admin/knowledge-indexing/jobs", method: RequestMethod.GET },
+  { path: "api/v1/admin/skills", method: RequestMethod.GET },
+  { path: "api/v1/admin/skills", method: RequestMethod.POST },
+  { path: "api/v1/admin/skills/:skillId", method: RequestMethod.GET },
+  { path: "api/v1/admin/skills/:skillId", method: RequestMethod.PATCH },
+  { path: "api/v1/admin/skills/:skillId", method: RequestMethod.DELETE },
+  // ADR-147 S4 — Admin Roles constructor (static preview before :roleId).
+  { path: "api/v1/admin/roles", method: RequestMethod.GET },
+  { path: "api/v1/admin/roles", method: RequestMethod.POST },
+  { path: "api/v1/admin/roles/preview", method: RequestMethod.POST },
+  { path: "api/v1/admin/roles/:roleId", method: RequestMethod.GET },
+  { path: "api/v1/admin/roles/:roleId", method: RequestMethod.PATCH },
+  { path: "api/v1/admin/roles/:roleId", method: RequestMethod.DELETE },
+  { path: "api/v1/admin/roles/:roleId/skills", method: RequestMethod.PUT },
+  { path: "api/v1/admin/scripts", method: RequestMethod.GET },
+  { path: "api/v1/admin/scripts", method: RequestMethod.POST },
+  { path: "api/v1/admin/scripts/:scriptId", method: RequestMethod.GET },
+  { path: "api/v1/admin/scripts/:scriptId", method: RequestMethod.PATCH },
+  { path: "api/v1/admin/scripts/:scriptId", method: RequestMethod.DELETE },
+  { path: "api/v1/admin/scripts/:scriptId/versions", method: RequestMethod.GET },
+  { path: "api/v1/admin/scripts/:scriptId/versions", method: RequestMethod.POST },
+  {
+    path: "api/v1/admin/scripts/:scriptId/versions/:versionId",
+    method: RequestMethod.PATCH
+  },
+  {
+    path: "api/v1/admin/scripts/:scriptId/versions/:versionId/validate",
+    method: RequestMethod.POST
+  },
+  {
+    path: "api/v1/admin/scripts/:scriptId/versions/:versionId/publish",
+    method: RequestMethod.POST
+  },
+  { path: "api/v1/admin/skills/:skillId/scripts", method: RequestMethod.GET },
+  { path: "api/v1/admin/skills/:skillId/scripts", method: RequestMethod.PUT },
+  { path: "api/v1/admin/skills/:skillId/authoring/draft", method: RequestMethod.POST },
+  { path: "api/v1/admin/skills/:skillId/documents", method: RequestMethod.POST },
+  {
+    path: "api/v1/admin/skills/:skillId/documents/:documentId",
+    method: RequestMethod.DELETE
+  },
+  {
+    path: "api/v1/admin/skills/:skillId/documents/:documentId/reindex",
+    method: RequestMethod.POST
+  },
+  { path: "api/v1/admin/skills/:skillId/knowledge-cards", method: RequestMethod.POST },
+  {
+    path: "api/v1/admin/skills/:skillId/knowledge-cards/:cardId",
+    method: RequestMethod.PATCH
+  },
+  {
+    path: "api/v1/admin/skills/:skillId/knowledge-cards/:cardId",
+    method: RequestMethod.DELETE
+  },
+  {
+    path: "api/v1/admin/skills/:skillId/knowledge-cards/:cardId/reindex",
+    method: RequestMethod.POST
+  },
+  { path: "api/v1/admin/skills/:skillId/scenarios", method: RequestMethod.GET },
+  { path: "api/v1/admin/skills/:skillId/scenarios", method: RequestMethod.POST },
+  {
+    path: "api/v1/admin/skills/:skillId/scenarios/:scenarioKey",
+    method: RequestMethod.GET
+  },
+  {
+    path: "api/v1/admin/skills/:skillId/scenarios/:scenarioKey",
+    method: RequestMethod.PATCH
+  },
+  {
+    path: "api/v1/admin/skills/:skillId/scenarios/:scenarioKey",
+    method: RequestMethod.DELETE
+  },
+  { path: "api/v1/admin/tools/document-processing", method: RequestMethod.GET },
+  { path: "api/v1/admin/tools/document-processing", method: RequestMethod.PUT },
+  { path: "api/v1/admin/tools/economics", method: RequestMethod.GET },
+  { path: "api/v1/admin/tools/economics", method: RequestMethod.PUT },
+  {
+    path: "api/v1/admin/tools/document-processing/test-connection",
+    method: RequestMethod.POST
+  },
+  { path: "api/v1/admin/runtime/force-reapply-all", method: RequestMethod.POST },
+  {
+    path: "api/v1/assistant/chat/:chatId/message/:messageId/attachment",
+    method: RequestMethod.POST
+  },
+  { path: "api/v1/assistant/voice/transcribe", method: RequestMethod.POST },
+  // ADR-109 Slice 9 / Slice 10d Fix: workspace-scoped video persona endpoints.
+  // Pre-Slice-10d these routes were created without explicit auth middleware
+  // registration, so every request landed with req.resolvedAppUser undefined
+  // and the controller's resolveUserId guard returned 401 (userId=null in
+  // request logs). Audit missed this because no test exercised the
+  // middleware-routing pipeline live.
+  { path: "api/v1/workspaces/:workspaceId/video-personas", method: RequestMethod.POST },
+  { path: "api/v1/workspaces/:workspaceId/video-personas", method: RequestMethod.GET },
+  {
+    path: "api/v1/workspaces/:workspaceId/video-personas/voice-catalog",
+    method: RequestMethod.GET
+  },
+  {
+    path: "api/v1/workspaces/:workspaceId/video-personas/voice-catalog/:voiceId/preview",
+    method: RequestMethod.GET
+  },
+  {
+    path: "api/v1/workspaces/:workspaceId/video-personas/:personaId",
+    method: RequestMethod.PATCH
+  },
+  {
+    path: "api/v1/workspaces/:workspaceId/video-personas/:personaId",
+    method: RequestMethod.DELETE
+  },
+  {
+    path: "api/v1/workspaces/:workspaceId/video-personas/:personaId/portrait",
+    method: RequestMethod.GET
+  },
+  {
+    path: "api/v1/workspaces/:workspaceId/video-personas/:personaId/preview",
+    method: RequestMethod.GET
+  },
+  // ADR-111: workspace-scoped cloned voice endpoints share the same
+  // fail-closed workspace auth model as video personas. Keep every
+  // concrete route registered here; otherwise controllers receive no
+  // resolved Clerk user and live requests fail as userId=null / 401.
+  {
+    path: "api/v1/workspaces/:workspaceId/video-cloned-voices",
+    method: RequestMethod.POST
+  },
+  {
+    path: "api/v1/workspaces/:workspaceId/video-cloned-voices",
+    method: RequestMethod.GET
+  },
+  {
+    path: "api/v1/workspaces/:workspaceId/video-cloned-voices/:clonedVoiceId/preview",
+    method: RequestMethod.GET
+  },
+  {
+    path: "api/v1/workspaces/:workspaceId/video-cloned-voices/:clonedVoiceId",
+    method: RequestMethod.DELETE
+  },
+  {
+    path: "api/v1/workspaces/:workspaceId/video-cloned-voices/:clonedVoiceId/default",
+    method: RequestMethod.POST
+  }
+];
+
 @Module({
   imports: [PlatformCoreModule],
   controllers: [AuthVerifyController, MeController],
@@ -30,531 +580,6 @@ import { MeController } from "./interface/http/me.controller";
 })
 export class IdentityAccessModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {
-    consumer.apply(ClerkAuthMiddleware).forRoutes(
-      { path: "api/v1/auth/*", method: RequestMethod.ALL },
-      { path: "api/v1/me", method: RequestMethod.GET },
-      { path: "api/v1/me/preferences", method: RequestMethod.PATCH },
-      { path: "api/v1/me/onboarding", method: RequestMethod.POST },
-      { path: "api/v1/app/bootstrap", method: RequestMethod.GET },
-      { path: "api/v1/app/user-safety-standing", method: RequestMethod.GET },
-      { path: "api/v1/assistant", method: RequestMethod.GET },
-      { path: "api/v1/assistant/list", method: RequestMethod.GET },
-      { path: "api/v1/assistant/persona-archetypes", method: RequestMethod.GET },
-      { path: "api/v1/assistant/plan-visibility", method: RequestMethod.GET },
-      { path: "api/v1/assistant/voice/settings", method: RequestMethod.GET },
-      { path: "api/v1/assistant/voice/elevenlabs/curation", method: RequestMethod.PATCH },
-      { path: "api/v1/assistant/voice/elevenlabs/refresh", method: RequestMethod.POST },
-      { path: "api/v1/assistant/notification-preference", method: RequestMethod.GET },
-      { path: "api/v1/assistant", method: RequestMethod.POST },
-      { path: "api/v1/assistant/switch", method: RequestMethod.POST },
-      { path: "api/v1/assistant/draft", method: RequestMethod.PATCH },
-      { path: "api/v1/assistant/setup/preview", method: RequestMethod.POST },
-      { path: "api/v1/assistant/notification-preference", method: RequestMethod.PATCH },
-      { path: "api/v1/assistant/avatar", method: RequestMethod.POST },
-      { path: "api/v1/assistant/avatar/:hash", method: RequestMethod.GET },
-      { path: "api/v1/assistant/publish", method: RequestMethod.POST },
-      { path: "api/v1/assistant/rollback", method: RequestMethod.POST },
-      { path: "api/v1/assistant/reset", method: RequestMethod.POST },
-      { path: "api/v1/assistant/reapply", method: RequestMethod.POST },
-      { path: "api/v1/assistant/runtime/preflight", method: RequestMethod.GET },
-      { path: "api/v1/assistant/chat/web", method: RequestMethod.POST },
-      { path: "api/v1/assistant/chat/web/stream", method: RequestMethod.POST },
-      { path: "api/v1/assistant/chat/web/stop", method: RequestMethod.POST },
-      { path: "api/v1/assistant/chat/web/turns/:clientTurnId", method: RequestMethod.GET },
-      {
-        path: "api/v1/assistant/chat/web/turns/:clientTurnId/stream",
-        method: RequestMethod.GET
-      },
-      { path: "api/v1/assistant/chat/web/stage-attachment", method: RequestMethod.POST },
-      {
-        path: "api/v1/assistant/chats/web/:chatId/files",
-        method: RequestMethod.GET
-      },
-      {
-        path: "api/v1/assistant/chats/web/:chatId/files/preview",
-        method: RequestMethod.GET
-      },
-      // ADR-126 v3 W5 — new web tile-gallery + delete surfaces. Without
-      // explicit ClerkAuthMiddleware registration the controller receives
-      // req.resolvedAppUser === undefined and the resolveRequestUserId guard
-      // returns 401 "Authenticated user context is missing." Same regression
-      // class as ADR-074 / ADR-088 / ADR-115 / ADR-118 / ADR-125 — pin both
-      // routes here AND in identity-access.module.test.ts so a future audit
-      // surfaces any miss.
-      {
-        path: "api/v1/assistant/chats/web/:chatId/workspace-files",
-        method: RequestMethod.GET
-      },
-      {
-        path: "api/v1/assistant/chats/web/:chatId/files",
-        method: RequestMethod.DELETE
-      },
-      // ADR-127 W1+W3 follow-up (2026-06-25 founder report): workspace-scoped
-      // tile gallery routes added by W1 (download/preview) and W3 (delete)
-      // for the assistant Files panel were missing from this allowlist, so
-      // the UI returned 401 "Authenticated user context is missing." when
-      // the user tried to delete or open a file via the workspace-scoped
-      // panel. Same regression class as the W5 chat-scoped fix above.
-      {
-        path: "api/v1/assistant/workspaces/:workspaceId/files",
-        method: RequestMethod.GET
-      },
-      {
-        path: "api/v1/assistant/workspaces/:workspaceId/files/preview",
-        method: RequestMethod.GET
-      },
-      {
-        path: "api/v1/assistant/workspaces/:workspaceId/files",
-        method: RequestMethod.DELETE
-      },
-      {
-        path: "api/v1/assistant/documents/:docId/prepare-pptx",
-        method: RequestMethod.POST
-      },
-      { path: "api/v1/assistant/knowledge-sources", method: RequestMethod.POST },
-      { path: "api/v1/assistant/knowledge-sources", method: RequestMethod.GET },
-      { path: "api/v1/assistant/knowledge-sources/:sourceId", method: RequestMethod.GET },
-      {
-        path: "api/v1/assistant/knowledge-sources/:sourceId/inspect",
-        method: RequestMethod.GET
-      },
-      { path: "api/v1/assistant/knowledge-sources/:sourceId", method: RequestMethod.DELETE },
-      {
-        path: "api/v1/assistant/knowledge-sources/:sourceId/reindex",
-        method: RequestMethod.POST
-      },
-      { path: "api/v1/assistant/knowledge-indexing/jobs", method: RequestMethod.GET },
-      { path: "api/v1/assistant/roles", method: RequestMethod.GET },
-      { path: "api/v1/assistant/:assistantId/role", method: RequestMethod.GET },
-      { path: "api/v1/assistant/:assistantId/role", method: RequestMethod.PUT },
-      { path: "api/v1/assistant/billing/payment-intents", method: RequestMethod.POST },
-      {
-        path: "api/v1/assistant/billing/payment-intents/:paymentIntentId",
-        method: RequestMethod.GET
-      },
-      { path: "api/v1/assistant/billing/packages/catalog", method: RequestMethod.GET },
-      {
-        path: "api/v1/assistant/billing/packages/payment-intents",
-        method: RequestMethod.POST
-      },
-      { path: "api/v1/assistant/billing/subscription", method: RequestMethod.GET },
-      {
-        path: "api/v1/assistant/billing/subscription/disable-auto-renew",
-        method: RequestMethod.POST
-      },
-      {
-        path: "api/v1/assistant/billing/subscription/enable-auto-renew",
-        method: RequestMethod.POST
-      },
-      {
-        path: "api/v1/assistant/billing/subscription/change-plan",
-        method: RequestMethod.POST
-      },
-      { path: "api/v1/assistant/chats/web", method: RequestMethod.GET },
-      { path: "api/v1/assistant/chats/web/:chatId/messages", method: RequestMethod.GET },
-      {
-        path: "api/v1/assistant/chats/web/:chatId/continuations/stream",
-        method: RequestMethod.GET
-      },
-      { path: "api/v1/assistant/chats/web/:chatId/compaction", method: RequestMethod.GET },
-      { path: "api/v1/assistant/chats/web/:chatId/compact", method: RequestMethod.POST },
-      { path: "api/v1/assistant/chats/web/:chatId/plan", method: RequestMethod.GET },
-      { path: "api/v1/assistant/chats/web/:chatId/plan", method: RequestMethod.DELETE },
-      { path: "api/v1/assistant/chats/web/:chatId", method: RequestMethod.PATCH },
-      { path: "api/v1/assistant/chats/web/:chatId/archive", method: RequestMethod.POST },
-      { path: "api/v1/assistant/chats/web/:chatId/unarchive", method: RequestMethod.POST },
-      { path: "api/v1/assistant/chats/web/:chatId", method: RequestMethod.DELETE },
-      { path: "api/v1/assistant/memory/items", method: RequestMethod.GET },
-      { path: "api/v1/assistant/memory/items/:itemId/forget", method: RequestMethod.POST },
-      {
-        path: "api/v1/assistant/memory/items/:itemId/close-open-loop",
-        method: RequestMethod.POST
-      },
-      { path: "api/v1/assistant/memory/do-not-remember", method: RequestMethod.POST },
-      { path: "api/v1/assistant/memory/workspace/items", method: RequestMethod.GET },
-      { path: "api/v1/assistant/memory/workspace/add", method: RequestMethod.POST },
-      { path: "api/v1/assistant/memory/workspace/edit", method: RequestMethod.PATCH },
-      { path: "api/v1/assistant/memory/workspace/forget", method: RequestMethod.POST },
-      { path: "api/v1/assistant/memory/workspace/search", method: RequestMethod.GET },
-      { path: "api/v1/assistant/tasks/items", method: RequestMethod.GET },
-      { path: "api/v1/assistant/tasks/items/:itemId/disable", method: RequestMethod.POST },
-      { path: "api/v1/assistant/tasks/items/:itemId/enable", method: RequestMethod.POST },
-      { path: "api/v1/assistant/tasks/items/:itemId/cancel", method: RequestMethod.POST },
-      { path: "api/v1/assistant/background-tasks/items", method: RequestMethod.GET },
-      {
-        path: "api/v1/assistant/background-tasks/items/:itemId/disable",
-        method: RequestMethod.POST
-      },
-      {
-        path: "api/v1/assistant/background-tasks/items/:itemId/enable",
-        method: RequestMethod.POST
-      },
-      {
-        path: "api/v1/assistant/background-tasks/items/:itemId/cancel",
-        method: RequestMethod.POST
-      },
-      { path: "api/v1/assistant/integrations/telegram", method: RequestMethod.GET },
-      { path: "api/v1/assistant/integrations/telegram/connect", method: RequestMethod.POST },
-      { path: "api/v1/assistant/integrations/telegram/rotate", method: RequestMethod.POST },
-      { path: "api/v1/assistant/integrations/telegram/revoke", method: RequestMethod.POST },
-      {
-        path: "api/v1/assistant/integrations/telegram/emergency-revoke",
-        method: RequestMethod.POST
-      },
-      {
-        path: "api/v1/assistant/integrations/telegram/resend-owner-message",
-        method: RequestMethod.POST
-      },
-      { path: "api/v1/assistant/integrations/telegram/config", method: RequestMethod.PATCH },
-      { path: "api/v1/assistant/integrations/telegram/groups", method: RequestMethod.GET },
-      {
-        path: "api/v1/assistant/integrations/telegram/groups/refresh",
-        method: RequestMethod.POST
-      },
-      // ADR-138 browser profile settings + live login modal (complete/cancel).
-      // Without explicit ClerkAuthMiddleware registration requests reach the
-      // controller with req.resolvedAppUser === undefined and return 401.
-      {
-        path: "api/v1/assistant/:assistantId/browser-profiles",
-        method: RequestMethod.GET
-      },
-      {
-        path: "api/v1/assistant/:assistantId/browser-profiles/:profileId",
-        method: RequestMethod.DELETE
-      },
-      {
-        path: "api/v1/assistant/:assistantId/browser-profiles/:profileId/reconnect",
-        method: RequestMethod.POST
-      },
-      {
-        path: "api/v1/assistant/:assistantId/browser-profiles/:profileId/complete-login",
-        method: RequestMethod.POST
-      },
-      {
-        path: "api/v1/assistant/:assistantId/browser-profiles/:profileId/open-live",
-        method: RequestMethod.POST
-      },
-      {
-        path: "api/v1/assistant/:assistantId/browser-profiles/:profileId/dismiss-live",
-        method: RequestMethod.POST
-      },
-      // ADR-146 Slice 1 — owner sandbox egress mode GET/PUT.
-      {
-        path: "api/v1/assistant/:assistantId/sandbox-egress",
-        method: RequestMethod.GET
-      },
-      {
-        path: "api/v1/assistant/:assistantId/sandbox-egress",
-        method: RequestMethod.PUT
-      },
-      {
-        path: "api/v1/assistant/browser-bridge/devices",
-        method: RequestMethod.POST
-      },
-      { path: "api/v1/admin/abuse-controls/assistants", method: RequestMethod.GET },
-      { path: "api/v1/admin/abuse-controls/active-overrides", method: RequestMethod.GET },
-      { path: "api/v1/admin/abuse-controls/unblock", method: RequestMethod.POST },
-      { path: "api/v1/admin/assistants/ownership/transfer", method: RequestMethod.POST },
-      { path: "api/v1/admin/assistants/ownership/recover", method: RequestMethod.POST },
-      { path: "api/v1/admin/plans", method: RequestMethod.GET },
-      { path: "api/v1/admin/site-pages", method: RequestMethod.GET },
-      { path: "api/v1/admin/site-pages/:slug", method: RequestMethod.PUT },
-      { path: "api/v1/admin/site-pages/:slug/publish", method: RequestMethod.POST },
-      { path: "api/v1/admin/plans/visibility", method: RequestMethod.GET },
-      { path: "api/v1/admin/plans/packages", method: RequestMethod.GET },
-      { path: "api/v1/admin/plans/packages", method: RequestMethod.POST },
-      { path: "api/v1/admin/plans/packages/:id", method: RequestMethod.PATCH },
-      { path: "api/v1/admin/plans/packages/:id", method: RequestMethod.DELETE },
-      { path: "api/v1/admin/billing/lifecycle-settings", method: RequestMethod.GET },
-      { path: "api/v1/admin/billing/lifecycle-settings", method: RequestMethod.PUT },
-      { path: "api/v1/support/tickets", method: RequestMethod.POST },
-      { path: "api/v1/support/assistants/:assistantId/tickets", method: RequestMethod.GET },
-      { path: "api/v1/support/tickets/:ticketId", method: RequestMethod.GET },
-      { path: "api/v1/support/tickets/:ticketId/read", method: RequestMethod.POST },
-      { path: "api/v1/support/attachments/:attachmentId", method: RequestMethod.GET },
-      { path: "api/v1/admin/support/tickets", method: RequestMethod.GET },
-      { path: "api/v1/admin/support/tickets/:ticketId", method: RequestMethod.GET },
-      { path: "api/v1/admin/support/attachments/:attachmentId", method: RequestMethod.GET },
-      {
-        path: "api/v1/admin/support/tickets/:ticketId/reply",
-        method: RequestMethod.POST
-      },
-      {
-        path: "api/v1/admin/support/tickets/:ticketId/pending",
-        method: RequestMethod.POST
-      },
-      {
-        path: "api/v1/admin/support/tickets/:ticketId/close",
-        method: RequestMethod.POST
-      },
-      { path: "api/v1/admin/ops/cockpit", method: RequestMethod.GET },
-      { path: "api/v1/admin/ops/users", method: RequestMethod.GET },
-      { path: "api/v1/admin/ops/users/:userId/reapply", method: RequestMethod.POST },
-      { path: "api/v1/admin/ops/users/:userId/plan-override", method: RequestMethod.POST },
-      { path: "api/v1/admin/ops/users/:userId/plan-override", method: RequestMethod.DELETE },
-      {
-        path: "api/v1/admin/ops/users/:userId/billing-support-action",
-        method: RequestMethod.POST
-      },
-      { path: "api/v1/admin/ops/users/:userId/workspace-subscription", method: RequestMethod.POST },
-      {
-        path: "api/v1/admin/ops/users/:userId/workspace-subscription",
-        method: RequestMethod.DELETE
-      },
-      { path: "api/v1/admin/ops/users/:userId", method: RequestMethod.DELETE },
-      // ADR-115 inbound safety admin surfaces — without ClerkAuthMiddleware registration
-      // requests reach controllers with req.resolvedAppUser undefined and return 401.
-      { path: "api/v1/admin/safety-policy/heuristic-rules", method: RequestMethod.GET },
-      { path: "api/v1/admin/safety-policy/heuristic-rules", method: RequestMethod.PUT },
-      { path: "api/v1/admin/safety-policy/settings", method: RequestMethod.GET },
-      { path: "api/v1/admin/safety-policy/settings", method: RequestMethod.PUT },
-      { path: "api/v1/admin/safety-controls/restrictions", method: RequestMethod.GET },
-      { path: "api/v1/admin/safety-controls/cases", method: RequestMethod.GET },
-      { path: "api/v1/admin/safety-controls/unblock", method: RequestMethod.POST },
-      { path: "api/v1/admin/safety-controls/restrict", method: RequestMethod.POST },
-      { path: "api/v1/admin/business/cockpit", method: RequestMethod.GET },
-      { path: "api/v1/admin/business/platform", method: RequestMethod.GET },
-      { path: "api/v1/admin/overview/dashboard", method: RequestMethod.GET },
-      { path: "api/v1/admin/overview/latency-trace", method: RequestMethod.POST },
-      // ADR-088 unified notification platform — admin control plane
-      { path: "api/v1/admin/notifications/channels", method: RequestMethod.GET },
-      { path: "api/v1/admin/notifications/channels/:channelType", method: RequestMethod.PATCH },
-      {
-        path: "api/v1/admin/notifications/channels/:channelType/test-send",
-        method: RequestMethod.POST
-      },
-      { path: "api/v1/admin/notifications/templates", method: RequestMethod.GET },
-      { path: "api/v1/admin/notifications/policies", method: RequestMethod.GET },
-      { path: "api/v1/admin/notifications/policies/:source", method: RequestMethod.PATCH },
-      { path: "api/v1/admin/notifications/policies/:source/test", method: RequestMethod.POST },
-      { path: "api/v1/admin/notifications/quiet-hours", method: RequestMethod.GET },
-      { path: "api/v1/admin/notifications/quiet-hours", method: RequestMethod.PATCH },
-      { path: "api/v1/admin/notifications/deliveries", method: RequestMethod.GET },
-      { path: "api/v1/admin/notifications/deliveries/:intentId", method: RequestMethod.GET },
-      { path: "api/v1/admin/notifications/dead-letters", method: RequestMethod.GET },
-      {
-        path: "api/v1/admin/notifications/dead-letters/:id/replay",
-        method: RequestMethod.POST
-      },
-      {
-        path: "api/v1/admin/notifications/dead-letters/:id/discard",
-        method: RequestMethod.POST
-      },
-      { path: "api/v1/admin/notifications/preview", method: RequestMethod.POST },
-      { path: "api/v1/admin/runtime/provider-settings", method: RequestMethod.GET },
-      { path: "api/v1/admin/runtime/provider-settings", method: RequestMethod.PUT },
-      { path: "api/v1/admin/platform-rollouts", method: RequestMethod.GET },
-      { path: "api/v1/admin/platform-rollouts/:rolloutId/failed-items", method: RequestMethod.GET },
-      {
-        path: "api/v1/admin/platform-rollouts/:rolloutId/retry-failed",
-        method: RequestMethod.POST
-      },
-      {
-        path: "api/v1/admin/platform-rollouts/:rolloutId/cancel-pending",
-        method: RequestMethod.POST
-      },
-      { path: "api/v1/admin/step-up/challenge", method: RequestMethod.POST },
-      { path: "api/v1/admin/plans", method: RequestMethod.POST },
-      { path: "api/v1/admin/plans/:code", method: RequestMethod.PATCH },
-      { path: "api/v1/admin/plans/:code", method: RequestMethod.DELETE },
-      { path: "api/v1/admin/runtime/tool-credentials", method: RequestMethod.GET },
-      { path: "api/v1/admin/runtime/tool-credentials", method: RequestMethod.PUT },
-      {
-        path: "api/v1/admin/runtime/tool-credentials/heygen-voice-catalog/refresh",
-        method: RequestMethod.POST
-      },
-      {
-        path: "api/v1/admin/runtime/tool-credentials/heygen-voice-catalog/curation",
-        method: RequestMethod.GET
-      },
-      {
-        path: "api/v1/admin/runtime/tool-credentials/heygen-voice-catalog/curation",
-        method: RequestMethod.PATCH
-      },
-      {
-        path: "api/v1/admin/runtime/tool-credentials/heygen-voice-catalog/:voiceId/preview",
-        method: RequestMethod.GET
-      },
-      { path: "api/v1/admin/tools/billing", method: RequestMethod.GET },
-      { path: "api/v1/admin/tools/billing", method: RequestMethod.PUT },
-      { path: "api/v1/admin/tools/metadata", method: RequestMethod.GET },
-      { path: "api/v1/admin/tools/metadata/:toolCode", method: RequestMethod.PATCH },
-      { path: "api/v1/admin/prompt-templates", method: RequestMethod.GET },
-      { path: "api/v1/admin/prompt-templates/:id", method: RequestMethod.PATCH },
-      {
-        path: "api/v1/admin/prompt-templates/:id/reset-to-default",
-        method: RequestMethod.POST
-      },
-      { path: "api/v1/admin/persona-archetypes", method: RequestMethod.GET },
-      { path: "api/v1/admin/persona-archetypes/:key", method: RequestMethod.PATCH },
-      {
-        path: "api/v1/admin/persona-archetypes/:key/reset-to-default",
-        method: RequestMethod.POST
-      },
-      { path: "api/v1/admin/knowledge-sources", method: RequestMethod.GET },
-      { path: "api/v1/admin/knowledge-sources/observability", method: RequestMethod.GET },
-      { path: "api/v1/admin/knowledge-sources/connectors", method: RequestMethod.GET },
-      { path: "api/v1/admin/knowledge-sources/retrieval-policy", method: RequestMethod.GET },
-      { path: "api/v1/admin/knowledge-sources/retrieval-policy", method: RequestMethod.POST },
-      { path: "api/v1/admin/knowledge-sources/product/text-entries", method: RequestMethod.GET },
-      { path: "api/v1/admin/knowledge-sources/product/text-entries", method: RequestMethod.POST },
-      {
-        path: "api/v1/admin/knowledge-sources/product/text-entries/:entryId",
-        method: RequestMethod.PATCH
-      },
-      {
-        path: "api/v1/admin/knowledge-sources/product/text-entries/:entryId",
-        method: RequestMethod.DELETE
-      },
-      {
-        path: "api/v1/admin/knowledge-sources/product/text-entries/:entryId/reindex",
-        method: RequestMethod.POST
-      },
-      { path: "api/v1/admin/knowledge-sources/:scope", method: RequestMethod.POST },
-      { path: "api/v1/admin/knowledge-sources/:sourceId", method: RequestMethod.DELETE },
-      { path: "api/v1/admin/knowledge-sources/:sourceId/reindex", method: RequestMethod.POST },
-      { path: "api/v1/admin/knowledge-indexing/jobs", method: RequestMethod.GET },
-      { path: "api/v1/admin/skills", method: RequestMethod.GET },
-      { path: "api/v1/admin/skills", method: RequestMethod.POST },
-      { path: "api/v1/admin/skills/:skillId", method: RequestMethod.GET },
-      { path: "api/v1/admin/skills/:skillId", method: RequestMethod.PATCH },
-      { path: "api/v1/admin/skills/:skillId", method: RequestMethod.DELETE },
-      // ADR-147 S4 — Admin Roles constructor (static preview before :roleId).
-      { path: "api/v1/admin/roles", method: RequestMethod.GET },
-      { path: "api/v1/admin/roles", method: RequestMethod.POST },
-      { path: "api/v1/admin/roles/preview", method: RequestMethod.POST },
-      { path: "api/v1/admin/roles/:roleId", method: RequestMethod.GET },
-      { path: "api/v1/admin/roles/:roleId", method: RequestMethod.PATCH },
-      { path: "api/v1/admin/roles/:roleId", method: RequestMethod.DELETE },
-      { path: "api/v1/admin/roles/:roleId/skills", method: RequestMethod.PUT },
-      { path: "api/v1/admin/scripts", method: RequestMethod.GET },
-      { path: "api/v1/admin/scripts", method: RequestMethod.POST },
-      { path: "api/v1/admin/scripts/:scriptId", method: RequestMethod.GET },
-      { path: "api/v1/admin/scripts/:scriptId", method: RequestMethod.PATCH },
-      { path: "api/v1/admin/scripts/:scriptId", method: RequestMethod.DELETE },
-      { path: "api/v1/admin/scripts/:scriptId/versions", method: RequestMethod.GET },
-      { path: "api/v1/admin/scripts/:scriptId/versions", method: RequestMethod.POST },
-      {
-        path: "api/v1/admin/scripts/:scriptId/versions/:versionId",
-        method: RequestMethod.PATCH
-      },
-      {
-        path: "api/v1/admin/scripts/:scriptId/versions/:versionId/validate",
-        method: RequestMethod.POST
-      },
-      {
-        path: "api/v1/admin/scripts/:scriptId/versions/:versionId/publish",
-        method: RequestMethod.POST
-      },
-      { path: "api/v1/admin/skills/:skillId/scripts", method: RequestMethod.GET },
-      { path: "api/v1/admin/skills/:skillId/scripts", method: RequestMethod.PUT },
-      { path: "api/v1/admin/skills/:skillId/authoring/draft", method: RequestMethod.POST },
-      { path: "api/v1/admin/skills/:skillId/documents", method: RequestMethod.POST },
-      {
-        path: "api/v1/admin/skills/:skillId/documents/:documentId",
-        method: RequestMethod.DELETE
-      },
-      {
-        path: "api/v1/admin/skills/:skillId/documents/:documentId/reindex",
-        method: RequestMethod.POST
-      },
-      { path: "api/v1/admin/skills/:skillId/knowledge-cards", method: RequestMethod.POST },
-      {
-        path: "api/v1/admin/skills/:skillId/knowledge-cards/:cardId",
-        method: RequestMethod.PATCH
-      },
-      {
-        path: "api/v1/admin/skills/:skillId/knowledge-cards/:cardId",
-        method: RequestMethod.DELETE
-      },
-      {
-        path: "api/v1/admin/skills/:skillId/knowledge-cards/:cardId/reindex",
-        method: RequestMethod.POST
-      },
-      { path: "api/v1/admin/skills/:skillId/scenarios", method: RequestMethod.GET },
-      { path: "api/v1/admin/skills/:skillId/scenarios", method: RequestMethod.POST },
-      {
-        path: "api/v1/admin/skills/:skillId/scenarios/:scenarioKey",
-        method: RequestMethod.GET
-      },
-      {
-        path: "api/v1/admin/skills/:skillId/scenarios/:scenarioKey",
-        method: RequestMethod.PATCH
-      },
-      {
-        path: "api/v1/admin/skills/:skillId/scenarios/:scenarioKey",
-        method: RequestMethod.DELETE
-      },
-      { path: "api/v1/admin/tools/document-processing", method: RequestMethod.GET },
-      { path: "api/v1/admin/tools/document-processing", method: RequestMethod.PUT },
-      { path: "api/v1/admin/tools/economics", method: RequestMethod.GET },
-      { path: "api/v1/admin/tools/economics", method: RequestMethod.PUT },
-      {
-        path: "api/v1/admin/tools/document-processing/test-connection",
-        method: RequestMethod.POST
-      },
-      { path: "api/v1/admin/runtime/force-reapply-all", method: RequestMethod.POST },
-      {
-        path: "api/v1/assistant/chat/:chatId/message/:messageId/attachment",
-        method: RequestMethod.POST
-      },
-      { path: "api/v1/assistant/voice/transcribe", method: RequestMethod.POST },
-      // ADR-109 Slice 9 / Slice 10d Fix: workspace-scoped video persona endpoints.
-      // Pre-Slice-10d these routes were created without explicit auth middleware
-      // registration, so every request landed with req.resolvedAppUser undefined
-      // and the controller's resolveUserId guard returned 401 (userId=null in
-      // request logs). Audit missed this because no test exercised the
-      // middleware-routing pipeline live.
-      { path: "api/v1/workspaces/:workspaceId/video-personas", method: RequestMethod.POST },
-      { path: "api/v1/workspaces/:workspaceId/video-personas", method: RequestMethod.GET },
-      {
-        path: "api/v1/workspaces/:workspaceId/video-personas/voice-catalog",
-        method: RequestMethod.GET
-      },
-      {
-        path: "api/v1/workspaces/:workspaceId/video-personas/voice-catalog/:voiceId/preview",
-        method: RequestMethod.GET
-      },
-      {
-        path: "api/v1/workspaces/:workspaceId/video-personas/:personaId",
-        method: RequestMethod.PATCH
-      },
-      {
-        path: "api/v1/workspaces/:workspaceId/video-personas/:personaId",
-        method: RequestMethod.DELETE
-      },
-      {
-        path: "api/v1/workspaces/:workspaceId/video-personas/:personaId/portrait",
-        method: RequestMethod.GET
-      },
-      {
-        path: "api/v1/workspaces/:workspaceId/video-personas/:personaId/preview",
-        method: RequestMethod.GET
-      },
-      // ADR-111: workspace-scoped cloned voice endpoints share the same
-      // fail-closed workspace auth model as video personas. Keep every
-      // concrete route registered here; otherwise controllers receive no
-      // resolved Clerk user and live requests fail as userId=null / 401.
-      {
-        path: "api/v1/workspaces/:workspaceId/video-cloned-voices",
-        method: RequestMethod.POST
-      },
-      {
-        path: "api/v1/workspaces/:workspaceId/video-cloned-voices",
-        method: RequestMethod.GET
-      },
-      {
-        path: "api/v1/workspaces/:workspaceId/video-cloned-voices/:clonedVoiceId/preview",
-        method: RequestMethod.GET
-      },
-      {
-        path: "api/v1/workspaces/:workspaceId/video-cloned-voices/:clonedVoiceId",
-        method: RequestMethod.DELETE
-      },
-      {
-        path: "api/v1/workspaces/:workspaceId/video-cloned-voices/:clonedVoiceId/default",
-        method: RequestMethod.POST
-      }
-    );
+    consumer.apply(ClerkAuthMiddleware).forRoutes(...CLERK_AUTHENTICATED_ROUTES);
   }
 }
