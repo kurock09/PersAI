@@ -84,6 +84,19 @@ const WORKER_TOOL_BASELINES: Record<string, Omit<RuntimeWorkerToolConfig, "toolC
     confirmationRule: "none",
     supportsProviderRouting: false,
     failureBehavior: "retry_then_surface_error"
+  },
+  // ADR-168. The family taxonomy has no outbound-message bucket and cannot
+  // gain one in a hotfix: the runtime validates `family` against its own
+  // compiled list, so a new value would be rejected by every not-yet-rolled
+  // runtime pod. `scheduled_action` is the existing external-side-effect
+  // family. Never retried automatically - a resend must be a new model call.
+  email_send: {
+    family: "scheduled_action",
+    outcomeKind: "state_mutation",
+    timeoutMs: 30_000,
+    confirmationRule: "none",
+    supportsProviderRouting: false,
+    failureBehavior: "surface_error"
   }
 };
 

@@ -12,10 +12,12 @@ import {
   PROMPT_CONSTRUCTOR_MODEL_TOOL_ORDER,
   isPromptConstructorModelToolCode
 } from "../src/modules/workspace-management/application/prompt-constructor-tool-metadata";
+import type { RuntimeToolPolicy } from "@persai/runtime-contract";
 import {
   RUNTIME_TOOL_CODE_BY_INVENTORY_CODE,
   TOOL_EXECUTION_MODE_BY_CODE
 } from "../src/modules/workspace-management/application/runtime-tool-policy";
+import { buildRuntimeWorkerToolsConfig } from "../src/modules/workspace-management/application/runtime-worker-tools";
 
 function toolText(code: string): string {
   const row = TOOL_CATALOG.find((tool) => tool.code === code);
@@ -551,24 +553,49 @@ function testPlanSeedFullProjectionCounts(): void {
 }
 
 /**
- * Every catalog tool must have an execution mode. `resolveToolExecutionMode`
- * throws on a missing entry, and that throw happens while materializing the
- * runtime bundle for **every** assistant — including plans where the tool is
- * inactive — so one unmapped catalog code takes the whole fleet down.
+ * A catalog row alone is not a working tool: bundle materialization also
+ * demands an execution mode, and worker-mode tools additionally demand a
+ * worker baseline. Both lookups throw, both run for every catalog tool on
+ * every assistant's bundle regardless of plan activation, so one missing
+ * entry takes the whole fleet down. ADR-168 shipped with both gaps and each
+ * one surfaced only after a deploy. This drives the real resolver and the
+ * real worker-config builder over the full catalog so the next missing
+ * registry entry fails here instead of in production.
  */
-function testEveryCatalogToolHasAnExecutionMode(): void {
-  const missing = TOOL_CATALOG.map(
-    (tool) => RUNTIME_TOOL_CODE_BY_INVENTORY_CODE[tool.code] ?? tool.code
-  ).filter((runtimeCode) => TOOL_EXECUTION_MODE_BY_CODE[runtimeCode] === undefined);
-  assert.deepStrictEqual(
-    missing,
-    [],
-    `TOOL_EXECUTION_MODE_BY_CODE is missing an entry for: ${missing.join(", ")}`
+function testEveryCatalogToolResolvesThroughBundleMaterialization(): void {
+  const runtimeCodes = [
+    ...new Set(
+      TOOL_CATALOG.map((tool) => RUNTIME_TOOL_CODE_BY_INVENTORY_CODE[tool.code] ?? tool.code)
+    )
+  ];
+
+  const missingExecutionMode = runtimeCodes.filter(
+    (runtimeCode) => TOOL_EXECUTION_MODE_BY_CODE[runtimeCode] === undefined
   );
+  assert.deepStrictEqual(
+    missingExecutionMode,
+    [],
+    `TOOL_EXECUTION_MODE_BY_CODE is missing an entry for: ${missingExecutionMode.join(", ")}`
+  );
+
+  const policies: RuntimeToolPolicy[] = runtimeCodes.map((runtimeCode) => ({
+    toolCode: runtimeCode,
+    displayName: runtimeCode,
+    description: runtimeCode,
+    kind: "plan",
+    executionMode: TOOL_EXECUTION_MODE_BY_CODE[runtimeCode],
+    usageRule: "allowed",
+    enabled: true,
+    visibleToModel: true,
+    visibleInPlanEditor: true,
+    dailyCallLimit: null
+  }));
+  // Throws with the offending tool code when a worker baseline is missing.
+  buildRuntimeWorkerToolsConfig(policies);
 }
 
 export async function runToolCatalogDataTest(): Promise<void> {
-  testEveryCatalogToolHasAnExecutionMode();
+  testEveryCatalogToolResolvesThroughBundleMaterialization();
   testTodoWriteCatalogRow();
   testSkillCatalogRowMentionsPlanIntake();
   testDocumentCatalogRowTeachesThreeVerbSurface();
