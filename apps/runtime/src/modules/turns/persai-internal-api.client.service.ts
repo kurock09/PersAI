@@ -522,7 +522,10 @@ export type SendAssistantEmailInput = {
 
 export type SendAssistantEmailOutcome =
   | { status: "sent"; messageId: string }
-  | { status: "skipped"; reason: "sender_email_not_verified" }
+  | {
+      status: "skipped";
+      reason: "mailbox_not_connected" | "mailbox_token_invalid" | "provider_daily_limit_reached";
+    }
   | { status: "failed"; reason: string; message?: string };
 
 // ADR-074 Slice M3 — opt-in explicit close of an active open-loop entry,
@@ -1222,8 +1225,8 @@ export class PersaiInternalApiClientService {
     if (status === "sent" && typeof payload.messageId === "string") {
       return { status: "sent", messageId: payload.messageId };
     }
-    if (status === "skipped" && payload.reason === "sender_email_not_verified") {
-      return { status: "skipped", reason: "sender_email_not_verified" };
+    if (status === "skipped" && this.isMailboxSkipReason(payload.reason)) {
+      return { status: "skipped", reason: payload.reason };
     }
     if (status === "failed" && typeof payload.reason === "string") {
       return {
@@ -1233,6 +1236,16 @@ export class PersaiInternalApiClientService {
       };
     }
     throw new BadGatewayException("PersAI internal API returned an invalid email send response.");
+  }
+
+  private isMailboxSkipReason(
+    reason: unknown
+  ): reason is "mailbox_not_connected" | "mailbox_token_invalid" | "provider_daily_limit_reached" {
+    return (
+      reason === "mailbox_not_connected" ||
+      reason === "mailbox_token_invalid" ||
+      reason === "provider_daily_limit_reached"
+    );
   }
 
   /**

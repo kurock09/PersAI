@@ -256,28 +256,43 @@ export async function runRuntimeEmailSendToolServiceTest(): Promise<void> {
     assert.equal(client.sendCalls[0]?.requestId, "req-1");
   }
 
-  // sender_email_not_verified maps to action="skipped" with the exact
-  // Russian guidance string (ADR-168 D4).
+  // ADR-169 — each skip reason carries its own concrete fix. A single shared
+  // sentence would tell a user who hit the provider's daily limit to connect
+  // the mailbox they already have connected.
   {
-    const client = new FakePersaiInternalApiClientService();
-    client.sendOutcome = { status: "skipped", reason: "sender_email_not_verified" };
-    const service = new RuntimeEmailSendToolService(client as never);
-    const result = await service.executeToolCall({
-      bundle: createBundle(),
-      toolCall: createToolCall({
-        to: "partner@example.com",
-        subject: "Follow-up",
-        body: "Hello."
-      }),
-      requestId: "req-2"
-    });
-    assert.equal(result.payload.action, "skipped");
-    assert.equal(result.payload.reason, "sender_email_not_verified");
-    assert.equal(
-      result.payload.guidance,
-      "Добавьте и подтвердите e-mail в Настройках → Интеграции, затем повторите отправку."
-    );
-    assert.equal(result.isError, false);
+    const expectedGuidanceByReason = [
+      [
+        "mailbox_not_connected",
+        "Подключите почтовый ящик в Настройках → Интеграции → Email, затем повторите отправку."
+      ],
+      [
+        "mailbox_token_invalid",
+        "Доступ к почтовому ящику отозван. Переподключите его в Настройках → Интеграции → Email."
+      ],
+      [
+        "provider_daily_limit_reached",
+        "Достигнут суточный лимит отправки у почтового провайдера. Повторите отправку позже."
+      ]
+    ] as const;
+
+    for (const [reason, guidance] of expectedGuidanceByReason) {
+      const client = new FakePersaiInternalApiClientService();
+      client.sendOutcome = { status: "skipped", reason };
+      const service = new RuntimeEmailSendToolService(client as never);
+      const result = await service.executeToolCall({
+        bundle: createBundle(),
+        toolCall: createToolCall({
+          to: "partner@example.com",
+          subject: "Follow-up",
+          body: "Hello."
+        }),
+        requestId: "req-2"
+      });
+      assert.equal(result.payload.action, "skipped");
+      assert.equal(result.payload.reason, reason);
+      assert.equal(result.payload.guidance, guidance);
+      assert.equal(result.isError, false);
+    }
   }
 
   // Daily-limit exhaustion short-circuits before the internal send call.

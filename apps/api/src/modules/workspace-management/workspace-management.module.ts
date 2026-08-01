@@ -101,6 +101,12 @@ import { AssistantEmailSenderIdentityService } from "./application/assistant-ema
 import { AssistantEmailMailboxService } from "./application/assistant-email-mailbox.service";
 import { HandleMailboxOAuthCallbackService } from "./application/handle-mailbox-oauth-callback.service";
 import { MailboxOAuthTokenExchangeClientService } from "./application/mailbox-oauth-token-exchange.client";
+import { MailboxOAuthTokenRefreshClientService } from "./application/mailbox-oauth-token-refresh.client";
+import { MailboxTokenLifecycleService } from "./application/mailbox-token-lifecycle.service";
+import {
+  MailboxSmtpSendClientService,
+  NodemailerMailboxSmtpTransportFactory
+} from "./application/mailbox-smtp-send.client";
 import { PostmarkAccountSendersClientService } from "./application/postmark-account-senders.client";
 import { PostmarkEmailSendClientService } from "./application/postmark-email-send.client";
 import { InternalRuntimeEmailSendService } from "./application/internal-runtime-email-send.service";
@@ -555,6 +561,10 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     AssistantEmailMailboxService,
     HandleMailboxOAuthCallbackService,
     MailboxOAuthTokenExchangeClientService,
+    MailboxOAuthTokenRefreshClientService,
+    MailboxTokenLifecycleService,
+    NodemailerMailboxSmtpTransportFactory,
+    MailboxSmtpSendClientService,
     PostmarkAccountSendersClientService,
     PostmarkEmailSendClientService,
     InternalRuntimeEmailSendService,

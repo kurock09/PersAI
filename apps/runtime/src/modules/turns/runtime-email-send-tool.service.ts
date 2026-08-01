@@ -24,11 +24,21 @@ const EMAIL_SEND_TOOL_CODE = "email_send" as const;
 // generic failure round-tripping through the internal API.
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u;
 
-// ADR-168 D4 — fixed Russian guidance string; the internal API only returns
-// the bare reason code, never guidance copy. This is the one concrete fix
-// the model must relay verbatim.
-const SENDER_NOT_VERIFIED_GUIDANCE =
-  "Добавьте и подтвердите e-mail в Настройках → Интеграции, затем повторите отправку.";
+// ADR-169 — the internal API returns a bare reason code and never guidance
+// copy, so the Russian sentence the model relays verbatim lives here. Each
+// skip reason has a different concrete fix; a single string would tell a user
+// who hit the provider's daily limit to reconnect a working mailbox.
+const SKIP_GUIDANCE_BY_REASON: Record<string, string> = {
+  mailbox_not_connected:
+    "Подключите почтовый ящик в Настройках → Интеграции → Email, затем повторите отправку.",
+  mailbox_token_invalid:
+    "Доступ к почтовому ящику отозван. Переподключите его в Настройках → Интеграции → Email.",
+  provider_daily_limit_reached:
+    "Достигнут суточный лимит отправки у почтового провайдера. Повторите отправку позже."
+};
+
+const DEFAULT_SKIP_GUIDANCE =
+  "Проверьте подключение почтового ящика в Настройках → Интеграции → Email.";
 
 export interface RuntimeEmailSendToolExecutionResult {
   payload: RuntimeEmailSendToolResult;
@@ -174,7 +184,7 @@ export class RuntimeEmailSendToolService {
           subject: request.subject,
           action: "skipped",
           reason: outcome.reason,
-          guidance: SENDER_NOT_VERIFIED_GUIDANCE
+          guidance: SKIP_GUIDANCE_BY_REASON[outcome.reason] ?? DEFAULT_SKIP_GUIDANCE
         },
         artifacts: [],
         isError: false

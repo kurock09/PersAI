@@ -64,11 +64,13 @@
     "@persai/eslint-config": "workspace:*",
     "@persai/tsconfig": "workspace:*",
     "@types/node": "^24.12.0",
+    "@types/nodemailer": "6.4.20",
     "@types/ws": "^8.18.1",
     "@typescript-eslint/eslint-plugin": "^8.46.1",
     "@typescript-eslint/parser": "^8.46.1",
     "eslint": "^8.57.1",
     "eslint-config-prettier": "^10.1.8",
+    "nodemailer": "7.0.0",
     "prisma": "^6.19.2",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3"

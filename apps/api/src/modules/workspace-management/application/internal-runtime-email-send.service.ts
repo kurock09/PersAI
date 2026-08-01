@@ -1,16 +1,21 @@
 import { BadRequestException, Injectable, Logger } from "@nestjs/common";
-import { WorkspaceEmailSenderIdentityStatus } from "@prisma/client";
+import { WorkspaceEmailMailboxStatus } from "@prisma/client";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import { AppendAssistantAuditEventService } from "./append-assistant-audit-event.service";
-import { NOTIFICATION_CREDENTIAL_IDS } from "./tool-credential-settings";
-import { PlatformRuntimeProviderSecretStoreService } from "./platform-runtime-provider-secret-store.service";
-import { PostmarkEmailSendClientService } from "./postmark-email-send.client";
+import { MailboxTokenLifecycleService } from "./mailbox-token-lifecycle.service";
+import { MailboxSmtpSendClientService } from "./mailbox-smtp-send.client";
+import {
+  MAILBOX_OAUTH_PROVIDERS,
+  type MailboxOAuthProviderId
+} from "./mailbox-oauth-provider-registry";
 
-const POSTMARK_SEND_URL = "https://api.postmarkapp.com/email";
 const MAX_SUBJECT_LENGTH = 255;
 const MAX_BODY_LENGTH = 20_000;
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u;
 const REJECTED_BODY_KEYS = ["cc", "bcc", "attachments", "html", "htmlBody"];
+/** RFC 3463/5321 codes providers commonly use for rate/quota policy rejections. */
+const PROVIDER_QUOTA_SMTP_CODES = new Set([421, 450, 452, 454]);
+const PROVIDER_QUOTA_KEYWORDS = ["quota", "too many", "rate limit", "throttl"];
 
 export type InternalRuntimeEmailSendInput = {
   workspaceId: string;
@@ -24,7 +29,11 @@ export type InternalRuntimeEmailSendInput = {
 
 export type InternalRuntimeEmailSendResult =
   | { status: "sent"; messageId: string }
-  | { status: "skipped"; reason: "sender_email_not_verified" }
+  | {
+      status: "skipped";
+      reason: "mailbox_not_connected" | "mailbox_token_invalid" | "provider_daily_limit_reached";
+      message?: string;
+    }
   | { status: "failed"; reason: string; message?: string };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -39,18 +48,32 @@ function requireNonEmptyString(record: Record<string, unknown>, key: string): st
   return value.trim();
 }
 
+function isProviderQuotaRejection(outcome: {
+  responseCode: number | null;
+  message: string;
+}): boolean {
+  if (outcome.responseCode !== null && PROVIDER_QUOTA_SMTP_CODES.has(outcome.responseCode)) {
+    return true;
+  }
+  const lowered = outcome.message.toLowerCase();
+  return PROVIDER_QUOTA_KEYWORDS.some((keyword) => lowered.includes(keyword));
+}
+
 /**
- * ADR-168 D3 — internal send used by the `email_send` native tool via
- * `PersaiInternalApiClientService`.
+ * ADR-169 D1/D8 — internal send used by the `email_send` native tool via
+ * `PersaiInternalApiClientService`. The transport is now the customer's own
+ * connected mailbox over SMTP XOAUTH2, resolved and refreshed by
+ * `MailboxTokenLifecycleService`; there is no Postmark call and no
+ * `AssistantEmailSenderIdentityService` involvement anywhere in this path.
  *
- * Fail-closed (D4): with no verified sender identity this makes **no**
- * Postmark call at all. Sending itself keeps using the existing Server Token
- * credential (`NOTIFICATION_CREDENTIAL_IDS.email_postmark`) — ADR-088's
- * `EmailChannelAdapter` and its sender identity are untouched; this is a
- * separate, synchronous send path with its own sender identity.
+ * Fail-closed (D5): with no connected mailbox, or a mailbox whose token
+ * refresh was rejected as revoked, this makes **no** SMTP call at all and
+ * returns `skipped` with a reason naming the gap so the model can relay
+ * guidance pointing at Settings → Интеграции → Email.
  *
  * Daily-limit accounting is intentionally NOT implemented here — the runtime
  * owns that through the existing shared `consumeToolDailyLimit` mechanism.
+ * Provider-side daily limits are a separate, honest `skipped` outcome (D9).
  */
 @Injectable()
 export class InternalRuntimeEmailSendService {
@@ -58,9 +81,9 @@ export class InternalRuntimeEmailSendService {
 
   constructor(
     private readonly prisma: WorkspaceManagementPrismaService,
-    private readonly secretStore: PlatformRuntimeProviderSecretStoreService,
     private readonly appendAssistantAuditEventService: AppendAssistantAuditEventService,
-    private readonly postmarkEmailSendClient: PostmarkEmailSendClientService
+    private readonly tokenLifecycle: MailboxTokenLifecycleService,
+    private readonly smtpClient: MailboxSmtpSendClientService
   ) {}
 
   parseInput(body: unknown): InternalRuntimeEmailSendInput {
@@ -112,27 +135,58 @@ export class InternalRuntimeEmailSendService {
       where: { workspaceId: input.workspaceId }
     });
 
-    if (identity === null || identity.status !== WorkspaceEmailSenderIdentityStatus.verified) {
-      await this.writeAudit(input, {
-        outcome: "denied",
-        eventCode: "assistant.email.skipped",
-        summary: "Assistant email send skipped: no verified sender identity.",
-        details: { reason: "sender_email_not_verified" }
-      });
-      return { status: "skipped", reason: "sender_email_not_verified" };
+    if (
+      identity === null ||
+      identity.provider === null ||
+      identity.mailboxStatus !== WorkspaceEmailMailboxStatus.connected
+    ) {
+      return this.skip(
+        input,
+        "mailbox_not_connected",
+        "Assistant email send skipped: no connected mailbox."
+      );
     }
 
-    const token = await this.secretStore
-      .resolveSecretValueById(NOTIFICATION_CREDENTIAL_IDS.email_postmark)
-      .catch(() => null);
-    if (token === null) {
+    const provider = MAILBOX_OAUTH_PROVIDERS[identity.provider as MailboxOAuthProviderId];
+
+    const tokenResult = await this.tokenLifecycle.resolveFreshAccessToken(
+      input.workspaceId,
+      provider.id,
+      identity.tokenExpiresAt
+    );
+
+    if (tokenResult.kind === "not_connected") {
+      return this.skip(
+        input,
+        "mailbox_not_connected",
+        "Assistant email send skipped: no connected mailbox."
+      );
+    }
+    if (tokenResult.kind === "token_invalid") {
+      return this.skip(
+        input,
+        "mailbox_token_invalid",
+        "Assistant email send skipped: mailbox token was revoked."
+      );
+    }
+    if (tokenResult.kind === "refresh_unavailable") {
+      this.logger.error({
+        event: "internal_runtime_email_send.token_refresh_unavailable",
+        workspaceId: input.workspaceId,
+        assistantId: input.assistantId,
+        message: tokenResult.message
+      });
       await this.writeAudit(input, {
         outcome: "failed",
         eventCode: "assistant.email.failed",
-        summary: "Assistant email send failed: Postmark server token unavailable.",
-        details: { reason: "postmark_token_unavailable" }
+        summary: "Assistant email send failed: mailbox token refresh unavailable.",
+        details: { reason: "mailbox_token_refresh_failed", message: tokenResult.message }
       });
-      return { status: "failed", reason: "postmark_token_unavailable" };
+      return {
+        status: "failed",
+        reason: "mailbox_token_refresh_failed",
+        message: tokenResult.message
+      };
     }
 
     const from =
@@ -140,22 +194,15 @@ export class InternalRuntimeEmailSendService {
         ? `${identity.displayName} <${identity.email}>`
         : identity.email;
 
-    const outcome = await this.postmarkEmailSendClient.send({
-      url: POSTMARK_SEND_URL,
-      serverToken: token,
-      payload: {
-        From: from,
-        To: input.to,
-        Subject: input.subject,
-        TextBody: input.body,
-        MessageStream: "outbound",
-        Metadata: {
-          workspaceId: input.workspaceId,
-          assistantId: input.assistantId,
-          requestId: input.requestId,
-          source: "assistant_email_send"
-        }
-      }
+    const outcome = await this.smtpClient.send({
+      host: provider.smtp.host,
+      port: provider.smtp.port,
+      user: identity.email,
+      accessToken: tokenResult.accessToken,
+      from,
+      to: input.to,
+      subject: input.subject,
+      text: input.body
     });
 
     if (outcome.kind === "network_error") {
@@ -174,50 +221,66 @@ export class InternalRuntimeEmailSendService {
       return { status: "failed", reason: "email_send_error", message: outcome.message };
     }
 
-    const responseBody = outcome.body;
-
-    if (outcome.kind === "http_error") {
-      const errorMessage =
-        typeof responseBody["Message"] === "string" ? responseBody["Message"] : undefined;
+    if (outcome.kind === "rejected") {
+      if (isProviderQuotaRejection(outcome)) {
+        this.logger.warn({
+          event: "internal_runtime_email_send.provider_quota_rejected",
+          workspaceId: input.workspaceId,
+          assistantId: input.assistantId,
+          responseCode: outcome.responseCode,
+          message: outcome.message
+        });
+        return this.skip(
+          input,
+          "provider_daily_limit_reached",
+          "Assistant email send skipped: provider daily send limit reached.",
+          outcome.message
+        );
+      }
       this.logger.warn({
-        event: "internal_runtime_email_send.postmark_rejected",
+        event: "internal_runtime_email_send.smtp_rejected",
         workspaceId: input.workspaceId,
         assistantId: input.assistantId,
-        httpStatus: outcome.httpStatus,
-        message: errorMessage
+        responseCode: outcome.responseCode,
+        message: outcome.message
       });
       await this.writeAudit(input, {
         outcome: "failed",
         eventCode: "assistant.email.failed",
-        summary: "Assistant email send failed: Postmark rejected the message.",
-        details: {
-          reason: "postmark_rejected",
-          httpStatus: outcome.httpStatus,
-          message: errorMessage
-        }
+        summary: "Assistant email send failed: mailbox provider rejected the message.",
+        details: { reason: "smtp_rejected", message: outcome.message }
       });
-      return {
-        status: "failed",
-        reason: "postmark_rejected",
-        ...(errorMessage !== undefined ? { message: errorMessage } : {})
-      };
+      return { status: "failed", reason: "smtp_rejected", message: outcome.message };
     }
 
-    const messageId =
-      typeof responseBody["MessageID"] === "string" ? responseBody["MessageID"] : undefined;
     this.logger.log({
       event: "internal_runtime_email_send.sent",
       workspaceId: input.workspaceId,
       assistantId: input.assistantId,
-      messageId
+      messageId: outcome.messageId
     });
     await this.writeAudit(input, {
       outcome: "succeeded",
       eventCode: "assistant.email.sent",
       summary: "Assistant email sent.",
-      details: { messageId: messageId ?? null }
+      details: { messageId: outcome.messageId }
     });
-    return { status: "sent", messageId: messageId ?? "" };
+    return { status: "sent", messageId: outcome.messageId };
+  }
+
+  private async skip(
+    input: InternalRuntimeEmailSendInput,
+    reason: "mailbox_not_connected" | "mailbox_token_invalid" | "provider_daily_limit_reached",
+    summary: string,
+    message?: string
+  ): Promise<InternalRuntimeEmailSendResult> {
+    await this.writeAudit(input, {
+      outcome: "denied",
+      eventCode: "assistant.email.skipped",
+      summary,
+      details: { reason, ...(message !== undefined ? { message } : {}) }
+    });
+    return { status: "skipped", reason, ...(message !== undefined ? { message } : {}) };
   }
 
   private async writeAudit(
