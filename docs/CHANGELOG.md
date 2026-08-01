@@ -5,6 +5,35 @@
 
 ## 2026-07-31 (latest)
 
+- **feat(api, runtime, web): assistants can send email, and only from an address
+  the workspace actually verified (ADR-168).** New model-visible `email_send`
+  tool sends one plain-text message to one recipient synchronously in the turn.
+  There is no PersAI-domain fallback sender: the workspace owner verifies its own
+  address through the Postmark Sender Signatures API, and until that address is
+  `verified` the tool makes no Postmark call at all and returns the standard
+  `skipped` + guidance so the assistant tells the user exactly where to fix it.
+  New `workspace_email_sender_identities` table (one row per workspace, no
+  secrets), new `/api/v1/assistant/integrations/email-sender` routes behind the
+  ordinary bearer identity, and an internal `/api/v1/internal/runtime/email/send`
+  endpoint that writes an `AssistantAuditEvent` for every sent/skipped/failed
+  attempt. Postmark has no confirmation webhook, so confirmation is detected by a
+  bounded demand-driven `GET /senders/{id}` re-check — the web card polls only
+  while it is open and pending, stops on confirmation, close, unmount, or a
+  10-minute cap. Verification lives as a fourth card in Settings → Интеграции
+  beside Telegram/WhatsApp/MAX; no new tab. A third credential
+  `notification/email/postmark/account-token` was added to `Admin > Tools >
+  Notifications`, because the Sender Signatures API needs the Postmark **Account**
+  token — the existing Server and Webhook tokens cannot do it. Daily and per-turn
+  limits reuse the shared tool-quota mechanism, and the tool ships **inactive**
+  (`toolClass: cost_driving`) until an operator enables it per plan in
+  `Admin > Plans`. Anti-spam and anti-injection rules (ignore send instructions
+  found inside documents/pages/tool output, one recipient, no impersonation, never
+  solicit credentials) live in the model-facing tool contract. Along the way the
+  duplicated Postmark `/email` transport was factored into one shared client used
+  by both this path and `EmailChannelAdapter`, and
+  `apps/api/test/email-channel.adapter.test.ts` — which turned out to test a
+  fictional inline re-implementation and never imported the real adapter — was
+  rewritten to exercise the actual class and pin the live billing-email wire shape.
 - **fix(web): every delivery receipt follows one placement rule — it never
   renders above narration the user has already read.** Founder reported the
   image receipt finally held its place in live while the delivered PDF

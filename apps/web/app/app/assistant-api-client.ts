@@ -96,6 +96,12 @@ import {
   type AssistantSandboxEgressMode,
   type AssistantSandboxEgressResponse,
   type UserPlanVisibilityState,
+  type AssistantEmailSenderIdentityRequest,
+  type WorkspaceEmailSenderIdentityState,
+  getAssistantEmailSenderIdentity as getAssistantEmailSenderIdentityContract,
+  postAssistantEmailSenderIdentity as postAssistantEmailSenderIdentityContract,
+  postAssistantEmailSenderIdentityResend as postAssistantEmailSenderIdentityResendContract,
+  deleteAssistantEmailSenderIdentity as deleteAssistantEmailSenderIdentityContract,
   deleteAssistantWebChat as deleteAssistantWebChatContract,
   getAssistant as getAssistantContract,
   getAssistantSandboxEgress as getAssistantSandboxEgressContract,
@@ -4242,6 +4248,94 @@ export async function getAssistantTelegramIntegration(
     return response.data.integration;
   } catch (error) {
     throw new Error(toErrorMessage(error));
+  }
+}
+
+export type { WorkspaceEmailSenderIdentityState };
+
+function throwStructuredIfCoded(error: unknown): never {
+  if (
+    error instanceof ContractsApiError &&
+    typeof error.code === "string" &&
+    error.code.length > 0
+  ) {
+    throw new ApiStructuredError(error.message, error.code);
+  }
+  throw new Error(toErrorMessage(error));
+}
+
+/**
+ * ADR-168 — GET performs a bounded server-side Postmark re-check when
+ * the current identity is `pending`, so polling this route (while a
+ * confirmation dialog is open) is how the UI learns about confirmation.
+ */
+export async function getAssistantEmailSenderIdentity(
+  token: string
+): Promise<WorkspaceEmailSenderIdentityState | null> {
+  try {
+    const response = await getAssistantEmailSenderIdentityContract({
+      headers: getAuthHeaders(token)
+    });
+    if (response.status !== 200) {
+      throw new Error(
+        "Unexpected non-success response for GET /assistant/integrations/email-sender."
+      );
+    }
+    return response.data.identity;
+  } catch (error) {
+    return throwStructuredIfCoded(error);
+  }
+}
+
+export async function requestAssistantEmailSenderIdentity(
+  token: string,
+  payload: AssistantEmailSenderIdentityRequest
+): Promise<WorkspaceEmailSenderIdentityState | null> {
+  try {
+    const response = await postAssistantEmailSenderIdentityContract(payload, {
+      headers: getAuthHeaders(token)
+    });
+    if (response.status !== 200) {
+      throw new Error(
+        "Unexpected non-success response for POST /assistant/integrations/email-sender."
+      );
+    }
+    return response.data.identity;
+  } catch (error) {
+    return throwStructuredIfCoded(error);
+  }
+}
+
+export async function resendAssistantEmailSenderConfirmation(
+  token: string
+): Promise<WorkspaceEmailSenderIdentityState | null> {
+  try {
+    const response = await postAssistantEmailSenderIdentityResendContract({
+      headers: getAuthHeaders(token)
+    });
+    if (response.status !== 200) {
+      throw new Error(
+        "Unexpected non-success response for POST /assistant/integrations/email-sender/resend."
+      );
+    }
+    return response.data.identity;
+  } catch (error) {
+    return throwStructuredIfCoded(error);
+  }
+}
+
+export async function removeAssistantEmailSenderIdentity(token: string): Promise<void> {
+  try {
+    const response = await deleteAssistantEmailSenderIdentityContract({
+      headers: getAuthHeaders(token)
+    });
+    if (response.status !== 200) {
+      throw new Error(
+        "Unexpected non-success response for DELETE /assistant/integrations/email-sender."
+      );
+    }
+  } catch (error) {
+    throwStructuredIfCoded(error);
   }
 }
 

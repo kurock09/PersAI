@@ -779,6 +779,7 @@ model Workspace {
   members                           WorkspaceMember[]
   subscription                      WorkspaceSubscription?
   quotaAccountingState              WorkspaceQuotaAccountingState?
+  emailSenderIdentity               WorkspaceEmailSenderIdentity?
   quotaUsageEvents                  WorkspaceQuotaUsageEvent[]
   tokenBudgetPeriodCounters         WorkspaceTokenBudgetPeriodCounter[]
   mediaMonthlyQuotaCounters         WorkspaceMediaMonthlyQuotaCounter[]
@@ -3979,4 +3980,29 @@ model WorkspaceVideoClonedVoice {
   @@index([workspaceId, archived])
   @@index([workspaceId, status])
   @@map("workspace_video_cloned_voices")
+}
+
+/// ADR-168 — workspace-scoped verified sender identity for model-initiated
+/// assistant email (`email_send`). One verified address per workspace in v1.
+enum WorkspaceEmailSenderIdentityStatus {
+  pending
+  verified
+  failed
+}
+
+model WorkspaceEmailSenderIdentity {
+  id                  String                             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId         String                             @unique @map("workspace_id") @db.Uuid
+  email               String                             @db.VarChar(320)
+  displayName         String?                            @map("display_name") @db.VarChar(120)
+  status              WorkspaceEmailSenderIdentityStatus  @default(pending)
+  postmarkSignatureId String?                             @map("postmark_signature_id") @db.VarChar(64)
+  lastErrorReason     String?                             @map("last_error_reason") @db.VarChar(128)
+  requestedAt         DateTime                            @map("requested_at") @db.Timestamptz(6)
+  verifiedAt          DateTime?                           @map("verified_at") @db.Timestamptz(6)
+  createdAt           DateTime                            @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime                            @updatedAt @map("updated_at") @db.Timestamptz(6)
+  workspace           Workspace                           @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@map("workspace_email_sender_identities")
 }

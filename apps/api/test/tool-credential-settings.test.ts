@@ -96,7 +96,7 @@ async function run(): Promise<void> {
     }
   });
 
-  assert.equal(state.credentials.length, 13); // 11 visible tool credentials + 2 notification credentials
+  assert.equal(state.credentials.length, 14); // 11 visible tool credentials + 3 notification credentials
   assert.equal(
     state.credentials.find((credential) => credential.credentialKey === "tool_memory_search"),
     undefined

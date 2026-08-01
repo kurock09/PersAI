@@ -44,6 +44,7 @@ import {
 } from "./runtime-await-tool.service";
 import { RuntimeGrepGlobToolService } from "./runtime-grep-glob-tool.service";
 import { RuntimeTtsToolService } from "./runtime-tts-tool.service";
+import { RuntimeEmailSendToolService } from "./runtime-email-send-tool.service";
 import { RuntimeVideoGenerateToolService } from "./runtime-video-generate-tool.service";
 import { SandboxClientService } from "./sandbox-client.service";
 import { RuntimeBundleAutoRefreshService } from "./runtime-bundle-auto-refresh.service";
@@ -104,6 +105,7 @@ import { TurnRoutingService } from "./turn-routing.service";
     { provide: RUNTIME_AWAIT_CLOCK, useValue: DEFAULT_RUNTIME_AWAIT_CLOCK },
     RuntimeGrepGlobToolService,
     RuntimeTtsToolService,
+    RuntimeEmailSendToolService,
     SandboxClientService,
     IdempotencyService,
     PersaiMediaObjectStorageService,
@@ -152,6 +154,7 @@ import { TurnRoutingService } from "./turn-routing.service";
     RuntimeAwaitToolService,
     RuntimeGrepGlobToolService,
     RuntimeTtsToolService,
+    RuntimeEmailSendToolService,
     SandboxClientService,
     IdempotencyService,
     PersaiMediaObjectStorageService,

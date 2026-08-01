@@ -768,6 +768,134 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /assistant/integrations/email-sender:
+    get:
+      operationId: getAssistantEmailSenderIdentity
+      summary: Get verified email sender identity state for current assistant's workspace
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Email sender identity state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAssistantEmailSenderIdentityResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    post:
+      operationId: postAssistantEmailSenderIdentity
+      summary: Request or replace the verified email sender identity for current assistant's workspace
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AssistantEmailSenderIdentityRequest"
+      responses:
+        "200":
+          description: Email sender identity state after request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAssistantEmailSenderIdentityResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Postmark Account API token unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    delete:
+      operationId: deleteAssistantEmailSenderIdentity
+      summary: Remove the verified email sender identity for current assistant's workspace
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Email sender identity removed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeleteAssistantEmailSenderIdentityResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /assistant/integrations/email-sender/resend:
+    post:
+      operationId: postAssistantEmailSenderIdentityResend
+      summary: Resend the Postmark confirmation email for current assistant's workspace sender identity
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Email sender identity state after resend
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAssistantEmailSenderIdentityResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: No email sender identity requested yet
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Postmark Account API token unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /assistant/integrations/telegram:
     get:
       operationId: getAssistantTelegramIntegration
@@ -12578,6 +12706,42 @@ components:
           type: array
           items:
             type: string
+    AssistantEmailSenderIdentityRequest:
+      type: object
+      required:
+        - email
+      properties:
+        email:
+          type: string
+        displayName:
+          type: string
+          nullable: true
+    WorkspaceEmailSenderIdentityState:
+      type: object
+      required:
+        - email
+        - displayName
+        - status
+        - verifiedAt
+        - lastErrorReason
+      properties:
+        email:
+          type: string
+        displayName:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum:
+            - pending
+            - verified
+            - failed
+        verifiedAt:
+          type: string
+          nullable: true
+        lastErrorReason:
+          type: string
+          nullable: true
     AssistantTelegramConnectRequest:
       type: object
       required:
@@ -14713,6 +14877,30 @@ components:
           nullable: true
         integration:
           $ref: "#/components/schemas/TelegramIntegrationState"
+    GetAssistantEmailSenderIdentityResponse:
+      type: object
+      required:
+        - identity
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        identity:
+          allOf:
+            - $ref: "#/components/schemas/WorkspaceEmailSenderIdentityState"
+          nullable: true
+    DeleteAssistantEmailSenderIdentityResponse:
+      type: object
+      required:
+        - removed
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        removed:
+          type: boolean
+          enum:
+            - true
     GetAssistantWebChatTransportResponse:
       type: object
       required:

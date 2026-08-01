@@ -504,6 +504,27 @@ export type RegisterChatAttachmentOutcome = {
   alreadyDelivered: boolean;
 };
 
+/**
+ * ADR-168 — runtime side of the `email_send` native tool. Mirrors the internal
+ * endpoint contract (`POST /api/v1/internal/runtime/email/send`)
+ * exactly; the runtime holds no Postmark secrets and never resolves sender
+ * identity itself.
+ */
+export type SendAssistantEmailInput = {
+  workspaceId: string;
+  assistantId: string;
+  chatId: string | null;
+  requestId: string;
+  to: string;
+  subject: string;
+  body: string;
+};
+
+export type SendAssistantEmailOutcome =
+  | { status: "sent"; messageId: string }
+  | { status: "skipped"; reason: "sender_email_not_verified" }
+  | { status: "failed"; reason: string; message?: string };
+
 // ADR-074 Slice M3 — opt-in explicit close of an active open-loop entry,
 // driven by the model setting `closeOpenLoop: true` on `memory_write`.
 export type InternalCloseMostSimilarOpenLoopInput = {
@@ -1161,6 +1182,57 @@ export class PersaiInternalApiClientService {
       storagePath: payload.storagePath,
       alreadyDelivered: payload.alreadyDelivered === true
     };
+  }
+
+  /**
+   * ADR-168 — internal send call behind the `email_send` native tool. The
+   * endpoint always responds 200 with one of `sent` / `skipped` / `failed`
+   * (fail-closed on an unverified sender, D4); 4xx/5xx here means the
+   * internal API itself rejected or failed the request, not a business
+   * outcome.
+   */
+  async sendAssistantEmail(input: SendAssistantEmailInput): Promise<SendAssistantEmailOutcome> {
+    if (!this.isConfigured()) {
+      throw new ServiceUnavailableException("PersAI internal API base URL is not configured.");
+    }
+    const response = await this.fetchJson("/api/v1/internal/runtime/email/send", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${this.config.PERSAI_INTERNAL_API_TOKEN}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(input)
+    });
+    if (!response.ok) {
+      const error = this.extractError(response.body);
+      if (response.status >= 500) {
+        throw new ServiceUnavailableException(
+          error.message ?? "PersAI internal API email send failed."
+        );
+      }
+      throw new BadRequestException(
+        error.message ?? "PersAI internal API rejected the email send request."
+      );
+    }
+    const payload = this.asObject(response.body);
+    if (payload === null) {
+      throw new BadGatewayException("PersAI internal API returned an invalid email send response.");
+    }
+    const status = payload.status;
+    if (status === "sent" && typeof payload.messageId === "string") {
+      return { status: "sent", messageId: payload.messageId };
+    }
+    if (status === "skipped" && payload.reason === "sender_email_not_verified") {
+      return { status: "skipped", reason: "sender_email_not_verified" };
+    }
+    if (status === "failed" && typeof payload.reason === "string") {
+      return {
+        status: "failed",
+        reason: payload.reason,
+        ...(typeof payload.message === "string" ? { message: payload.message } : {})
+      };
+    }
+    throw new BadGatewayException("PersAI internal API returned an invalid email send response.");
   }
 
   /**

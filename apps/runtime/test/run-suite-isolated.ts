@@ -76,6 +76,10 @@ const TESTS: TestEntry[] = [
   },
   { modulePath: "./runtime-tts-tool.service.test.ts", exportName: "runRuntimeTtsToolServiceTest" },
   {
+    modulePath: "./runtime-email-send-tool.service.test.ts",
+    exportName: "runRuntimeEmailSendToolServiceTest"
+  },
+  {
     modulePath: "./runtime-browser-tool.service.test.ts",
     exportName: "runRuntimeBrowserToolServiceTest"
   },
@@ -197,6 +201,10 @@ const TESTS: TestEntry[] = [
     exportName: "runAdr151TurnDispatchIntegrationTest"
   },
   { modulePath: "./turn-execution.service.test.ts", exportName: "runRecentPdfsHintTests" },
+  {
+    modulePath: "./turn-execution.service.test.ts",
+    exportName: "runTurnExecutionEmailSendDispatchTest"
+  },
   {
     modulePath: "./turn-finalization.service.test.ts",
     exportName: "runTurnFinalizationServiceTest"

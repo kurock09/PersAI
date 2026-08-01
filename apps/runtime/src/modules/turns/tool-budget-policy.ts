@@ -122,7 +122,11 @@ export const TOOL_HARD_CAP_PER_TURN: Readonly<Record<string, number>> = {
   background_task: 5,
   knowledge_search: 5,
   knowledge_fetch: 10,
-  memory_write: 10
+  memory_write: 10,
+  // ADR-168 — single-recipient cost-driving send, same order of magnitude as
+  // the other single-action cost tools (`tts`, `browser`) rather than the
+  // batched-media `image_generate`/`image_edit`/`video_generate` cap of 1.
+  email_send: 3
 };
 
 export type ToolBudgetExhaustionReason = "loop_limit" | "per_tool_cap";

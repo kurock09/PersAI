@@ -2725,6 +2725,31 @@ export interface RuntimeImageEditToolResult {
   expectedResultCount?: number | null;
 }
 
+/**
+ * ADR-168 — model-initiated `email_send` native tool. Runtime holds no
+ * Postmark secrets: the worker calls the internal API
+ * (`POST /api/v1/internal/runtime/email/send`), which resolves the
+ * workspace's verified sender identity and performs the Postmark call.
+ */
+export interface RuntimeEmailSendRequest {
+  toolCode: "email_send";
+  to: string;
+  subject: string;
+  body: string;
+}
+
+export interface RuntimeEmailSendToolResult {
+  toolCode: "email_send";
+  executionMode: "worker";
+  to: string | null;
+  subject: string | null;
+  action: "sent" | "skipped" | "failed";
+  reason: string | null;
+  guidance?: string | null;
+  messageId?: string | null;
+  warning?: string | null;
+}
+
 export const PERSAI_RUNTIME_VIDEO_GENERATE_PROVIDER_IDS = [
   "openai",
   "runway",

@@ -466,8 +466,8 @@ function testStarterTrialPolicyTodoWrite(): void {
 function testD2PlatformDefaultModelExposure(): void {
   assert.equal(
     PLAN_VISIBLE_MODEL_TOOL_CODES.length,
-    24,
-    "D2 fixture must cover 24 plan-visible model tools"
+    25,
+    "D2 fixture must cover 25 plan-visible model tools (ADR-168 adds email_send)"
   );
 
   const fullTools = PLAN_VISIBLE_MODEL_TOOL_CODES.filter(
@@ -477,7 +477,11 @@ function testD2PlatformDefaultModelExposure(): void {
     (code) => PLAN_VISIBLE_MODEL_TOOL_DEFAULT_EXPOSURE[code] === "catalog"
   );
   assert.equal(fullTools.length, 13, "D2 must seed 13 default-full tools");
-  assert.equal(catalogTools.length, 11, "D2 must seed 11 default-catalog tools");
+  assert.equal(
+    catalogTools.length,
+    12,
+    "D2 must seed 12 default-catalog tools (ADR-168 email_send joins the catalog tier)"
+  );
 
   for (const code of PLAN_VISIBLE_MODEL_TOOL_CODES) {
     const exposure = PLAN_VISIBLE_MODEL_TOOL_DEFAULT_EXPOSURE[code];
@@ -535,7 +539,11 @@ function testPlanSeedFullProjectionCounts(): void {
     syntheticOnlyCodes.filter((code) => !defaultPlanFullProjection(code)).length;
 
   assert.equal(fullCount, 13, "platform plan seed must default 13 tools to fullProjection");
-  assert.equal(catalogCount, 11, "platform plan seed must default 11 tools to catalog projection");
+  assert.equal(
+    catalogCount,
+    12,
+    "platform plan seed must default 12 tools to catalog projection (ADR-168 email_send)"
+  );
 }
 
 export async function runToolCatalogDataTest(): Promise<void> {

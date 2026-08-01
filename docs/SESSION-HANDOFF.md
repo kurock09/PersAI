@@ -1,5 +1,104 @@
 # SESSION-HANDOFF
 
+## 2026-07-31 — ADR-168 assistant email opened (docs only)
+
+- **Baseline:** `53abcce7`, clean tree. Documentation only — no schema, no
+  code, no deploy. Does not touch the live-receipt work below.
+- **What was decided with the founder before writing the ADR:**
+  - Postmark exists today only as the ADR-088 platform notification transport
+    (system intents, policies, quiet hours, PersAI-owned sender). That is the
+    wrong vehicle for model-initiated business mail, so ADR-168 adds a second,
+    separate outbound path instead of widening ADR-088.
+  - **No PersAI-domain fallback sender**, not even as a temporary degraded
+    path — a foreign From with a customer `Reply-To` is a spam/phishing signal
+    and gives the customer no sender identity.
+  - **Fail closed:** without a verified workspace address the tool performs no
+    Postmark call and returns the existing `action:"skipped"` + `guidance`
+    contract telling the user to add the address in Settings → Интеграции.
+  - Sending is model-initiated; anti-spam and anti-injection rules live in the
+    model-facing tool contract, not in a confirmation UI.
+  - UI is the **fourth** `IntegrationCard` in the Integrations section that
+    already exists (`assistant-settings.tsx`, `openSection === "channels"`,
+    title `t("integrations")`) — no new settings tab.
+  - No new Admin screen: `Admin > Plans` already edits per-plan tool activation,
+    daily cap, and per-turn cap, so the founder sets availability there himself.
+  - One verified address per workspace in v1; per-assistant addresses deferred.
+- **Findings that constrain implementation (verified against code, not
+  assumed):**
+  - Postmark Sender Signatures (`/senders`) authenticate with the **Account
+    API token**, not the Server Token that exists today, so one new credential
+    id joins `NOTIFICATION_CREDENTIAL_IDS` and the Admin > Tools Notifications
+    card. Sending still uses the Server Token.
+  - Per-plan governance already has an operator UI: `Admin > Plans`
+    (`apps/web/app/admin/plans/page.tsx`) edits activation, daily cap, per-turn
+    cap, and wire projection. `tool-catalog-data.ts` + `SeedToolCatalogService`
+    only supply the catalog row and defaults for plans with no activation yet,
+    and never overwrite operator edits.
+  - `action:"skipped"` + `reason` + `guidance` already exists in
+    `packages/runtime-contract`; the unverified-sender path reuses it.
+  - The runtime must not hold Postmark secrets, so the send executes in the API
+    behind a new internal endpoint called through `PersaiInternalApiClientService`.
+- **Files touched:** `docs/ADR/168-assistant-sent-email-and-verified-workspace-sender.md`
+  (new), `AGENTS.md`, `docs/SESSION-HANDOFF.md`.
+- **Tests run:** none — documentation-only slice, no code paths changed.
+- **Founder answers recorded the same day (S1 unblocked):** the tool ships
+  inactive and plan availability/caps are set by the founder in `Admin > Plans`;
+  one verified address per workspace (per-assistant addresses deferred); Admin
+  read-only visibility into verification state deferred.
+- **Risks / residuals:** the second Postmark credential (Account token) must be
+  stored by the operator before verification can work at all — the card has to
+  fail loudly and visibly when it is missing rather than sitting in «Ожидает
+  подтверждения».
+- **Correction made while implementing:** Postmark has **no** sender-signature
+  confirmation webhook (its webhooks are server-scoped delivery events), so the
+  bounded `GET /senders/{id}` re-check is not a backstop — it is the mechanism.
+  The web card polls it only while open and pending, and stops on confirmation,
+  failure, close, unmount, or a 10-minute cap.
+
+## 2026-07-31 — ADR-168 implemented locally (parent-orchestrated, pre-push)
+
+- **What landed:** the full feature in one pass — `workspace_email_sender_identities`
+  + migration `20260731220000_adr168_workspace_email_sender_identity`, the third
+  Postmark credential `notification/email/postmark/account-token`, the Sender
+  Signatures client and identity service, four
+  `/api/v1/assistant/integrations/email-sender` routes, the internal
+  `/api/v1/internal/runtime/email/send` endpoint with audit events, the
+  `email_send` catalog entry (`cost_driving`, therefore inactive until an
+  operator enables it per plan), the runtime tool with projection/dispatch/
+  per-turn cap 3, and the fourth «Email» card in Settings → Интеграции.
+- **Reuse enforced, not re-implemented:** daily limits go through the existing
+  `consumeToolDailyLimit`; audit rows through the existing
+  `AppendAssistantAuditEventService`; secrets through `resolveSecretValueById`
+  (never `resolveSecretValueByProviderKey` — the documented ADR-088 bug).
+- **Two independent audits returned DIRTY and were fixed:** the OpenAPI
+  `identity` property used a bare `$ref` with a sibling `nullable: true`, which
+  OpenAPI 3.0 discards, so the generated type lied to every consumer and the web
+  client papered over it with a cast — corrected to the `allOf` + `nullable`
+  idiom already used elsewhere in the file, regenerated, cast deleted. The
+  Postmark `/email` transport was duplicated between the new send service and
+  `EmailChannelAdapter` — factored into one shared `PostmarkEmailSendClientService`
+  with the adapter's wire shape unchanged.
+- **Hole found by that refactor:** `apps/api/test/email-channel.adapter.test.ts`
+  imported only `node:assert` and asserted against a fictional inline adapter
+  (invented `toEmail`/`fromEmail` fields, `X-Intent-Id` headers, throw-based
+  errors) that does not exist in the real class. It would have stayed green
+  through any regression in live billing email. Rewritten to construct the real
+  `EmailChannelAdapter`, plus a new transport test.
+- **Deliberately not done:** no PersAI-domain fallback, no attachments/HTML/cc/
+  bcc/bulk, no inbound reply handling, no Admin visibility screen, no
+  per-assistant addresses.
+- **Known residual:** the 3-second minimum interval between remote Postmark
+  re-checks is an in-process map, so with N API replicas the real ceiling is
+  N × one re-check per 3s per workspace rather than a global one. That still
+  satisfies the ADR's "bounded, demand-driven, never a background poller" rule
+  and the client only polls while its dialog is open, so no shared-state
+  throttle was introduced for it; revisit only if Postmark rate limits show up.
+- **Next:** operator stores the Postmark Account token in `Admin > Tools >
+  Notifications` and enables `email_send` on the intended plans in
+  `Admin > Plans`; then authenticated live acceptance — verify a real workspace
+  address, confirm the card flips without reload, send one real email, and
+  confirm an unverified workspace gets the skip + guidance instead of a send.
+
 ## 2026-07-31 (latest) — one placement rule for every receipt: never above narration the user already read
 
 - **Baseline tip:** `955f0394` (deployed web `29a936ab`). Founder's third

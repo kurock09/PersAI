@@ -353,6 +353,14 @@ export function projectRuntimeNativeTools(
   ) {
     projectedTools.push(createTtsToolDefinition(ttsPolicy));
   }
+  // ADR-168 — no credential/provider gate: the runtime holds no Postmark
+  // secrets and the internal API resolves sender identity. The tool stays
+  // projected even with no verified sender so the model can explain the
+  // one concrete fix (D4) — do not add a verification-status gate here.
+  const emailSendPolicy = resolveAllowedModelVisibleToolPolicy(bundle, "email_send", "worker");
+  if (emailSendPolicy !== null) {
+    projectedTools.push(createEmailSendToolDefinition(emailSendPolicy));
+  }
   const documentPolicy = resolveAllowedModelVisibleToolPolicy(bundle, "document", "worker");
   const documentCredential = resolveConfiguredCredentialRef(bundle, "document");
   if (
@@ -1340,6 +1348,42 @@ function createTtsToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayTool
           enum: [...PERSAI_RUNTIME_TTS_DELIVERY_KINDS],
           description:
             'Optional output kind. Use "voice_note" for a short messaging-style voice note or "audio" for a normal audio file.'
+        }
+      }
+    }
+  });
+}
+
+// ADR-168 — no cc/bcc/attachments/html/recipient-array fields; exactly one
+// plain-text recipient per call. Stays projected even without a verified
+// workspace sender so the model can explain the concrete fix (D4).
+function createEmailSendToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayToolDefinition {
+  return applyModelExposureProjection("email_send", policy, {
+    name: "email_send",
+    description: resolveToolDefinitionDescription(policy),
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["to", "subject", "body"],
+      properties: {
+        action: {
+          type: "string",
+          enum: ["describe"],
+          description:
+            'Use "describe" only in a standalone contract call with no other fields. For a real send omit action entirely.'
+        },
+        to: {
+          type: "string",
+          description:
+            "Exactly one recipient email address. No arrays, recipient lists, cc, or bcc."
+        },
+        subject: {
+          type: "string",
+          description: "Email subject line."
+        },
+        body: {
+          type: "string",
+          description: "Plain-text email body. No HTML."
         }
       }
     }

@@ -57,6 +57,8 @@ import { InternalRuntimeFilesController } from "./interface/http/internal-runtim
 import { InternalRuntimeBrowserProfilesController } from "./interface/http/internal-runtime-browser-profiles.controller";
 import { AssistantBrowserProfilesController } from "./interface/http/assistant-browser-profiles.controller";
 import { AssistantSandboxEgressController } from "./interface/http/assistant-sandbox-egress.controller";
+import { AssistantIntegrationsEmailSenderController } from "./interface/http/assistant-integrations-email-sender.controller";
+import { InternalRuntimeEmailController } from "./interface/http/internal-runtime-email-controller";
 import { InternalWorkspaceFilesController } from "./interface/http/internal-workspace-files.controller";
 import { InternalRuntimeMediaJobsEnqueueController } from "./interface/http/internal-runtime-media-jobs-enqueue.controller";
 import { InternalRuntimeMediaJobsCheckpointController } from "./interface/http/internal-runtime-media-jobs-checkpoint.controller";
@@ -93,6 +95,10 @@ import { ResendTelegramOwnerMessageService } from "./application/resend-telegram
 import { ResolvePlanVisibilityService } from "./application/resolve-plan-visibility.service";
 import { AppendAssistantAuditEventService } from "./application/append-assistant-audit-event.service";
 import { ManageAssistantSandboxEgressService } from "./application/manage-assistant-sandbox-egress.service";
+import { AssistantEmailSenderIdentityService } from "./application/assistant-email-sender-identity.service";
+import { PostmarkAccountSendersClientService } from "./application/postmark-account-senders.client";
+import { PostmarkEmailSendClientService } from "./application/postmark-email-send.client";
+import { InternalRuntimeEmailSendService } from "./application/internal-runtime-email-send.service";
 import { AdminAuthorizationService } from "./application/admin-authorization.service";
 import { ResolveAdminOpsCockpitService } from "./application/resolve-admin-ops-cockpit.service";
 import { AdminOpsUserDirectoryService } from "./application/admin-ops-user-directory.service";
@@ -454,6 +460,8 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     AssistantController,
     AssistantBrowserProfilesController,
     AssistantSandboxEgressController,
+    AssistantIntegrationsEmailSenderController,
+    InternalRuntimeEmailController,
     UserSupportController,
     AssistantBillingController,
     AssistantKnowledgeSourcesController,
@@ -536,6 +544,10 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     },
     AppendAssistantAuditEventService,
     ManageAssistantSandboxEgressService,
+    AssistantEmailSenderIdentityService,
+    PostmarkAccountSendersClientService,
+    PostmarkEmailSendClientService,
+    InternalRuntimeEmailSendService,
     AdminAuthorizationService,
     ManageSitePagesService,
     ResolveAdminOpsCockpitService,

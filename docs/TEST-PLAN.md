@@ -4,6 +4,40 @@ This document defines the current verification baseline for the active PersAI-na
 
 ADR-072 is closed as the historical native migration ADR. Current continuation work should be checked against `docs/ADR/078-consolidated-follow-through-program.md`. `Step 15a` is cancelled and is not an active verification track. ADR-087 defines the unified quota-advisory and paid light-mode target state. ADR-088 defines the unified notification platform target state.
 
+## 2026-07-31 ADR-168 assistant-sent email + verified workspace sender
+
+- **Sender identity** (`apps/api/test/assistant-email-sender-identity.service.test.ts`):
+  signature request stores a `pending` row; the bounded re-check flips it to
+  `verified` when Postmark reports the signature confirmed; replacing an address
+  deletes the previous signature first; a missing Postmark **Account** token
+  surfaces `postmark_account_token_unavailable` instead of stranding the row.
+- **Fail-closed send** (`apps/api/test/internal-runtime-email-send.service.test.ts`):
+  with no verified identity the endpoint returns `skipped:sender_email_not_verified`
+  and the fetch stub is asserted to have zero calls; a verified send produces the
+  exact Postmark request shape and returns the `MessageID`; Postmark 4xx maps to
+  `failed` with a reason.
+- **Shared Postmark transport** (`apps/api/test/postmark-email-send.client.test.ts`,
+  `apps/api/test/email-channel.adapter.test.ts`): the adapter test now imports and
+  exercises the real `EmailChannelAdapter` — it previously re-implemented a
+  fictional adapter inline and never touched the class, so it could not have
+  caught a regression. It pins the live ADR-088 wire shape for both the raw and
+  templated paths (URL, `X-Postmark-Server-Token`, `List-Unsubscribe` pair,
+  `Metadata`, `MessageStream`), `fromAddress` override and domain fallback, and
+  the token-missing / recipient-missing early returns that must perform no HTTP
+  call. The client test pins success / `http_error` / `network_error`.
+- **Runtime tool** (`apps/runtime/test/runtime-email-send-tool.service.test.ts`,
+  registered in the `run-suite-isolated.ts` allowlist): verified send returns
+  `sent`; unverified maps to `skipped` with the settings guidance; an exhausted
+  daily limit short-circuits before any send call; malformed address, multiple
+  recipients, cc/bcc and HTML are rejected as invalid arguments; `describe`
+  returns the contract; projection follows policy and stays present when the
+  workspace sender is unverified.
+- **Web card** (`apps/web/app/app/_components/assistant-settings.test.tsx`):
+  «Не подключён» with no identity; submit moves to pending; a poll returning
+  `verified` flips the card with no reload; polling stops after verification,
+  on dialog close, and on unmount (stable call count after advancing timers);
+  a missing Account token is visible rather than a silent stuck pending state.
+
 ## 2026-07-29 ADR-167 deliver-once + unified timeline amend
 
 - **Deliver-once:** worker delivery then same-identity `files.attach` yields one

@@ -17,7 +17,10 @@ export const TOOL_CREDENTIAL_IDS = {
   // Notification-platform credentials (same paths as NOTIFICATION_CREDENTIAL_IDS below,
   // so the existing tool-credential save endpoint can store and expose them).
   notification_email_postmark: "notification/email/postmark/api-key",
-  notification_email_postmark_webhook: "notification/email/postmark/webhook-token"
+  notification_email_postmark_webhook: "notification/email/postmark/webhook-token",
+  // ADR-168 — Postmark Account API token (Sender Signatures API), distinct
+  // from the Server Token above which is used only for sending.
+  notification_email_postmark_account: "notification/email/postmark/account-token"
 } as const;
 
 export const MEDIA_RESERVE_CONFIG_KEYS = {
@@ -31,7 +34,10 @@ export const DEFAULT_MEDIA_RESERVE_BASE_URL = "https://api.proxyapi.ru/openai/v1
 /** Notification-platform specific credentials — canonical path aliases used by adapters. */
 export const NOTIFICATION_CREDENTIAL_IDS = {
   email_postmark: "notification/email/postmark/api-key",
-  email_postmark_webhook: "notification/email/postmark/webhook-token"
+  email_postmark_webhook: "notification/email/postmark/webhook-token",
+  // ADR-168 — Postmark Account API token, used by the Sender Signatures API
+  // (`/senders`) for workspace email sender identity verification.
+  email_postmark_account: "notification/email/postmark/account-token"
 } as const;
 
 export type NotificationCredentialKey = keyof typeof NOTIFICATION_CREDENTIAL_IDS;
@@ -66,7 +72,8 @@ export const TOOL_CODE_BY_CREDENTIAL_KEY: Record<ToolCredentialKey, string> = {
   tool_tts_openai: "tts",
   tool_memory_search: "memory_search",
   notification_email_postmark: "notifications",
-  notification_email_postmark_webhook: "notifications"
+  notification_email_postmark_webhook: "notifications",
+  notification_email_postmark_account: "notifications"
 };
 
 export const TTS_PROVIDER_TO_CREDENTIAL_KEY: Record<PersaiRuntimeTtsProviderId, ToolCredentialKey> =
@@ -373,7 +380,8 @@ export function buildAdminToolCredentialsState(params: {
     tool_tts_openai: "Text-to-Speech API Key (OpenAI)",
     tool_memory_search: "Knowledge Search / Embedding Index API Key",
     notification_email_postmark: "Postmark Server Token",
-    notification_email_postmark_webhook: "Postmark Webhook Token"
+    notification_email_postmark_webhook: "Postmark Webhook Token",
+    notification_email_postmark_account: "Postmark Account Token"
   };
 
   return {

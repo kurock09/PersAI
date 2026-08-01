@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ComponentProps, ReactNode } from "react";
 import type {
@@ -78,7 +78,11 @@ const assistantApiMocks = vi.hoisted(() => ({
   archiveWorkspaceVideoClonedVoice: vi.fn(),
   setWorkspaceVideoClonedVoiceDefault: vi.fn(),
   getAssistantSandboxEgress: vi.fn(),
-  putAssistantSandboxEgress: vi.fn()
+  putAssistantSandboxEgress: vi.fn(),
+  getAssistantEmailSenderIdentity: vi.fn(),
+  requestAssistantEmailSenderIdentity: vi.fn(),
+  resendAssistantEmailSenderConfirmation: vi.fn(),
+  removeAssistantEmailSenderIdentity: vi.fn()
 }));
 
 const browserProfileMocks = vi.hoisted(() => ({
@@ -155,6 +159,11 @@ vi.mock("../assistant-api-client", async () => {
     setWorkspaceVideoClonedVoiceDefault: assistantApiMocks.setWorkspaceVideoClonedVoiceDefault,
     getAssistantSandboxEgress: assistantApiMocks.getAssistantSandboxEgress,
     putAssistantSandboxEgress: assistantApiMocks.putAssistantSandboxEgress,
+    getAssistantEmailSenderIdentity: assistantApiMocks.getAssistantEmailSenderIdentity,
+    requestAssistantEmailSenderIdentity: assistantApiMocks.requestAssistantEmailSenderIdentity,
+    resendAssistantEmailSenderConfirmation:
+      assistantApiMocks.resendAssistantEmailSenderConfirmation,
+    removeAssistantEmailSenderIdentity: assistantApiMocks.removeAssistantEmailSenderIdentity,
     listAssistantBrowserProfiles: browserProfileMocks.listAssistantBrowserProfiles,
     deleteAssistantBrowserProfile: browserProfileMocks.deleteAssistantBrowserProfile,
     reconnectAssistantBrowserProfile: browserProfileMocks.reconnectAssistantBrowserProfile,
@@ -475,9 +484,11 @@ describe("integrations section", () => {
     expect(screen.getByText("Telegram")).toBeInTheDocument();
     expect(screen.getByText("WhatsApp")).toBeInTheDocument();
     expect(screen.getByText("MAX")).toBeInTheDocument();
-    expect(screen.getByText("Connected")).toBeInTheDocument();
-    const openLink = screen.getByText("Open");
-    expect(openLink.parentElement).toBe(screen.getByText("Connected").parentElement);
+    expect(screen.getByText("Email")).toBeInTheDocument();
+    const telegramCard = screen.getByRole("button", { name: /Telegram/i });
+    expect(within(telegramCard).getByText("Connected")).toBeInTheDocument();
+    const openLink = within(telegramCard).getByText("Open");
+    expect(openLink.parentElement).toBe(within(telegramCard).getByText("Connected").parentElement);
     expect(screen.queryByText("Reminder delivery")).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: /Telegram/i }));
@@ -499,7 +510,208 @@ describe("integrations section", () => {
     expect(screen.getByText("Reminder delivery")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Telegram" })).toBeInTheDocument();
   });
+
+  // -------------------------------------------------------------------------
+  // Email integration card (ADR-168) — workspace-scoped verified
+  // sender identity: not-connected / pending / verified / failed states, the
+  // request form, and the bounded confirmation poll. Nested here (not a
+  // sibling describe) so it inherits this block's beforeEach browser-profile
+  // and local-bridge mock defaults used by the shared "channels" section.
+  // -------------------------------------------------------------------------
+  describe("Email integration card", () => {
+    it("renders as not connected when the workspace has no sender identity", async () => {
+      assistantApiMocks.getAssistantEmailSenderIdentity.mockResolvedValue(null);
+
+      renderSettings(makeAppData(), "channels");
+
+      expect(await screen.findByText("Email")).toBeInTheDocument();
+      const emailCard = screen.getByRole("button", { name: /Email/i });
+      expect(within(emailCard).getByText("Not connected")).toBeInTheDocument();
+    });
+
+    it("moves the UI to a pending state after submitting an address", async () => {
+      assistantApiMocks.getAssistantEmailSenderIdentity.mockResolvedValue(null);
+      assistantApiMocks.requestAssistantEmailSenderIdentity.mockResolvedValue(
+        emailIdentity({ status: "pending" })
+      );
+
+      renderSettings(makeAppData(), "channels");
+
+      fireEvent.click(await screen.findByRole("button", { name: /Email/i }));
+
+      const addressInput = await screen.findByPlaceholderText("you@company.com");
+      fireEvent.change(addressInput, { target: { value: "sales@example.com" } });
+      fireEvent.click(screen.getByRole("button", { name: "Send confirmation email" }));
+
+      await waitFor(() => {
+        expect(assistantApiMocks.requestAssistantEmailSenderIdentity).toHaveBeenCalledWith(
+          "token-1",
+          { email: "sales@example.com", displayName: null }
+        );
+      });
+
+      expect(
+        await screen.findByText(/We sent a confirmation link to sales@example\.com/)
+      ).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Resend confirmation email" })).toBeInTheDocument();
+    });
+
+    it("flips to verified through the bounded poll without a manual reload, then stops polling", async () => {
+      vi.useFakeTimers();
+      try {
+        assistantApiMocks.getAssistantEmailSenderIdentity
+          .mockResolvedValueOnce(emailIdentity({ status: "pending" }))
+          .mockResolvedValueOnce(
+            emailIdentity({ status: "verified", verifiedAt: "2026-07-31T10:00:00.000Z" })
+          );
+
+        renderSettings(makeAppData(), "channels");
+
+        await act(async () => {
+          fireEvent.click(screen.getByRole("button", { name: /Email/i }));
+          await vi.advanceTimersByTimeAsync(0);
+        });
+
+        expect(assistantApiMocks.getAssistantEmailSenderIdentity).toHaveBeenCalledTimes(1);
+        expect(
+          screen.getByRole("button", { name: "Resend confirmation email" })
+        ).toBeInTheDocument();
+
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(5_000);
+        });
+
+        expect(assistantApiMocks.getAssistantEmailSenderIdentity).toHaveBeenCalledTimes(2);
+        expect(
+          screen.queryByRole("button", { name: "Resend confirmation email" })
+        ).not.toBeInTheDocument();
+
+        // Advancing well past another poll tick must not produce further calls —
+        // the effect tears its interval down once status leaves "pending".
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(30_000);
+        });
+
+        expect(assistantApiMocks.getAssistantEmailSenderIdentity).toHaveBeenCalledTimes(2);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("stops polling when the dialog is closed while still pending", async () => {
+      vi.useFakeTimers();
+      try {
+        assistantApiMocks.getAssistantEmailSenderIdentity.mockResolvedValue(
+          emailIdentity({ status: "pending" })
+        );
+
+        renderSettings(makeAppData(), "channels");
+
+        await act(async () => {
+          fireEvent.click(screen.getByRole("button", { name: /Email/i }));
+          await vi.advanceTimersByTimeAsync(0);
+        });
+
+        expect(assistantApiMocks.getAssistantEmailSenderIdentity).toHaveBeenCalledTimes(1);
+
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(5_000);
+        });
+
+        expect(assistantApiMocks.getAssistantEmailSenderIdentity).toHaveBeenCalledTimes(2);
+
+        await act(async () => {
+          fireEvent.click(screen.getByRole("button", { name: "Close" }));
+          await vi.advanceTimersByTimeAsync(0);
+        });
+
+        // Closing the dialog must tear the poll interval down — no further
+        // calls even after advancing well past several would-be poll ticks.
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(30_000);
+        });
+
+        expect(assistantApiMocks.getAssistantEmailSenderIdentity).toHaveBeenCalledTimes(2);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("stops polling on unmount while still pending", async () => {
+      vi.useFakeTimers();
+      try {
+        assistantApiMocks.getAssistantEmailSenderIdentity.mockResolvedValue(
+          emailIdentity({ status: "pending" })
+        );
+
+        const { unmount } = render(
+          <NextIntlClientProvider locale="en" messages={enMessages}>
+            <AssistantSettings data={makeAppData()} initialSection="channels" />
+          </NextIntlClientProvider>
+        );
+
+        await act(async () => {
+          fireEvent.click(screen.getByRole("button", { name: /Email/i }));
+          await vi.advanceTimersByTimeAsync(0);
+        });
+
+        expect(assistantApiMocks.getAssistantEmailSenderIdentity).toHaveBeenCalledTimes(1);
+
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(5_000);
+        });
+
+        expect(assistantApiMocks.getAssistantEmailSenderIdentity).toHaveBeenCalledTimes(2);
+
+        unmount();
+
+        // Unmounting must tear the poll interval down via effect cleanup —
+        // no further calls even after advancing well past several would-be
+        // poll ticks.
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(30_000);
+        });
+
+        expect(assistantApiMocks.getAssistantEmailSenderIdentity).toHaveBeenCalledTimes(2);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("surfaces postmark_account_token_unavailable instead of a silent stuck pending state", async () => {
+      assistantApiMocks.getAssistantEmailSenderIdentity.mockResolvedValue(
+        emailIdentity({ status: "pending", lastErrorReason: "postmark_account_token_unavailable" })
+      );
+
+      renderSettings(makeAppData(), "channels");
+
+      fireEvent.click(await screen.findByRole("button", { name: /Email/i }));
+
+      expect(
+        await screen.findByText(/Email sending isn't configured on the platform yet/)
+      ).toBeInTheDocument();
+    });
+  });
 });
+
+function emailIdentity(
+  overrides: Partial<{
+    email: string;
+    displayName: string | null;
+    status: "pending" | "verified" | "failed";
+    verifiedAt: string | null;
+    lastErrorReason: string | null;
+  }> = {}
+) {
+  return {
+    email: "sales@example.com",
+    displayName: null,
+    status: "pending" as const,
+    verifiedAt: null,
+    lastErrorReason: null,
+    ...overrides
+  };
+}
 
 function withIntl(node: ReactNode): ReactNode {
   return (
@@ -696,6 +908,7 @@ beforeEach(() => {
     previewAudioUrl: null,
     createdAt: new Date().toISOString()
   });
+  assistantApiMocks.getAssistantEmailSenderIdentity.mockResolvedValue(null);
 });
 
 afterEach(() => {

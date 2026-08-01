@@ -63,6 +63,7 @@ import {
   type RuntimeDeferredDocumentJobSummary,
   type RuntimeSharedCompactionToolResult,
   type RuntimeTtsToolResult,
+  type RuntimeEmailSendToolResult,
   type RuntimeVideoGenerateToolResult,
   type RuntimeToolPolicy,
   type RuntimeFailedEvent,
@@ -149,6 +150,7 @@ import { RuntimeGrepGlobToolService } from "./runtime-grep-glob-tool.service";
 import { RuntimeBackgroundTaskToolService } from "./runtime-background-task-tool.service";
 import { RuntimeScheduledActionToolService } from "./runtime-scheduled-action-tool.service";
 import { RuntimeTtsToolService } from "./runtime-tts-tool.service";
+import { RuntimeEmailSendToolService } from "./runtime-email-send-tool.service";
 import { RuntimeVideoGenerateToolService } from "./runtime-video-generate-tool.service";
 import { buildPromptCacheStableBlockToken } from "./prompt-cache-stable-blocks";
 import { resolveRuntimeContextHydrationConfig } from "./runtime-context-hydration-policy";
@@ -381,6 +383,7 @@ type ToolExecutionOutcome = {
     | RuntimeScheduledActionToolResult
     | RuntimeBackgroundTaskToolResult
     | RuntimeTtsToolResult
+    | RuntimeEmailSendToolResult
     | RuntimeVideoGenerateToolResult
     | RuntimeWebSearchToolResult
     | RuntimeWebFetchToolResult
@@ -472,6 +475,7 @@ const IMAGE_EDIT_TOOL_CODE = "image_edit";
 const IMAGE_GENERATE_TOOL_CODE = "image_generate";
 const VIDEO_GENERATE_TOOL_CODE = "video_generate";
 const TTS_TOOL_CODE = "tts";
+const EMAIL_SEND_TOOL_CODE = "email_send";
 const FILES_TOOL_CODE = "files";
 const GREP_TOOL_CODE = "grep";
 const GLOB_TOOL_CODE = "glob";
@@ -664,6 +668,7 @@ export class TurnExecutionService {
     private readonly runtimeAwaitToolService: RuntimeAwaitToolService,
     private readonly mediaObjectStorage: PersaiMediaObjectStorageService,
     private readonly storagePlaneFilesService: RuntimeStoragePlaneFilesService,
+    private readonly runtimeEmailSendToolService: RuntimeEmailSendToolService,
     @Optional() @Inject(RUNTIME_CONFIG) private readonly config?: RuntimeConfig
   ) {}
 
@@ -4358,6 +4363,15 @@ export class TurnExecutionService {
           result.artifacts
         );
       }
+      case EMAIL_SEND_TOOL_CODE: {
+        const result = await this.runtimeEmailSendToolService.executeToolCall({
+          bundle: execution.bundle,
+          toolCall,
+          requestId: acceptedTurn.receipt.requestId,
+          chatId: currentChatId
+        });
+        return this.createToolExecutionOutcome(toolCall, result.payload, result.isError);
+      }
       case SCHEDULED_ACTION_TOOL_CODE: {
         const result = await this.runtimeScheduledActionToolService.executeToolCall({
           bundle: execution.bundle,
@@ -4839,6 +4853,7 @@ export class TurnExecutionService {
       | RuntimeScheduledActionToolResult
       | RuntimeBackgroundTaskToolResult
       | RuntimeTtsToolResult
+      | RuntimeEmailSendToolResult
       | RuntimeVideoGenerateToolResult
       | RuntimeWebSearchToolResult
       | RuntimeWebFetchToolResult

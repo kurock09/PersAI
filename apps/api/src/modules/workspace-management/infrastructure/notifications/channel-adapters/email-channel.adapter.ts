@@ -8,11 +8,11 @@ import type {
 import { NotificationChannelType } from "../../../application/notifications/notification-platform.types";
 import { PlatformRuntimeProviderSecretStoreService } from "../../../application/platform-runtime-provider-secret-store.service";
 import { NOTIFICATION_CREDENTIAL_IDS } from "../../../application/tool-credential-settings";
+import { PostmarkEmailSendClientService } from "../../../application/postmark-email-send.client";
 import type { NotificationChannelAdapter } from "./channel-adapter.interface";
 
 const POSTMARK_SEND_URL = "https://api.postmarkapp.com/email";
 const POSTMARK_TEMPLATE_URL = "https://api.postmarkapp.com/email/withTemplate";
-const POSTMARK_SEND_TIMEOUT_MS = 10_000;
 const DEFAULT_SENDER_DOMAIN = "notifications.persai.dev";
 
 /**
@@ -30,7 +30,10 @@ export class EmailChannelAdapter implements NotificationChannelAdapter {
 
   readonly channelType = NotificationChannelType.email;
 
-  constructor(private readonly secretStore: PlatformRuntimeProviderSecretStoreService) {}
+  constructor(
+    private readonly secretStore: PlatformRuntimeProviderSecretStoreService,
+    private readonly postmarkEmailSendClient: PostmarkEmailSendClientService
+  ) {}
 
   private async resolveServerToken(): Promise<string | undefined> {
     // resolveSecretValueById(secretId) maps secretId -> providerKey internally
@@ -209,46 +212,30 @@ export class EmailChannelAdapter implements NotificationChannelAdapter {
     intent: NotificationIntentRecord,
     mode: "raw" | "templated"
   ): Promise<DeliveryResult> {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => {
-      controller.abort();
-    }, POSTMARK_SEND_TIMEOUT_MS);
+    const outcome = await this.postmarkEmailSendClient.send({ url, serverToken: token, payload });
 
-    let response: Response;
-    try {
-      response = await fetch(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-          "X-Postmark-Server-Token": token
-        },
-        body: JSON.stringify(payload),
-        signal: controller.signal
-      });
-    } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : String(err);
+    if (outcome.kind === "network_error") {
       this.logger.error({
         event: "email_adapter.error",
         intentId: intent.id,
         mode,
-        error: errorMsg
+        error: outcome.message
       });
-      return { status: "failed", error: { reason: "email_send_error", message: errorMsg } };
-    } finally {
-      clearTimeout(timeout);
+      return { status: "failed", error: { reason: "email_send_error", message: outcome.message } };
     }
 
-    const responseBody = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+    const responseBody = outcome.body;
 
-    if (!response.ok) {
+    if (outcome.kind === "http_error") {
       const errorCode =
-        typeof responseBody["ErrorCode"] === "number" ? responseBody["ErrorCode"] : response.status;
+        typeof responseBody["ErrorCode"] === "number"
+          ? responseBody["ErrorCode"]
+          : outcome.httpStatus;
       this.logger.warn({
         event: "email_adapter.send_failed",
         intentId: intent.id,
         mode,
-        httpStatus: response.status,
+        httpStatus: outcome.httpStatus,
         errorCode,
         message: responseBody["Message"]
       });
@@ -256,7 +243,7 @@ export class EmailChannelAdapter implements NotificationChannelAdapter {
         status: "failed",
         error: {
           reason: "postmark_error",
-          httpStatus: response.status,
+          httpStatus: outcome.httpStatus,
           errorCode,
           message: responseBody["Message"]
         }

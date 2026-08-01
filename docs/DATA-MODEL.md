@@ -653,6 +653,24 @@ ADR-099 Session C keeps the same additive money ledger table: `ModelCostLedgerEv
 
 ADR-099 Block 2 adds `platform_runtime_provider_settings.tool_path_pricing_catalog` as the operator-owned tariff catalog for non-model tool paths (`web_search`, `web_fetch`, `browser`, `document_render`), keyed by `pathKey = {toolCode}:{providerId}` with the same billing-mode shapes as the Runtime catalog (`fixed_operation`, `time_metered`, `tiered_operation`). Ledger rows reuse `model_cost_ledger_events` with purposes `web_search`, `web_fetch`, `browser`, and `document_render`, priced through `recordToolPathBillingFactsEvent` when durable tool-path `billingFacts` exist.
 
+## Assistant email sender identity (ADR-168)
+
+`workspace_email_sender_identities` holds the verified outbound sender address a
+workspace's assistants send from. One row per workspace (`workspace_id` unique):
+`email`, optional `display_name`, `status` (`pending | verified | failed`),
+`postmark_signature_id`, `last_error_reason`, `requested_at`, `verified_at`.
+
+The row stores no secrets. `verified` is set only after Postmark reports the
+Sender Signature as confirmed (`GET /senders/{id}`), which happens through a
+bounded, demand-driven re-check — Postmark has no confirmation webhook.
+Without a `verified` row the `email_send` tool performs no Postmark call at all,
+so this table is the fail-closed gate for assistant-sent mail. It is independent
+of the ADR-088 notification tables, which keep their own platform-owned sender.
+
+Daily and per-turn limits for `email_send` are not stored here: they reuse the
+existing `plan_catalog_tool_activations` fields and the shared daily tool-usage
+counter, and the tool ships inactive until an operator enables it per plan.
+
 ## Secret ownership
 
 Current secret wiring is split between:

@@ -2324,6 +2324,7 @@ export async function runAdr151TurnDispatchIntegrationTest(): Promise<void> {
     null as never,
     null as never,
     null as never,
+    null as never,
     null as never
   );
   const privateAccess = service as unknown as {
@@ -2502,6 +2503,159 @@ export async function runAdr151TurnDispatchIntegrationTest(): Promise<void> {
   );
 }
 
+// ADR-168 FIX B — dispatch-level coverage: a model-emitted `email_send` tool
+// call must actually reach `RuntimeEmailSendToolService` with the exact
+// arguments and its result must flow back into the tool execution outcome.
+// Every other test in this file passes `null as never` for the email
+// service, so this is the only test that would fail if the dispatch branch
+// were deleted or wired to the wrong service.
+export async function runTurnExecutionEmailSendDispatchTest(): Promise<void> {
+  const emailCalls: Array<Record<string, unknown>> = [];
+  const runtimeEmailSendToolService = {
+    async executeToolCall(input: Record<string, unknown>) {
+      emailCalls.push(input);
+      return {
+        payload: {
+          toolCode: "email_send",
+          executionMode: "worker",
+          to: "partner@example.com",
+          subject: "Follow-up on our call",
+          action: "sent",
+          reason: null,
+          messageId: "postmark-msg-dispatch-1"
+        },
+        artifacts: [],
+        isError: false
+      };
+    }
+  };
+  const service = new TurnExecutionService(
+    null as never, // runtimeBundleRegistryService
+    null as never, // providerGatewayClientService
+    null as never, // persaiInternalApiClientService
+    null as never, // runtimeBundleAutoRefreshService
+    null as never, // turnContextHydrationService
+    null as never, // turnAcceptanceService
+    null as never, // turnRoutingService
+    null as never, // turnFinalizationService
+    null as never, // turnLeaseHeartbeatService
+    null as never, // sessionCompactionService
+    null as never, // runtimeBrowserToolService
+    null as never, // runtimeDocumentToolService
+    null as never, // runtimeFilesToolService
+    null as never, // runtimeImageEditToolService
+    null as never, // runtimeImageGenerateToolService
+    null as never, // runtimeKnowledgeToolService
+    null as never, // runtimeMemoryWriteToolService
+    null as never, // runtimeTodoWriteToolService
+    null as never, // runtimeQuotaStatusToolService
+    null as never, // runtimeSandboxToolService
+    null as never, // runtimeScriptToolService
+    null as never, // runtimeGrepGlobToolService
+    null as never, // runtimeBackgroundTaskToolService
+    null as never, // runtimeScheduledActionToolService
+    null as never, // runtimeTtsToolService
+    null as never, // runtimeVideoGenerateToolService
+    null as never, // runtimeSkillToolService
+    null as never, // buildActiveScenarioBlockService
+    null as never, // buildSystemReminderBlocksService
+    null as never, // runtimeObservabilityService
+    null as never, // runtimeExecutionAdmissionService
+    null as never, // runtimeAwaitToolService
+    null as never, // mediaObjectStorage
+    null as never, // storagePlaneFilesService
+    runtimeEmailSendToolService as never // runtimeEmailSendToolService
+  );
+  const privateAccess = service as unknown as {
+    executeProjectedToolCall(
+      execution: unknown,
+      acceptedTurn: AcceptedRuntimeTurn,
+      input: RuntimeTurnRequest,
+      toolCall: ProviderGatewayToolCall,
+      currentUserMessageId: string | null,
+      currentArtifacts: readonly unknown[],
+      currentFileHandles: readonly RuntimeFileHandle[],
+      availableWorkingFileHandles: readonly RuntimeFileHandle[],
+      turnState: unknown
+    ): Promise<{
+      payload: Record<string, unknown>;
+      exchange: { toolResult: { isError: boolean } };
+    }>;
+  };
+  const execution = {
+    bundle: {
+      governance: { toolPolicies: [] },
+      runtime: {
+        sharedCompaction: {
+          summarizeToolCode: "summarize_context",
+          compactToolCode: "compact_context"
+        },
+        knowledgeAccess: {
+          searchToolCode: "knowledge_search",
+          fetchToolCode: "knowledge_fetch"
+        }
+      }
+    } as unknown as AssistantRuntimeBundle,
+    projectedTools: {
+      tools: [{ name: "email_send", description: "Send a plain-text email.", inputSchema: {} }],
+      knowledgeSearchSources: [],
+      knowledgeFetchSources: []
+    }
+  };
+  const acceptedTurn = createAcceptedTurn();
+  const request = createRuntimeTurnRequest();
+  const turnState = {
+    currentChatId: "chat-1",
+    loadedCatalogToolCodes: new Set<string>(),
+    catalogToolMetrics: {
+      projectedCatalogCount: 0,
+      describedCount: 0,
+      executionRejectedCount: 0
+    }
+  };
+  const toolCall: ProviderGatewayToolCall = {
+    id: "email-send-call-1",
+    name: "email_send",
+    arguments: {
+      to: "partner@example.com",
+      subject: "Follow-up on our call",
+      body: "Hello, following up on our earlier conversation."
+    }
+  };
+
+  const outcome = await privateAccess.executeProjectedToolCall(
+    execution,
+    acceptedTurn,
+    request,
+    toolCall,
+    request.idempotencyKey,
+    [],
+    [],
+    [],
+    turnState
+  );
+
+  assert.equal(emailCalls.length, 1);
+  assert.equal(
+    (emailCalls[0]?.toolCall as ProviderGatewayToolCall).arguments.to,
+    "partner@example.com"
+  );
+  assert.equal(
+    (emailCalls[0]?.toolCall as ProviderGatewayToolCall).arguments.subject,
+    "Follow-up on our call"
+  );
+  assert.equal(
+    (emailCalls[0]?.toolCall as ProviderGatewayToolCall).arguments.body,
+    "Hello, following up on our earlier conversation."
+  );
+  assert.equal(emailCalls[0]?.requestId, acceptedTurn.receipt.requestId);
+  assert.equal(emailCalls[0]?.chatId, "chat-1");
+  assert.equal(outcome.payload.action, "sent");
+  assert.equal(outcome.payload.messageId, "postmark-msg-dispatch-1");
+  assert.equal(outcome.exchange.toolResult.isError, false);
+  assert.equal(outcome.payload.toolCode, "email_send");
+}
+
 export async function runTurnExecutionServiceTest(): Promise<void> {
   const bundleRegistry = new FakeRuntimeBundleRegistryService();
   const initialRouting = bundleRegistry.entry?.parsedBundle.runtime.runtimeProviderRouting as {
@@ -2629,7 +2783,8 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     runtimeExecutionAdmissionService,
     null as never, // runtimeAwaitToolService
     mediaObjectStorage as never,
-    null as never // storagePlaneFilesService
+    null as never, // storagePlaneFilesService
+    null as never // runtimeEmailSendToolService
   );
 
   const request = createRuntimeTurnRequest();
@@ -2937,7 +3092,8 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     runtimeExecutionAdmissionService,
     null as never, // runtimeAwaitToolService
     mediaObjectStorage as never,
-    null as never // storagePlaneFilesService
+    null as never, // storagePlaneFilesService
+    null as never // runtimeEmailSendToolService
   );
   providerGatewayClient.calls = [];
   turnAcceptanceService.result = createAcceptedTurn();
@@ -3029,7 +3185,8 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     runtimeExecutionAdmissionService,
     null as never, // runtimeAwaitToolService
     mediaObjectStorage as never,
-    null as never // storagePlaneFilesService
+    null as never, // storagePlaneFilesService
+    null as never // runtimeEmailSendToolService
   );
   providerGatewayClient.calls = [];
   turnAcceptanceService.result = createAcceptedTurn();
@@ -9512,6 +9669,7 @@ export function buildTurnExecutionHarness(): TurnExecutionHarness {
     runtimeExecutionAdmissionService,
     null as never,
     null as never,
+    null as never,
     null as never
   );
   return {
@@ -10003,7 +10161,8 @@ function buildMinimalTurnExecutionService(runtimeAwaitToolService?: unknown): Tu
     null as never, // runtimeExecutionAdmissionService
     runtimeAwaitToolService as never,
     null as never, // mediaObjectStorage
-    null as never // storagePlaneFilesService
+    null as never, // storagePlaneFilesService
+    null as never // runtimeEmailSendToolService
   );
 }
 
