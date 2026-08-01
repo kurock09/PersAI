@@ -210,6 +210,14 @@ export const CLERK_AUTHENTICATED_ROUTES: Array<{ path: string; method: RequestMe
   { path: "api/v1/assistant/integrations/email-sender", method: RequestMethod.POST },
   { path: "api/v1/assistant/integrations/email-sender/resend", method: RequestMethod.POST },
   { path: "api/v1/assistant/integrations/email-sender", method: RequestMethod.DELETE },
+  // ADR-169 S2 — mailbox OAuth connect card. The provider redirect target
+  // (`api/v1/public/integrations/email-mailbox/callback`) is deliberately
+  // NOT registered here: it carries no Clerk session and is guarded solely
+  // by the single-use, expiring `state` (ADR-169 D11). Same 401 trap as the
+  // ADR-168 Email note above for the three routes that DO need a session.
+  { path: "api/v1/assistant/integrations/email-mailbox", method: RequestMethod.GET },
+  { path: "api/v1/assistant/integrations/email-mailbox/connect", method: RequestMethod.POST },
+  { path: "api/v1/assistant/integrations/email-mailbox", method: RequestMethod.DELETE },
   // ADR-138 browser profile settings + live login modal (complete/cancel).
   // Without explicit ClerkAuthMiddleware registration requests reach the
   // controller with req.resolvedAppUser === undefined and return 401.

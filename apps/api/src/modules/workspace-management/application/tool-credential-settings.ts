@@ -20,7 +20,13 @@ export const TOOL_CREDENTIAL_IDS = {
   notification_email_postmark_webhook: "notification/email/postmark/webhook-token",
   // ADR-168 — Postmark Account API token (Sender Signatures API), distinct
   // from the Server Token above which is used only for sending.
-  notification_email_postmark_account: "notification/email/postmark/account-token"
+  notification_email_postmark_account: "notification/email/postmark/account-token",
+  // ADR-169 — platform OAuth app credentials for the mailbox-connected
+  // assistant email flow (one client id + secret per provider).
+  mailbox_oauth_mailru_client_id: "mailbox-oauth/mailru/client-id",
+  mailbox_oauth_mailru_client_secret: "mailbox-oauth/mailru/client-secret",
+  mailbox_oauth_yandex_client_id: "mailbox-oauth/yandex/client-id",
+  mailbox_oauth_yandex_client_secret: "mailbox-oauth/yandex/client-secret"
 } as const;
 
 export const MEDIA_RESERVE_CONFIG_KEYS = {
@@ -41,6 +47,18 @@ export const NOTIFICATION_CREDENTIAL_IDS = {
 } as const;
 
 export type NotificationCredentialKey = keyof typeof NOTIFICATION_CREDENTIAL_IDS;
+
+/**
+ * ADR-169 — semantic alias for the mailbox OAuth app credentials declared in
+ * `TOOL_CREDENTIAL_IDS` above, resolved exclusively via
+ * `PlatformRuntimeProviderSecretStoreService.resolveSecretValueById`.
+ */
+export const MAILBOX_OAUTH_CREDENTIAL_IDS = {
+  mailru_client_id: TOOL_CREDENTIAL_IDS.mailbox_oauth_mailru_client_id,
+  mailru_client_secret: TOOL_CREDENTIAL_IDS.mailbox_oauth_mailru_client_secret,
+  yandex_client_id: TOOL_CREDENTIAL_IDS.mailbox_oauth_yandex_client_id,
+  yandex_client_secret: TOOL_CREDENTIAL_IDS.mailbox_oauth_yandex_client_secret
+} as const;
 
 export type ToolCredentialKey = keyof typeof TOOL_CREDENTIAL_IDS;
 export const ALL_TOOL_CREDENTIAL_KEYS: ToolCredentialKey[] = Object.keys(
@@ -73,7 +91,11 @@ export const TOOL_CODE_BY_CREDENTIAL_KEY: Record<ToolCredentialKey, string> = {
   tool_memory_search: "memory_search",
   notification_email_postmark: "notifications",
   notification_email_postmark_webhook: "notifications",
-  notification_email_postmark_account: "notifications"
+  notification_email_postmark_account: "notifications",
+  mailbox_oauth_mailru_client_id: "email_mailbox",
+  mailbox_oauth_mailru_client_secret: "email_mailbox",
+  mailbox_oauth_yandex_client_id: "email_mailbox",
+  mailbox_oauth_yandex_client_secret: "email_mailbox"
 };
 
 export const TTS_PROVIDER_TO_CREDENTIAL_KEY: Record<PersaiRuntimeTtsProviderId, ToolCredentialKey> =
@@ -381,7 +403,11 @@ export function buildAdminToolCredentialsState(params: {
     tool_memory_search: "Knowledge Search / Embedding Index API Key",
     notification_email_postmark: "Postmark Server Token",
     notification_email_postmark_webhook: "Postmark Webhook Token",
-    notification_email_postmark_account: "Postmark Account Token"
+    notification_email_postmark_account: "Postmark Account Token",
+    mailbox_oauth_mailru_client_id: "Mailbox OAuth Client ID (Mail.ru)",
+    mailbox_oauth_mailru_client_secret: "Mailbox OAuth Client Secret (Mail.ru)",
+    mailbox_oauth_yandex_client_id: "Mailbox OAuth Client ID (Yandex)",
+    mailbox_oauth_yandex_client_secret: "Mailbox OAuth Client Secret (Yandex)"
   };
 
   return {

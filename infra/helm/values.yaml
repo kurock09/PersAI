@@ -91,6 +91,9 @@ api:
     PERSAI_PROVIDER_GATEWAY_BASE_URL: ""
     PERSAI_PROVIDER_GATEWAY_WARMUP_TIMEOUT_MS: "10000"
     PERSAI_WEB_BASE_URL: ""
+    # ADR-169: externally reachable API origin, used to build the mailbox OAuth
+    # redirect_uri that Mail.ru/Yandex call back. Empty means connect fails closed.
+    PERSAI_PUBLIC_API_BASE_URL: ""
     PERSAI_MEDIA_BUCKET_NAME: ""
     PERSAI_MEDIA_OBJECT_PREFIX: "fs"
     PERSAI_SANDBOX_BASE_URL: ""

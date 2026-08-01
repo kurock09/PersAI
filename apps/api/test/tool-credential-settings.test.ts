@@ -96,7 +96,9 @@ async function run(): Promise<void> {
     }
   });
 
-  assert.equal(state.credentials.length, 14); // 11 visible tool credentials + 3 notification credentials
+  // 11 visible tool credentials + 3 notification credentials + 4 ADR-169
+  // mailbox OAuth app credentials (client id/secret for Mail.ru and Yandex).
+  assert.equal(state.credentials.length, 18);
   assert.equal(
     state.credentials.find((credential) => credential.credentialKey === "tool_memory_search"),
     undefined

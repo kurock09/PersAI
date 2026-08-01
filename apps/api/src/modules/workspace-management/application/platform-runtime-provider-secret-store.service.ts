@@ -130,7 +130,7 @@ export class PlatformRuntimeProviderSecretStoreService {
   async upsertProviderKey(
     providerKey: string,
     rawKey: string,
-    updatedByUserId: string
+    updatedByUserId: string | null
   ): Promise<void> {
     const normalized = rawKey.trim();
     if (normalized.length === 0) {
