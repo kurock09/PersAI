@@ -202,7 +202,7 @@ function resolveEmailMailboxCardStatusLabel(
     return t("emailMailboxNotConnectedStatus");
   }
   if (mailbox.status === "connected") {
-    return `@ ${mailbox.email}`;
+    return mailbox.email;
   }
   // Reveal the address even when the grant was revoked — otherwise the user
   // has no way to tell which mailbox needs reconnecting.
@@ -210,8 +210,8 @@ function resolveEmailMailboxCardStatusLabel(
 }
 
 function resolveEmailMailboxLogoSrc(mailbox: WorkspaceEmailMailboxState | null): string {
-  if (mailbox?.provider === "mailru") return "/integrations/mailru-mail.svg";
-  if (mailbox?.provider === "yandex") return "/integrations/yandex-mail.svg";
+  if (mailbox?.provider === "mailru") return "/integrations/mailru-mail.png";
+  if (mailbox?.provider === "yandex") return "/integrations/yandex-mail.png";
   return "/integrations/email-logo.svg";
 }
 
@@ -5272,45 +5272,45 @@ export function AssistantSettings({
                   </div>
                 </div>
               ) : (
-                <div className="flex flex-wrap justify-end gap-2">
-                  {emailMailboxState.status === "token_invalid" ? (
-                    <ActionButton
-                      icon={<RotateCcw className="h-3.5 w-3.5" />}
-                      label={t("emailMailboxReconnect")}
-                      onClick={() => void handleConnectEmailMailbox(emailMailboxState.provider)}
-                      busy={emailMailboxConnectingProvider === emailMailboxState.provider}
-                      disabled={emailMailboxConnectingProvider !== null}
-                      variant="primary"
-                    />
-                  ) : null}
-                  {emailMailboxState.status === "smtp_access_required" ? (
-                    <ActionButton
-                      icon={<RotateCcw className="h-3.5 w-3.5" />}
-                      label={t("emailMailboxDone")}
-                      onClick={() => void handleVerifyEmailMailboxSmtp()}
-                      busy={emailMailboxVerifying}
-                      variant="primary"
-                    />
-                  ) : (
-                    <ActionButton
-                      icon={null}
-                      label={t("emailMailboxDone")}
-                      onClick={handleCloseEmailMailbox}
-                      busy={false}
-                      variant="primary"
-                    />
-                  )}
+                <div className="flex items-center justify-between gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setEmailMailboxDisconnectConfirmOpen(true)}
+                    className="text-xs text-text-subtle underline-offset-4 hover:text-destructive hover:underline"
+                  >
+                    {t("emailMailboxDisconnect")}
+                  </button>
+                  <div className="flex shrink-0 gap-2">
+                    {emailMailboxState.status === "token_invalid" ? (
+                      <ActionButton
+                        icon={<RotateCcw className="h-3.5 w-3.5" />}
+                        label={t("emailMailboxReconnect")}
+                        onClick={() => void handleConnectEmailMailbox(emailMailboxState.provider)}
+                        busy={emailMailboxConnectingProvider === emailMailboxState.provider}
+                        disabled={emailMailboxConnectingProvider !== null}
+                        variant="primary"
+                      />
+                    ) : null}
+                    {emailMailboxState.status === "smtp_access_required" ? (
+                      <ActionButton
+                        icon={<RotateCcw className="h-3.5 w-3.5" />}
+                        label={t("emailMailboxDone")}
+                        onClick={() => void handleVerifyEmailMailboxSmtp()}
+                        busy={emailMailboxVerifying}
+                        variant="primary"
+                      />
+                    ) : (
+                      <ActionButton
+                        icon={null}
+                        label={t("emailMailboxDone")}
+                        onClick={handleCloseEmailMailbox}
+                        busy={false}
+                        variant="primary"
+                      />
+                    )}
+                  </div>
                 </div>
               )}
-              {!emailMailboxDisconnectConfirmOpen ? (
-                <button
-                  type="button"
-                  onClick={() => setEmailMailboxDisconnectConfirmOpen(true)}
-                  className="text-xs text-text-subtle underline-offset-4 hover:text-destructive hover:underline"
-                >
-                  {t("emailMailboxDisconnect")}
-                </button>
-              ) : null}
             </div>
           ) : (
             <div className="space-y-4">
@@ -5320,7 +5320,7 @@ export function AssistantSettings({
                 <ActionButton
                   icon={
                     <img
-                      src="/integrations/mailru-mail.svg"
+                      src="/integrations/mailru-mail.png"
                       alt=""
                       className="h-3.5 w-3.5 rounded-sm"
                     />
@@ -5335,7 +5335,7 @@ export function AssistantSettings({
                 <ActionButton
                   icon={
                     <img
-                      src="/integrations/yandex-mail.svg"
+                      src="/integrations/yandex-mail.png"
                       alt=""
                       className="h-3.5 w-3.5 rounded-sm"
                     />

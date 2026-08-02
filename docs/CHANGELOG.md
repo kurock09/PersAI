@@ -12,6 +12,11 @@
   invalid. Recoverable refresh/network failures remain failures rather than
   falsely telling the user to reconnect.
 
+- **fix(api): retry a previously marked mailbox before giving up.** A persisted
+  `token_invalid` state previously short-circuited before the recovery path.
+  It now performs the same one forced refresh and only remains disconnected
+  after the provider confirms the refresh grant is invalid.
+
 - **fix(api, web): make mailbox SMTP permission explicit.** OAuth success no
   longer implies that a provider allows SMTP: connection now performs a
   non-sending SMTP probe and records `smtp_access_required` for the known

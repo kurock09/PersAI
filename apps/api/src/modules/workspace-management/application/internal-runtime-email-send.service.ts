@@ -158,14 +158,10 @@ export class InternalRuntimeEmailSendService {
         "Assistant email send skipped: provider SMTP access must be enabled."
       );
     }
-    if (identity.mailboxStatus === WorkspaceEmailMailboxStatus.token_invalid) {
-      return this.skip(
-        input,
-        "mailbox_token_invalid",
-        "Assistant email send skipped: mailbox token was revoked."
-      );
-    }
-    if (identity.mailboxStatus !== WorkspaceEmailMailboxStatus.connected) {
+    if (
+      identity.mailboxStatus !== WorkspaceEmailMailboxStatus.connected &&
+      identity.mailboxStatus !== WorkspaceEmailMailboxStatus.token_invalid
+    ) {
       return this.skip(
         input,
         "mailbox_not_connected",
@@ -178,7 +174,10 @@ export class InternalRuntimeEmailSendService {
     const tokenResult = await this.tokenLifecycle.resolveFreshAccessToken(
       input.workspaceId,
       provider.id,
-      identity.tokenExpiresAt
+      identity.tokenExpiresAt,
+      identity.mailboxStatus === WorkspaceEmailMailboxStatus.token_invalid
+        ? { forceRefresh: true }
+        : undefined
     );
 
     if (tokenResult.kind === "not_connected") {

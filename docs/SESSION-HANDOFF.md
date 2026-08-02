@@ -14,6 +14,12 @@
   refresh and one SMTP retry; only a confirmed `invalid_grant` is allowed to
   become `token_invalid`. This prevents an ordinary recoverable token mismatch
   from requiring a manual reconnect.
+- **Live Mail.ru follow-up:** production logs proved a persisted
+  `token_invalid` status was returned before the send path and therefore
+  bypassed the forced-refresh recovery entirely; Yandex sent successfully in
+  the same release. The bounded local repair now force-refreshes a persisted
+  `token_invalid` mailbox once as well, leaving it blocked only when the
+  provider confirms `invalid_grant`.
 - **Current checkpoint:** local code and focused typechecks are green. Next:
   format/lint, focused API/web tests, then the required full gate before the
   single authorized commit/push/deploy and authenticated Mail.ru/Yandex

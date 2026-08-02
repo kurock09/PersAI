@@ -567,15 +567,15 @@ describe("integrations section", () => {
       renderSettings(makeAppData(), "channels");
 
       const emailCard = await screen.findByRole("button", { name: /Email/i });
-      expect(within(emailCard).getByText("@ sales@example.com")).toBeInTheDocument();
+      expect(within(emailCard).getByText("sales@example.com")).toBeInTheDocument();
       expect(emailCard.querySelector("img")).toHaveAttribute(
         "src",
-        "/integrations/yandex-mail.svg"
+        "/integrations/yandex-mail.png"
       );
 
       fireEvent.click(emailCard);
 
-      expect(await screen.findByText("sales@example.com")).toBeInTheDocument();
+      expect((await screen.findAllByText("sales@example.com")).length).toBeGreaterThanOrEqual(2);
       expect(screen.getByText("Yandex")).toBeInTheDocument();
 
       fireEvent.click(screen.getByRole("button", { name: "Disconnect mailbox" }));
@@ -632,7 +632,7 @@ describe("integrations section", () => {
       );
       fireEvent.click(screen.getByRole("button", { name: "Try again" }));
 
-      expect(await screen.findByText("owner@example.com")).toBeInTheDocument();
+      expect((await screen.findAllByText("owner@example.com")).length).toBeGreaterThanOrEqual(2);
     });
 
     it("shows an honest, distinct message when the platform's OAuth apps aren't configured yet", async () => {
@@ -667,7 +667,7 @@ describe("integrations section", () => {
         expect(assistantApiMocks.getAssistantEmailMailbox).toHaveBeenCalled();
       });
       expect(await screen.findByText("Mailbox connected.")).toBeInTheDocument();
-      expect(await screen.findByText("owner@example.com")).toBeInTheDocument();
+      expect((await screen.findAllByText("owner@example.com")).length).toBeGreaterThanOrEqual(2);
       expect(assistantApiMocks.getAssistantEmailMailbox).toHaveBeenCalled();
     });
 
