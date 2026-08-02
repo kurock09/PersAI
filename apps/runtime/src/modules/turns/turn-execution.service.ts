@@ -308,6 +308,17 @@ type RuntimeStreamTraceCollector = {
 
 type TurnProviderRequestClassification = "main_turn" | "tool_loop_followup";
 
+/**
+ * ADR-170 D3.3 — distributes `Omit<_, "draftKey">` over the closed
+ * `TurnEventDraft` union so each member narrows independently on `kind`
+ * (a non-distributive `Omit<TurnEventDraft, "draftKey">` would collapse to
+ * only the fields common to every member). `pushTurnEventDraft` is the only
+ * place a bare `draftKey`-less draft literal is legal; it stamps `draftKey`
+ * centrally so no other call site can invent or omit one inconsistently.
+ */
+type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
+type TurnEventDraftWithoutKey = DistributiveOmit<TurnEventDraft, "draftKey">;
+
 type TurnExecutionState = {
   sharedCompaction: {
     invoked: boolean;
@@ -362,6 +373,21 @@ type TurnExecutionState = {
    * live via `RuntimeTurnEventStreamEvent` — see `pushTurnEventDraft`.
    */
   turnEvents: TurnEventDraft[];
+  /**
+   * ADR-170 D3.3 — this turn's `requestId`, carried on the state so
+   * `pushTurnEventDraft` can stamp each draft's `draftKey` as
+   * `${requestId}#${n}` without threading `requestId` through every call
+   * site individually.
+   */
+  turnEventRequestId: string;
+  /**
+   * ADR-170 D3.3 — monotonic per-turn counter for `draftKey` derivation.
+   * Incremented once per stamped draft by `pushTurnEventDraft`; never reset,
+   * never reused, and unrelated to `turnEvents.length` (a coalesced draft
+   * still consumes a counter value even though the append primitive may
+   * later fold it into an existing stored event).
+   */
+  nextTurnEventDraftIndex: number;
 };
 
 type DeepSeekToolLoopDeveloperFreezeState = {
@@ -704,7 +730,7 @@ export class TurnExecutionService {
         });
         const executionClass = this.classifyInteractiveExecutionClass(input, execution);
         return this.runtimeExecutionAdmissionService.runWithAdmission(executionClass, async () => {
-          const turnState = this.createTurnExecutionState();
+          const turnState = this.createTurnExecutionState(acceptedTurn.receipt.requestId);
           await this.initializeTurnDeliveryContext(turnState, input, execution.bundle);
           const result = await this.executeAcceptedTurn(acceptedTurn, execution, input, turnState);
           return this.finalizeAcceptedTurnWithPostTurnEffects({
@@ -737,7 +763,7 @@ export class TurnExecutionService {
         duplicate: true
       };
     }
-    const turnState = this.createTurnExecutionState();
+    const turnState = this.createTurnExecutionState(acceptedTurn.receipt.requestId);
     try {
       // ADR-162 Phase 2 — while wave open, strip tools at projection (not prompt-only).
       const lightPresentOnly = isJobCatchUpLightPresentOnly(input.continuation);
@@ -803,7 +829,7 @@ export class TurnExecutionService {
       trace
     });
     const executionClass = this.classifyInteractiveExecutionClass(input, execution);
-    const turnState = this.createTurnExecutionState();
+    const turnState = this.createTurnExecutionState(acceptedTurn.receipt.requestId);
     await this.initializeTurnDeliveryContext(turnState, input, execution.bundle);
     return {
       outcome: "stream",
@@ -866,7 +892,7 @@ export class TurnExecutionService {
             excludedToolNames: BACKGROUND_TASK_SYNTHETIC_TURN_EXCLUDED_TOOLS,
             promptMode: "background_worker"
           });
-          const turnState = this.createTurnExecutionState();
+          const turnState = this.createTurnExecutionState(acceptedTurn.receipt.requestId);
           await this.initializeTurnDeliveryContext(turnState, input, execution.bundle);
           const result = await this.executeAcceptedTurn(acceptedTurn, execution, input, turnState);
           return this.finalizeAcceptedTurnWithPostTurnEffects({
@@ -909,7 +935,7 @@ export class TurnExecutionService {
           trace
         });
         const executionClass = this.classifyInteractiveExecutionClass(input, execution);
-        const turnState = this.createTurnExecutionState();
+        const turnState = this.createTurnExecutionState(acceptedTurn.receipt.requestId);
         await this.initializeTurnDeliveryContext(turnState, input, execution.bundle);
         return this.runtimeExecutionAdmissionService.runStreamWithAdmission(executionClass, () => {
           return this.streamAcceptedTurn(
@@ -6238,13 +6264,34 @@ export class TurnExecutionService {
   }
 
   /**
-   * ADR-170 D1/D3 — the single accumulation point for this turn's ordered
-   * fact-log drafts. Emission order is push order; nothing else in the
-   * runtime may reorder `turnState.turnEvents`.
+   * ADR-170 D1/D3/D3.3 — the single accumulation point for this turn's
+   * ordered fact-log drafts. Emission order is push order; nothing else in
+   * the runtime may reorder `turnState.turnEvents`.
+   *
+   * Also the single stamp point for `draftKey` (D3.3): deterministic,
+   * turn-scoped, `${requestId}#${n}` from a monotonic per-turn counter.
+   * `draftKey` is an idempotency key ONLY — it lets the S2 append primitive's
+   * completion-time reconciliation recognize a draft it already durably
+   * appended live, so a mid-stream append failure heals without duplicating
+   * anything that did succeed live. Ordering remains `seq` alone, allocated
+   * only by that primitive. Callers never pass `draftKey` themselves —
+   * `delivery` is the sole exception (never pushed here; it is server-created
+   * and keyed by durable `attachmentId` instead, per `TurnDeliveryEventDraft`).
    */
-  private pushTurnEventDraft(turnState: TurnExecutionState, draft: TurnEventDraft): TurnEventDraft {
-    turnState.turnEvents.push(draft);
-    return draft;
+  private pushTurnEventDraft(
+    turnState: TurnExecutionState,
+    draft: TurnEventDraftWithoutKey
+  ): TurnEventDraft {
+    if (draft.kind === "delivery") {
+      const event = draft as TurnEventDraft;
+      turnState.turnEvents.push(event);
+      return event;
+    }
+    const draftKey = `${turnState.turnEventRequestId}#${String(turnState.nextTurnEventDraftIndex)}`;
+    turnState.nextTurnEventDraftIndex += 1;
+    const stamped = { ...draft, draftKey } as TurnEventDraft;
+    turnState.turnEvents.push(stamped);
+    return stamped;
   }
 
   /**
@@ -6286,7 +6333,7 @@ export class TurnExecutionService {
     }
   }
 
-  private createTurnExecutionState(): TurnExecutionState {
+  private createTurnExecutionState(requestId: string): TurnExecutionState {
     return {
       sharedCompaction: {
         invoked: false,
@@ -6304,6 +6351,8 @@ export class TurnExecutionService {
       discoveredFilePathSet: [],
       deliveryFacts: createEmptyTurnDeliveryFacts(),
       turnEvents: [],
+      turnEventRequestId: requestId,
+      nextTurnEventDraftIndex: 0,
       currentChatId: null,
       workspaceId: "",
       loadedCatalogToolCodes: new Set<string>(),
@@ -8187,7 +8236,14 @@ export class TurnExecutionService {
         ? {}
         : { fileHandles: [...turnState.fileHandles] }),
       respondedAt,
-      ...(trace === undefined ? {} : { trace })
+      ...(trace === undefined ? {} : { trace }),
+      // ADR-170 D3.3 — the turn's full ordered draft list (including the
+      // `turn_stopped` draft just pushed above), for completion
+      // reconciliation on the interrupted path — a stopped turn is exactly
+      // when partial narration matters most.
+      ...(turnState === undefined || turnState.turnEvents.length === 0
+        ? {}
+        : { turnEvents: [...turnState.turnEvents] })
     };
   }
 
@@ -8279,7 +8335,12 @@ export class TurnExecutionService {
     return {
       ...event,
       ...(turnState.artifacts.length === 0 ? {} : { artifacts: [...turnState.artifacts] }),
-      ...(turnState.fileHandles.length === 0 ? {} : { fileHandles: [...turnState.fileHandles] })
+      ...(turnState.fileHandles.length === 0 ? {} : { fileHandles: [...turnState.fileHandles] }),
+      // ADR-170 D3.3 — the turn's full ordered draft list (including the
+      // `turn_failed` draft just pushed above), for completion
+      // reconciliation on the failed path — a stopped turn is exactly when
+      // partial narration matters most.
+      ...(turnState.turnEvents.length === 0 ? {} : { turnEvents: [...turnState.turnEvents] })
     };
   }
 

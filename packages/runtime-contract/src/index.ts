@@ -4144,6 +4144,19 @@ export interface RuntimeTurnDeliveryFacts {
 export interface TurnNoteEventDraft {
   kind: "note";
   at: IsoTimestamp;
+  /**
+   * ADR-170 D3.3 — a turn-scoped identity stamped once by the runtime's
+   * single push point (`pushTurnEventDraft`), derived deterministically from
+   * the turn's `requestId` plus a per-turn counter (`${requestId}#${n}`).
+   * This is an IDEMPOTENCY KEY ONLY: the S2 append primitive uses it to
+   * recognize a draft it already durably appended (e.g. via a live mid-stream
+   * append) when the same draft arrives again in
+   * `RuntimeTurnResult.turnEvents` at turn completion, so completion
+   * reconciliation never double-appends. It is NEVER an ordering key —
+   * ordering is `seq`, allocated only by the append primitive, and nothing
+   * else.
+   */
+  draftKey: string;
   /** The complete pre-tool narration text the model wrote for this step. */
   text: string;
   /**
@@ -4157,6 +4170,8 @@ export interface TurnNoteEventDraft {
 export interface TurnToolCallEventDraft {
   kind: "tool_call";
   at: IsoTimestamp;
+  /** ADR-170 D3.3 — see `TurnNoteEventDraft.draftKey`; identical contract. */
+  draftKey: string;
   name: string;
   ok: boolean;
   toolCallId: string;
@@ -4166,6 +4181,8 @@ export interface TurnToolCallEventDraft {
 export interface TurnAnswerTextEventDraft {
   kind: "answer_text";
   at: IsoTimestamp;
+  /** ADR-170 D3.3 — see `TurnNoteEventDraft.draftKey`; identical contract. */
+  draftKey: string;
   /** A segment of the final answer. Segmentation is owned by the S2 append primitive (ADR-170 D5.1). */
   text: string;
 }
@@ -4183,6 +4200,11 @@ export interface TurnAnswerTextEventDraft {
 export interface TurnDeliveryEventDraft {
   kind: "delivery";
   at: IsoTimestamp;
+  /**
+   * ADR-170 D3.3 — `delivery` is server-created (never emitted by the
+   * runtime) and carries no `draftKey`; its own idempotency key is the
+   * durable `attachmentId` below.
+   */
   attachmentId: string;
   artifactKind: "image" | "video" | "audio" | "document" | "file";
   filename: string | null;
@@ -4192,6 +4214,8 @@ export interface TurnDeliveryEventDraft {
 export interface TurnJobAcceptedEventDraft {
   kind: "job_accepted";
   at: IsoTimestamp;
+  /** ADR-170 D3.3 — see `TurnNoteEventDraft.draftKey`; identical contract. */
+  draftKey: string;
   jobId: string;
   jobKind: "media" | "document" | "sandbox";
 }
@@ -4199,12 +4223,16 @@ export interface TurnJobAcceptedEventDraft {
 export interface TurnStoppedEventDraft {
   kind: "turn_stopped";
   at: IsoTimestamp;
+  /** ADR-170 D3.3 — see `TurnNoteEventDraft.draftKey`; identical contract. */
+  draftKey: string;
   reason: string;
 }
 
 export interface TurnFailedEventDraft {
   kind: "turn_failed";
   at: IsoTimestamp;
+  /** ADR-170 D3.3 — see `TurnNoteEventDraft.draftKey`; identical contract. */
+  draftKey: string;
   reason: string;
 }
 
@@ -5314,6 +5342,13 @@ export interface RuntimeInterruptedEvent {
   fileHandles?: RuntimeFileHandle[];
   respondedAt: IsoTimestamp | null;
   trace?: RuntimeTrace;
+  /**
+   * ADR-170 D3.3 — the turn's full ordered draft list up to the point it was
+   * interrupted, for the SAME turn-completion reconciliation `completed`
+   * uses (see `RuntimeTurnResult.turnEvents`). A stopped turn is exactly
+   * when partial narration matters most to the user, so it heals too.
+   */
+  turnEvents?: TurnEventDraft[];
 }
 
 export interface RuntimeFailedEvent {
@@ -5326,6 +5361,8 @@ export interface RuntimeFailedEvent {
   artifacts?: RuntimeOutputArtifact[];
   fileHandles?: RuntimeFileHandle[];
   trace?: RuntimeTrace;
+  /** ADR-170 D3.3 — see `RuntimeInterruptedEvent.turnEvents`; identical contract. */
+  turnEvents?: TurnEventDraft[];
 }
 
 /**

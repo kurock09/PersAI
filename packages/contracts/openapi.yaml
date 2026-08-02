@@ -14174,6 +14174,199 @@ components:
           items:
             type: string
           description: The texts the model produced before each tool call across the tool loop, one entry per step. Absent/empty when no tools ran.
+        turnEvents:
+          type: array
+          items:
+            $ref: "#/components/schemas/TurnEvent"
+          description: >-
+            ADR-170 — the durable, server-numbered fact log for this
+            message's turn, sorted by `seq`. Absent/empty for a historical
+            message with no log.
+    TurnEvent:
+      description: ADR-170 D2 — the closed turn-event vocabulary. `seq` is the sole ordering authority for the process stream.
+      oneOf:
+        - $ref: "#/components/schemas/TurnNoteEvent"
+        - $ref: "#/components/schemas/TurnToolCallEvent"
+        - $ref: "#/components/schemas/TurnAnswerTextEvent"
+        - $ref: "#/components/schemas/TurnDeliveryEvent"
+        - $ref: "#/components/schemas/TurnJobAcceptedEvent"
+        - $ref: "#/components/schemas/TurnStoppedEvent"
+        - $ref: "#/components/schemas/TurnFailedEvent"
+    TurnNoteEvent:
+      type: object
+      required:
+        - kind
+        - seq
+        - at
+        - text
+        - display
+      properties:
+        kind:
+          type: string
+          enum:
+            - note
+        seq:
+          type: integer
+        at:
+          type: string
+          format: date-time
+        text:
+          type: string
+        display:
+          type: string
+          enum:
+            - step
+            - content
+    TurnToolCallEvent:
+      type: object
+      required:
+        - kind
+        - seq
+        - at
+        - name
+        - ok
+        - toolCallId
+      properties:
+        kind:
+          type: string
+          enum:
+            - tool_call
+        seq:
+          type: integer
+        at:
+          type: string
+          format: date-time
+        name:
+          type: string
+        ok:
+          type: boolean
+        toolCallId:
+          type: string
+        executionMode:
+          type: string
+          enum:
+            - inline
+            - worker
+            - sandbox
+    TurnAnswerTextEvent:
+      type: object
+      required:
+        - kind
+        - seq
+        - at
+        - text
+      properties:
+        kind:
+          type: string
+          enum:
+            - answer_text
+        seq:
+          type: integer
+        at:
+          type: string
+          format: date-time
+        text:
+          type: string
+    TurnDeliveryEvent:
+      type: object
+      required:
+        - kind
+        - seq
+        - at
+        - attachmentId
+        - artifactKind
+        - filename
+        - sizeBytes
+      properties:
+        kind:
+          type: string
+          enum:
+            - delivery
+        seq:
+          type: integer
+        at:
+          type: string
+          format: date-time
+        attachmentId:
+          type: string
+        artifactKind:
+          type: string
+          enum:
+            - image
+            - video
+            - audio
+            - document
+            - file
+        filename:
+          type: string
+          nullable: true
+        sizeBytes:
+          type: integer
+          nullable: true
+    TurnJobAcceptedEvent:
+      type: object
+      required:
+        - kind
+        - seq
+        - at
+        - jobId
+        - jobKind
+      properties:
+        kind:
+          type: string
+          enum:
+            - job_accepted
+        seq:
+          type: integer
+        at:
+          type: string
+          format: date-time
+        jobId:
+          type: string
+        jobKind:
+          type: string
+          enum:
+            - media
+            - document
+            - sandbox
+    TurnStoppedEvent:
+      type: object
+      required:
+        - kind
+        - seq
+        - at
+        - reason
+      properties:
+        kind:
+          type: string
+          enum:
+            - turn_stopped
+        seq:
+          type: integer
+        at:
+          type: string
+          format: date-time
+        reason:
+          type: string
+    TurnFailedEvent:
+      type: object
+      required:
+        - kind
+        - seq
+        - at
+        - reason
+      properties:
+        kind:
+          type: string
+          enum:
+            - turn_failed
+        seq:
+          type: integer
+        at:
+          type: string
+          format: date-time
+        reason:
+          type: string
     AssistantWebChatRuntimeState:
       type: object
       required:

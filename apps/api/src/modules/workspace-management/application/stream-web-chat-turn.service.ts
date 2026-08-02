@@ -20,6 +20,9 @@ import {
   type RuntimeMediaArtifact
 } from "./assistant-runtime.facade";
 import type { InlineMediaPlacementEntry } from "./persist-assistant-message";
+import { AppendTurnEventsService } from "./append-turn-events.service";
+import type { TurnEventDraft } from "@persai/runtime-contract";
+import type { PublicTurnEvent } from "./turn-event-wire-projection";
 import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
 import type { Assistant } from "../domain/assistant.entity";
 import {
@@ -258,6 +261,7 @@ export class StreamWebChatTurnService {
     private readonly recordModelCostLedgerService: RecordModelCostLedgerService,
     private readonly recordToolPathLedgerFromToolInvocationsService: RecordToolPathLedgerFromToolInvocationsService,
     private readonly mediaDeliveryService: MediaDeliveryService,
+    private readonly appendTurnEventsService: AppendTurnEventsService,
     private readonly overviewLatencyTraceService: OverviewLatencyTraceService,
     private readonly platformHttpMetricsService: PlatformHttpMetricsService,
     private readonly attachmentObjectAvailabilityService: AttachmentObjectAvailabilityService,
@@ -426,6 +430,11 @@ export class StreamWebChatTurnService {
         attachments: AssistantWebChatMessageAttachmentState[];
         afterToolCallId?: string;
       }) => void;
+      /**
+       * ADR-170 D1/D3 — every durably-numbered `TurnEvent` appended during
+       * this turn, live, in the order the append primitive assigned `seq`.
+       */
+      onTurnEvent?: (events: PublicTurnEvent[]) => void;
       onDone: (respondedAt: string) => void;
       /**
        * Fired when the cadence watchdog has detected a stalled stream and we are
@@ -1316,6 +1325,113 @@ export class StreamWebChatTurnService {
     });
   }
 
+  /**
+   * ADR-170 D1/D3/D3.3 — durably append a single live `TurnEventDraft` the
+   * moment the runtime emits it, so the numbered log is populated as facts
+   * happen rather than only reconstructed at turn completion. A failure here
+   * is logged and swallowed rather than blocking the stream or completion —
+   * safe ONLY because `reconcileTurnEventsAtCompletion` below re-processes
+   * every draft (including this one, by its idempotent `draftKey`) against
+   * `RuntimeTurnResult.turnEvents` at turn completion and heals exactly the
+   * gap a failure here would otherwise leave permanently (D3.3).
+   */
+  private async appendLiveTurnEventMidStream(input: {
+    prepared: StreamWebChatTurnPrepared;
+    draft: NonNullable<AssistantRuntimeWebChatTurnStreamChunk["turnEvent"]>;
+    liveSyncMediaPresent: {
+      earlyAssistantMessageId: string | null;
+      deliveredIdentities: Set<string>;
+      inlineMediaPlacement: InlineMediaPlacementEntry[];
+      deliveredAttachments: AssistantWebChatMessageAttachmentState[];
+    };
+    onTurnEvent?: (events: PublicTurnEvent[]) => void;
+  }): Promise<void> {
+    await this.ensureStableAssistantMessageForOpenTurn(input);
+    const messageId = input.liveSyncMediaPresent.earlyAssistantMessageId;
+    if (messageId === null) {
+      return;
+    }
+    try {
+      const appended = await this.appendTurnEventsService.append({
+        messageId,
+        drafts: [input.draft]
+      });
+      if (appended.length > 0) {
+        input.onTurnEvent?.(appended);
+      }
+    } catch (error) {
+      this.logger.warn(
+        `ADR-170 live turn_event append failed messageId=${messageId} kind=${input.draft.kind}: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+    }
+  }
+
+  /**
+   * ADR-170 D3.3 — turn-completion reconciliation, the self-heal half of the
+   * live-append-failure fix. Re-appends the FULL ordered draft list from
+   * `RuntimeTurnResult.turnEvents` through the same idempotent-by-`draftKey`
+   * primitive the live path above uses. In the healthy case every key is
+   * already durable from a live append and this call appends nothing (a true
+   * no-op — no extra write, no extra SSE event); when one or more live
+   * appends failed (a database hiccup, the pod dying mid-stream, a
+   * soft-detached connection), this appends exactly the missing drafts and
+   * heals the gap, in the original draft order, at the message's own log
+   * (D3.2). A healed event is also forwarded through `onTurnEvent` like a
+   * live one, so an still-connected client still sees it. Emits a single log
+   * line only when reconciliation actually healed something — never on the
+   * healthy no-op path — so a real rate of live-append failures becomes
+   * visible in production instead of invisible.
+   *
+   * ADR-170 D3.3 — always releases the message's pending buffer afterward
+   * (`finally`, so this runs whether the reconciling `append()` call
+   * succeeded or itself threw): by the time completion reconciliation has
+   * run, the durable log is as complete as it will ever get for this turn on
+   * this pod, so anything still pending is already lost and holding it in
+   * memory for the rest of the pod's lifetime would only leak.
+   */
+  private async reconcileTurnEventsAtCompletion(input: {
+    prepared: StreamWebChatTurnPrepared;
+    drafts: TurnEventDraft[];
+    liveSyncMediaPresent: {
+      earlyAssistantMessageId: string | null;
+      deliveredIdentities: Set<string>;
+      inlineMediaPlacement: InlineMediaPlacementEntry[];
+      deliveredAttachments: AssistantWebChatMessageAttachmentState[];
+    };
+    onTurnEvent?: (events: PublicTurnEvent[]) => void;
+  }): Promise<void> {
+    if (input.drafts.length === 0) {
+      return;
+    }
+    await this.ensureStableAssistantMessageForOpenTurn(input);
+    const messageId = input.liveSyncMediaPresent.earlyAssistantMessageId;
+    if (messageId === null) {
+      return;
+    }
+    try {
+      const healed = await this.appendTurnEventsService.append({
+        messageId,
+        drafts: input.drafts
+      });
+      if (healed.length > 0) {
+        this.logger.warn(
+          `ADR-170 turn_event completion reconciliation healed a live-append gap messageId=${messageId} healedCount=${String(healed.length)} totalDraftCount=${String(input.drafts.length)}`
+        );
+        input.onTurnEvent?.(healed);
+      }
+    } catch (error) {
+      this.logger.warn(
+        `ADR-170 turn_event completion reconciliation failed messageId=${messageId}: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+    } finally {
+      this.appendTurnEventsService.releasePending(messageId);
+    }
+  }
+
   private async ensureStableAssistantMessageForOpenTurn(input: {
     prepared: StreamWebChatTurnPrepared;
     liveSyncMediaPresent: {
@@ -1524,6 +1640,7 @@ export class StreamWebChatTurnService {
         attachments: AssistantWebChatMessageAttachmentState[];
         afterToolCallId?: string;
       }) => void;
+      onTurnEvent?: (events: PublicTurnEvent[]) => void;
       onDone: (respondedAt: string) => void;
       onPendingBrowserLogin?: (state: PendingBrowserLoginState) => void;
     };
@@ -1795,6 +1912,18 @@ export class StreamWebChatTurnService {
           });
         }
 
+        if (chunk.type === "turn_event" && chunk.turnEvent !== undefined) {
+          watchdog.recordActivity();
+          await this.appendLiveTurnEventMidStream({
+            prepared: input.prepared,
+            draft: chunk.turnEvent,
+            liveSyncMediaPresent: input.liveSyncMediaPresent,
+            ...(input.callbacks.onTurnEvent === undefined
+              ? {}
+              : { onTurnEvent: input.callbacks.onTurnEvent })
+          });
+        }
+
         if (
           chunk.type === "activity" &&
           (chunk.activitySource === "skill" ||
@@ -1872,11 +2001,38 @@ export class StreamWebChatTurnService {
           if (chunk.runtimeTrace) {
             input.trace.attachExternalTrace(chunk.runtimeTrace);
           }
+          if (Array.isArray(chunk.turnEvents) && chunk.turnEvents.length > 0) {
+            await this.reconcileTurnEventsAtCompletion({
+              prepared: input.prepared,
+              drafts: chunk.turnEvents,
+              liveSyncMediaPresent: input.liveSyncMediaPresent,
+              ...(input.callbacks.onTurnEvent === undefined
+                ? {}
+                : { onTurnEvent: input.callbacks.onTurnEvent })
+            });
+          }
           input.trace.stage("runtime_done");
           input.callbacks.onDone(chunk.respondedAt);
         }
       }
     } catch (error) {
+      // ADR-170 D3.3 — an interrupted/failed runtime event with no visible
+      // output never reaches the `done`-chunk reconciliation above (it
+      // throws instead); `web-runtime-stream-client.service.ts` stamps its
+      // `turnEvents` directly onto the thrown error so it can still be
+      // recovered and reconciled here, before any of the branches below
+      // decide how to handle the error itself.
+      const turnEventsFromError = extractTurnEventsFromCaughtError(error);
+      if (turnEventsFromError !== undefined && turnEventsFromError.length > 0) {
+        await this.reconcileTurnEventsAtCompletion({
+          prepared: input.prepared,
+          drafts: turnEventsFromError,
+          liveSyncMediaPresent: input.liveSyncMediaPresent,
+          ...(input.callbacks.onTurnEvent === undefined
+            ? {}
+            : { onTurnEvent: input.callbacks.onTurnEvent })
+        });
+      }
       // If the abort came from our internal watchdog (and not the client), this
       // is a stall, not a real error. Propagate everything else upward so the
       // outer `try/catch` in `streamToCompletion` can persist a partial state
@@ -2543,6 +2699,21 @@ function combineAbortSignals(signals: Array<AbortSignal | undefined>): AbortSign
     s.addEventListener("abort", onAbort, { once: true });
   }
   return controller.signal;
+}
+
+/**
+ * ADR-170 D3.3 — duck-types the `turnEvents` array
+ * `web-runtime-stream-client.service.ts` stamps onto an interrupted/failed
+ * runtime error that had no visible output to carry a `done` chunk. Any
+ * other thrown error (client abort, network failure, etc.) simply has no
+ * such property and this returns `undefined`.
+ */
+function extractTurnEventsFromCaughtError(error: unknown): TurnEventDraft[] | undefined {
+  if (error === null || typeof error !== "object" || !("turnEvents" in error)) {
+    return undefined;
+  }
+  const value = (error as { turnEvents?: unknown }).turnEvents;
+  return Array.isArray(value) ? (value as TurnEventDraft[]) : undefined;
 }
 
 function isAbortLikeError(error: unknown): boolean {

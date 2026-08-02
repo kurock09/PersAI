@@ -36,6 +36,7 @@ import { StreamWebChatTurnService } from "../../application/stream-web-chat-turn
 import { WebChatTurnStopDispatchService } from "../../application/web-chat-turn-stop-dispatch.service";
 import { WebChatContinuationDiscoveryService } from "../../application/web-chat-continuation-discovery.service";
 import { WebChatTurnStreamRegistry } from "../../application/web-chat-turn-stream-registry.service";
+import { AppendTurnEventsService } from "../../application/append-turn-events.service";
 import {
   WebChatTurnAttemptService,
   type WebChatTurnStatusState
@@ -149,7 +150,8 @@ export class AssistantController {
     private readonly resolveActiveAssistantService: ResolveActiveAssistantService,
     private readonly resolveAssistantLifecycleViewService: ResolveAssistantLifecycleViewService,
     private readonly switchActiveAssistantService: SwitchActiveAssistantService,
-    private readonly prisma: WorkspaceManagementPrismaService
+    private readonly prisma: WorkspaceManagementPrismaService,
+    private readonly appendTurnEventsService: AppendTurnEventsService
   ) {}
 
   @Post("assistant")
@@ -1192,13 +1194,21 @@ export class AssistantController {
   async reattachWebChatTurnStream(
     @Req() req: RequestWithPlatformContext,
     @Res() res: ResponseWithPlatformContext,
-    @Param("clientTurnId") clientTurnId: string
+    @Param("clientTurnId") clientTurnId: string,
+    @Query("sinceSeq") sinceSeqParam?: string
   ): Promise<void> {
     const userId = this.resolveRequestUserId(req);
     const normalizedClientTurnId = clientTurnId.trim();
     if (normalizedClientTurnId.length === 0) {
       throw new BadRequestException("clientTurnId must be a non-empty string.");
     }
+    const parsedSinceSeq = Number.parseInt(sinceSeqParam ?? "", 10);
+    // ADR-170 D8 — durable turn-event catch-up cursor. Independent of the
+    // ADR-158 bus's own `fromSeq` transport replay (untouched below): this
+    // reads the durable `AssistantChatMessage.metadata.turnEvents` log
+    // directly, so it is correct even across a Redis outage / pod restart.
+    const sinceSeq =
+      Number.isSafeInteger(parsedSinceSeq) && parsedSinceSeq >= 0 ? parsedSinceSeq : 0;
     const resolvedAssistant = await this.resolveActiveAssistantService.execute({ userId });
 
     res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
@@ -1245,6 +1255,16 @@ export class AssistantController {
       resolvedAssistant.assistantId
     );
     sendSse("turn_status", { turn: initialStatus });
+    const catchUpMessageId = initialStatus.assistantMessage?.id ?? null;
+    if (catchUpMessageId !== null) {
+      const missedTurnEvents = await this.appendTurnEventsService.getSince(
+        catchUpMessageId,
+        sinceSeq
+      );
+      for (const event of missedTurnEvents) {
+        sendSse("turn_event", { event });
+      }
+    }
     if (initialStatus.status !== "accepted" && initialStatus.status !== "running") {
       sendTerminalStatus(initialStatus);
       close();
@@ -1578,6 +1598,15 @@ export class AssistantController {
             });
           } else {
             writeSse("media", payload);
+          }
+        },
+        onTurnEvent: (events) => {
+          // ADR-170 D1/D3 — the durable log's own `seq` (inside `event`) is
+          // the ordering authority; this SSE `turn_event` is a live carrier,
+          // not a second numbering source. Reconnect catch-up is `sinceSeq`
+          // against the durable log, not this stream.
+          for (const event of events) {
+            sendSse("turn_event", { event });
           }
         },
         onActivity: ({ source, phase, resultCount, skillName, skillIconEmoji }) => {

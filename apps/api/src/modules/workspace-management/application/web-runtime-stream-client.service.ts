@@ -12,7 +12,8 @@ import type {
   RuntimeSkillStateContext,
   RuntimeTurnRequest,
   RuntimeTurnResult,
-  RuntimeTurnStreamEvent
+  RuntimeTurnStreamEvent,
+  TurnEventDraft
 } from "@persai/runtime-contract";
 import {
   ASSISTANT_MATERIALIZED_SPEC_REPOSITORY,
@@ -303,6 +304,15 @@ export class WebRuntimeStreamClientService {
               toolProgressSeq: event.seq
             };
             continue;
+          case "turn_event":
+            // ADR-170 S2 — live-forward the durable-log draft as its own
+            // chunk so the caller can append it through the S2 primitive as
+            // it happens, rather than only at turn completion.
+            yield {
+              type: "turn_event",
+              turnEvent: event.event
+            };
+            continue;
           case "async_job_accepted":
             deadline.recordProgress();
             yield {
@@ -366,7 +376,12 @@ export class WebRuntimeStreamClientService {
               yield chunk;
             }
             if (emittedArtifactIds.size === 0 && event.assistantText.trim().length === 0) {
-              throw this.toInterruptedRuntimeError(event);
+              // ADR-170 D3.3 — even a turn with no visible output can still
+              // carry ordered drafts (e.g. a `note` before an early abort)
+              // that turn-completion reconciliation must still heal; attach
+              // them to the thrown error so the caller's catch block can
+              // reconcile before persisting the interrupted outcome.
+              throw this.attachTurnEvents(this.toInterruptedRuntimeError(event), event.turnEvents);
             }
             const assistantText = this.resolveDegradedAssistantMessage(event.assistantText);
             if (
@@ -393,7 +408,11 @@ export class WebRuntimeStreamClientService {
             yield {
               type: "done",
               respondedAt: event.respondedAt ?? new Date().toISOString(),
-              ...(event.trace === undefined ? {} : { runtimeTrace: event.trace })
+              ...(event.trace === undefined ? {} : { runtimeTrace: event.trace }),
+              // ADR-170 D3.3 — forward the interrupted turn's full ordered
+              // draft list for turn-completion reconciliation, same as
+              // `completed` below.
+              ...(event.turnEvents === undefined ? {} : { turnEvents: event.turnEvents })
             };
             return;
           }
@@ -411,11 +430,15 @@ export class WebRuntimeStreamClientService {
               yield {
                 type: "done",
                 respondedAt: new Date().toISOString(),
-                ...(event.trace === undefined ? {} : { runtimeTrace: event.trace })
+                ...(event.trace === undefined ? {} : { runtimeTrace: event.trace }),
+                // ADR-170 D3.3 — same forwarding as the interrupted "done" above.
+                ...(event.turnEvents === undefined ? {} : { turnEvents: event.turnEvents })
               };
               return;
             }
-            throw this.toRuntimeFailedError(event);
+            // ADR-170 D3.3 — see the interrupted branch above: attach the
+            // draft list to the thrown error so it can still be reconciled.
+            throw this.attachTurnEvents(this.toRuntimeFailedError(event), event.turnEvents);
           }
           case "completed": {
             for await (const chunk of yieldArtifacts(event.result.artifacts)) {
@@ -446,7 +469,13 @@ export class WebRuntimeStreamClientService {
               event.result.discoveredFilePaths.length === 0
                 ? {}
                 : { discoveredFilePaths: event.result.discoveredFilePaths }),
-              ...(event.result.truncated === true ? { truncated: true } : {})
+              ...(event.result.truncated === true ? { truncated: true } : {}),
+              // ADR-170 D3.3 — the full ordered draft list, for turn-completion
+              // reconciliation against the durable log (see `turnEvents` doc
+              // on `AssistantRuntimeWebChatTurnStreamChunk`).
+              ...(event.result.turnEvents === undefined
+                ? {}
+                : { turnEvents: event.result.turnEvents })
             };
             return;
           }
@@ -770,11 +799,8 @@ export class WebRuntimeStreamClientService {
           return parsed as RuntimeTurnStreamEvent;
         }
         break;
-      // ADR-170 S1 — the runtime now emits this alongside the ordinary
-      // vocabulary above. Nothing consumes `event` yet (that is ADR-170 S2);
-      // accept the shape here only so an unrecognized-type throw does not
-      // fail an otherwise-ordinary turn. The switch above has no matching
-      // `case`, so this is dropped silently once parsed.
+      // ADR-170 S2 — consumed above (case "turn_event" in the main switch);
+      // this parser-level shape check only guards against malformed NDJSON.
       case "turn_event":
         if (this.asObject(row.event) !== null) {
           return parsed as RuntimeTurnStreamEvent;
@@ -817,6 +843,24 @@ export class WebRuntimeStreamClientService {
       return new AssistantRuntimeError("runtime_degraded", event.message);
     }
     return new AssistantRuntimeError("runtime_unreachable", event.message);
+  }
+
+  /**
+   * ADR-170 D3.3 — an interrupted/failed turn with no visible output throws
+   * instead of yielding a `done` chunk, so `chunk.turnEvents` (the path the
+   * `completed`/other `done` branches use for reconciliation) never runs.
+   * Stamping `turnEvents` directly onto the thrown error — regardless of its
+   * concrete error class — lets the caller's catch block still recover and
+   * reconcile the turn's ordered draft list before persisting the outcome.
+   */
+  private attachTurnEvents<TError extends Error>(
+    error: TError,
+    turnEvents: TurnEventDraft[] | undefined
+  ): TError {
+    if (turnEvents === undefined || turnEvents.length === 0) {
+      return error;
+    }
+    return Object.assign(error, { turnEvents });
   }
 
   private toInterruptedRuntimeError(event: RuntimeInterruptedEvent): AssistantRuntimeError {

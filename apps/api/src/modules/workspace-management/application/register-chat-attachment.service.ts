@@ -3,7 +3,8 @@ import type { AttachmentType } from "@prisma/client";
 import {
   PERSAI_RUNTIME_CHANNELS,
   type PersaiRuntimeChannel,
-  type RuntimeBillingFacts
+  type RuntimeBillingFacts,
+  type TurnDeliveryEventDraft
 } from "@persai/runtime-contract";
 import type { AssistantChatMessageAttachment } from "../domain/assistant-chat-message-attachment.entity";
 import type { AssistantChatSurface } from "../domain/assistant-chat.entity";
@@ -21,6 +22,7 @@ import {
   type ChatAttachmentDeliveryIdentity
 } from "./deliver-chat-attachment-once.service";
 import { WebChatLiveTurnPresentService } from "./web-chat-live-turn-present.service";
+import { AppendTurnEventsService } from "./append-turn-events.service";
 
 export type RegisterChatAttachmentKind =
   | "user_upload"
@@ -96,7 +98,8 @@ export class RegisterChatAttachmentService {
     private readonly assistantDocumentJobService: AssistantDocumentJobService,
     private readonly workspaceFileMicroDescriptionJobService: WorkspaceFileMicroDescriptionJobService,
     private readonly deliverChatAttachmentOnceService: DeliverChatAttachmentOnceService,
-    private readonly webChatLiveTurnPresentService: WebChatLiveTurnPresentService
+    private readonly webChatLiveTurnPresentService: WebChatLiveTurnPresentService,
+    private readonly appendTurnEventsService: AppendTurnEventsService
   ) {}
 
   parseRuntimeInput(value: unknown): RegisterChatAttachmentFromRuntimeInput {
@@ -264,6 +267,34 @@ export class RegisterChatAttachmentService {
       clientAttachmentId: input.clientAttachmentId ?? null,
       deliveryIdentity
     });
+
+    // ADR-170 D2.1 — a `delivery` event is appended exclusively here, at the
+    // moment the durable attachment row actually exists, for every path that
+    // creates one (in-loop synchronous attach, job-completion delivery,
+    // ConversationalPublish). `AppendTurnEventsService` is idempotent by
+    // `attachmentId`, so a retried/duplicate call (including the
+    // `alreadyDelivered` case) is a safe no-op rather than a duplicate event.
+    try {
+      await this.appendTurnEventsService.append({
+        messageId: input.messageId,
+        drafts: [
+          {
+            kind: "delivery",
+            at: new Date().toISOString(),
+            attachmentId: delivered.attachment.id,
+            artifactKind: resolveTurnDeliveryArtifactKind(input.attachmentType),
+            filename: input.originalFilename,
+            sizeBytes: input.sizeBytes
+          }
+        ]
+      });
+    } catch (error) {
+      this.logger.warn(
+        `turn_event_delivery_append_failed attachmentId=${delivered.attachment.id} messageId=${input.messageId} reason=${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+    }
 
     if (!delivered.alreadyDelivered && isWorkspaceStoragePath) {
       await this.workspaceFileMetadataService.upsert({
@@ -452,5 +483,30 @@ export class RegisterChatAttachmentService {
         outputPath: input.storagePath
       });
     return currentDocumentLink.status === "ready" ? currentDocumentLink.link : null;
+  }
+}
+
+/**
+ * ADR-170 D2 — `artifactKind` is `image | video | audio | document | file`;
+ * audio is its own kind, never folded into `file`. `voice` (a distinct
+ * `AttachmentType`) is presentationally audio; `tool_output` has no closer
+ * match than the generic `file` catch-all.
+ */
+function resolveTurnDeliveryArtifactKind(
+  attachmentType: AttachmentType
+): TurnDeliveryEventDraft["artifactKind"] {
+  switch (attachmentType) {
+    case "image":
+      return "image";
+    case "video":
+      return "video";
+    case "audio":
+    case "voice":
+      return "audio";
+    case "document":
+      return "document";
+    case "tool_output":
+    default:
+      return "file";
   }
 }

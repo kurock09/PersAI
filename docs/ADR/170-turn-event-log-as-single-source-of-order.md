@@ -83,11 +83,21 @@ per-turn, append-only sequence used by the ADR-158 bus for reattach replay — i
 is simply ephemeral today and never reaches Postgres. This ADR makes that
 sequence durable and canonical instead of introducing a second one.
 
-One consequence is mandatory: the bus currently falls back to a **per-pod local
-counter** when the durable store is unreachable. A pod-local counter cannot
-number a durable cross-pod log. Therefore `seq` allocation moves to the durable
-append primitive of D3, and the bus envelope carries the number it allocated
-rather than allocating its own. One allocator, one number, no fallback.
+One consequence is mandatory: the ADR-158 bus falls back to a **per-pod local
+counter** when the durable store is unreachable, and a pod-local counter cannot
+number a durable cross-pod log. Resolved by separating two things that were
+easy to confuse:
+
+- `TurnStreamEnvelope.seq` stays exactly as it is — a **transport** sequence
+  shared by every event kind on the bus, used only for same-connection replay
+  dedupe. Its pod-local fallback is harmless there and stays. It is explicitly
+  **not** an ordering authority for presentation, and no surface may read it as
+  one.
+- `TurnEvent.seq` is allocated **only** by the durable append primitive of D3
+  and rides inside the event payload. It is the single ordering authority.
+
+`sinceSeq` catch-up therefore reads the durable log directly rather than the bus
+buffer, so a dropped or late transport delivery cannot affect order.
 
 `AssistantAsyncJobHandle.catchUpOrdinal` / `catchUpWaveId` (ADR-159 wave
 ordering) and `RuntimeToolProgressEvent.seq` (per-tool-call progress lines) are
@@ -146,7 +156,53 @@ dedicated table would buy indexability we never query and cost a migration
 approval gate plus a second repository — rejected deliberately, recorded here so
 it is not re-litigated later.
 
-### D3.2 — Interrupted turns have no separate assembly path
+### D3.2 — A `delivery` event belongs to the log of the message that owns the attachment
+
+For an in-loop attachment that is the open turn's own message; for a closed-turn
+job whose result is published as its own bubble (ADR-162) that is the publish
+message. There is no case where a receipt is rendered on one message while its
+event lives on another.
+
+### D3.3 — The log self-heals at turn completion
+
+Live appends happen as each draft arrives, but a live append can fail — a
+database hiccup, a pod dying mid-stream, a soft-detached connection. A missing
+`note` is a missing sentence the user will never see again once the log is the
+only source, so the log must not depend on every mid-stream append succeeding.
+
+Therefore every draft carries a turn-scoped `draftKey` used **only** as an
+idempotency key, never for ordering. `delivery` events are server-created and
+use the durable attachment id as their key instead. When coalescing merges
+drafts into one `answer_text` event, that event carries every merged key.
+
+Healing must never break chronology, which rules out "append what was missed at
+the tail later": a single failed draft sandwiched between two successes would
+land after events that followed it. Two mechanisms, in this order:
+
+1. **Ordered pending buffer.** A live turn keeps the drafts it has seen, in
+   order, in memory. If an append fails the draft stays pending, and any
+   subsequent append — including a `delivery` — first drains the pending buffer
+   in order. Nothing newer can be numbered before something older that is still
+   waiting, so `seq` order stays chronological even through a transient failure.
+2. **Completion reconciliation** as the last resort, covering the case the
+   buffer cannot: the pod holding it dying. The terminal runtime event carries
+   the turn's full ordered draft list — for completed, interrupted and failed
+   turns alike, because a stopped turn is exactly when partial narration matters
+   — and the API appends the drafts whose keys are absent.
+
+Healing emits a metric line with the number of events recovered, so a real rate
+of live-append failures is visible rather than invisible. Nothing is ever
+recovered by guessing from text, counts, or positions: key membership is the
+only mechanism.
+
+### D3.3.1 — Internal bookkeeping never reaches the wire
+
+`draftKey` and the merged-key bookkeeping are server-side idempotency state. The
+client projection carries `seq`, `at`, `kind` and the kind's own payload and
+nothing else, so no surface can start depending on an identity that exists only
+to make appends safe.
+
+### D3.4 — Interrupted turns have no separate assembly path
 
 Today a partial or interrupted turn persists raw accumulated text with notes
 still inline, because no note/answer split exists on that path. With events
@@ -180,6 +236,11 @@ answer text starts a new one. Nothing chooses a segment length, and no clock or
 character threshold is involved: a delivery that lands mid-answer splits the
 answer exactly where it landed, because every writer goes through the same
 primitive. This is what the deleted character-offset anchoring was imitating.
+
+One consequence every consumer must honor: an open `answer_text` event's text
+**grows in place at the same `seq`**. Events are otherwise immutable. A consumer
+therefore keys events by `seq` and replaces, never appends a second row for the
+same `seq`.
 
 ### D5.2 — Transient duplication during the program, never in a deploy
 

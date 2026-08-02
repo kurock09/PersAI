@@ -153,6 +153,14 @@ function createLiveTurnPresentService(
   };
 }
 
+function createAppendTurnEventsService(
+  overrides: { append?: (input: Record<string, unknown>) => Promise<unknown[]> } = {}
+) {
+  return {
+    append: overrides.append ?? (async () => [])
+  };
+}
+
 function createRegisterService(input: {
   prisma?: unknown;
   metadata?: ReturnType<typeof createWorkspaceFileMetadataService>;
@@ -160,6 +168,7 @@ function createRegisterService(input: {
   micro?: ReturnType<typeof createMicroDescriptionJobService>;
   deliverOnce: ReturnType<typeof createDeliverOnceService> | { execute: () => Promise<never> };
   liveTurnPresent?: ReturnType<typeof createLiveTurnPresentService>;
+  appendTurnEvents?: ReturnType<typeof createAppendTurnEventsService>;
 }) {
   return new RegisterChatAttachmentService(
     (input.prisma ?? { assistantChat: { findFirst: async () => null } }) as never,
@@ -167,7 +176,8 @@ function createRegisterService(input: {
     (input.documents ?? createAssistantDocumentJobService()) as never,
     (input.micro ?? createMicroDescriptionJobService()) as never,
     input.deliverOnce as never,
-    (input.liveTurnPresent ?? createLiveTurnPresentService()) as never
+    (input.liveTurnPresent ?? createLiveTurnPresentService()) as never,
+    (input.appendTurnEvents ?? createAppendTurnEventsService()) as never
   );
 }
 
@@ -235,6 +245,129 @@ describe("register-chat-attachment.service", () => {
     assert.equal(upsertInput?.originChatId, "chat-1");
     assert.equal(upsertInput?.originAssistantId, "assistant-1");
     assert.equal(upsertInput?.shortDescription, "Quarterly report");
+  });
+
+  test("ADR-170 D2.1 — appends a delivery turn event for the durable attachment id at the moment it is created", async () => {
+    const createdInputs: Record<string, unknown>[] = [];
+    const appendedCalls: Record<string, unknown>[] = [];
+
+    const service = createRegisterService({
+      deliverOnce: createDeliverOnceService(createdInputs),
+      appendTurnEvents: createAppendTurnEventsService({
+        append: async (input) => {
+          appendedCalls.push(input);
+          return [];
+        }
+      })
+    });
+
+    await service.execute({
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      chatId: "chat-1",
+      messageId: "message-1",
+      storagePath: `${SESSION_ROOT}/photo.png`,
+      attachmentType: "image",
+      mimeType: "image/png",
+      sizeBytes: 2048,
+      originalFilename: "photo.png",
+      kind: "image_generate"
+    });
+
+    assert.equal(appendedCalls.length, 1);
+    assert.equal(appendedCalls[0]?.messageId, "message-1");
+    const drafts = appendedCalls[0]?.drafts as Array<Record<string, unknown>>;
+    assert.equal(drafts.length, 1);
+    assert.equal(drafts[0]?.kind, "delivery");
+    assert.equal(drafts[0]?.attachmentId, "attachment-1");
+    assert.equal(drafts[0]?.artifactKind, "image");
+    assert.equal(drafts[0]?.filename, "photo.png");
+    assert.equal(drafts[0]?.sizeBytes, 2048);
+  });
+
+  test("ADR-170 D3.2 — a closed-turn published delivery appends to the log of the message that owns the attachment, not the original user message", async () => {
+    const createdInputs: Record<string, unknown>[] = [];
+    const appendedCalls: Record<string, unknown>[] = [];
+
+    const service = createRegisterService({
+      prisma: {
+        assistantChat: {
+          findFirst: async () => ({ id: "chat-1" })
+        },
+        assistantChatMessage: {
+          findFirst: async (args: { where: { id: string } }) =>
+            args.where.id === "published-message-1" ? { id: "published-message-1" } : null
+        }
+      },
+      deliverOnce: createDeliverOnceService(createdInputs),
+      liveTurnPresent: createLiveTurnPresentService({
+        // Simulates ADR-162's closed-turn publish flow: the job's own bubble
+        // ("published-message-1") is the currently open ordinary USER_TURN's
+        // assistant message, distinct from the original request's user
+        // message ("user-message-1").
+        findOpenOrdinaryUserTurnAttemptForChat: async () => ({
+          assistantId: "assistant-1",
+          userId: "user-1",
+          chatId: "chat-1",
+          surfaceThreadKey: "web-thread-1",
+          clientTurnId: "client-turn-1",
+          userMessageId: "user-message-1",
+          assistantMessageId: "published-message-1"
+        })
+      }),
+      appendTurnEvents: createAppendTurnEventsService({
+        append: async (input) => {
+          appendedCalls.push(input);
+          return [];
+        }
+      })
+    });
+
+    await service.executeFromRuntime({
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      channel: "web",
+      externalThreadKey: "web-thread-1",
+      messageId: null,
+      storagePath: `${SESSION_ROOT}/clip.mp4`,
+      attachmentType: "video",
+      mimeType: "video/mp4",
+      sizeBytes: 2048,
+      originalFilename: "clip.mp4",
+      kind: "video_generate"
+    });
+
+    assert.equal(appendedCalls.length, 1);
+    assert.equal(appendedCalls[0]?.messageId, "published-message-1");
+    assert.notEqual(appendedCalls[0]?.messageId, "user-message-1");
+  });
+
+  test("ADR-170 D2.1 — a turn-event append failure does not break attachment delivery", async () => {
+    const createdInputs: Record<string, unknown>[] = [];
+
+    const service = createRegisterService({
+      deliverOnce: createDeliverOnceService(createdInputs),
+      appendTurnEvents: createAppendTurnEventsService({
+        append: async () => {
+          throw new Error("durable log unavailable");
+        }
+      })
+    });
+
+    const result = await service.execute({
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      chatId: "chat-1",
+      messageId: "message-1",
+      storagePath: `${SESSION_ROOT}/photo.png`,
+      attachmentType: "image",
+      mimeType: "image/png",
+      sizeBytes: 2048,
+      originalFilename: "photo.png",
+      kind: "image_generate"
+    });
+
+    assert.equal(result.attachmentId, "attachment-1");
   });
 
   test("passes thumbnail and poster storage paths to attachment create", async () => {

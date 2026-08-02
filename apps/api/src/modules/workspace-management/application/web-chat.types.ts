@@ -1,5 +1,6 @@
 import type { ClientRuntimeTurnToolInvocation } from "./strip-tool-invocations-for-client";
 import type { PendingBrowserLoginState } from "@persai/runtime-contract";
+import type { PublicTurnEvent } from "./turn-event-wire-projection";
 
 export type AssistantChatSurfaceState = "web" | "telegram";
 export type AssistantChatModeState = "normal" | "smart" | "project";
@@ -124,6 +125,15 @@ export interface AssistantWebChatMessageState {
    * in-loop image interleaving after F5 / history reload.
    */
   inlineMediaPlacement?: Array<{ toolCallId: string; attachmentIds: string[] }>;
+  /**
+   * ADR-170 D1/D3/D3.3.1 — the durable, server-numbered fact log for this
+   * message's turn, stripped of server-only `draftKey`/`draftKeys`
+   * idempotency bookkeeping. Additive alongside `workingNotes` /
+   * `toolInvocations` / `inlineMediaPlacement` per D5.2 (S5 removes those);
+   * absent/empty for a historical message with no log (D7) — no
+   * special-case branch for that.
+   */
+  turnEvents?: PublicTurnEvent[];
 }
 
 export interface AssistantWebChatTurnRoutingState {

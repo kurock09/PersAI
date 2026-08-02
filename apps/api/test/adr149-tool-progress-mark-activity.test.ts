@@ -146,6 +146,9 @@ describe("ADR-149 tool_progress touchRunningAttempt", () => {
         markUndeliveredArtifactsReconciliationRequired: async () => undefined,
         deliver: async () => ({ attachments: [] })
       } as never,
+      {
+        append: async () => []
+      } as never,
       createOverviewLatencyTraceServiceMock() as never,
       {
         recordWebStreamTurn() {

@@ -8,7 +8,8 @@ import type {
   RuntimeOutputArtifact,
   RuntimeTurnAutoCompactionState,
   RuntimeTurnToolInvocation,
-  TextGenerationUsageAccountingEnvelope
+  TextGenerationUsageAccountingEnvelope,
+  TurnEventDraft
 } from "@persai/runtime-contract";
 
 export type AssistantRuntimeErrorCode =
@@ -183,7 +184,8 @@ export interface AssistantRuntimeWebChatTurnStreamChunk {
     | "async_job_accepted"
     | "activity"
     | "project_activity"
-    | "project_reasoning_summary";
+    | "project_reasoning_summary"
+    | "turn_event";
   delta?: string;
   accumulated?: string;
   respondedAt?: string;
@@ -200,6 +202,23 @@ export interface AssistantRuntimeWebChatTurnStreamChunk {
   workingNotes?: string[];
   /** ADR-122 Slice 3: true when the provider stopped due to max_output_tokens. Carried on `done` only. */
   truncated?: boolean;
+  /** ADR-170 S2 — carried on `turn_event` chunks only: the live draft the runtime just emitted. */
+  turnEvent?: TurnEventDraft;
+  /**
+   * ADR-170 D3.3 — carried on `done` only: the turn's FULL ordered draft
+   * list — from `RuntimeTurnResult.turnEvents` on the completed path, or the
+   * equivalent field on `RuntimeInterruptedEvent`/`RuntimeFailedEvent` when
+   * a stopped/failed turn still produced a `done` chunk (has visible output)
+   * — used exclusively for turn-completion reconciliation against the
+   * durable log (heals any draft whose live mid-stream append failed). Not a
+   * second live-forwarding path — those drafts already streamed individually
+   * as `turn_event` chunks above. When an interrupted/failed turn has no
+   * visible output at all, it never reaches a `done` chunk; that case is
+   * reconciled instead from the `turnEvents` property stamped directly onto
+   * the thrown error (see `attachTurnEvents` in
+   * `web-runtime-stream-client.service.ts`).
+   */
+  turnEvents?: TurnEventDraft[];
   code?: string;
   message?: string;
   media?: RuntimeMediaArtifact[];

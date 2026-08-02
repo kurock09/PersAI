@@ -7,6 +7,7 @@
 import type { AssistantChatMessageAuthor } from "./assistantChatMessageAuthor";
 import type { AssistantWebChatMessageAttachmentState } from "./assistantWebChatMessageAttachmentState";
 import type { AssistantWebChatMessageStatePlatformNotice } from "./assistantWebChatMessageStatePlatformNotice";
+import type { TurnEvent } from "./turnEvent";
 
 export interface AssistantWebChatMessageState {
   id: string;
@@ -20,4 +21,6 @@ export interface AssistantWebChatMessageState {
   platformNotice?: AssistantWebChatMessageStatePlatformNotice;
   /** The texts the model produced before each tool call across the tool loop, one entry per step. Absent/empty when no tools ran. */
   workingNotes?: string[];
+  /** ADR-170 — the durable, server-numbered fact log for this message's turn, sorted by `seq`. Absent/empty for a historical message with no log. */
+  turnEvents?: TurnEvent[];
 }

@@ -294,6 +294,12 @@ export class SendNativeTelegramTurnService {
         case "project_activity":
         case "project_reasoning_summary":
           continue;
+        // ADR-170 S2 — the durable log's projection for Telegram is S4 work
+        // (D6: one shared projection table, Telegram byte-identical to its
+        // current cumulative text). Accept and ignore here in the meantime;
+        // Telegram keeps assembling its own text exactly as it does today.
+        case "turn_event":
+          continue;
         case "tool_started":
           if (HIDDEN_RUNTIME_TOOL_NAMES.has(event.toolName)) {
             continue;
@@ -634,12 +640,9 @@ export class SendNativeTelegramTurnService {
           return parsed as RuntimeTurnStreamEvent;
         }
         break;
-      // ADR-170 S1 — the runtime now emits this alongside the ordinary
-      // vocabulary above. Nothing consumes `event` yet (that is ADR-170 S2);
-      // accept the shape here only so an unrecognized-type throw does not
-      // fail an otherwise-ordinary Telegram turn. The switch in
-      // `readRuntimeStream`'s caller has no matching `case`, so this is
-      // dropped silently once parsed (same as other web-only ephemeral events).
+      // ADR-170 S2 — explicitly ignored above (Telegram's projection is S4
+      // work); this parser-level shape check only guards against malformed
+      // NDJSON.
       case "turn_event":
         if (this.asObject(row.event) !== null) {
           return parsed as RuntimeTurnStreamEvent;

@@ -32,6 +32,31 @@ interface LocalTurnRegistration {
  * Owning path appends every SSE-facing event to the injectable store and fans
  * out to same-pod sinks. Reattach on any pod replays the buffer then follows
  * live appends. Soft-detach semantics are unchanged (SSE death ≠ Stop).
+ *
+ * ADR-170 D1 — `envelope.seq` here (allocated below by `store.append` /
+ * `local.nextSeq`) stays a pure ADR-158 SSE **transport** sequence, shared
+ * across every event kind this bus carries (`delta`, `tool`, `media`,
+ * `turn_event`, …), used only for same-connection / short-grace-window
+ * replay dedupe (`envelope.seq <= lastSeq` in `attachLocal`/`attachRemote`).
+ * It is deliberately NOT rewired to carry the ADR-170 durable log's own
+ * `TurnEvent.seq` for `turn_event` traffic: that `seq` is scoped
+ * independently per assistant message (gapless from 1, allocated by
+ * `AppendTurnEventsService`), while this bus's transport seq is one counter
+ * per *turn* shared by every other event kind already flowing through it.
+ * Substituting one for the other would break the existing dedupe invariant —
+ * a `turn_event` whose durable `seq` is small could arrive after this bus has
+ * already delivered a later-numbered `delta`/`tool` envelope for the same
+ * turn, and would then be wrongly filtered as "already seen". The durable
+ * `TurnEvent.seq` instead rides inside the `turn_event` payload untouched
+ * (`{ type: "turn_event", event: TurnEvent }`), and ADR-170 D8 catch-up
+ * (`sinceSeq`) reads it directly from the durable Postgres log — it does not
+ * depend on this bus's buffer or transport seq at all. So there remains
+ * exactly one ordering authority for the process stream (the durable log);
+ * this bus's own seq is transport-only, not a second numbering source. The
+ * `local.nextSeq` pod-local fallback (used only when the durable store append
+ * fails) is therefore also intentionally left in place for all event kinds,
+ * `turn_event` included, rather than special-cased away — the durable log
+ * already tolerates a missed/late transport delivery via `sinceSeq` catch-up.
  */
 @Injectable()
 export class WebChatTurnStreamBusService implements OnModuleDestroy {

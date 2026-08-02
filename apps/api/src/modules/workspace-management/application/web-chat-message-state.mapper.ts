@@ -5,6 +5,11 @@ import type {
   AssistantWebChatPlatformNoticeState
 } from "./web-chat.types";
 import type { ClientRuntimeTurnToolInvocation } from "./strip-tool-invocations-for-client";
+import {
+  projectTurnEventForWire,
+  type PublicTurnEvent,
+  type TurnEventWithInternalBookkeeping
+} from "./turn-event-wire-projection";
 
 export function extractAssistantWebChatPlatformNotice(
   metadata: Record<string, unknown> | null | undefined
@@ -52,6 +57,7 @@ export function mapAssistantChatMessageToWebState(input: {
   const workingNotes = extractWorkingNotesFromMetadata(input.message.metadata);
   const toolInvocations = extractToolInvocationsFromMetadata(input.message.metadata);
   const inlineMediaPlacement = extractInlineMediaPlacementFromMetadata(input.message.metadata);
+  const turnEvents = extractTurnEventsFromMetadata(input.message.metadata);
   const lifecycle = extractMessageLifecycleFromMetadata(input.message.metadata);
   return {
     id: input.message.id,
@@ -65,7 +71,8 @@ export function mapAssistantChatMessageToWebState(input: {
     ...(platformNotice !== null ? { platformNotice } : {}),
     ...(workingNotes.length > 0 ? { workingNotes } : {}),
     ...(toolInvocations.length > 0 ? { toolInvocations } : {}),
-    ...(inlineMediaPlacement.length > 0 ? { inlineMediaPlacement } : {})
+    ...(inlineMediaPlacement.length > 0 ? { inlineMediaPlacement } : {}),
+    ...(turnEvents.length > 0 ? { turnEvents } : {})
   };
 }
 
@@ -106,6 +113,54 @@ export function extractToolInvocationsFromMetadata(
       typeof candidate.ok === "boolean"
     );
   });
+}
+
+const TURN_EVENT_KINDS = new Set([
+  "note",
+  "tool_call",
+  "answer_text",
+  "delivery",
+  "job_accepted",
+  "turn_stopped",
+  "turn_failed"
+]);
+
+/**
+ * ADR-170 D1/D3/D7/D3.3.1 — projects the durable `turnEvents` log for the
+ * client. A historical message with no log (or malformed/missing entries)
+ * simply yields an empty array, which the caller then omits from the state
+ * object — the general rule for empty input, not a special-cased legacy
+ * branch. This reads `metadata.turnEvents` directly (not through
+ * `AppendTurnEventsService`), so every entry is run through the SAME
+ * `projectTurnEventForWire` the append primitive itself uses, stripping the
+ * server-only `draftKey`/`draftKeys` idempotency bookkeeping before it ever
+ * reaches the client.
+ */
+export function extractTurnEventsFromMetadata(
+  metadata: Record<string, unknown> | null | undefined
+): PublicTurnEvent[] {
+  if (metadata === null || metadata === undefined) {
+    return [];
+  }
+  const value = metadata.turnEvents;
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .filter((entry): entry is TurnEventWithInternalBookkeeping => {
+      if (entry === null || typeof entry !== "object" || Array.isArray(entry)) {
+        return false;
+      }
+      const candidate = entry as Record<string, unknown>;
+      return (
+        typeof candidate.kind === "string" &&
+        TURN_EVENT_KINDS.has(candidate.kind) &&
+        typeof candidate.seq === "number" &&
+        Number.isInteger(candidate.seq) &&
+        typeof candidate.at === "string"
+      );
+    })
+    .map(projectTurnEventForWire);
 }
 
 export function extractInlineMediaPlacementFromMetadata(

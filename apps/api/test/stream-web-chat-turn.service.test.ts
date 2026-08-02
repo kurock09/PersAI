@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
+import type { TurnEvent, TurnEventDraft } from "@persai/runtime-contract";
 import { createAssistantInboundConflict } from "../src/modules/workspace-management/application/assistant-inbound-error";
 import {
   resolveWebStreamCadenceWatchdogOptions,
   StreamWebChatTurnService
 } from "../src/modules/workspace-management/application/stream-web-chat-turn.service";
+import { AppendTurnEventsService } from "../src/modules/workspace-management/application/append-turn-events.service";
 import { PrismaAssistantChatRepository } from "../src/modules/workspace-management/infrastructure/persistence/prisma-assistant-chat.repository";
 
 const noopRecordToolPathLedgerFromToolInvocationsService = {
@@ -287,6 +289,9 @@ describe("StreamWebChatTurnService", () => {
           };
         }
       } as never,
+      {
+        append: async () => []
+      } as never,
       createOverviewLatencyTraceServiceMock() as never,
       createPlatformHttpMetricsServiceMock() as never,
       createAttachmentObjectAvailabilityServiceMock() as never,
@@ -409,6 +414,9 @@ describe("StreamWebChatTurnService", () => {
       } as never,
       noopRecordToolPathLedgerFromToolInvocationsService,
       {} as never,
+      {
+        append: async () => []
+      } as never,
       createOverviewLatencyTraceServiceMock() as never,
       createPlatformHttpMetricsServiceMock() as never,
       createAttachmentObjectAvailabilityServiceMock() as never,
@@ -575,6 +583,9 @@ describe("StreamWebChatTurnService", () => {
       {
         markUndeliveredArtifactsReconciliationRequired: async () => undefined,
         deliver: async () => ({ attachments: [] })
+      } as never,
+      {
+        append: async () => []
       } as never,
       createOverviewLatencyTraceServiceMock() as never,
       createPlatformHttpMetricsServiceMock() as never,
@@ -783,6 +794,9 @@ describe("StreamWebChatTurnService", () => {
       {
         markUndeliveredArtifactsReconciliationRequired: async () => undefined,
         deliver: async () => ({ attachments: [] })
+      } as never,
+      {
+        append: async () => []
       } as never,
       createOverviewLatencyTraceServiceMock() as never,
       createPlatformHttpMetricsServiceMock() as never,
@@ -996,6 +1010,9 @@ describe("StreamWebChatTurnService", () => {
           };
         }
       } as never,
+      {
+        append: async () => []
+      } as never,
       createOverviewLatencyTraceServiceMock() as never,
       createPlatformHttpMetricsServiceMock() as never,
       createAttachmentObjectAvailabilityServiceMock() as never,
@@ -1174,6 +1191,9 @@ describe("StreamWebChatTurnService", () => {
       {
         markUndeliveredArtifactsReconciliationRequired: async () => undefined,
         deliver: async () => ({ attachments: [] })
+      } as never,
+      {
+        append: async () => []
       } as never,
       createOverviewLatencyTraceServiceMock() as never,
       createPlatformHttpMetricsServiceMock() as never,
@@ -1386,6 +1406,9 @@ describe("StreamWebChatTurnService", () => {
           attachments: []
         })
       } as never,
+      {
+        append: async () => []
+      } as never,
       createOverviewLatencyTraceServiceMock() as never,
       createPlatformHttpMetricsServiceMock() as never,
       createAttachmentObjectAvailabilityServiceMock() as never,
@@ -1566,6 +1589,9 @@ describe("StreamWebChatTurnService", () => {
         deliver: async () => ({
           attachments: []
         })
+      } as never,
+      {
+        append: async () => []
       } as never,
       createOverviewLatencyTraceServiceMock() as never,
       createPlatformHttpMetricsServiceMock() as never,
@@ -1825,6 +1851,9 @@ describe("StreamWebChatTurnService", () => {
         markUndeliveredArtifactsReconciliationRequired: async () => undefined,
         deliver: async () => ({ attachments: [] })
       } as never,
+      {
+        append: async () => []
+      } as never,
       createOverviewLatencyTraceServiceMock() as never,
       createPlatformHttpMetricsServiceMock() as never,
       createAttachmentObjectAvailabilityServiceMock() as never,
@@ -1986,6 +2015,9 @@ describe("StreamWebChatTurnService", () => {
         markUndeliveredArtifactsReconciliationRequired: async () => undefined,
         deliver: async () => ({ attachments: [] })
       } as never,
+      {
+        append: async () => []
+      } as never,
       createOverviewLatencyTraceServiceMock() as never,
       createPlatformHttpMetricsServiceMock() as never,
       createAttachmentObjectAvailabilityServiceMock() as never,
@@ -2124,6 +2156,9 @@ describe("StreamWebChatTurnService", () => {
         deliver: async () => ({
           attachments: []
         })
+      } as never,
+      {
+        append: async () => []
       } as never,
       createOverviewLatencyTraceServiceMock() as never,
       createPlatformHttpMetricsServiceMock() as never,
@@ -2266,6 +2301,9 @@ describe("StreamWebChatTurnService", () => {
         markUndeliveredArtifactsReconciliationRequired: async () => undefined,
         deliver: async () => ({ attachments: [] })
       } as never,
+      {
+        append: async () => []
+      } as never,
       createOverviewLatencyTraceServiceMock() as never,
       createPlatformHttpMetricsServiceMock() as never,
       createAttachmentObjectAvailabilityServiceMock() as never,
@@ -2400,6 +2438,9 @@ describe("StreamWebChatTurnService", () => {
         markUndeliveredArtifactsReconciliationRequired: async () => undefined,
         deliver: async () => ({ attachments: [] })
       } as never,
+      {
+        append: async () => []
+      } as never,
       createOverviewLatencyTraceServiceMock() as never,
       createPlatformHttpMetricsServiceMock() as never,
       createAttachmentObjectAvailabilityServiceMock() as never,
@@ -2512,6 +2553,9 @@ describe("StreamWebChatTurnService", () => {
       {
         markUndeliveredArtifactsReconciliationRequired: async () => undefined,
         deliver: async () => ({ attachments: [] })
+      } as never,
+      {
+        append: async () => []
       } as never,
       createOverviewLatencyTraceServiceMock() as never,
       createPlatformHttpMetricsServiceMock() as never,
@@ -2690,6 +2734,9 @@ describe("StreamWebChatTurnService", () => {
       {
         markUndeliveredArtifactsReconciliationRequired: async () => undefined,
         deliver: async () => ({ attachments: [] })
+      } as never,
+      {
+        append: async () => []
       } as never,
       createOverviewLatencyTraceServiceMock() as never,
       createPlatformHttpMetricsServiceMock() as never,
@@ -2922,6 +2969,9 @@ describe("StreamWebChatTurnService", () => {
           };
         }
       } as never,
+      {
+        append: async () => []
+      } as never,
       createOverviewLatencyTraceServiceMock() as never,
       createPlatformHttpMetricsServiceMock() as never,
       createAttachmentObjectAvailabilityServiceMock() as never,
@@ -3018,6 +3068,426 @@ describe("StreamWebChatTurnService", () => {
   });
 });
 
+describe("ADR-170 D3.3 — turn-completion reconciliation", () => {
+  test("a mid-stream append failure followed by completion reconciliation heals the log in the right order and emits a heal metric", async () => {
+    const prismaDouble = createReconciliationPrismaDouble();
+    const realAppendTurnEvents = new AppendTurnEventsService(prismaDouble.prisma as never);
+
+    const draftA: TurnEventDraft = {
+      kind: "note",
+      at: "2026-04-05T12:00:00.000Z",
+      draftKey: "req-1#0",
+      text: "first step",
+      display: "step"
+    };
+    const draftB: TurnEventDraft = {
+      kind: "note",
+      at: "2026-04-05T12:00:00.100Z",
+      draftKey: "req-1#1",
+      text: "second step",
+      display: "step"
+    };
+
+    // Simulates a live-append failure (a database hiccup) for draftB only —
+    // draftA's live append succeeds normally.
+    const flakyAppendTurnEvents = {
+      append: async (input: { messageId: string; drafts: TurnEventDraft[] }) => {
+        if (input.drafts.length === 1 && input.drafts[0]?.draftKey === "req-1#1") {
+          throw new Error("simulated live append failure");
+        }
+        return realAppendTurnEvents.append(input);
+      },
+      releasePending: (messageId: string) => {
+        realAppendTurnEvents.releasePending(messageId);
+      }
+    };
+
+    const onTurnEventCalls: TurnEvent[][] = [];
+
+    const service = buildTurnEventReconciliationService({
+      appendTurnEvents: flakyAppendTurnEvents,
+      chunks: [
+        { type: "turn_event", turnEvent: draftA },
+        { type: "turn_event", turnEvent: draftB },
+        {
+          type: "done",
+          respondedAt: "2026-04-05T12:00:01.000Z",
+          finalAnswer: "Done.",
+          turnEvents: [draftA, draftB]
+        }
+      ]
+    });
+
+    const { captured } = await captureProcessStdoutSync(async () => {
+      const outcome = await service.streamToCompletion(
+        buildToolStreamingPreparedFixture({ traceEnabled: false }) as never,
+        {
+          isClientAborted: () => false,
+          onDelta: () => undefined,
+          onThinking: () => undefined,
+          onDone: () => undefined,
+          onTurnEvent: (events) => {
+            onTurnEventCalls.push(events);
+          }
+        }
+      );
+      assert.equal(outcome.status, "completed");
+    });
+
+    // draftA's live append reports one event; draftB's live append failed
+    // and is healed at completion — a second onTurnEvent call carrying
+    // exactly the healed event, forwarded the same way a live one is.
+    assert.equal(onTurnEventCalls.length, 2);
+    assert.equal(onTurnEventCalls[0]?.length, 1);
+    assert.equal((onTurnEventCalls[0]?.[0] as { text: string }).text, "first step");
+    assert.equal(onTurnEventCalls[1]?.length, 1);
+    assert.equal((onTurnEventCalls[1]?.[0] as { text: string }).text, "second step");
+
+    const log = await realAppendTurnEvents.getLog("assistant-msg-1");
+    assert.equal(log.length, 2);
+    assert.deepEqual(
+      log.map((event) => event.seq),
+      [1, 2]
+    );
+    assert.equal((log[0] as { text: string }).text, "first step");
+    assert.equal((log[1] as { text: string }).text, "second step");
+
+    assert.match(
+      captured,
+      /ADR-170 turn_event completion reconciliation healed a live-append gap messageId=assistant-msg-1 healedCount=1 totalDraftCount=2/
+    );
+  });
+
+  test("reconciliation in the healthy case appends nothing and emits no heal metric", async () => {
+    const prismaDouble = createReconciliationPrismaDouble();
+    const realAppendTurnEvents = new AppendTurnEventsService(prismaDouble.prisma as never);
+
+    const draftA: TurnEventDraft = {
+      kind: "note",
+      at: "2026-04-05T12:00:00.000Z",
+      draftKey: "req-2#0",
+      text: "only step",
+      display: "step"
+    };
+
+    const onTurnEventCalls: TurnEvent[][] = [];
+
+    const service = buildTurnEventReconciliationService({
+      appendTurnEvents: realAppendTurnEvents,
+      chunks: [
+        { type: "turn_event", turnEvent: draftA },
+        {
+          type: "done",
+          respondedAt: "2026-04-05T12:00:01.000Z",
+          finalAnswer: "Done.",
+          turnEvents: [draftA]
+        }
+      ]
+    });
+
+    const { captured } = await captureProcessStdoutSync(async () => {
+      const outcome = await service.streamToCompletion(
+        buildToolStreamingPreparedFixture({ traceEnabled: false }) as never,
+        {
+          isClientAborted: () => false,
+          onDelta: () => undefined,
+          onThinking: () => undefined,
+          onDone: () => undefined,
+          onTurnEvent: (events) => {
+            onTurnEventCalls.push(events);
+          }
+        }
+      );
+      assert.equal(outcome.status, "completed");
+    });
+
+    // Only the live append produced a callback; every key was already
+    // present by completion, so reconciliation appended nothing — a true
+    // no-op, not a rewrite of the same content.
+    assert.equal(onTurnEventCalls.length, 1);
+    assert.equal(onTurnEventCalls[0]?.length, 1);
+
+    const log = await realAppendTurnEvents.getLog("assistant-msg-1");
+    assert.equal(log.length, 1);
+
+    assert.doesNotMatch(captured, /turn_event completion reconciliation healed/);
+  });
+
+  test("a stopped turn with a failed live append heals from the interrupted terminal event", async () => {
+    const prismaDouble = createReconciliationPrismaDouble();
+    const realAppendTurnEvents = new AppendTurnEventsService(prismaDouble.prisma as never);
+
+    const draftA: TurnEventDraft = {
+      kind: "note",
+      at: "2026-04-05T12:00:00.000Z",
+      draftKey: "req-3#0",
+      text: "before stop",
+      display: "step"
+    };
+    const draftB: TurnEventDraft = {
+      kind: "turn_stopped",
+      at: "2026-04-05T12:00:00.100Z",
+      draftKey: "req-3#1",
+      reason: "user_stopped"
+    };
+
+    const onTurnEventCalls: TurnEvent[][] = [];
+
+    // ADR-170 D3.3 — `web-runtime-stream-client.service.ts`'s interrupted
+    // path with no visible output throws instead of yielding a `done`
+    // chunk; it stamps the FULL ordered draft list onto the thrown error
+    // (`attachTurnEvents`). draftB's own live append never even runs — the
+    // pod stopped before it could — so only this terminal error carries it.
+    const interruptedError = new Error("Web runtime stream interrupted without assistant output.");
+    Object.assign(interruptedError, { turnEvents: [draftA, draftB] });
+
+    const service = buildTurnEventReconciliationService({
+      appendTurnEvents: realAppendTurnEvents,
+      chunks: [{ type: "turn_event", turnEvent: draftA }],
+      throwAfterChunks: interruptedError
+    });
+
+    const outcome = await service.streamToCompletion(
+      buildToolStreamingPreparedFixture({ traceEnabled: false }) as never,
+      {
+        isClientAborted: () => false,
+        onDelta: () => undefined,
+        onThinking: () => undefined,
+        onDone: () => undefined,
+        onTurnEvent: (events) => {
+          onTurnEventCalls.push(events);
+        }
+      }
+    );
+
+    assert.equal(outcome.status, "failed");
+
+    // draftA's live append reports one event; draftB is healed from the
+    // interrupted terminal event's `turnEvents`, forwarded like a live one.
+    assert.equal(onTurnEventCalls.length, 2);
+    assert.equal(onTurnEventCalls[0]?.length, 1);
+    assert.equal((onTurnEventCalls[0]?.[0] as { text: string }).text, "before stop");
+    assert.equal(onTurnEventCalls[1]?.length, 1);
+    assert.equal(onTurnEventCalls[1]?.[0]?.kind, "turn_stopped");
+
+    const log = await realAppendTurnEvents.getLog("assistant-msg-1");
+    assert.equal(log.length, 2);
+    assert.deepEqual(
+      log.map((event) => event.seq),
+      [1, 2]
+    );
+    assert.equal((log[0] as { text: string }).text, "before stop");
+    assert.equal(log[1]?.kind, "turn_stopped");
+  });
+
+  test("a failed turn with a failed live append heals from the failed terminal event", async () => {
+    const prismaDouble = createReconciliationPrismaDouble();
+    const realAppendTurnEvents = new AppendTurnEventsService(prismaDouble.prisma as never);
+
+    const draftA: TurnEventDraft = {
+      kind: "note",
+      at: "2026-04-05T12:00:00.000Z",
+      draftKey: "req-4#0",
+      text: "before failure",
+      display: "step"
+    };
+    const draftB: TurnEventDraft = {
+      kind: "turn_failed",
+      at: "2026-04-05T12:00:00.100Z",
+      draftKey: "req-4#1",
+      reason: "Native turn execution failed."
+    };
+
+    const onTurnEventCalls: TurnEvent[][] = [];
+
+    // ADR-170 D3.3 — the failed-path equivalent of the interrupted test
+    // above: no visible output means `web-runtime-stream-client.service.ts`
+    // throws instead of yielding a `done` chunk, with the same `turnEvents`
+    // stamping.
+    const failedError = new Error("Native turn execution failed.");
+    Object.assign(failedError, { turnEvents: [draftA, draftB] });
+
+    const service = buildTurnEventReconciliationService({
+      appendTurnEvents: realAppendTurnEvents,
+      chunks: [{ type: "turn_event", turnEvent: draftA }],
+      throwAfterChunks: failedError
+    });
+
+    const outcome = await service.streamToCompletion(
+      buildToolStreamingPreparedFixture({ traceEnabled: false }) as never,
+      {
+        isClientAborted: () => false,
+        onDelta: () => undefined,
+        onThinking: () => undefined,
+        onDone: () => undefined,
+        onTurnEvent: (events) => {
+          onTurnEventCalls.push(events);
+        }
+      }
+    );
+
+    assert.equal(outcome.status, "failed");
+
+    assert.equal(onTurnEventCalls.length, 2);
+    assert.equal(onTurnEventCalls[0]?.length, 1);
+    assert.equal((onTurnEventCalls[0]?.[0] as { text: string }).text, "before failure");
+    assert.equal(onTurnEventCalls[1]?.length, 1);
+    assert.equal(onTurnEventCalls[1]?.[0]?.kind, "turn_failed");
+
+    const log = await realAppendTurnEvents.getLog("assistant-msg-1");
+    assert.equal(log.length, 2);
+    assert.deepEqual(
+      log.map((event) => event.seq),
+      [1, 2]
+    );
+    assert.equal((log[0] as { text: string }).text, "before failure");
+    assert.equal(log[1]?.kind, "turn_failed");
+  });
+});
+
+function createReconciliationPrismaDouble() {
+  let metadata: Record<string, unknown> = {};
+  let queue: Promise<unknown> = Promise.resolve();
+
+  const tx = {
+    $queryRaw: async () => [{ id: "assistant-msg-1" }],
+    assistantChatMessage: {
+      findUniqueOrThrow: async () => ({ metadata }),
+      update: async (args: { data: { metadata: Record<string, unknown> } }) => {
+        metadata = args.data.metadata;
+        return { metadata };
+      }
+    }
+  };
+
+  return {
+    prisma: {
+      assistantChatMessage: {
+        findUnique: async () => ({ metadata })
+      },
+      $transaction: async <T>(fn: (client: typeof tx) => Promise<T>): Promise<T> => {
+        const run = queue.then(
+          () => fn(tx),
+          () => fn(tx)
+        );
+        queue = run.then(
+          () => undefined,
+          () => undefined
+        );
+        return run;
+      }
+    }
+  };
+}
+
+function buildTurnEventReconciliationService(options: {
+  chunks: unknown[];
+  appendTurnEvents: {
+    append: (input: { messageId: string; drafts: TurnEventDraft[] }) => Promise<TurnEvent[]>;
+    releasePending: (messageId: string) => void;
+  };
+  /**
+   * ADR-170 D3.3 — simulates `web-runtime-stream-client.service.ts` throwing
+   * for an interrupted/failed runtime event with no visible output (instead
+   * of yielding a `done` chunk), with `turnEvents` stamped onto the error via
+   * `attachTurnEvents`.
+   */
+  throwAfterChunks?: unknown;
+}): StreamWebChatTurnService {
+  return new StreamWebChatTurnService(
+    {
+      createMessage: async (input: Record<string, unknown>) => ({
+        id: "assistant-msg-1",
+        chatId: input.chatId,
+        assistantId: input.assistantId,
+        author: input.author,
+        content: input.content,
+        createdAt: new Date("2026-04-05T12:00:00.000Z")
+      }),
+      updateMessageContent: async (messageId: string, assistantId: string, content: string) => ({
+        id: messageId,
+        chatId: "chat-1",
+        assistantId,
+        author: "assistant" as const,
+        content,
+        createdAt: new Date("2026-04-05T12:00:00.000Z")
+      }),
+      mergeMessageMetadata: async (messageId: string, assistantId: string) => ({
+        id: messageId,
+        chatId: "chat-1",
+        assistantId,
+        author: "assistant" as const,
+        content: "",
+        metadata: null,
+        createdAt: new Date("2026-04-05T12:00:00.000Z")
+      }),
+      findChatById: async (chatId: string) => ({
+        id: chatId,
+        assistantId: "assistant-1",
+        surface: "web_chat",
+        surfaceThreadKey: "thread-1",
+        title: "Chat",
+        archivedAt: null,
+        lastMessageAt: new Date("2026-04-05T12:00:00.000Z"),
+        createdAt: new Date("2026-04-05T12:00:00.000Z"),
+        updatedAt: new Date("2026-04-05T12:00:00.000Z")
+      })
+    } as never,
+    {
+      listByMessageId: async () => []
+    } as never,
+    {
+      releaseWebTurnProcessing: async () => undefined,
+      completeWebTurnProcessing: async () => undefined
+    } as never,
+    {
+      execute: async function* () {
+        for (const chunk of options.chunks) {
+          yield chunk;
+        }
+        if (options.throwAfterChunks !== undefined) {
+          throw options.throwAfterChunks;
+        }
+      }
+    } as never,
+    createWebRuntimeTurnClientServiceMock() as never,
+    {
+      execute: async () => {
+        throw new Error("prepare should not be called in this test");
+      }
+    } as never,
+    {
+      resolveByUserId: async () => {
+        throw new Error("resolve should not be called in this test");
+      }
+    } as never,
+    {
+      recordWebChatTurnUsage: async () => undefined
+    } as never,
+    {
+      recordChatMainReplyEvents: async () => 0
+    } as never,
+    noopRecordToolPathLedgerFromToolInvocationsService,
+    {
+      markUndeliveredArtifactsReconciliationRequired: async () => undefined,
+      deliver: async () => ({ attachments: [] })
+    } as never,
+    options.appendTurnEvents as never,
+    createOverviewLatencyTraceServiceMock() as never,
+    createPlatformHttpMetricsServiceMock() as never,
+    createAttachmentObjectAvailabilityServiceMock() as never,
+    createSkillStatePersistenceServiceMock() as never,
+    {
+      attachAcknowledgementMessageId: async () => 0,
+      listOpenJobsForChatContext: async () => [],
+      listOpenJobsForWebChat: async () => []
+    } as never,
+    createAssistantDocumentJobReadServiceMock() as never,
+    createNotificationDeliveryWorkerServiceMock() as never,
+    createAssistantBrowserProfileRepositoryMock() as never
+  );
+}
+
 function buildToolStreamingServiceForTraceTest(options: {
   traceEnabled: boolean;
 }): StreamWebChatTurnService {
@@ -3103,6 +3573,9 @@ function buildToolStreamingServiceForTraceTest(options: {
     {
       markUndeliveredArtifactsReconciliationRequired: async () => undefined,
       deliver: async () => ({ attachments: [] })
+    } as never,
+    {
+      append: async () => []
     } as never,
     createOverviewLatencyTraceServiceMock({ enabled: options.traceEnabled }) as never,
     createPlatformHttpMetricsServiceMock() as never,
