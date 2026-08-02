@@ -138,6 +138,10 @@ async function assertStateInvalid(
   );
 }
 
+function createSmtpClientMock(): { verify: () => Promise<{ kind: "ready" }> } {
+  return { verify: async () => ({ kind: "ready" }) };
+}
+
 async function testUnknownStateRejected(): Promise<void> {
   const { prisma } = createFakePrisma(new Map());
   const { store } = createSecretStoreMock();
@@ -146,7 +150,8 @@ async function testUnknownStateRejected(): Promise<void> {
     prisma,
     store,
     createTokenExchangeClientMock(),
-    audit
+    audit,
+    createSmtpClientMock() as never
   );
 
   await assertStateInvalid(service, { code: "code-1", state: "never-issued-state" });
@@ -170,7 +175,8 @@ async function testExpiredStateRejected(): Promise<void> {
     prisma,
     store,
     createTokenExchangeClientMock(),
-    audit
+    audit,
+    createSmtpClientMock() as never
   );
 
   await assertStateInvalid(service, { code: "code-1", state: rawState });
@@ -194,7 +200,8 @@ async function testAlreadyConsumedStateRejected(): Promise<void> {
     prisma,
     store,
     createTokenExchangeClientMock(),
-    audit
+    audit,
+    createSmtpClientMock() as never
   );
 
   await assertStateInvalid(service, { code: "code-1", state: rawState });
@@ -218,7 +225,8 @@ async function testSuccessfulExchangeUpsertsIdentityAndStoresSecret(): Promise<v
     prisma,
     store,
     createTokenExchangeClientMock(),
-    audit
+    audit,
+    createSmtpClientMock() as never
   );
 
   const { redirectUrl } = await service.handle({ code: "auth-code", state: rawState });

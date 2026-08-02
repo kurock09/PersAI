@@ -214,6 +214,10 @@ export const CLERK_AUTHENTICATED_ROUTES: Array<{ path: string; method: RequestMe
   // and returns 401 forever.
   { path: "api/v1/assistant/integrations/email-mailbox", method: RequestMethod.GET },
   { path: "api/v1/assistant/integrations/email-mailbox/connect", method: RequestMethod.POST },
+  {
+    path: "api/v1/assistant/integrations/email-mailbox/verify-smtp",
+    method: RequestMethod.POST
+  },
   { path: "api/v1/assistant/integrations/email-mailbox", method: RequestMethod.DELETE },
   // ADR-138 browser profile settings + live login modal (complete/cancel).
   // Without explicit ClerkAuthMiddleware registration requests reach the

@@ -50,6 +50,16 @@ export class AssistantIntegrationsEmailMailboxController {
     return { requestId: req.requestId ?? null, authorizationUrl };
   }
 
+  @Post("verify-smtp")
+  @HttpCode(200)
+  async verifySmtp(
+    @Req() req: RequestWithPlatformContext
+  ): Promise<{ requestId: string | null; mailbox: WorkspaceEmailMailboxStateView | null }> {
+    const workspaceId = await this.resolveWorkspaceId(req);
+    const mailbox = await this.emailMailboxService.verifySmtpAccess(workspaceId);
+    return { requestId: req.requestId ?? null, mailbox };
+  }
+
   @Delete()
   @HttpCode(200)
   async disconnect(

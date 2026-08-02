@@ -1532,6 +1532,55 @@ export const postAssistantEmailMailboxConnect = async (
 };
 
 /**
+ * @summary Verify SMTP access for the connected OAuth mailbox
+ */
+export type postAssistantEmailMailboxVerifySmtpResponse200 = {
+  data: GetAssistantEmailMailboxResponse;
+  status: 200;
+};
+
+export type postAssistantEmailMailboxVerifySmtpResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type postAssistantEmailMailboxVerifySmtpResponse503 = {
+  data: ErrorEnvelope;
+  status: 503;
+};
+
+export type postAssistantEmailMailboxVerifySmtpResponseSuccess =
+  postAssistantEmailMailboxVerifySmtpResponse200 & {
+    headers: Headers;
+  };
+export type postAssistantEmailMailboxVerifySmtpResponseError = (
+  | postAssistantEmailMailboxVerifySmtpResponse401
+  | postAssistantEmailMailboxVerifySmtpResponse503
+) & {
+  headers: Headers;
+};
+
+export type postAssistantEmailMailboxVerifySmtpResponse =
+  | postAssistantEmailMailboxVerifySmtpResponseSuccess
+  | postAssistantEmailMailboxVerifySmtpResponseError;
+
+export const getPostAssistantEmailMailboxVerifySmtpUrl = () => {
+  return `/assistant/integrations/email-mailbox/verify-smtp`;
+};
+
+export const postAssistantEmailMailboxVerifySmtp = async (
+  options?: RequestInit
+): Promise<postAssistantEmailMailboxVerifySmtpResponse> => {
+  return customFetch<postAssistantEmailMailboxVerifySmtpResponse>(
+    getPostAssistantEmailMailboxVerifySmtpUrl(),
+    {
+      ...options,
+      method: "POST"
+    }
+  );
+};
+
+/**
  * @summary Get Telegram integration connection/config state for current assistant
  */
 export type getAssistantTelegramIntegrationResponse200 = {

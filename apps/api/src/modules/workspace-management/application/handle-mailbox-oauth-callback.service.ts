@@ -14,7 +14,8 @@ import {
   buildMailboxConnectAppRedirectUrl,
   resolveMailboxOAuthCallbackRedirectUri
 } from "./mailbox-oauth-redirect";
-import { mailboxOAuthSecretProviderKey } from "./assistant-email-mailbox.service";
+import { mailboxOAuthSecretProviderKey } from "./mailbox-oauth-secret-key";
+import { MailboxSmtpSendClientService } from "./mailbox-smtp-send.client";
 
 export type MailboxOAuthCallbackInput = { code: string; state: string };
 export type MailboxOAuthCallbackOutcome = { redirectUrl: string };
@@ -34,7 +35,8 @@ export class HandleMailboxOAuthCallbackService {
     private readonly prisma: WorkspaceManagementPrismaService,
     private readonly secretStore: PlatformRuntimeProviderSecretStoreService,
     private readonly tokenExchangeClient: MailboxOAuthTokenExchangeClientService,
-    private readonly appendAssistantAuditEventService: AppendAssistantAuditEventService
+    private readonly appendAssistantAuditEventService: AppendAssistantAuditEventService,
+    private readonly smtpClient: MailboxSmtpSendClientService
   ) {}
 
   async handle(input: MailboxOAuthCallbackInput): Promise<MailboxOAuthCallbackOutcome> {
@@ -131,6 +133,14 @@ export class HandleMailboxOAuthCallbackService {
     }
     const refreshToken = this.readStringField(tokenOutcome.body, "refresh_token");
     const expiresInSeconds = this.readNumberField(tokenOutcome.body, "expires_in");
+    if (refreshToken === null) {
+      this.logger.warn({
+        event: "mailbox_oauth.refresh_token_missing",
+        workspaceId,
+        provider: provider.id
+      });
+      return buildMailboxConnectAppRedirectUrl("error");
+    }
 
     const email = await this.resolveMailboxEmail(provider, tokenOutcome.body, accessToken);
     if (email === null) {
@@ -184,7 +194,35 @@ export class HandleMailboxOAuthCallbackService {
       details: { provider: provider.id }
     });
 
-    return buildMailboxConnectAppRedirectUrl("success");
+    const smtpOutcome = await this.smtpClient.verify({
+      host: provider.smtp.host,
+      port: provider.smtp.port,
+      user: email,
+      accessToken
+    });
+    if (smtpOutcome.kind === "ready") {
+      return buildMailboxConnectAppRedirectUrl("success");
+    }
+    if (smtpOutcome.kind === "access_not_enabled") {
+      await this.prisma.workspaceEmailSenderIdentity.update({
+        where: { workspaceId },
+        data: {
+          mailboxStatus: WorkspaceEmailMailboxStatus.smtp_access_required,
+          lastErrorReason: "smtp_access_required"
+        }
+      });
+      return buildMailboxConnectAppRedirectUrl("smtp_access_required");
+    }
+    if (smtpOutcome.kind === "auth_rejected") {
+      await this.prisma.workspaceEmailSenderIdentity.update({
+        where: { workspaceId },
+        data: {
+          mailboxStatus: WorkspaceEmailMailboxStatus.token_invalid,
+          lastErrorReason: "smtp_auth_rejected"
+        }
+      });
+    }
+    return buildMailboxConnectAppRedirectUrl("error");
   }
 
   private async resolveMailboxEmail(

@@ -5,6 +5,21 @@
 
 ## 2026-08-02 (latest)
 
+- **fix(api): recover mailbox auth once before asking for reconnect.** A
+  callback without a refresh token no longer creates a doomed connection.
+  On SMTP auth rejection, PersAI now forces one OAuth refresh and retries SMTP
+  once; only the provider's confirmed `invalid_grant` marks the mailbox token
+  invalid. Recoverable refresh/network failures remain failures rather than
+  falsely telling the user to reconnect.
+
+- **fix(api, web): make mailbox SMTP permission explicit.** OAuth success no
+  longer implies that a provider allows SMTP: connection now performs a
+  non-sending SMTP probe and records `smtp_access_required` for the known
+  provider denial. The Email modal gives a provider-settings link and retries
+  the probe from «Готово»; it has distinct disconnected, permission-required,
+  and ready states. Send-time permission denials take the same fail-closed
+  path instead of pretending the mailbox token was revoked.
+
 - **fix(api): request the Yandex mailbox identity scope with the vendor's
   required delimiter.** First authenticated Yandex live acceptance proved that
   OAuth token exchange succeeds but `default_email` remains unavailable when
@@ -126,7 +141,7 @@
   `AssistantEmailSenderIdentityService`, the
   `assistant-integrations-email-sender` controller and its four routes
   (`/api/v1/assistant/integrations/email-sender` `GET`/`POST`/`POST
-  /resend`/`DELETE`), their OpenAPI paths/schemas and regenerated typed
+/resend`/`DELETE`), their OpenAPI paths/schemas and regenerated typed
   client, their `CLERK_AUTHENTICATED_ROUTES` entries, the
   `notification/email/postmark/account-token` credential
   (`notification_email_postmark_account`) and its Admin Tools helper copy
@@ -180,7 +195,7 @@
 - **fix(api): `email_send` had no runtime execution mode, which failed bundle
   materialization for every assistant (ADR-168 hotfix, `eafdc4e2`).** Live
   symptom right after the ADR-168 deploy: `materialization_failed: Missing
-  explicit runtime tool execution mode for "email_send"` on generation 1463
+explicit runtime tool execution mode for "email_send"` on generation 1463
   across assistants. Cause: `resolveToolExecutionMode` in `runtime-tool-policy.ts`
   throws when a catalog code is absent from `TOOL_EXECUTION_MODE_BY_CODE`, and
   that resolution runs for every catalog tool while materializing each
@@ -210,7 +225,7 @@
   10-minute cap. Verification lives as a fourth card in Settings → Интеграции
   beside Telegram/WhatsApp/MAX; no new tab. A third credential
   `notification/email/postmark/account-token` was added to `Admin > Tools >
-  Notifications`, because the Sender Signatures API needs the Postmark **Account**
+Notifications`, because the Sender Signatures API needs the Postmark **Account**
   token — the existing Server and Webhook tokens cannot do it. Daily and per-turn
   limits reuse the shared tool-quota mechanism, and the tool ships **inactive**
   (`toolClass: cost_driving`) until an operator enables it per plan in

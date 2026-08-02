@@ -3998,6 +3998,7 @@ enum WorkspaceEmailMailboxProvider {
 /// fail closed with guidance, not retry silently.
 enum WorkspaceEmailMailboxStatus {
   connected
+  smtp_access_required
   token_invalid
 }
 

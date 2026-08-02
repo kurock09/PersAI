@@ -386,7 +386,7 @@ async function testProviderQuotaRejectionIsReportedHonestly(): Promise<void> {
   console.log("✓ provider quota rejection reported honestly as skipped, never a silent success");
 }
 
-async function testSmtpAuthRejectionSkipsClosedAndMarksTokenInvalid(): Promise<void> {
+async function testSmtpAuthRejectionDoesNotMislabelRefreshInfrastructureFailure(): Promise<void> {
   const { service, prismaFake, transportFake } = buildService({
     row: connectedRow(),
     bundle: { accessToken: "AT1", refreshToken: "RT1" },
@@ -403,19 +403,16 @@ async function testSmtpAuthRejectionSkipsClosedAndMarksTokenInvalid(): Promise<v
 
   const result = await service.execute(baseInput);
 
-  assert.deepEqual(result, {
-    status: "skipped",
-    reason: "mailbox_token_invalid",
-    message: "535 5.7.8 Authentication failed"
-  });
+  assert.equal(result.status, "failed");
+  assert.equal((result as { reason: string }).reason, "mailbox_token_refresh_failed");
   assert.equal(transportFake.getCloseCalls(), 1, "the transporter is still closed on rejection");
   assert.equal(
     prismaFake.getRow()?.mailboxStatus,
-    WorkspaceEmailMailboxStatus.token_invalid,
-    "a stale-but-cached-valid token rejected by the provider must flip mailboxStatus honestly"
+    WorkspaceEmailMailboxStatus.connected,
+    "an unavailable forced refresh must not be mislabeled as a revoked mailbox grant"
   );
   console.log(
-    "✓ SMTP auth rejection (revoked mid-lifetime) skips fail-closed and marks mailboxStatus token_invalid"
+    "✓ SMTP auth rejection attempts refresh and does not mislabel refresh infrastructure failure"
   );
 }
 
@@ -607,7 +604,7 @@ async function run(): Promise<void> {
   await testNoConnectedMailboxSkipsWithNoSmtpCall();
   await testSmtpNetworkFailureMapsToFailedNotSuccess();
   await testProviderQuotaRejectionIsReportedHonestly();
-  await testSmtpAuthRejectionSkipsClosedAndMarksTokenInvalid();
+  await testSmtpAuthRejectionDoesNotMislabelRefreshInfrastructureFailure();
   await testSpamRejectionIsNotMisreadAsAuthRejection();
   await testUnknownExpiryAlwaysAttemptsRefresh();
   await testConcurrentRefreshLoserReusesWinnerTokenWithoutFlippingInvalid();

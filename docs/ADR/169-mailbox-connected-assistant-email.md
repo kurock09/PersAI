@@ -1,6 +1,8 @@
 # ADR-169 — Mailbox-connected assistant email (OAuth XOAUTH2)
 
-- Status: **implemented locally 2026-08-01** (S1–S5 landed); first
+- Status: **implemented locally 2026-08-01** (S1–S5 landed); Mail.ru and
+  Yandex OAuth/connectivity have been live-exercised, and the bounded
+  SMTP-permission repair is local pending verification/deploy; first
   cross-app audit repair fixed locally 2026-08-02 in `apps/api` + `apps/web`
   (`4638f1fe`, see "Audit repair"); second audit repair fixed locally
   2026-08-02 (see "Second audit repair" — deploy + S6 authenticated live
@@ -59,9 +61,9 @@ backs notifications.
 **D3 — v1 providers are Mail.ru and Yandex; Google is a later slice.** Both
 verified against vendor documentation at opening:
 
-| Provider | Scopes                  | SMTP endpoint              |
-| -------- | ----------------------- | -------------------------- |
-| Mail.ru  | `userinfo`, `mail.imap` | `smtp.mail.ru:465` (SSL)   |
+| Provider | Scopes                     | SMTP endpoint              |
+| -------- | -------------------------- | -------------------------- |
+| Mail.ru  | `userinfo`, `mail.imap`    | `smtp.mail.ru:465` (SSL)   |
 | Yandex   | `mail:smtp`, `login:email` | `smtp.yandex.ru:465` (SSL) |
 
 Google is deferred and, when it lands, goes through the Gmail API with the
@@ -181,13 +183,13 @@ sit above our own `dailyCallLimit`; a provider rejection surfaces as a
   `verifiedAt` columns and `WorkspaceEmailSenderIdentityStatus` enum (migration
   `20260801170000_adr169_s5_drop_postmark_sender_signature_layer`). Docs
   reconciled; ADR-168 marked superseded in its sender-verification part only.
-Slice notes carried from the opening investigation: `apps/web` has no existing
-"leave to an external consent page and come back" integration flow — Telegram
-pastes a token and WhatsApp/MAX are stubs — so S4 is new UI state-machine work
-rather than a copy. And `apps/runtime` does not auto-discover tests: any new
-runtime test file must be added to the explicit `TESTS` array in
-`test/run-suite-isolated.ts` or it silently never runs, which has already
-allowed one regression to ship.
+  Slice notes carried from the opening investigation: `apps/web` has no existing
+  "leave to an external consent page and come back" integration flow — Telegram
+  pastes a token and WhatsApp/MAX are stubs — so S4 is new UI state-machine work
+  rather than a copy. And `apps/runtime` does not auto-discover tests: any new
+  runtime test file must be added to the explicit `TESTS` array in
+  `test/run-suite-isolated.ts` or it silently never runs, which has already
+  allowed one regression to ship.
 
 - **S6** — independent audits, full gate, one push, deploy, live acceptance:
   a real assistant-sent message that arrives in Inbox with no authentication
@@ -235,7 +237,7 @@ The `apps/web` side, fixed the same commit:
   apps) from a genuine transient failure, with its own message stating that
   retrying will not help.
 - **The founder had no UI to enter the OAuth credentials at all.** `Admin >
-  Tools` returned the four `mailbox_oauth_{mailru,yandex}_client_{id,secret}`
+Tools` returned the four `mailbox_oauth_{mailru,yandex}_client_{id,secret}`
   credential ids from the server but rendered no section for them. A
   "Mailbox-connected email" section was added following the existing
   per-section pattern, including the exact redirect URI to register with each

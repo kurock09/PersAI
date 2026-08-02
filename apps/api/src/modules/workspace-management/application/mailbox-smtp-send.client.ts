@@ -21,6 +21,7 @@ export type MailboxSmtpMessage = {
 
 export type MailboxSmtpTransporter = {
   sendMail(message: MailboxSmtpMessage): Promise<{ messageId?: string }>;
+  verify(): Promise<true>;
   close(): void;
 };
 
@@ -51,8 +52,15 @@ export class NodemailerMailboxSmtpTransportFactory {
 export type MailboxSmtpSendOutcome =
   | { kind: "success"; messageId: string }
   | { kind: "network_error"; message: string }
+  | { kind: "access_not_enabled"; message: string; responseCode: number | null }
   | { kind: "auth_rejected"; message: string; responseCode: number | null }
   | { kind: "rejected"; message: string; responseCode: number | null };
+
+export type MailboxSmtpVerifyOutcome =
+  | { kind: "ready" }
+  | { kind: "access_not_enabled"; message: string; responseCode: number | null }
+  | { kind: "auth_rejected"; message: string; responseCode: number | null }
+  | { kind: "network_error"; message: string };
 
 /**
  * ADR-169 D10 — SMTP XOAUTH2 transport for the connected mailbox, mirroring
@@ -92,11 +100,34 @@ export class MailboxSmtpSendClientService {
     } catch (err) {
       const responseCode = this.readResponseCode(err);
       const message = err instanceof Error ? err.message : String(err);
+      if (this.isAccessNotEnabled(err, message)) {
+        return { kind: "access_not_enabled", message, responseCode };
+      }
       if (this.isAuthRejection(err)) {
         return { kind: "auth_rejected", message, responseCode };
       }
       if (responseCode !== null) {
         return { kind: "rejected", message, responseCode };
+      }
+      return { kind: "network_error", message };
+    } finally {
+      transporter.close();
+    }
+  }
+
+  async verify(params: MailboxSmtpTransportOptions): Promise<MailboxSmtpVerifyOutcome> {
+    const transporter = this.transportFactory.createTransport(params);
+    try {
+      await transporter.verify();
+      return { kind: "ready" };
+    } catch (err) {
+      const responseCode = this.readResponseCode(err);
+      const message = err instanceof Error ? err.message : String(err);
+      if (this.isAccessNotEnabled(err, message)) {
+        return { kind: "access_not_enabled", message, responseCode };
+      }
+      if (this.isAuthRejection(err)) {
+        return { kind: "auth_rejected", message, responseCode };
       }
       return { kind: "network_error", message };
     } finally {
@@ -141,5 +172,14 @@ export class MailboxSmtpSendClientService {
       }
     }
     return true;
+  }
+
+  private isAccessNotEnabled(err: unknown, message: string): boolean {
+    return (
+      typeof err === "object" &&
+      err !== null &&
+      (err as { code?: unknown }).code === "EAUTH" &&
+      /does not have access rights to this service/iu.test(message)
+    );
   }
 }

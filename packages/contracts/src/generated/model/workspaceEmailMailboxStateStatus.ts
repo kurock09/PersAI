@@ -11,5 +11,6 @@ export type WorkspaceEmailMailboxStateStatus =
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const WorkspaceEmailMailboxStateStatus = {
   connected: "connected",
+  smtp_access_required: "smtp_access_required",
   token_invalid: "token_invalid"
 } as const;

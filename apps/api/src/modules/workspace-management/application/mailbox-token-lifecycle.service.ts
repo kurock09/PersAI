@@ -10,7 +10,7 @@ import {
   MAILBOX_OAUTH_PROVIDERS,
   type MailboxOAuthProviderId
 } from "./mailbox-oauth-provider-registry";
-import { mailboxOAuthSecretProviderKey } from "./assistant-email-mailbox.service";
+import { mailboxOAuthSecretProviderKey } from "./mailbox-oauth-secret-key";
 import { SchedulerLeaseService } from "./scheduler-lease.service";
 
 /** ADR-169 S3 — refresh ahead of expiry rather than racing the provider's own clock. */
@@ -89,7 +89,8 @@ export class MailboxTokenLifecycleService {
   async resolveFreshAccessToken(
     workspaceId: string,
     provider: MailboxOAuthProviderId,
-    tokenExpiresAt: Date | null
+    tokenExpiresAt: Date | null,
+    options?: { forceRefresh?: boolean }
   ): Promise<MailboxTokenLifecycleResult> {
     const bundle = await this.loadTokenBundle(workspaceId);
     if (bundle === null) {
@@ -99,7 +100,7 @@ export class MailboxTokenLifecycleService {
     // Cheap unlocked fast path: the caller-supplied `tokenExpiresAt` can be
     // a hair stale, but that only ever costs an unnecessary lock attempt
     // below, never a wrong "ready" — the locked re-check is what decides.
-    if (!this.isExpiringSoon(tokenExpiresAt)) {
+    if (!options?.forceRefresh && !this.isExpiringSoon(tokenExpiresAt)) {
       return { kind: "ready", accessToken: bundle.accessToken };
     }
 
@@ -127,7 +128,7 @@ export class MailboxTokenLifecycleService {
         where: { workspaceId },
         select: { tokenExpiresAt: true }
       });
-      if (!this.isExpiringSoon(freshRow?.tokenExpiresAt ?? null)) {
+      if (!options?.forceRefresh && !this.isExpiringSoon(freshRow?.tokenExpiresAt ?? null)) {
         return { kind: "ready", accessToken: freshBundle.accessToken };
       }
 

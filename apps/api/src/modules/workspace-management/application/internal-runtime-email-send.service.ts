@@ -31,7 +31,11 @@ export type InternalRuntimeEmailSendResult =
   | { status: "sent"; messageId: string }
   | {
       status: "skipped";
-      reason: "mailbox_not_connected" | "mailbox_token_invalid" | "provider_daily_limit_reached";
+      reason:
+        | "mailbox_not_connected"
+        | "smtp_access_required"
+        | "mailbox_token_invalid"
+        | "provider_daily_limit_reached";
       message?: string;
     }
   | { status: "failed"; reason: string; message?: string };
@@ -140,11 +144,28 @@ export class InternalRuntimeEmailSendService {
       where: { workspaceId: input.workspaceId }
     });
 
-    if (
-      identity === null ||
-      identity.provider === null ||
-      identity.mailboxStatus !== WorkspaceEmailMailboxStatus.connected
-    ) {
+    if (identity === null || identity.provider === null) {
+      return this.skip(
+        input,
+        "mailbox_not_connected",
+        "Assistant email send skipped: no connected mailbox."
+      );
+    }
+    if (identity.mailboxStatus === WorkspaceEmailMailboxStatus.smtp_access_required) {
+      return this.skip(
+        input,
+        "smtp_access_required",
+        "Assistant email send skipped: provider SMTP access must be enabled."
+      );
+    }
+    if (identity.mailboxStatus === WorkspaceEmailMailboxStatus.token_invalid) {
+      return this.skip(
+        input,
+        "mailbox_token_invalid",
+        "Assistant email send skipped: mailbox token was revoked."
+      );
+    }
+    if (identity.mailboxStatus !== WorkspaceEmailMailboxStatus.connected) {
       return this.skip(
         input,
         "mailbox_not_connected",
@@ -226,20 +247,95 @@ export class InternalRuntimeEmailSendService {
       return { status: "failed", reason: "email_send_error", message: outcome.message };
     }
 
+    if (outcome.kind === "access_not_enabled") {
+      await this.prisma.workspaceEmailSenderIdentity.update({
+        where: { workspaceId: input.workspaceId },
+        data: {
+          mailboxStatus: WorkspaceEmailMailboxStatus.smtp_access_required,
+          lastErrorReason: "smtp_access_required"
+        }
+      });
+      return this.skip(
+        input,
+        "smtp_access_required",
+        "Assistant email send skipped: provider SMTP access must be enabled.",
+        outcome.message
+      );
+    }
+
     if (outcome.kind === "auth_rejected") {
-      // A cached access token that looked valid (per `tokenExpiresAt`) but
-      // was revoked mid-lifetime is caught here, not at the pre-send
-      // refresh check — tokens live about an hour, so this is the ordinary
-      // revocation path, not the rare one. Same fail-closed destination as
-      // a refresh-time `invalid_grant`: skip, guide to reconnect, and make
-      // `mailboxStatus` tell the truth for the settings card.
       this.logger.warn({
-        event: "internal_runtime_email_send.smtp_auth_rejected",
+        event: "internal_runtime_email_send.smtp_auth_rejected_refreshing",
         workspaceId: input.workspaceId,
         assistantId: input.assistantId,
         responseCode: outcome.responseCode,
         message: outcome.message
       });
+      const refreshed = await this.tokenLifecycle.resolveFreshAccessToken(
+        input.workspaceId,
+        provider.id,
+        identity.tokenExpiresAt,
+        { forceRefresh: true }
+      );
+      if (refreshed.kind === "ready") {
+        const retry = await this.smtpClient.send({
+          host: provider.smtp.host,
+          port: provider.smtp.port,
+          user: identity.email,
+          accessToken: refreshed.accessToken,
+          from,
+          to: input.to,
+          subject: input.subject,
+          text: input.body
+        });
+        if (retry.kind === "success") {
+          this.logger.log({
+            event: "internal_runtime_email_send.sent_after_refresh",
+            workspaceId: input.workspaceId,
+            assistantId: input.assistantId,
+            messageId: retry.messageId
+          });
+          await this.writeAudit(input, {
+            outcome: "succeeded",
+            eventCode: "assistant.email.sent",
+            summary: "Assistant email sent after refreshing the mailbox token.",
+            details: { messageId: retry.messageId, refreshedAfterSmtpAuthRejection: true }
+          });
+          return { status: "sent", messageId: retry.messageId };
+        }
+        if (retry.kind === "access_not_enabled") {
+          await this.prisma.workspaceEmailSenderIdentity.update({
+            where: { workspaceId: input.workspaceId },
+            data: {
+              mailboxStatus: WorkspaceEmailMailboxStatus.smtp_access_required,
+              lastErrorReason: "smtp_access_required"
+            }
+          });
+          return this.skip(
+            input,
+            "smtp_access_required",
+            "Assistant email send skipped: provider SMTP access must be enabled.",
+            retry.message
+          );
+        }
+        if (retry.kind !== "auth_rejected") {
+          return {
+            status: "failed",
+            reason: "email_send_error",
+            message: retry.message
+          };
+        }
+      }
+      if (refreshed.kind !== "token_invalid") {
+        return {
+          status: "failed",
+          reason: "mailbox_token_refresh_failed",
+          message:
+            refreshed.kind === "refresh_unavailable"
+              ? refreshed.message
+              : "Mailbox refresh did not produce a usable access token."
+        };
+      }
       await this.tokenLifecycle.markTokenInvalid(input.workspaceId);
       return this.skip(
         input,
@@ -298,7 +394,11 @@ export class InternalRuntimeEmailSendService {
 
   private async skip(
     input: InternalRuntimeEmailSendInput,
-    reason: "mailbox_not_connected" | "mailbox_token_invalid" | "provider_daily_limit_reached",
+    reason:
+      | "mailbox_not_connected"
+      | "smtp_access_required"
+      | "mailbox_token_invalid"
+      | "provider_daily_limit_reached",
     summary: string,
     message?: string
   ): Promise<InternalRuntimeEmailSendResult> {

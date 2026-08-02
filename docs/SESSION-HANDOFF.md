@@ -1,5 +1,24 @@
 # SESSION-HANDOFF
 
+## 2026-08-02 — ADR-169 SMTP-permission modal repair
+
+- **Scope:** a successful OAuth callback does not prove SMTP access. The API
+  now probes SMTP without sending mail and represents the documented provider
+  denial as `smtp_access_required`; an authenticated retry endpoint rechecks
+  it after the user enables access. The Email modal alone was rebuilt around
+  disconnected, permission-required, and ready states; the IntegrationCard
+  was not further changed.
+- **Refresh correction:** a mailbox callback now rejects a provider response
+  that lacks `refresh_token`, rather than creating a connection guaranteed to
+  expire. A send-time SMTP authentication rejection performs one forced OAuth
+  refresh and one SMTP retry; only a confirmed `invalid_grant` is allowed to
+  become `token_invalid`. This prevents an ordinary recoverable token mismatch
+  from requiring a manual reconnect.
+- **Current checkpoint:** local code and focused typechecks are green. Next:
+  format/lint, focused API/web tests, then the required full gate before the
+  single authorized commit/push/deploy and authenticated Mail.ru/Yandex
+  acceptance.
+
 ## 2026-08-02 — ADR-169 live Yandex OAuth scope repair
 
 - **Live evidence:** the first Yandex authorization reached the public callback
@@ -156,7 +175,7 @@
   param — a returning user landed on a bare chat screen with no dialog, no
   message, no state change. `chat/page.tsx` now reads it once on mount,
   calls the existing `openSettings("emailConnectSuccess" |
-  "emailConnectError")` deep link (reusing the same `initialSection`
+"emailConnectError")` deep link (reusing the same `initialSection`
   mechanism as `settings=limits`, no new plumbing), which reopens the Email
   mailbox dialog with a fresh read and an honest success/failure message in
   its existing feedback line, then strips the param the same way the billing
@@ -167,7 +186,7 @@
   registered) from a genuine transient failure, with its own Russian copy
   stating that retrying will not help.
 - **P1 — no founder UI to enter the OAuth credentials at all.** `Admin >
-  Tools` (`apps/web/app/admin/tools/page.tsx`) already received the four
+Tools` (`apps/web/app/admin/tools/page.tsx`) already received the four
   `mailbox_oauth_{mailru,yandex}_client_{id,secret}` credential rows from the
   server but rendered no section for them — the feature could not be turned
   on regardless of S1–S5 being otherwise complete. Added a "Mailbox-connected
@@ -361,7 +380,7 @@
 
 - **What happened:** minutes after the ADR-168 deploy, assistants failed with
   `materialization_failed: Missing explicit runtime tool execution mode for
-  "email_send"` (generation 1463). Fixed in `eafdc4e2`.
+"email_send"` (generation 1463). Fixed in `eafdc4e2`.
 - **Why it was fleet-wide even though the tool ships disabled:**
   `resolveToolExecutionMode` (`runtime-tool-policy.ts`) throws on an unmapped
   code, and it runs for every catalog tool while materializing each assistant's
@@ -440,14 +459,14 @@
 ## 2026-07-31 — ADR-168 implemented locally (parent-orchestrated, pre-push)
 
 - **What landed:** the full feature in one pass — `workspace_email_sender_identities`
-  + migration `20260731220000_adr168_workspace_email_sender_identity`, the third
-  Postmark credential `notification/email/postmark/account-token`, the Sender
-  Signatures client and identity service, four
-  `/api/v1/assistant/integrations/email-sender` routes, the internal
-  `/api/v1/internal/runtime/email/send` endpoint with audit events, the
-  `email_send` catalog entry (`cost_driving`, therefore inactive until an
-  operator enables it per plan), the runtime tool with projection/dispatch/
-  per-turn cap 3, and the fourth «Email» card in Settings → Интеграции.
+  - migration `20260731220000_adr168_workspace_email_sender_identity`, the third
+    Postmark credential `notification/email/postmark/account-token`, the Sender
+    Signatures client and identity service, four
+    `/api/v1/assistant/integrations/email-sender` routes, the internal
+    `/api/v1/internal/runtime/email/send` endpoint with audit events, the
+    `email_send` catalog entry (`cost_driving`, therefore inactive until an
+    operator enables it per plan), the runtime tool with projection/dispatch/
+    per-turn cap 3, and the fourth «Email» card in Settings → Интеграции.
 - **Reuse enforced, not re-implemented:** daily limits go through the existing
   `consumeToolDailyLimit`; audit rows through the existing
   `AppendAssistantAuditEventService`; secrets through `resolveSecretValueById`
@@ -476,7 +495,7 @@
   and the client only polls while its dialog is open, so no shared-state
   throttle was introduced for it; revisit only if Postmark rate limits show up.
 - **Next:** operator stores the Postmark Account token in `Admin > Tools >
-  Notifications` and enables `email_send` on the intended plans in
+Notifications` and enables `email_send` on the intended plans in
   `Admin > Plans`; then authenticated live acceptance — verify a real workspace
   address, confirm the card flips without reload, send one real email, and
   confirm an unverified workspace gets the skip + guidance instead of a send.

@@ -854,6 +854,31 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /assistant/integrations/email-mailbox/verify-smtp:
+    post:
+      operationId: postAssistantEmailMailboxVerifySmtp
+      summary: Verify SMTP access for the connected OAuth mailbox
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: SMTP verification completed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAssistantEmailMailboxResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "503":
+          description: SMTP verification temporarily unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /assistant/integrations/telegram:
     get:
       operationId: getAssistantTelegramIntegration
@@ -12920,6 +12945,7 @@ components:
           type: string
           enum:
             - connected
+            - smtp_access_required
             - token_invalid
         connectedAt:
           type: string

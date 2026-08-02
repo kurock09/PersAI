@@ -11,15 +11,14 @@ import {
   type MailboxOAuthProviderId
 } from "./mailbox-oauth-provider-registry";
 import { resolveMailboxOAuthCallbackRedirectUri } from "./mailbox-oauth-redirect";
+import { mailboxOAuthSecretProviderKey } from "./mailbox-oauth-secret-key";
+import { MailboxTokenLifecycleService } from "./mailbox-token-lifecycle.service";
+import { MailboxSmtpSendClientService } from "./mailbox-smtp-send.client";
 
 const STATE_BYTES = 32;
 const STATE_TTL_MS = 10 * 60 * 1000;
 const CREDENTIALS_UNAVAILABLE_REASON = "mailbox_oauth_credentials_unavailable";
 const REDIRECT_URI_UNAVAILABLE_REASON = "mailbox_oauth_redirect_uri_unavailable";
-
-export function mailboxOAuthSecretProviderKey(workspaceId: string): string {
-  return `mailbox_oauth:${workspaceId}`;
-}
 
 export type WorkspaceEmailMailboxStateView = {
   provider: MailboxOAuthProviderId;
@@ -46,7 +45,9 @@ export class AssistantEmailMailboxService {
   constructor(
     private readonly prisma: WorkspaceManagementPrismaService,
     private readonly secretStore: PlatformRuntimeProviderSecretStoreService,
-    private readonly appendAssistantAuditEventService: AppendAssistantAuditEventService
+    private readonly appendAssistantAuditEventService: AppendAssistantAuditEventService,
+    private readonly tokenLifecycle: MailboxTokenLifecycleService,
+    private readonly smtpClient: MailboxSmtpSendClientService
   ) {}
 
   parseConnectInput(body: unknown): ConnectMailboxOAuthInput {
@@ -173,6 +174,64 @@ export class AssistantEmailMailboxService {
     });
 
     return { removed: true };
+  }
+
+  async verifySmtpAccess(workspaceId: string): Promise<WorkspaceEmailMailboxStateView | null> {
+    const mailbox = await this.prisma.workspaceEmailSenderIdentity.findUnique({
+      where: { workspaceId }
+    });
+    if (mailbox === null || mailbox.provider === null || mailbox.mailboxStatus === null) {
+      return null;
+    }
+    const provider = MAILBOX_OAUTH_PROVIDERS[mailbox.provider as MailboxOAuthProviderId];
+    const token = await this.tokenLifecycle.resolveFreshAccessToken(
+      workspaceId,
+      provider.id,
+      mailbox.tokenExpiresAt
+    );
+    if (token.kind === "token_invalid") {
+      return this.readMailbox(workspaceId);
+    }
+    if (token.kind !== "ready") {
+      throw new ApiErrorHttpException(HttpStatus.SERVICE_UNAVAILABLE, {
+        code: "mailbox_smtp_verify_unavailable",
+        category: "infra",
+        message: "Mailbox SMTP verification is temporarily unavailable."
+      });
+    }
+
+    const outcome = await this.smtpClient.verify({
+      host: provider.smtp.host,
+      port: provider.smtp.port,
+      user: mailbox.email,
+      accessToken: token.accessToken
+    });
+    if (outcome.kind === "ready") {
+      await this.prisma.workspaceEmailSenderIdentity.update({
+        where: { workspaceId },
+        data: {
+          mailboxStatus: WorkspaceEmailMailboxStatus.connected,
+          lastErrorReason: null
+        }
+      });
+    } else if (outcome.kind === "access_not_enabled") {
+      await this.prisma.workspaceEmailSenderIdentity.update({
+        where: { workspaceId },
+        data: {
+          mailboxStatus: WorkspaceEmailMailboxStatus.smtp_access_required,
+          lastErrorReason: "smtp_access_required"
+        }
+      });
+    } else if (outcome.kind === "auth_rejected") {
+      await this.tokenLifecycle.markTokenInvalid(workspaceId);
+    } else {
+      throw new ApiErrorHttpException(HttpStatus.SERVICE_UNAVAILABLE, {
+        code: "mailbox_smtp_verify_unavailable",
+        category: "infra",
+        message: "Mailbox SMTP verification is temporarily unavailable."
+      });
+    }
+    return this.readMailbox(workspaceId);
   }
 
   /** Fail-closed per ADR-168's missing-token shape: no client id/secret, no OAuth call. */

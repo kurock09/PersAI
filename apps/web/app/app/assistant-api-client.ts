@@ -100,6 +100,7 @@ import {
   type AssistantEmailMailboxConnectRequestProvider,
   getAssistantEmailMailbox as getAssistantEmailMailboxContract,
   postAssistantEmailMailboxConnect as postAssistantEmailMailboxConnectContract,
+  postAssistantEmailMailboxVerifySmtp as postAssistantEmailMailboxVerifySmtpContract,
   deleteAssistantEmailMailbox as deleteAssistantEmailMailboxContract,
   deleteAssistantWebChat as deleteAssistantWebChatContract,
   getAssistant as getAssistantContract,
@@ -4318,6 +4319,24 @@ export async function disconnectAssistantEmailMailbox(token: string): Promise<vo
     }
   } catch (error) {
     throwStructuredIfCoded(error);
+  }
+}
+
+export async function verifyAssistantEmailMailboxSmtp(
+  token: string
+): Promise<WorkspaceEmailMailboxState | null> {
+  try {
+    const response = await postAssistantEmailMailboxVerifySmtpContract({
+      headers: getAuthHeaders(token)
+    });
+    if (response.status !== 200) {
+      throw new Error(
+        "Unexpected non-success response for POST /assistant/integrations/email-mailbox/verify-smtp."
+      );
+    }
+    return response.data.mailbox;
+  } catch (error) {
+    return throwStructuredIfCoded(error);
   }
 }
 

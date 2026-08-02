@@ -40,7 +40,9 @@ function resolveWebAppBaseUrl(): string | null {
  * Never throws: an unset PERSAI_WEB_BASE_URL degrades to an app-relative
  * redirect rather than stranding the OAuth round trip on a 500.
  */
-export function buildMailboxConnectAppRedirectUrl(outcome: "success" | "error"): string {
+export function buildMailboxConnectAppRedirectUrl(
+  outcome: "success" | "smtp_access_required" | "error"
+): string {
   const base = resolveWebAppBaseUrl();
   const path = `${APP_RETURN_PATH}?mailboxConnect=${outcome}`;
   return base === null ? path : `${base}${path}`;

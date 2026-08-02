@@ -322,10 +322,20 @@ function ChatPageInner() {
   // Integrations section with a fresh mailbox read, then strip the param so
   // a refresh or back-navigation cannot replay the one-shot message.
   useEffect(() => {
-    if (mailboxConnectFromUrl !== "success" && mailboxConnectFromUrl !== "error") {
+    if (
+      mailboxConnectFromUrl !== "success" &&
+      mailboxConnectFromUrl !== "smtp_access_required" &&
+      mailboxConnectFromUrl !== "error"
+    ) {
       return;
     }
-    openSettings(mailboxConnectFromUrl === "success" ? "emailConnectSuccess" : "emailConnectError");
+    openSettings(
+      mailboxConnectFromUrl === "success"
+        ? "emailConnectSuccess"
+        : mailboxConnectFromUrl === "smtp_access_required"
+          ? "emailConnectSmtpAccessRequired"
+          : "emailConnectError"
+    );
     router.replace(buildChatHrefWithoutBillingParams(searchParams));
   }, [mailboxConnectFromUrl, openSettings, router, searchParams]);
 

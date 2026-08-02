@@ -570,7 +570,7 @@ describe("integrations section", () => {
       expect(within(emailCard).getByText("@ sales@example.com")).toBeInTheDocument();
       expect(emailCard.querySelector("img")).toHaveAttribute(
         "src",
-        "https://yandex.ru/favicon.ico"
+        "/integrations/yandex-mail.svg"
       );
 
       fireEvent.click(emailCard);

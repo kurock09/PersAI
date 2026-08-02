@@ -109,6 +109,7 @@ import {
   getAssistantEmailMailbox,
   connectAssistantEmailMailbox,
   disconnectAssistantEmailMailbox,
+  verifyAssistantEmailMailboxSmtp,
   type WorkspaceEmailMailboxState,
   type AssistantEmailMailboxConnectRequestProvider
 } from "../assistant-api-client";
@@ -209,9 +210,17 @@ function resolveEmailMailboxCardStatusLabel(
 }
 
 function resolveEmailMailboxLogoSrc(mailbox: WorkspaceEmailMailboxState | null): string {
-  if (mailbox?.provider === "mailru") return "https://mail.ru/favicon.ico";
-  if (mailbox?.provider === "yandex") return "https://yandex.ru/favicon.ico";
+  if (mailbox?.provider === "mailru") return "/integrations/mailru-mail.svg";
+  if (mailbox?.provider === "yandex") return "/integrations/yandex-mail.svg";
   return "/integrations/email-logo.svg";
+}
+
+function resolveEmailMailboxProviderSettingsUrl(
+  provider: AssistantEmailMailboxConnectRequestProvider
+): string {
+  return provider === "mailru"
+    ? "https://account.mail.ru/oauth/applications"
+    : "https://mail.yandex.ru/#/setup/client";
 }
 
 function resolveEmailMailboxProviderLabel(
@@ -1452,6 +1461,7 @@ export function AssistantSettings({
   const [emailMailboxConnectingProvider, setEmailMailboxConnectingProvider] =
     useState<AssistantEmailMailboxConnectRequestProvider | null>(null);
   const [emailMailboxDisconnecting, setEmailMailboxDisconnecting] = useState(false);
+  const [emailMailboxVerifying, setEmailMailboxVerifying] = useState(false);
   const [emailMailboxDisconnectConfirmOpen, setEmailMailboxDisconnectConfirmOpen] = useState(false);
   const [emailMailboxFb, setEmailMailboxFb] = useState<ActionFeedback>(null);
   const assistant = data.assistant;
@@ -2221,10 +2231,15 @@ export function AssistantSettings({
   }, [loadEmailMailboxState]);
 
   const handleCloseEmailMailbox = useCallback(() => {
-    if (emailMailboxConnectingProvider !== null || emailMailboxDisconnecting) return;
+    if (
+      emailMailboxConnectingProvider !== null ||
+      emailMailboxDisconnecting ||
+      emailMailboxVerifying
+    )
+      return;
     setEmailMailboxOpen(false);
     setEmailMailboxFb(null);
-  }, [emailMailboxConnectingProvider, emailMailboxDisconnecting]);
+  }, [emailMailboxConnectingProvider, emailMailboxDisconnecting, emailMailboxVerifying]);
 
   // ADR-169 D11 — the connect endpoint only hands back the provider
   // authorization URL; the OAuth exchange itself requires a full top-level
@@ -2273,6 +2288,20 @@ export function AssistantSettings({
       setEmailMailboxFb({ type: "err", text: t("emailMailboxDisconnectError") });
     } finally {
       setEmailMailboxDisconnecting(false);
+    }
+  }, [getToken, t]);
+
+  const handleVerifyEmailMailboxSmtp = useCallback(async () => {
+    const token = (await getToken({ skipCache: true })) ?? (await getToken());
+    if (!token) return;
+    setEmailMailboxVerifying(true);
+    setEmailMailboxFb(null);
+    try {
+      setEmailMailboxState(await verifyAssistantEmailMailboxSmtp(token));
+    } catch {
+      setEmailMailboxFb({ type: "err", text: t("emailMailboxVerifyError") });
+    } finally {
+      setEmailMailboxVerifying(false);
     }
   }, [getToken, t]);
 
@@ -2693,7 +2722,11 @@ export function AssistantSettings({
     // OAuth redirect (see the app's `mailboxConnect` return-param handling).
     // Re-open the mailbox dialog with a fresh read and an honest outcome
     // message instead of leaving the user on a bare chat screen.
-    if (initialSection === "emailConnectSuccess" || initialSection === "emailConnectError") {
+    if (
+      initialSection === "emailConnectSuccess" ||
+      initialSection === "emailConnectSmtpAccessRequired" ||
+      initialSection === "emailConnectError"
+    ) {
       setEmailMailboxOpen(true);
       setEmailMailboxFb({
         type: initialSection === "emailConnectSuccess" ? "ok" : "err",
@@ -5090,6 +5123,7 @@ export function AssistantSettings({
             <IntegrationCard
               name="Email"
               logoSrc={resolveEmailMailboxLogoSrc(emailMailboxState)}
+              logoBadge={emailMailboxState?.status === "connected" ? "@" : undefined}
               statusLabel={resolveEmailMailboxCardStatusLabel(emailMailboxState, t)}
               active={emailMailboxState?.status === "connected"}
               onClick={handleOpenEmailMailbox}
@@ -5145,9 +5179,13 @@ export function AssistantSettings({
 
         <AssistantSettingsDialogShell
           open={emailMailboxOpen}
-          title="Email"
+          title={t("emailMailboxTitle")}
           onClose={handleCloseEmailMailbox}
-          closeDisabled={emailMailboxConnectingProvider !== null || emailMailboxDisconnecting}
+          closeDisabled={
+            emailMailboxConnectingProvider !== null ||
+            emailMailboxDisconnecting ||
+            emailMailboxVerifying
+          }
         >
           {emailMailboxLoading ? (
             <div className="flex items-center justify-center py-10">
@@ -5183,6 +5221,29 @@ export function AssistantSettings({
                 >
                   {t("emailMailboxTokenInvalidMessage")}
                 </p>
+              ) : null}
+              {emailMailboxState.status === "smtp_access_required" ? (
+                <div className="space-y-3 rounded-lg border border-border/70 bg-surface-raised/40 p-3">
+                  <p className="text-xs leading-5 text-text-muted">
+                    {t("emailMailboxSmtpAccessRequired", {
+                      provider: resolveEmailMailboxProviderLabel(emailMailboxState.provider, t)
+                    })}
+                  </p>
+                  <a
+                    href={resolveEmailMailboxProviderSettingsUrl(emailMailboxState.provider)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1.5 text-xs font-medium text-accent hover:underline"
+                  >
+                    {t("emailMailboxOpenProviderSettings", {
+                      provider: resolveEmailMailboxProviderLabel(emailMailboxState.provider, t)
+                    })}
+                    <ExternalLink className="h-3.5 w-3.5" />
+                  </a>
+                </div>
+              ) : null}
+              {emailMailboxState.status === "connected" ? (
+                <p className="text-xs text-text-muted">{t("emailMailboxReady")}</p>
               ) : null}
 
               <FeedbackLine fb={emailMailboxFb} />
@@ -5222,16 +5283,34 @@ export function AssistantSettings({
                       variant="primary"
                     />
                   ) : null}
-                  <ActionButton
-                    icon={<Trash2 className="h-3.5 w-3.5" />}
-                    label={t("emailMailboxDisconnect")}
-                    onClick={() => setEmailMailboxDisconnectConfirmOpen(true)}
-                    busy={false}
-                    disabled={emailMailboxConnectingProvider !== null}
-                    variant="danger"
-                  />
+                  {emailMailboxState.status === "smtp_access_required" ? (
+                    <ActionButton
+                      icon={<RotateCcw className="h-3.5 w-3.5" />}
+                      label={t("emailMailboxDone")}
+                      onClick={() => void handleVerifyEmailMailboxSmtp()}
+                      busy={emailMailboxVerifying}
+                      variant="primary"
+                    />
+                  ) : (
+                    <ActionButton
+                      icon={null}
+                      label={t("emailMailboxDone")}
+                      onClick={handleCloseEmailMailbox}
+                      busy={false}
+                      variant="primary"
+                    />
+                  )}
                 </div>
               )}
+              {!emailMailboxDisconnectConfirmOpen ? (
+                <button
+                  type="button"
+                  onClick={() => setEmailMailboxDisconnectConfirmOpen(true)}
+                  className="text-xs text-text-subtle underline-offset-4 hover:text-destructive hover:underline"
+                >
+                  {t("emailMailboxDisconnect")}
+                </button>
+              ) : null}
             </div>
           ) : (
             <div className="space-y-4">
@@ -5239,7 +5318,13 @@ export function AssistantSettings({
               <FeedbackLine fb={emailMailboxFb} />
               <div className="grid gap-2">
                 <ActionButton
-                  icon={<ExternalLink className="h-3.5 w-3.5" />}
+                  icon={
+                    <img
+                      src="/integrations/mailru-mail.svg"
+                      alt=""
+                      className="h-3.5 w-3.5 rounded-sm"
+                    />
+                  }
                   label={t("emailMailboxConnectMailru")}
                   onClick={() => void handleConnectEmailMailbox("mailru")}
                   busy={emailMailboxConnectingProvider === "mailru"}
@@ -5248,7 +5333,13 @@ export function AssistantSettings({
                   className="w-full"
                 />
                 <ActionButton
-                  icon={<ExternalLink className="h-3.5 w-3.5" />}
+                  icon={
+                    <img
+                      src="/integrations/yandex-mail.svg"
+                      alt=""
+                      className="h-3.5 w-3.5 rounded-sm"
+                    />
+                  }
                   label={t("emailMailboxConnectYandex")}
                   onClick={() => void handleConnectEmailMailbox("yandex")}
                   busy={emailMailboxConnectingProvider === "yandex"}
@@ -7010,6 +7101,7 @@ function BrowserSiteCard({
 function IntegrationCard({
   name,
   logoSrc,
+  logoBadge,
   statusLabel,
   active,
   comingSoon,
@@ -7017,6 +7109,7 @@ function IntegrationCard({
 }: {
   name: string;
   logoSrc: string;
+  logoBadge?: string | undefined;
   statusLabel: string;
   active?: boolean;
   comingSoon?: boolean;
@@ -7039,7 +7132,14 @@ function IntegrationCard({
       )}
     >
       <div className="flex min-w-0 flex-1 items-start gap-3">
-        <img src={logoSrc} alt="" className="h-10 w-10 shrink-0 rounded-xl object-contain" />
+        <span className="relative h-10 w-10 shrink-0">
+          <img src={logoSrc} alt="" className="h-10 w-10 rounded-xl object-contain" />
+          {logoBadge ? (
+            <span className="absolute -bottom-1 -right-1 inline-flex h-4 w-4 items-center justify-center rounded-full border-2 border-background bg-success text-[10px] font-bold leading-none text-white">
+              {logoBadge}
+            </span>
+          ) : null}
+        </span>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <p className="min-w-0 flex-1 truncate text-sm font-medium text-text">{name}</p>
