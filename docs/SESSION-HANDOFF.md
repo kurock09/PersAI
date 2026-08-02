@@ -8,8 +8,8 @@
   not a redirect URI or client-secret failure: the requested `mail:smtp`
   permission permits SMTP delivery but does not permit the Yandex ID
   `default_email` field that ADR-169 persists as the connected mailbox.
-- **Repair:** Yandex now requests `mail:smtp,login:email` with Yandex's
-  comma-delimited scope syntax; Mail.ru retains `userinfo mail.imap` with its
+- **Repair:** Yandex now requests `mail:smtp login:email` with Yandex's
+  documented space-delimited scope syntax; Mail.ru retains `userinfo mail.imap` with its
   space-delimited syntax. The subsequent live Mail.ru authorization also
   completed but logged the same `email_unresolved`: Mail.ru's userinfo
   endpoint requires its access token in `?access_token=`, while the generic
@@ -20,6 +20,12 @@
   token transport. The repair is locally verified (format, API typecheck,
   focused service tests) and awaits commit/push/deploy, then renewed
   authenticated connection tests for both providers.
+- **Settings-card follow-up:** the Email card now reads mailbox state when the
+  Integrations surface mounts (rather than only after a card click), follows
+  Telegram in the two-column grid, and on a connected mailbox shows the
+  provider favicon plus `@ <address>` instead of redundant "Connected" copy.
+  Focused Email-card tests cover the initial state read, provider favicon, and
+  compact address status.
 
 ## 2026-08-02 — ADR-169 second-audit repair: auth-vs-policy SMTP classification, bounded assumed TTL, sane lock timeout, server-resolved redirect URI
 

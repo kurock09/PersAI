@@ -566,15 +566,17 @@ describe("integrations section", () => {
 
       renderSettings(makeAppData(), "channels");
 
-      // The collapsed card only knows the true mailbox state once the dialog
-      // has fetched it (same demand-driven load as the ADR-168 card).
-      fireEvent.click(await screen.findByRole("button", { name: /Email/i }));
+      const emailCard = await screen.findByRole("button", { name: /Email/i });
+      expect(within(emailCard).getByText("@ sales@example.com")).toBeInTheDocument();
+      expect(emailCard.querySelector("img")).toHaveAttribute(
+        "src",
+        "https://yandex.ru/favicon.ico"
+      );
+
+      fireEvent.click(emailCard);
 
       expect(await screen.findByText("sales@example.com")).toBeInTheDocument();
       expect(screen.getByText("Yandex")).toBeInTheDocument();
-
-      const emailCard = screen.getByRole("button", { name: /Email/i });
-      expect(within(emailCard).getByText(/Connected/)).toBeInTheDocument();
 
       fireEvent.click(screen.getByRole("button", { name: "Disconnect mailbox" }));
       expect(
@@ -612,7 +614,9 @@ describe("integrations section", () => {
     });
 
     it("renders a neutral could-not-load state with retry instead of inviting a connect", async () => {
-      assistantApiMocks.getAssistantEmailMailbox.mockRejectedValueOnce(new Error("boom"));
+      assistantApiMocks.getAssistantEmailMailbox
+        .mockRejectedValueOnce(new Error("boom"))
+        .mockRejectedValueOnce(new Error("boom"));
 
       renderSettings(makeAppData(), "channels");
 

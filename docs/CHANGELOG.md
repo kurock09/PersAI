@@ -9,13 +9,20 @@
   required delimiter.** First authenticated Yandex live acceptance proved that
   OAuth token exchange succeeds but `default_email` remains unavailable when
   only `mail:smtp` is requested (`mailbox_oauth.email_unresolved`). The
-  provider registry now requests `mail:smtp,login:email`, comma-delimited as
+  provider registry now requests space-delimited `mail:smtp login:email`, as
   Yandex requires. A subsequent Mail.ru authorization reached the callback
   with the same unresolved-identity result: its userinfo endpoint expects
   `access_token` in the query string, not a Bearer header. The userinfo client
   now follows the registry's provider-specific token placement. Focused tests
   lock the Yandex scopes/delimiter and both providers' userinfo transports.
   Pending deploy and renewed authenticated acceptance for both providers.
+
+- **fix(web): keep the Email integration card truthful after reload.** The
+  card now fetches mailbox state when Settings opens, so a connected address
+  does not disappear until a card click. Email follows Telegram in the grid
+  and connected cards show the connected provider's favicon plus
+  `@ <address>`; the redundant "Connected" label was removed because the
+  green state indicator already conveys it.
 
 - **fix(api, web, docs): ADR-169 mailbox-connect audit repair — fail-closed
   revocation, single-flight refresh, OAuth return, Admin Tools credentials

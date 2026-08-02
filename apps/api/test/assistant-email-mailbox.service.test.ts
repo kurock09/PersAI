@@ -201,9 +201,9 @@ async function testYandexConnectRequestsMailboxAndIdentityScopes(): Promise<void
   });
 
   assert.deepEqual(
-    new URL(authorizationUrl).searchParams.get("scope")?.split(",").sort(),
+    new URL(authorizationUrl).searchParams.get("scope")?.split(" ").sort(),
     ["login:email", "mail:smtp"],
-    "Yandex scopes must use the vendor-required comma delimiter for SMTP and default_email"
+    "Yandex scopes must use the vendor-required space delimiter for SMTP and default_email"
   );
   console.log("✓ Yandex connect requests SMTP and email-identity scopes");
 }

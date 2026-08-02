@@ -201,11 +201,17 @@ function resolveEmailMailboxCardStatusLabel(
     return t("emailMailboxNotConnectedStatus");
   }
   if (mailbox.status === "connected") {
-    return `${t("channelConnected")} · ${mailbox.email}`;
+    return `@ ${mailbox.email}`;
   }
   // Reveal the address even when the grant was revoked — otherwise the user
   // has no way to tell which mailbox needs reconnecting.
   return `${t("emailMailboxTokenInvalidStatus")} · ${mailbox.email}`;
+}
+
+function resolveEmailMailboxLogoSrc(mailbox: WorkspaceEmailMailboxState | null): string {
+  if (mailbox?.provider === "mailru") return "https://mail.ru/favicon.ico";
+  if (mailbox?.provider === "yandex") return "https://yandex.ru/favicon.ico";
+  return "/integrations/email-logo.svg";
 }
 
 function resolveEmailMailboxProviderLabel(
@@ -2701,6 +2707,13 @@ export function AssistantSettings({
     }
   }, [initialSection, loadEmailMailboxState, t]);
 
+  // The card's compact state is part of the Integrations overview, not only
+  // the Email dialog. Refresh it whenever this settings surface mounts so an
+  // F5 after OAuth does not temporarily lie that the mailbox is disconnected.
+  useEffect(() => {
+    void loadEmailMailboxState();
+  }, [loadEmailMailboxState]);
+
   useEffect(() => {
     return () => {
       if (saveButtonResetTimerRef.current !== null) {
@@ -5075,6 +5088,13 @@ export function AssistantSettings({
               onClick={onOpenTelegramSettings}
             />
             <IntegrationCard
+              name="Email"
+              logoSrc={resolveEmailMailboxLogoSrc(emailMailboxState)}
+              statusLabel={resolveEmailMailboxCardStatusLabel(emailMailboxState, t)}
+              active={emailMailboxState?.status === "connected"}
+              onClick={handleOpenEmailMailbox}
+            />
+            <IntegrationCard
               name="WhatsApp"
               logoSrc="/integrations/whatsapp-logo.png"
               statusLabel={t("channelComingSoon")}
@@ -5085,13 +5105,6 @@ export function AssistantSettings({
               logoSrc="/integrations/max-logo.png"
               statusLabel={t("channelComingSoon")}
               comingSoon
-            />
-            <IntegrationCard
-              name="Email"
-              logoSrc="/integrations/email-logo.svg"
-              statusLabel={resolveEmailMailboxCardStatusLabel(emailMailboxState, t)}
-              active={emailMailboxState?.status === "connected"}
-              onClick={handleOpenEmailMailbox}
             />
           </div>
           <div className="my-4 border-t border-border/60" />

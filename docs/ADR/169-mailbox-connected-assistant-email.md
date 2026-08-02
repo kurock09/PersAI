@@ -326,8 +326,9 @@ and token exchange, then failed closed at the mailbox identity lookup with
 also requires multiple requested scopes to be comma-separated, while the
 generic request builder had joined them with spaces.
 
-Yandex now requests `mail:smtp,login:email` using the vendor-required comma
-delimiter. Mail.ru retains its space-delimited `userinfo mail.imap` request,
+Yandex now requests space-delimited `mail:smtp login:email`, as its official
+authorization-code documentation requires. Mail.ru retains its space-delimited
+`userinfo mail.imap` request,
 but its `userinfo` endpoint requires `access_token` as a query parameter,
 not the generic Bearer header: the first live Mail.ru authorization likewise
 completed, then logged `mailbox_oauth.email_unresolved` until the transport
