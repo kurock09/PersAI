@@ -8,10 +8,10 @@ const APP_RETURN_PATH = "/app/chat";
  * from a single env var so connect and callback can never drift apart.
  */
 export function resolveMailboxOAuthCallbackRedirectUri(): string | null {
-  const raw =
-    process.env.PERSAI_PUBLIC_API_BASE_URL?.trim() ||
-    process.env.PERSAI_API_PUBLIC_BASE_URL?.trim() ||
-    "";
+  // `PERSAI_PUBLIC_API_BASE_URL` is the one name actually wired in
+  // `infra/helm` (`values.yaml`/`values-dev.yaml`) — a second accepted name
+  // here would silently read as unset in every real environment.
+  const raw = process.env.PERSAI_PUBLIC_API_BASE_URL?.trim() ?? "";
   if (!raw) {
     return null;
   }

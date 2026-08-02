@@ -1,11 +1,128 @@
 # SESSION-HANDOFF
 
+## 2026-08-02 — ADR-169 second-audit repair: auth-vs-policy SMTP classification, bounded assumed TTL, sane lock timeout, server-resolved redirect URI
+
+- **Baseline:** clean tree on top of the `4638f1fe` first-audit repair below.
+- **Correction to the entry directly below this one:** it claimed the
+  `4638f1fe` repair touched only `apps/web` and that `apps/api`/`apps/runtime`
+  findings "were fixed separately" in a different session. That was false —
+  `4638f1fe` is one commit and it changed `mailbox-token-lifecycle.service.ts`,
+  `mailbox-smtp-send.client.ts`, `internal-runtime-email-send.service.ts`,
+  `mailbox-oauth-http-transport.ts` (new), `mailbox-oauth-token-exchange.client.ts`,
+  `mailbox-oauth-token-refresh.client.ts`, and `assistant-email-mailbox.service.ts`
+  (plus their tests) in `apps/api`, in addition to the `apps/web` changes. That
+  entry's text is now corrected in place. `apps/runtime` genuinely had zero
+  findings from either audit and was not touched by either repair.
+- **P1 — a spam/policy rejection locked out a healthy mailbox.**
+  `MailboxSmtpSendClientService.isAuthRejection` treated SMTP reply code `535`
+  OR any `5.7.x` enhanced-status text as a revoked grant, but Mail.ru and
+  Yandex both return `5.7.1` for ordinary content/policy/spam rejection at
+  RCPT/DATA — a rejected marketing-looking send was misread as a revoked
+  mailbox, flipping `mailboxStatus` to `token_invalid` and forcing an
+  unnecessary reconnect. Fixed by trusting only nodemailer's authoritative
+  `err.code === "EAUTH"` (set exclusively on real authentication-failure
+  paths by `_formatError`, verified by reading nodemailer 7.0.0's
+  `smtp-connection/index.js`), optionally corroborated by `err.command`
+  starting with `AUTH`/`API` when nodemailer supplies one. Proven by
+  `internal-runtime-email-send.service.test.ts`'s new
+  `testSpamRejectionIsNotMisreadAsAuthRejection` (a `550 5.7.1 ... spam`
+  rejection stays an ordinary `smtp_rejected` failure, `mailboxStatus` stays
+  `connected`), alongside the existing true-positive `EAUTH` test.
+- **P1 — the founder-facing redirect URI was a duplicated frontend literal,
+  not the value the server sends.** `apps/web/app/admin/tools/page.tsx`
+  hardcoded `https://api.persai.dev` + the callback path; the real value
+  comes from `resolveMailboxOAuthCallbackRedirectUri`, which reads
+  `PERSAI_PUBLIC_API_BASE_URL` and is empty in base Helm `values.yaml` — a
+  mismatch is exactly the opaque OAuth-exchange failure the ADR's Risks
+  section names. The Admin Tools credentials response now carries a
+  server-resolved `mailboxOAuthRedirectUri: string | null` (`null` means the
+  env var is unset in this environment, rendered as an honest "not
+  available" state, not a guessed URL); the page renders that string. Added
+  to `packages/contracts/openapi.yaml` — `GetAdminToolCredentialsResponse` /
+  `AdminToolCredentialsState` / `AdminToolCredentialStatus` /
+  `AdminToolCredentialsMediaReserveState` /
+  `AdminToolCredentialsHeygenVoiceCatalogState` / `AdminToolProviderOption` /
+  `AdminToolCredentialKey` — the first OpenAPI coverage for this endpoint
+  (`/admin/runtime/tool-credentials` GET only; PUT and the HeyGen
+  refresh/curation/preview sub-routes stay uncontracted, unchanged from
+  before this slice), typed client regenerated via
+  `corepack pnpm run generate` in `packages/contracts`. Also settled
+  `mailbox-oauth-redirect.ts`'s two accepted env var names on the one wired
+  in `infra/helm` (`PERSAI_PUBLIC_API_BASE_URL`); the unwired
+  `PERSAI_API_PUBLIC_BASE_URL` fallback is deleted from that file (a
+  same-named fallback in the unrelated `apps/api/.../assistant-browser-bridge-devices.controller.ts`
+  — ADR-140 browser-bridge WebSocket URL resolution, not ADR-169 — was left
+  alone; it is a different feature and was not part of this finding).
+  Proven by new `mailbox-oauth-redirect.test.ts` (resolves from the wired
+  var, returns `null` when unset, does not fall back to the dropped alias)
+  and new `admin/tools/page.test.tsx` cases (renders the server string;
+  renders the honest unset message).
+- **P2 — a provider that omits `expires_in` on refresh made every send
+  refresh again.** `isExpiringSoon(null)` returning `true` (the `4638f1fe`
+  fix for the never-refresh hole) meant a refresh response that also omits
+  `expires_in` recorded `tokenExpiresAt: null`, so the very next send would
+  refresh again, forever. Chosen behaviour: record a bounded local
+  `MAILBOX_REFRESH_ASSUMED_TTL_MS` (5 minutes — deliberately shorter than
+  either provider's real ~1-hour token lifetime, explicitly documented as a
+  local assumption and never presented as provider-reported truth) instead
+  of `null` in that one case. Proven by
+  `testRefreshResponseMissingExpiresInAssumesBoundedTtlNotEndlessRefresh`
+  (one refresh for the initially-expired token; a second send immediately
+  after does not trigger a second refresh call).
+- **P2 — the refresh-lock acquire timeout was shorter than the operation it
+  waits on.** `MAILBOX_REFRESH_LOCK_ACQUIRE_TIMEOUT_MS` (5s) was shorter
+  than the provider refresh HTTP call it guards
+  (`MAILBOX_OAUTH_REFRESH_HTTP_TIMEOUT_MS`, 10s), so a losing concurrent
+  sender could time out and fail even though the winner's own refresh would
+  have succeeded a moment later. The acquire timeout is now derived —
+  `MAILBOX_OAUTH_REFRESH_HTTP_TIMEOUT_MS + 5_000` — and
+  `MAILBOX_OAUTH_REFRESH_HTTP_TIMEOUT_MS` is exported from
+  `mailbox-oauth-token-refresh.client.ts` so the two constants cannot
+  silently drift apart again. Proven by new
+  `mailbox-refresh-lock-timeout.test.ts` asserting the derived relationship
+  directly (a real-timer end-to-end test would need a multi-second sleep to
+  exercise the old bug, which is not worth the slower suite for a
+  configuration-relationship invariant).
+- **Judged not worth fixing here:** (1) the initial OAuth-connect callback
+  (`handle-mailbox-oauth-callback.service.ts`) also records
+  `tokenExpiresAt: null` when the token-exchange response omits
+  `expires_in` — but the very next `resolveFreshAccessToken` call already
+  routes through the now-fixed `refresh()` path, which records the bounded
+  assumed TTL instead of `null`, so the "every send refreshes" failure mode
+  cannot actually occur from that path; touching it too would be
+  duplicating the same constant for no behavioural gain. (2) the
+  `PERSAI_API_PUBLIC_BASE_URL` fallback in the unrelated browser-bridge
+  controller (see above) — a different feature/ADR, not part of this
+  finding's stated scope (`mailbox-oauth-redirect.ts`). (3) contracting the
+  admin-tool-credentials PUT method and the HeyGen refresh/curation/preview
+  sub-routes — the finding was specifically about the GET response's
+  redirect-URI field; contracting the rest of that controller is a larger,
+  separate pre-existing gap this slice did not create and was not asked to
+  close.
+- **Verification:** `@persai/api` + `@persai/web` typecheck and lint clean;
+  `internal-runtime-email-send.service.test.ts`,
+  `tool-credential-settings.test.ts`, `mailbox-oauth-redirect.test.ts`
+  (new), `mailbox-refresh-lock-timeout.test.ts` (new),
+  `handle-mailbox-oauth-callback.service.test.ts`, and
+  `assistant-email-mailbox.service.test.ts` all pass individually via
+  `corepack pnpm exec tsx test/<file>`; `apps/web/app/admin/tools/page.test.tsx`
+  (7/7) and `assistant-settings.test.tsx` (99/99) pass via vitest;
+  `prettier --check` clean on every touched file.
+- **Next recommended step:** unchanged from the entry below — founder
+  registers both OAuth apps using the redirect URI now shown (server-
+  resolved) in Admin Tools, enters the client id/secret, then the program
+  proceeds to push + deploy + S6 live acceptance. Deploy and authenticated
+  live acceptance remain pending for both this slice and the one below.
+
 ## 2026-08-02 — ADR-169 web audit repair: OAuth return, Admin Tools credentials UI, honest failures
 
 - **Baseline:** clean tree on top of the landed S1–S5 mailbox-connect work.
-  Scope for this slice was `apps/web` + `docs` only — a parallel subagent
-  fixed the `apps/api`/`apps/runtime` findings from the same two independent
-  audits separately; this session did not touch either app.
+  Scope for this slice was `apps/web` + `apps/api` + `docs` — the same
+  commit (`4638f1fe`) also fixed the `apps/api` findings from the same two
+  independent audits (fail-closed revocation via `isExpiringSoon(null)`,
+  single-flight refresh locking); this entry originally said those were
+  "fixed separately" in a different session, which was false and is
+  corrected here. `apps/runtime` had no findings from these audits.
 - **P1 — OAuth return was silent.** The mailbox OAuth callback always sends
   the browser back to `/app/chat?mailboxConnect=success|error` (every
   failure mode degrades to `error`), but nothing in `apps/web` read that

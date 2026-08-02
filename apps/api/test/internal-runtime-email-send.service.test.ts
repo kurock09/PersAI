@@ -16,7 +16,10 @@
  * (revoked mid-lifetime) skips fail-closed and marks `token_invalid`; an
  * unknown token expiry always attempts a refresh instead of assuming the
  * cached token stays valid; a losing concurrent refresh reuses the winner's
- * token instead of flipping a healthy mailbox to `token_invalid`.
+ * token instead of flipping a healthy mailbox to `token_invalid`; a `5.7.1`
+ * spam/policy rejection is reported as an ordinary failure, never misread as
+ * a revoked grant; a refresh response missing `expires_in` assumes a bounded
+ * TTL instead of forcing every subsequent send to refresh again.
  */
 import assert from "node:assert/strict";
 import { BadRequestException } from "@nestjs/common";
@@ -257,6 +260,48 @@ async function testExpiredTokenRefreshesOnceThenSends(): Promise<void> {
   console.log("✓ expired token refreshes exactly once, then sends with the new token");
 }
 
+async function testRefreshResponseMissingExpiresInAssumesBoundedTtlNotEndlessRefresh(): Promise<void> {
+  let fetchCalls = 0;
+  const { service, prismaFake } = buildService({
+    row: connectedRow({ tokenExpiresAt: new Date(Date.now() - 1000) }),
+    bundle: { accessToken: "AT-OLD", refreshToken: "RT-OLD" },
+    sendMail: async () => ({ messageId: "smtp-msg-no-expiry" })
+  });
+
+  await withFetch(
+    (async () => {
+      fetchCalls += 1;
+      // The provider's refresh response omits `expires_in` entirely — both
+      // v1 providers document it, but the fallback must still hold.
+      return new Response(JSON.stringify({ access_token: "AT-NEW", refresh_token: "RT-NEW" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+      });
+    }) as typeof fetch,
+    () => service.execute(baseInput)
+  );
+
+  assert.equal(fetchCalls, 1, "one refresh for the initially-expired token");
+  const tokenExpiresAt = prismaFake.getRow()?.tokenExpiresAt;
+  assert.ok(
+    tokenExpiresAt instanceof Date && tokenExpiresAt.getTime() > Date.now(),
+    "a missing expires_in must still record a future assumed expiry, not null"
+  );
+
+  // A second send immediately afterwards must NOT refresh again — that is
+  // exactly the "every single send refreshes" hole this test guards against.
+  const secondResult = await service.execute(baseInput);
+  assert.equal(secondResult.status, "sent");
+  assert.equal(
+    fetchCalls,
+    1,
+    "a refresh response missing expires_in must not force every subsequent send to refresh again"
+  );
+  console.log(
+    "✓ a refresh response missing expires_in assumes a bounded TTL instead of forcing every send to refresh"
+  );
+}
+
 async function testRevokedRefreshTokenFlipsInvalidAndSkipsClosed(): Promise<void> {
   let fetchCalls = 0;
   const { service, transportFake, prismaFake } = buildService({
@@ -371,6 +416,39 @@ async function testSmtpAuthRejectionSkipsClosedAndMarksTokenInvalid(): Promise<v
   );
   console.log(
     "✓ SMTP auth rejection (revoked mid-lifetime) skips fail-closed and marks mailboxStatus token_invalid"
+  );
+}
+
+async function testSpamRejectionIsNotMisreadAsAuthRejection(): Promise<void> {
+  const { service, prismaFake, transportFake } = buildService({
+    row: connectedRow(),
+    bundle: { accessToken: "AT1", refreshToken: "RT1" },
+    sendMail: async () => {
+      // `5.7.1` is Mail.ru/Yandex's ordinary code for content/policy/spam
+      // rejection at RCPT/DATA, not for a revoked grant — nodemailer does
+      // NOT set `err.code = "EAUTH"` for this path (it sets `EENVELOPE`).
+      const err = new Error("550 5.7.1 Message rejected as spam") as Error & {
+        code: string;
+        responseCode: number;
+      };
+      err.code = "EENVELOPE";
+      err.responseCode = 550;
+      throw err;
+    }
+  });
+
+  const result = await service.execute(baseInput);
+
+  assert.equal(result.status, "failed", "a spam/policy rejection is an ordinary failure");
+  assert.equal((result as { reason: string }).reason, "smtp_rejected");
+  assert.equal(transportFake.getCloseCalls(), 1);
+  assert.equal(
+    prismaFake.getRow()?.mailboxStatus,
+    WorkspaceEmailMailboxStatus.connected,
+    "a healthy mailbox must not be flipped to token_invalid by a spam/policy rejection"
+  );
+  console.log(
+    "✓ a 550 5.7.1 spam/policy rejection is reported as an ordinary failure, not misread as a revoked grant"
   );
 }
 
@@ -524,11 +602,13 @@ async function testParseInputRejectsUnsupportedBodyKeys(): Promise<void> {
 async function run(): Promise<void> {
   await testNonExpiredTokenSendsWithoutRefreshing();
   await testExpiredTokenRefreshesOnceThenSends();
+  await testRefreshResponseMissingExpiresInAssumesBoundedTtlNotEndlessRefresh();
   await testRevokedRefreshTokenFlipsInvalidAndSkipsClosed();
   await testNoConnectedMailboxSkipsWithNoSmtpCall();
   await testSmtpNetworkFailureMapsToFailedNotSuccess();
   await testProviderQuotaRejectionIsReportedHonestly();
   await testSmtpAuthRejectionSkipsClosedAndMarksTokenInvalid();
+  await testSpamRejectionIsNotMisreadAsAuthRejection();
   await testUnknownExpiryAlwaysAttemptsRefresh();
   await testConcurrentRefreshLoserReusesWinnerTokenWithoutFlippingInvalid();
   await testParseInputRejectsUnsupportedBodyKeys();

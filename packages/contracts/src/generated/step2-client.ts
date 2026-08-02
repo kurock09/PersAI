@@ -116,6 +116,7 @@ import type {
   GetAdminSkillScriptsResponse,
   GetAdminSkillsParams,
   GetAdminSkillsResponse,
+  GetAdminToolCredentialsResponse,
   GetAdminToolPathPricingCatalogResponse,
   GetAdminToolPromptMetadataResponse,
   GetAppBootstrapResponse,
@@ -8774,6 +8775,57 @@ export const previewNotification = async (
     method: "POST",
     headers: { "Content-Type": "application/json", ...options?.headers },
     body: JSON.stringify(notificationPreviewRequest)
+  });
+};
+
+/**
+ * @summary Read global tool/notification credential status, including the ADR-169 mailbox OAuth redirect URI
+ */
+export type getAdminToolCredentialsResponse200 = {
+  data: GetAdminToolCredentialsResponse;
+  status: 200;
+};
+
+export type getAdminToolCredentialsResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type getAdminToolCredentialsResponse403 = {
+  data: ErrorEnvelope;
+  status: 403;
+};
+
+export type getAdminToolCredentialsResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type getAdminToolCredentialsResponseSuccess = getAdminToolCredentialsResponse200 & {
+  headers: Headers;
+};
+export type getAdminToolCredentialsResponseError = (
+  | getAdminToolCredentialsResponse401
+  | getAdminToolCredentialsResponse403
+  | getAdminToolCredentialsResponse500
+) & {
+  headers: Headers;
+};
+
+export type getAdminToolCredentialsResponse =
+  | getAdminToolCredentialsResponseSuccess
+  | getAdminToolCredentialsResponseError;
+
+export const getGetAdminToolCredentialsUrl = () => {
+  return `/admin/runtime/tool-credentials`;
+};
+
+export const getAdminToolCredentials = async (
+  options?: RequestInit
+): Promise<getAdminToolCredentialsResponse> => {
+  return customFetch<getAdminToolCredentialsResponse>(getGetAdminToolCredentialsUrl(), {
+    ...options,
+    method: "GET"
   });
 };
 

@@ -2,7 +2,12 @@ import { Injectable } from "@nestjs/common";
 import type { MailboxOAuthHttpOutcome } from "./mailbox-oauth-token-exchange.client";
 import { postMailboxOAuthTokenForm } from "./mailbox-oauth-http-transport";
 
-const MAILBOX_OAUTH_REFRESH_HTTP_TIMEOUT_MS = 10_000;
+/**
+ * Exported so `MailboxTokenLifecycleService` can size its refresh-lock
+ * acquire timeout relative to the round trip it actually guards, instead of
+ * two independently-chosen constants silently drifting apart.
+ */
+export const MAILBOX_OAUTH_REFRESH_HTTP_TIMEOUT_MS = 10_000;
 
 /**
  * ADR-169 S3 — thin transport for the mailbox OAuth `refresh_token` grant.

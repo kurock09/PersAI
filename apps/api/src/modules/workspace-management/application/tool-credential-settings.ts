@@ -174,6 +174,15 @@ export type AdminToolCredentialsState = {
     refreshedAt: string | null;
     voicesCount: number;
   };
+  /**
+   * ADR-169 repair — the exact `redirect_uri` to register with Mail.ru/Yandex,
+   * resolved server-side (never re-derived in `apps/web`) so the founder
+   * always sees the byte-identical value the callback actually uses. Null
+   * means `PERSAI_PUBLIC_API_BASE_URL` is unset in this environment, so
+   * mailbox connect fails closed until it is configured — not "not yet
+   * loaded".
+   */
+  mailboxOAuthRedirectUri: string | null;
   notes: string[];
 };
 
@@ -375,6 +384,7 @@ export function buildAdminToolCredentialsState(params: {
   ttsPrimaryProviderId?: PersaiRuntimeTtsProviderId | null;
   heygenVoiceCatalogRefreshedAt?: string | null;
   heygenVoiceCatalogVoicesCount?: number | null;
+  mailboxOAuthRedirectUri: string | null;
 }): AdminToolCredentialsState {
   const EMPTY_METADATA: PlatformRuntimeProviderKeyMetadata = {
     configured: false,
@@ -435,6 +445,7 @@ export function buildAdminToolCredentialsState(params: {
       refreshedAt: params.heygenVoiceCatalogRefreshedAt ?? null,
       voicesCount: params.heygenVoiceCatalogVoicesCount ?? 0
     },
+    mailboxOAuthRedirectUri: params.mailboxOAuthRedirectUri,
     notes: [
       "Tool credentials are managed globally for all assistants.",
       "Image generation and image edit keep using the existing shared OpenAI media credential slot.",

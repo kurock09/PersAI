@@ -1,12 +1,14 @@
 # ADR-169 — Mailbox-connected assistant email (OAuth XOAUTH2)
 
-- Status: **implemented locally 2026-08-01** (S1–S5 landed); **web audit
-  findings fixed locally 2026-08-02** (see "Audit repair" below — deploy +
-  S6 authenticated live acceptance still pending. `Admin > Tools` now
-  renders the four Mail.ru/Yandex OAuth credential fields with the exact
-  redirect URI to register, but the founder still needs to register the
-  OAuth applications with each provider and enter the resulting client
-  id/secret before a real end-to-end send can be exercised).
+- Status: **implemented locally 2026-08-01** (S1–S5 landed); first
+  cross-app audit repair fixed locally 2026-08-02 in `apps/api` + `apps/web`
+  (`4638f1fe`, see "Audit repair"); second audit repair fixed locally
+  2026-08-02 (see "Second audit repair" — deploy + S6 authenticated live
+  acceptance still pending. `Admin > Tools` now renders the four
+  Mail.ru/Yandex OAuth credential fields with the server-resolved redirect
+  URI to register, but the founder still needs to register the OAuth
+  applications with each provider and enter the resulting client id/secret
+  before a real end-to-end send can be exercised).
 - Date: 2026-08-01
 - Supersedes: the sender-verification layer of ADR-168 only. The `email_send`
   tool, its plan/limit/audit mechanics, and the Integrations card survive.
@@ -192,11 +194,29 @@ allowed one regression to ship.
   warning.
 - **S7 (deferred)** — Google via Gmail API `gmail.send`.
 
-## Audit repair (web) — 2026-08-02
+## Audit repair — 2026-08-02
 
-Two independent audits of the S1–S5 implementation found real product gaps,
-all inside `apps/web` (a parallel subagent covered the `apps/api`/
-`apps/runtime` findings separately). Fixed locally, `apps/web` + `docs` only:
+Two independent audits of the S1–S5 implementation found real product gaps in
+**both** `apps/api` and `apps/web`, landed in one commit (`4638f1fe`). An
+earlier version of this section said the gaps were "all inside `apps/web`"
+with the `apps/api` findings "covered separately" — that was false (one
+commit changed both) and is corrected here; `apps/runtime` genuinely had zero
+findings from either audit.
+
+The `apps/api` side: `MailboxTokenLifecycleService.isExpiringSoon(null)` used
+to read an unknown token expiry as "no evidence a refresh is needed" — an
+unrevoked-but-never-refreshed mailbox could go stale forever. Flipped to treat
+unknown expiry as due-for-refresh. A new per-workspace `mailbox-refresh:` lock
+(reusing `SchedulerLeaseService.acquireOrCreate`, the same mechanism
+`ChatWakeCoordinator` uses for `async-catchup:*`) serializes concurrent
+refreshes, because both providers rotate refresh tokens on use: without it, a
+losing concurrent call would present the winner's already-consumed refresh
+token and get misread as a revoked grant. `markTokenInvalid` became public so
+`InternalRuntimeEmailSendService` can reach the same fail-closed destination
+when the SMTP layer classifies a send-time rejection as an authentication
+failure.
+
+The `apps/web` side, fixed the same commit:
 
 - **OAuth return was silent.** The callback always redirects the browser to
   `/app/chat?mailboxConnect=success|error` (every failure mode — expired or
@@ -245,11 +265,54 @@ include the Mail.ru/Yandex authorization domains, so the connect redirect is
 unverified on the Capacitor build. This is a mobile-shell-repo concern, not an
 `apps/web` defect, and is out of this repo's fix scope.
 
-Verification: `apps/web` lint and typecheck clean; `assistant-settings.test.tsx`
-(extended, 99/99) and `chat/page.test.tsx` (extended, 16/16) pass; `prettier
---check` clean on every touched source/i18n file (the pre-existing prose in
-this ADR and in `SESSION-HANDOFF.md`/`CHANGELOG.md` predates Prettier
-coverage of `docs/**/*.md` and was left as-is rather than machine-reflowed).
+Verification (first audit repair, `4638f1fe`): `apps/web` lint and typecheck
+clean; `assistant-settings.test.tsx` (extended, 99/99) and `chat/page.test.tsx`
+(extended, 16/16) pass; `prettier --check` clean on every touched source/i18n
+file (the pre-existing prose in this ADR and in
+`SESSION-HANDOFF.md`/`CHANGELOG.md` predates Prettier coverage of
+`docs/**/*.md` and was left as-is rather than machine-reflowed). Deploy and
+authenticated live acceptance (S6) remain pending; the OAuth applications
+remain unregistered — this repair does not change that.
+
+## Second audit repair — 2026-08-02
+
+A re-audit of the `4638f1fe` repair found four more real gaps, all fixed
+locally:
+
+- **P1 — a spam/policy rejection locked out a healthy mailbox.**
+  `MailboxSmtpSendClientService.isAuthRejection` classified `535` OR any
+  `5.7.x` enhanced-status text as a revoked grant, but Mail.ru/Yandex both
+  return `5.7.1` for ordinary content/policy/spam rejection at RCPT/DATA too.
+  Reclassified on nodemailer's authoritative `err.code === "EAUTH"` (set only
+  on real authentication-failure paths by `_formatError`), optionally
+  corroborated by `err.command` starting with `AUTH`/`API` when supplied.
+- **P1 — the founder-facing redirect URI was a duplicated frontend literal.**
+  `apps/web/app/admin/tools/page.tsx` hardcoded `https://api.persai.dev` +
+  the callback path instead of the server-resolved value, which is empty in
+  base Helm `values.yaml` for any other environment. The Admin Tools
+  credentials response now carries a server-resolved
+  `mailboxOAuthRedirectUri: string | null` (added to
+  `packages/contracts/openapi.yaml` — the first OpenAPI coverage for
+  `/admin/runtime/tool-credentials` GET, typed client regenerated); the page
+  renders that string, with an honest "not available" state when the env var
+  is unset. `mailbox-oauth-redirect.ts`'s two accepted env var names are
+  settled on the one wired in `infra/helm` (`PERSAI_PUBLIC_API_BASE_URL`);
+  the unwired `PERSAI_API_PUBLIC_BASE_URL` fallback is deleted from that
+  file only (a same-named fallback in the unrelated ADR-140 browser-bridge
+  controller was left alone — different feature, not part of this finding).
+- **P2 — a provider that omits `expires_in` on refresh made every send
+  refresh again.** `isExpiringSoon(null)` returning `true` meant a refresh
+  response that also omits `expires_in` recorded `tokenExpiresAt: null`, so
+  every subsequent send would refresh again. A bounded local
+  `MAILBOX_REFRESH_ASSUMED_TTL_MS` (5 minutes — explicitly a local
+  assumption, never presented as provider-reported truth) is recorded
+  instead.
+- **P2 — the refresh-lock acquire timeout was shorter than the operation it
+  waits on.** The 5s acquire timeout was shorter than the 10s provider
+  refresh HTTP call it guards, so a losing concurrent sender could time out
+  while the winner's own refresh would have succeeded. The acquire timeout
+  is now derived from the HTTP timeout it guards plus a margin (15s).
+
 Deploy and authenticated live acceptance (S6) remain pending; the OAuth
 applications remain unregistered — this repair does not change that.
 

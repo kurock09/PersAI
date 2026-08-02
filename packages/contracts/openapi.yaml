@@ -5957,6 +5957,37 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/runtime/tool-credentials:
+    get:
+      operationId: getAdminToolCredentials
+      summary: Read global tool/notification credential status, including the ADR-169 mailbox OAuth redirect URI
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Global tool credential settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAdminToolCredentialsResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /admin/runtime/provider-settings:
     get:
       operationId: getAdminRuntimeProviderSettings
@@ -11619,6 +11650,177 @@ components:
           nullable: true
         settings:
           $ref: "#/components/schemas/AdminBillingProviderCredentialsState"
+    AdminToolCredentialKey:
+      type: string
+      enum:
+        - tool_web_search
+        - tool_web_fetch
+        - tool_image_generate
+        - tool_video_generate_runway
+        - tool_video_generate_kling
+        - tool_video_generate_heygen
+        - tool_document_gamma
+        - tool_browser
+        - tool_tts_elevenlabs
+        - tool_tts_yandex
+        - tool_tts_openai
+        - notification_email_postmark
+        - notification_email_postmark_webhook
+        - mailbox_oauth_mailru_client_id
+        - mailbox_oauth_mailru_client_secret
+        - mailbox_oauth_yandex_client_id
+        - mailbox_oauth_yandex_client_secret
+    AdminToolProviderOption:
+      type: object
+      required:
+        - id
+        - label
+        - envVar
+      properties:
+        id:
+          type: string
+        label:
+          type: string
+        envVar:
+          type: string
+    AdminToolCredentialStatus:
+      type: object
+      required:
+        - credentialKey
+        - toolCode
+        - displayName
+        - configured
+        - lastFour
+        - updatedAt
+        - providerId
+        - providerOptions
+      properties:
+        credentialKey:
+          $ref: "#/components/schemas/AdminToolCredentialKey"
+        toolCode:
+          type: string
+        displayName:
+          type: string
+        configured:
+          type: boolean
+        lastFour:
+          type: string
+          nullable: true
+        updatedAt:
+          type: string
+          format: date-time
+          nullable: true
+        providerId:
+          type: string
+          nullable: true
+        providerOptions:
+          type: array
+          nullable: true
+          items:
+            $ref: "#/components/schemas/AdminToolProviderOption"
+    AdminToolCredentialsMediaReserveState:
+      type: object
+      required:
+        - enabled
+        - apiKeyConfigured
+        - apiKeyLastFour
+        - apiKeyUpdatedAt
+        - baseUrlConfigured
+        - baseUrlLastFour
+        - baseUrlUpdatedAt
+        - baseUrlValue
+      properties:
+        enabled:
+          type: boolean
+        apiKeyConfigured:
+          type: boolean
+        apiKeyLastFour:
+          type: string
+          nullable: true
+        apiKeyUpdatedAt:
+          type: string
+          format: date-time
+          nullable: true
+        baseUrlConfigured:
+          type: boolean
+        baseUrlLastFour:
+          type: string
+          nullable: true
+        baseUrlUpdatedAt:
+          type: string
+          format: date-time
+          nullable: true
+        baseUrlValue:
+          type: string
+    AdminToolCredentialsHeygenVoiceCatalogState:
+      type: object
+      required:
+        - refreshedAt
+        - voicesCount
+      properties:
+        refreshedAt:
+          type: string
+          format: date-time
+          nullable: true
+        voicesCount:
+          type: integer
+    AdminToolCredentialsState:
+      type: object
+      required:
+        - schema
+        - credentials
+        - documentProviderConfigs
+        - mediaReserve
+        - ttsPrimaryProviderId
+        - ttsPrimaryProviderOptions
+        - heygenVoiceCatalog
+        - mailboxOAuthRedirectUri
+        - notes
+      properties:
+        schema:
+          type: string
+          enum:
+            - persai.adminToolCredentials.v2
+        credentials:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminToolCredentialStatus"
+        documentProviderConfigs:
+          type: array
+          items: {}
+        mediaReserve:
+          $ref: "#/components/schemas/AdminToolCredentialsMediaReserveState"
+        ttsPrimaryProviderId:
+          type: string
+        ttsPrimaryProviderOptions:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminToolProviderOption"
+        heygenVoiceCatalog:
+          $ref: "#/components/schemas/AdminToolCredentialsHeygenVoiceCatalogState"
+        mailboxOAuthRedirectUri:
+          type: string
+          nullable: true
+          description: >-
+            ADR-169 — the exact redirect_uri to register with Mail.ru/Yandex,
+            resolved server-side from PERSAI_PUBLIC_API_BASE_URL. Null means
+            that environment variable is unset in this environment, so
+            mailbox connect fails closed until it is configured.
+        notes:
+          type: array
+          items:
+            type: string
+    GetAdminToolCredentialsResponse:
+      type: object
+      required:
+        - requestId
+        - credentials
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        credentials:
+          $ref: "#/components/schemas/AdminToolCredentialsState"
     CloudpaymentsWebhookNotificationType:
       type: string
       enum:

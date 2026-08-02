@@ -2,7 +2,10 @@ import { Injectable, Logger } from "@nestjs/common";
 import { WorkspaceEmailMailboxStatus } from "@prisma/client";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import { PlatformRuntimeProviderSecretStoreService } from "./platform-runtime-provider-secret-store.service";
-import { MailboxOAuthTokenRefreshClientService } from "./mailbox-oauth-token-refresh.client";
+import {
+  MAILBOX_OAUTH_REFRESH_HTTP_TIMEOUT_MS,
+  MailboxOAuthTokenRefreshClientService
+} from "./mailbox-oauth-token-refresh.client";
 import {
   MAILBOX_OAUTH_PROVIDERS,
   type MailboxOAuthProviderId
@@ -23,8 +26,29 @@ const TOKEN_EXPIRY_SKEW_MS = 2 * 60 * 1000;
  */
 const MAILBOX_REFRESH_LOCK_PREFIX = "mailbox-refresh:";
 const MAILBOX_REFRESH_LOCK_TTL_MS = 15_000;
-const MAILBOX_REFRESH_LOCK_ACQUIRE_TIMEOUT_MS = 5_000;
+/**
+ * The winner's critical section is the provider HTTP round trip
+ * (`MAILBOX_OAUTH_REFRESH_HTTP_TIMEOUT_MS`) plus two secret-store resolves
+ * and a Prisma update, so an acquire timeout shorter than that HTTP timeout
+ * would let a waiter give up before the winner's refresh could possibly have
+ * finished — failing a concurrent send that the winner's own refresh would
+ * have unblocked a moment later. Derived from, not just larger than, the
+ * timeout it guards, so the two cannot silently drift apart again.
+ */
+export const MAILBOX_REFRESH_LOCK_ACQUIRE_TIMEOUT_MS =
+  MAILBOX_OAUTH_REFRESH_HTTP_TIMEOUT_MS + 5_000;
 const MAILBOX_REFRESH_LOCK_POLL_INTERVAL_MS = 150;
+/**
+ * ADR-169 repair — both v1 providers document `expires_in` on every token
+ * response, but a refresh response that omits it anyway must not be
+ * recorded as `tokenExpiresAt: null`: `isExpiringSoon(null)` is `true`, so
+ * the very next send would refresh again, and every subsequent one after
+ * that, forever. This is a bounded local assumption, not provider-reported
+ * truth — deliberately shorter than either provider's real token lifetime
+ * (about an hour) so the fallback stays on the safe (more-frequent-refresh)
+ * side.
+ */
+const MAILBOX_REFRESH_ASSUMED_TTL_MS = 5 * 60 * 1000;
 
 export type MailboxTokenLifecycleResult =
   | { kind: "ready"; accessToken: string }
@@ -221,7 +245,9 @@ export class MailboxTokenLifecycleService {
     const newRefreshToken = this.readStringField(outcome.body, "refresh_token") ?? refreshToken;
     const expiresInSeconds = this.readNumberField(outcome.body, "expires_in");
     const tokenExpiresAt =
-      expiresInSeconds !== null ? new Date(Date.now() + expiresInSeconds * 1000) : null;
+      expiresInSeconds !== null
+        ? new Date(Date.now() + expiresInSeconds * 1000)
+        : new Date(Date.now() + MAILBOX_REFRESH_ASSUMED_TTL_MS);
 
     await this.secretStore.upsertProviderKey(
       mailboxOAuthSecretProviderKey(workspaceId),

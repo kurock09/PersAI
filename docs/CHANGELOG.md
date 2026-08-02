@@ -5,10 +5,27 @@
 
 ## 2026-08-02 (latest)
 
-- **fix(web, docs): ADR-169 mailbox-connect web audit repair — OAuth return,
-  Admin Tools credentials UI, honest failures.** Two independent audits of
-  the S1–S5 mailbox-connect implementation found real gaps, all inside
-  `apps/web`. Fixed: (1) `chat/page.tsx` now reads the OAuth callback's
+- **fix(api, web, docs): ADR-169 mailbox-connect audit repair — fail-closed
+  revocation, single-flight refresh, OAuth return, Admin Tools credentials
+  UI, honest failures.** Two independent audits of the S1–S5 mailbox-connect
+  implementation found real gaps in **both** `apps/api` and `apps/web`, all
+  landed in one commit (`4638f1fe`) — a prior version of this entry
+  incorrectly said the gaps were "all inside `apps/web`" and that the
+  `apps/api` findings were "fixed separately" in a different session; they
+  were not, and this text was corrected in place rather than left standing.
+  The `apps/api` side: `MailboxTokenLifecycleService.isExpiringSoon(null)`
+  used to treat an unknown expiry as "no evidence a refresh is needed" —
+  flipped to treat unknown-expiry as due-for-refresh, closing a
+  never-refreshes-again hole; a new per-workspace `mailbox-refresh:` lock
+  (reusing `SchedulerLeaseService.acquireOrCreate`, the same mechanism
+  `ChatWakeCoordinator` uses for `async-catchup:*`) serializes concurrent
+  refreshes so a losing call re-reads the winner's fresh token instead of
+  presenting Mail.ru/Yandex's already-rotated-away refresh token and getting
+  misread as a revoked grant; `markTokenInvalid` became public so
+  `InternalRuntimeEmailSendService` can reach the same fail-closed
+  destination when the SMTP layer itself classifies a send-time rejection as
+  an authentication failure. The `apps/web` side: (1) `chat/page.tsx` now
+  reads the OAuth callback's
   `mailboxConnect=success|error` return param once on mount and reopens
   Settings on the Email card via the existing `openSettings`/`initialSection`
   deep-link mechanism with a fresh mailbox read and an honest outcome
@@ -28,10 +45,59 @@
   mailbox address in the `token_invalid` state too, and the Mail.ru/Yandex
   connect buttons are now equally `primary`-styled. New i18n:
   `emailMailboxConnectSuccess`, `emailMailboxConnectReturnError`,
-  `emailMailboxConnectCredentialsUnavailable` in both locales. `apps/api`/
-  `apps/runtime` findings from the same audits were fixed separately and are
-  not part of this entry. Deploy and authenticated live acceptance (S6)
-  remain pending; the OAuth applications remain unregistered.
+  `emailMailboxConnectCredentialsUnavailable` in both locales. `apps/runtime`
+  had no findings from these audits and was not touched. Deploy and
+  authenticated live acceptance (S6) remain pending; the OAuth applications
+  remain unregistered.
+- **fix(api, web, contracts, docs): ADR-169 second-audit repair — honest
+  auth-vs-policy SMTP classification, bounded assumed-TTL refresh, a
+  refresh-lock timeout sized to the round trip it guards, and the founder-
+  facing redirect URI is now server-resolved, not a duplicated frontend
+  literal.** A re-audit of the `4638f1fe` repair found four more real gaps.
+  (P1) `MailboxSmtpSendClientService.isAuthRejection` classified any `535`
+  reply code or `5.7.x` enhanced-status text as a revoked grant, but
+  Mail.ru/Yandex both return `5.7.1` for ordinary content/policy/spam
+  rejection at RCPT/DATA too — a rejected marketing-looking message was
+  misread as a revoked mailbox and forced an unnecessary reconnect.
+  Reclassified on nodemailer's authoritative `err.code === "EAUTH"` (set only
+  on real authentication-failure paths per `_formatError`), optionally
+  corroborated by `err.command` starting with `AUTH`/`API` when nodemailer
+  supplies one; a new regression test proves a `550 5.7.1 ... spam`
+  rejection is reported as an ordinary `smtp_rejected` failure and leaves
+  `mailboxStatus` untouched, alongside the existing true-positive `EAUTH`
+  test. (P1) `apps/web/app/admin/tools/page.tsx` hardcoded
+  `https://api.persai.dev` plus the callback path as the redirect URI to
+  register with each provider — wrong in any environment whose public API
+  base differs from the dev value, and a redirect-URI mismatch is the exact
+  opaque-failure risk the ADR names. The Admin Tools credentials response
+  now carries a server-resolved `mailboxOAuthRedirectUri: string | null`
+  (null means `PERSAI_PUBLIC_API_BASE_URL` is unset in this environment, so
+  connect fails closed — not "still loading"), added to
+  `packages/contracts/openapi.yaml` (`GetAdminToolCredentialsResponse` /
+  `AdminToolCredentialsState`, first OpenAPI coverage for this
+  previously-uncontracted `/admin/runtime/tool-credentials` GET) with the
+  typed client regenerated; the page renders the server string instead of a
+  literal, with an honest unset-state message. `mailbox-oauth-redirect.ts`
+  also accepted a second, unwired `PERSAI_API_PUBLIC_BASE_URL` alias — that
+  fallback is now deleted, so the resolver reads only
+  `PERSAI_PUBLIC_API_BASE_URL`, the name actually set in
+  `infra/helm/values.yaml` / `values-dev.yaml`. (P2)
+  `MailboxTokenLifecycleService`'s refresh response handling stored
+  `tokenExpiresAt: null` whenever a provider's refresh response omitted
+  `expires_in`, and `isExpiringSoon(null)` is `true` — so a provider that
+  omits it made every subsequent send refresh again. A new
+  `MAILBOX_REFRESH_ASSUMED_TTL_MS` (5 minutes, explicitly a bounded local
+  assumption and never presented as provider-reported truth) is recorded
+  instead of `null` in that one case. (P2) The refresh-lock acquire timeout
+  (`MAILBOX_REFRESH_LOCK_ACQUIRE_TIMEOUT_MS`, 5s) was shorter than the
+  provider refresh HTTP call it guards (`MAILBOX_OAUTH_REFRESH_HTTP_TIMEOUT_MS`,
+  10s), so a losing concurrent sender could time out and fail even though the
+  winner's own refresh would have succeeded moments later; the acquire
+  timeout is now derived from the HTTP timeout it guards plus a margin
+  (15s), and `MAILBOX_OAUTH_REFRESH_HTTP_TIMEOUT_MS` is exported so the two
+  cannot silently drift apart again. Deploy and authenticated live
+  acceptance (S6) remain pending; the OAuth applications remain
+  unregistered.
 
 ## 2026-08-01
 

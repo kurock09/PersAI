@@ -92,7 +92,7 @@ export class MailboxSmtpSendClientService {
     } catch (err) {
       const responseCode = this.readResponseCode(err);
       const message = err instanceof Error ? err.message : String(err);
-      if (this.isAuthRejection(err, responseCode)) {
+      if (this.isAuthRejection(err)) {
         return { kind: "auth_rejected", message, responseCode };
       }
       if (responseCode !== null) {
@@ -114,28 +114,32 @@ export class MailboxSmtpSendClientService {
   }
 
   /**
-   * Nodemailer sets `err.code = "EAUTH"` for SMTP AUTH failures. On the wire
-   * that is a `535` reply or an enhanced `5.7.x` status (RFC 3463 §3.5,
-   * permanent authentication-failure codes) — exactly what a revoked or
-   * expired XOAUTH2 access token produces. Checking the enhanced-status text
-   * too, not only `responseCode`, covers providers that fold it into `530`
-   * with a `5.7.x` detail line instead of replying `535`.
+   * `5.7.1` is not exclusive to authentication: Mail.ru and Yandex both
+   * return it for ordinary content/policy/spam rejection at RCPT or DATA, so
+   * classifying by reply code or enhanced-status text would misread a
+   * rejected marketing-looking message as a revoked grant and force a
+   * healthy mailbox to reconnect. Nodemailer's `_formatError` sets
+   * `err.code = "EAUTH"` on every authentication-failure path (bad
+   * credentials, an expired/revoked XOAUTH2 token, a rejected AUTH
+   * exchange) and only on those paths — a real RCPT/DATA rejection carries
+   * `EENVELOPE`, never `EAUTH`. That is the sole authoritative signal.
+   *
+   * When nodemailer also supplies `err.command`, every `EAUTH` path sets it
+   * to the AUTH exchange itself (`AUTH XOAUTH2`/`AUTH LOGIN`/`AUTH
+   * CRAM-MD5`) or the literal `API` for a pre-flight credential check, so
+   * checking it corroborates the code without weakening it — `EAUTH` with
+   * no `command` at all still counts.
    */
-  private isAuthRejection(err: unknown, responseCode: number | null): boolean {
-    if (typeof err === "object" && err !== null && "code" in err) {
-      if ((err as { code?: unknown }).code === "EAUTH") {
-        return true;
+  private isAuthRejection(err: unknown): boolean {
+    if (typeof err !== "object" || err === null || (err as { code?: unknown }).code !== "EAUTH") {
+      return false;
+    }
+    if ("command" in err) {
+      const command = (err as { command?: unknown }).command;
+      if (typeof command === "string" && !/^(AUTH|API)\b/u.test(command)) {
+        return false;
       }
     }
-    if (responseCode === 535) {
-      return true;
-    }
-    if (typeof err === "object" && err !== null && "response" in err) {
-      const response = (err as { response?: unknown }).response;
-      if (typeof response === "string" && /\b5\.7\.\d+\b/u.test(response)) {
-        return true;
-      }
-    }
-    return false;
+    return true;
   }
 }

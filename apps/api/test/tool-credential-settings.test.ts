@@ -93,8 +93,15 @@ async function run(): Promise<void> {
         updatedAt: null
       },
       baseUrlValue: DEFAULT_MEDIA_RESERVE_BASE_URL
-    }
+    },
+    mailboxOAuthRedirectUri:
+      "https://api.persai.dev/api/v1/public/integrations/email-mailbox/callback"
   });
+
+  assert.equal(
+    state.mailboxOAuthRedirectUri,
+    "https://api.persai.dev/api/v1/public/integrations/email-mailbox/callback"
+  );
 
   // 11 visible tool credentials + 2 notification credentials (Server Token +
   // Webhook Token — the ADR-168 Postmark Account Token was deleted in
@@ -168,6 +175,21 @@ async function run(): Promise<void> {
     resolveProviderKeyByRuntimeSecretId(MEDIA_RESERVE_CONFIG_KEYS.apiKey),
     MEDIA_RESERVE_CONFIG_KEYS.apiKey
   );
+
+  // ADR-169 repair — an unset PERSAI_PUBLIC_API_BASE_URL must surface as an
+  // honest null, never a guessed/hardcoded URL.
+  const stateWithUnsetRedirect = buildAdminToolCredentialsState({
+    keyMetadata: createKeyMetadata(),
+    providerSelections: {},
+    mediaReserve: {
+      enabled: false,
+      apiKeyMetadata: { configured: false, lastFour: null, updatedAt: null },
+      baseUrlMetadata: { configured: false, lastFour: null, updatedAt: null },
+      baseUrlValue: DEFAULT_MEDIA_RESERVE_BASE_URL
+    },
+    mailboxOAuthRedirectUri: null
+  });
+  assert.equal(stateWithUnsetRedirect.mailboxOAuthRedirectUri, null);
 }
 
 async function runHeygenCredentialRegistration(): Promise<void> {

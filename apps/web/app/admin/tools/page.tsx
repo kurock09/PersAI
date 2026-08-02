@@ -66,6 +66,7 @@ type AdminToolCredentialsState = {
     refreshedAt: string | null;
     voicesCount: number;
   };
+  mailboxOAuthRedirectUri: string | null;
   notes: string[];
 };
 
@@ -126,6 +127,7 @@ function normalizeAdminToolCredentialsState(input: unknown): AdminToolCredential
     ...(state.heygenVoiceCatalog === undefined
       ? {}
       : { heygenVoiceCatalog: state.heygenVoiceCatalog }),
+    mailboxOAuthRedirectUri: state.mailboxOAuthRedirectUri ?? null,
     notes: state.notes ?? []
   };
 }
@@ -186,13 +188,6 @@ const VIDEO_PROVIDER_CREDENTIAL_KEYS = [
   "tool_video_generate_heygen"
 ] as const;
 const DOCUMENT_GENERATION_CREDENTIAL_KEYS = ["tool_document_gamma"] as const;
-// ADR-169 — Mail.ru/Yandex OAuth apps for the mailbox-connected assistant
-// email flow. The redirect URI below must be byte-identical to what
-// `resolveMailboxOAuthCallbackRedirectUri` in apps/api builds from
-// `PERSAI_PUBLIC_API_BASE_URL` (dev: `infra/helm/values-dev.yaml`) joined
-// with the fixed callback path — a mismatch fails the OAuth exchange with an
-// opaque provider error (ADR-169 Risks).
-const MAILBOX_OAUTH_CALLBACK_PATH = "/api/v1/public/integrations/email-mailbox/callback";
 const MAILBOX_OAUTH_CREDENTIAL_KEYS = [
   "mailbox_oauth_mailru_client_id",
   "mailbox_oauth_mailru_client_secret",
@@ -1420,14 +1415,22 @@ export default function AdminToolsPage() {
                     <p className="mb-1 text-[11px] font-medium text-text">
                       Redirect URI to register with each provider
                     </p>
-                    <p className="font-mono text-[11px] text-text-muted">
-                      https://api.persai.dev{MAILBOX_OAUTH_CALLBACK_PATH}
-                    </p>
+                    {state.mailboxOAuthRedirectUri !== null ? (
+                      <p className="font-mono text-[11px] text-text-muted">
+                        {state.mailboxOAuthRedirectUri}
+                      </p>
+                    ) : (
+                      <p className="text-[11px] text-danger">
+                        Not available — this environment&apos;s{" "}
+                        <code className="text-text">PERSAI_PUBLIC_API_BASE_URL</code> is unset, so
+                        mailbox connect fails closed until it is configured.
+                      </p>
+                    )}
                     <p className="mt-1 text-[10px] text-text-muted">
-                      Must be byte-identical to what this environment&apos;s{" "}
-                      <code className="text-text">PERSAI_PUBLIC_API_BASE_URL</code> resolves to
-                      joined with <code className="text-text">{MAILBOX_OAUTH_CALLBACK_PATH}</code> —
-                      a mismatch fails the OAuth exchange with an opaque provider error.
+                      Resolved server-side from this environment&apos;s{" "}
+                      <code className="text-text">PERSAI_PUBLIC_API_BASE_URL</code> — a mismatch
+                      with what is registered with the provider fails the OAuth exchange with an
+                      opaque provider error.
                     </p>
                   </div>
                   <div className="grid gap-3 sm:grid-cols-2">

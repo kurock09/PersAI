@@ -89,8 +89,52 @@ const credentialsPayload = {
     refreshedAt: "2026-06-06T10:00:00.000Z",
     voicesCount: 20
   },
+  mailboxOAuthRedirectUri: null,
   notes: []
 };
+
+const mailboxOAuthCredentialRows = [
+  {
+    credentialKey: "mailbox_oauth_mailru_client_id",
+    toolCode: "email_mailbox",
+    displayName: "Mailbox OAuth Client ID (Mail.ru)",
+    configured: false,
+    lastFour: null,
+    updatedAt: null,
+    providerId: null,
+    providerOptions: null
+  },
+  {
+    credentialKey: "mailbox_oauth_mailru_client_secret",
+    toolCode: "email_mailbox",
+    displayName: "Mailbox OAuth Client Secret (Mail.ru)",
+    configured: false,
+    lastFour: null,
+    updatedAt: null,
+    providerId: null,
+    providerOptions: null
+  },
+  {
+    credentialKey: "mailbox_oauth_yandex_client_id",
+    toolCode: "email_mailbox",
+    displayName: "Mailbox OAuth Client ID (Yandex)",
+    configured: false,
+    lastFour: null,
+    updatedAt: null,
+    providerId: null,
+    providerOptions: null
+  },
+  {
+    credentialKey: "mailbox_oauth_yandex_client_secret",
+    toolCode: "email_mailbox",
+    displayName: "Mailbox OAuth Client Secret (Yandex)",
+    configured: false,
+    lastFour: null,
+    updatedAt: null,
+    providerId: null,
+    providerOptions: null
+  }
+];
 
 const economicsPayload = {
   catalog: {
@@ -117,11 +161,14 @@ const economicsPayload = {
 };
 
 describe("AdminToolsPage economics", () => {
+  let currentCredentialsPayload: unknown = credentialsPayload;
+
   beforeEach(() => {
+    currentCredentialsPayload = credentialsPayload;
     fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url.endsWith("/api/v1/admin/runtime/tool-credentials") && init?.method !== "PUT") {
-        return jsonResponse({ credentials: credentialsPayload });
+        return jsonResponse({ credentials: currentCredentialsPayload });
       }
       if (url.endsWith("/api/v1/admin/tools/billing")) {
         return jsonResponse({
@@ -338,5 +385,41 @@ describe("AdminToolsPage economics", () => {
         gender: "female"
       }
     ]);
+  });
+
+  it("renders the server-resolved mailbox OAuth redirect URI, not a hardcoded literal", async () => {
+    currentCredentialsPayload = {
+      ...credentialsPayload,
+      credentials: [...credentialsPayload.credentials, ...mailboxOAuthCredentialRows],
+      mailboxOAuthRedirectUri:
+        "https://api.persai.dev/api/v1/public/integrations/email-mailbox/callback"
+    };
+
+    render(<AdminToolsPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Mailbox-connected email")).toBeTruthy();
+    });
+
+    expect(
+      screen.getByText("https://api.persai.dev/api/v1/public/integrations/email-mailbox/callback")
+    ).toBeTruthy();
+  });
+
+  it("honestly reports an unset redirect URI instead of guessing one", async () => {
+    currentCredentialsPayload = {
+      ...credentialsPayload,
+      credentials: [...credentialsPayload.credentials, ...mailboxOAuthCredentialRows],
+      mailboxOAuthRedirectUri: null
+    };
+
+    render(<AdminToolsPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Mailbox-connected email")).toBeTruthy();
+    });
+
+    expect(screen.getAllByText("PERSAI_PUBLIC_API_BASE_URL").length).toBeGreaterThan(0);
+    expect(screen.getByText((content) => content.includes("is unset"))).toBeTruthy();
   });
 });

@@ -20,6 +20,7 @@ import {
   type ToolCredentialKey,
   type UpdateToolCredentialsInput
 } from "./tool-credential-settings";
+import { resolveMailboxOAuthCallbackRedirectUri } from "./mailbox-oauth-redirect";
 import {
   HEYGEN_VOICE_CACHE_KEY,
   type AdminHeygenVoiceCurationCatalog,
@@ -62,7 +63,8 @@ export class ManageAdminToolCredentialsService {
       mediaReserve,
       ttsPrimaryProviderId,
       heygenVoiceCatalogRefreshedAt: heygenVoiceCatalogMeta.refreshedAt,
-      heygenVoiceCatalogVoicesCount: heygenVoiceCatalogMeta.voicesCount
+      heygenVoiceCatalogVoicesCount: heygenVoiceCatalogMeta.voicesCount,
+      mailboxOAuthRedirectUri: resolveMailboxOAuthCallbackRedirectUri()
     });
   }
 
@@ -143,7 +145,8 @@ export class ManageAdminToolCredentialsService {
       mediaReserve,
       ttsPrimaryProviderId,
       heygenVoiceCatalogRefreshedAt: heygenVoiceCatalogMeta.refreshedAt,
-      heygenVoiceCatalogVoicesCount: heygenVoiceCatalogMeta.voicesCount
+      heygenVoiceCatalogVoicesCount: heygenVoiceCatalogMeta.voicesCount,
+      mailboxOAuthRedirectUri: resolveMailboxOAuthCallbackRedirectUri()
     });
 
     const configGeneration = await this.bumpConfigGenerationService.execute();
