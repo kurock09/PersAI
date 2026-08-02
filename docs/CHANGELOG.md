@@ -5,6 +5,15 @@
 
 ## 2026-08-02 (latest)
 
+- **fix(api): stop refusing a mailbox connection that omits a refresh token.**
+  Live Mail.ru callbacks proved the provider returns `access_token` and
+  `expires_in` without `refresh_token`, so the previous fail-closed rejection
+  blocked every Mail.ru connection outright. The callback now connects the
+  mailbox — sending works until the access token expires and the existing
+  lifecycle then asks for a reconnect — and logs the token response field
+  names (names only, never values) so the missing-refresh cause can be
+  identified from a real provider response instead of guessed.
+
 - **fix(api): recover mailbox auth once before asking for reconnect.** A
   callback without a refresh token no longer creates a doomed connection.
   On SMTP auth rejection, PersAI now forces one OAuth refresh and retries SMTP

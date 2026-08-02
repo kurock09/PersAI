@@ -254,11 +254,62 @@ async function testSuccessfulExchangeUpsertsIdentityAndStoresSecret(): Promise<v
   );
 }
 
+async function testExchangeWithoutRefreshTokenStillConnects(): Promise<void> {
+  const rawState = "no-refresh-state";
+  const rows = new Map<string, FakeStateRow>();
+  rows.set(hashState(rawState), {
+    stateHash: hashState(rawState),
+    workspaceId: "workspace-10",
+    provider: "mailru",
+    expiresAt: new Date(Date.now() + 600_000),
+    consumedAt: null
+  });
+  const { prisma, upsertCalls } = createFakePrisma(rows);
+  const { store, upsertCalls: secretUpsertCalls } = createSecretStoreMock();
+  const { service: audit } = createAuditMock();
+  const exchangeClient = {
+    async exchangeCode() {
+      return {
+        kind: "success" as const,
+        httpStatus: 200,
+        body: { access_token: "access-2", expires_in: 3600 }
+      };
+    },
+    async fetchUserInfo() {
+      return {
+        kind: "success" as const,
+        httpStatus: 200,
+        body: { email: "owner@customer.example" }
+      };
+    }
+  } as unknown as MailboxOAuthTokenExchangeClientService;
+  const service = new HandleMailboxOAuthCallbackService(
+    prisma,
+    store,
+    exchangeClient,
+    audit,
+    createSmtpClientMock() as never
+  );
+
+  const { redirectUrl } = await service.handle({ code: "auth-code", state: rawState });
+
+  const storedSecret = JSON.parse(secretUpsertCalls[0]?.rawKey ?? "{}") as {
+    accessToken: string;
+    refreshToken: string | null;
+  };
+  assert.equal(storedSecret.accessToken, "access-2");
+  assert.equal(storedSecret.refreshToken, null);
+  assert.equal((upsertCalls[0]?.create as Record<string, unknown>).mailboxStatus, "connected");
+  assert.ok(redirectUrl.includes("mailboxConnect=success"));
+  console.log("✓ a token response without refresh_token still connects the mailbox");
+}
+
 async function run(): Promise<void> {
   await testUnknownStateRejected();
   await testExpiredStateRejected();
   await testAlreadyConsumedStateRejected();
   await testSuccessfulExchangeUpsertsIdentityAndStoresSecret();
+  await testExchangeWithoutRefreshTokenStillConnects();
   console.log("\n✅ All handle-mailbox-oauth-callback.service tests passed");
 }
 

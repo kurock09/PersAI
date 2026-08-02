@@ -134,12 +134,18 @@ export class HandleMailboxOAuthCallbackService {
     const refreshToken = this.readStringField(tokenOutcome.body, "refresh_token");
     const expiresInSeconds = this.readNumberField(tokenOutcome.body, "expires_in");
     if (refreshToken === null) {
+      // Field names only — never values: a token response without a refresh
+      // token still connects (sending works until the access token expires),
+      // but the mailbox cannot self-heal afterwards and the user has to
+      // reconnect. Refusing the whole connection here would be a worse
+      // outcome than a mailbox that works and then honestly asks to
+      // reconnect.
       this.logger.warn({
         event: "mailbox_oauth.refresh_token_missing",
         workspaceId,
-        provider: provider.id
+        provider: provider.id,
+        tokenResponseFields: Object.keys(tokenOutcome.body).sort()
       });
-      return buildMailboxConnectAppRedirectUrl("error");
     }
 
     const email = await this.resolveMailboxEmail(provider, tokenOutcome.body, accessToken);
