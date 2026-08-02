@@ -331,9 +331,28 @@ These are not ordering defects; they are the junk that let ordering defects hide
 2. **`apps/api/prisma/backfill-working-notes.ts`** is a completed one-off
    migration for a content format two generations old, and its test
    re-implements the logic instead of importing it. Both are deleted.
-3. Web-side junk found by inventory: five unreferenced test ids, one vacuous
-   assertion against an element that never existed, the duplicated SSE dispatch
-   chain, and mojibake in a doc comment — listed under the web inventory below.
+3. **Three dead regression guards** assert the absence of elements that no
+   longer exist anywhere in source, so they can never fail:
+   `process-live-unclaimed-receipt-stream`, `engagement-annotation`,
+   `assistant-body-high-water` (the last a leftover of the browser-geometry
+   mechanism ADR-167 D3 already retired). Deleted, not "kept just in case".
+4. **Two test ids exist in source and are asserted nowhere**: `chat-title-pill`,
+   `voice-stretch-pill`. Removed unless a rebuilt test claims them.
+5. **`use-chat.ts` has 43 invalid UTF-8 characters across 11 lines** — em dashes
+   and arrows destroyed by an earlier Windows shell write, confirmed by a byte
+   scan, not a display artifact. A repo-wide scan of `apps/` and `packages/`
+   found no other affected source file. Repaired in the slice that rewrites the
+   file.
+6. **Eight of eleven exports in `use-chat.ts` are unused outside the file**
+   (`ChatMessageRole`, `ChatMessageStatus`, `PendingSendStatus`,
+   `ChatPlatformNotice`, `RecentAutoCompactionNotice`, `ChatEntry`,
+   `ChatSendOptions`, `formatTurnRoutingBadgeLabel`), verified mechanically with
+   `knip` and per-symbol search. They lose `export`, or the symbol entirely
+   where nothing reads it.
+7. The duplicated SSE dispatch chain in `assistant-api-client.ts` (a ~20-branch
+   `if/else if` copied byte-for-byte between the primary stream and reattach,
+   plus a duplicated trailing-buffer flush whose own comment admits the copy)
+   becomes one dispatcher parameterized by the read strategy.
 
 ---
 
@@ -434,10 +453,29 @@ into message metadata; SSE carries events with their `seq`; reattach becomes
 append `delivery` events for late completions; every `inlineMediaPlacement`
 writer and reader is deleted.
 
-**S3 — Web: one renderer, layer deleted.** Merge by identity, sort by `seq`,
-one live path (D12), typed provenance fields replacing id-prefix sniffing (D9),
-and deletion of everything listed in the web inventory. Tests rebuilt on log
-fixtures; the six 2026-07-31 heuristic regressions deleted.
+**S3a — Web rendering.** Merge by identity, sort by `seq`, one live path (D12),
+deletion of the anchoring/arrival/placement layer in `chat-message.tsx`, and
+`chat-message.test.tsx` rebuilt on log fixtures with the six 2026-07-31
+heuristic regressions deleted.
+
+**S3b — Web state.** `use-chat.ts`: typed provenance fields replacing id-prefix
+sniffing (D9), removal of the live-versus-committed merge helpers, `sinceSeq`
+catch-up replacing the reattach latch, plus this file's dead exports and its
+43 broken characters. Its 149-test suite is rebuilt per the classification
+below.
+
+**Scope reality, stated up front:** of those 149 tests only three exist solely
+to pin a deleted mechanism. The large majority assert observable product rules —
+same-id ownership, reattach and soft-detach recovery, phantom-placeholder
+cleanup, out-of-order media merging — whose _fixtures_ are condemned while their
+_assertions_ must survive. S3b is therefore mostly rewriting, not deleting, and
+must not be estimated as a deletion pass. Four tests needed an explicit ruling:
+"does not reconstruct tool status from historical media attachments" is deleted
+because activity entries can only come from `tool_call` events and the failure it
+guards becomes structurally impossible; the two per-thread streaming restore
+tests and "history refresh drops non-live messages that leaked into the active
+snapshot" are rewritten, because their rules stay meaningful when the log is the
+only truth.
 
 **S4 — Telegram projection.** One shared projection table; Telegram output
 proven byte-identical to the current cumulative text on a fixture turn.
@@ -448,6 +486,12 @@ persistence and every test fixture; the runtime test runner switched from a
 curated list to a glob with all 37 orphans either repaired or deleted;
 `backfill-working-notes.ts` and its test removed; web junk from the inventory
 cleared.
+
+**S7 — Mechanical dead-export sweep.** `knip` reports 76 further unused exports
+and types across `apps/web` beyond the files this program rewrites (unused API
+client functions, landing-demo types, admin helpers, stale constants). Removed
+in one mechanical commit with per-symbol search evidence and no behavior change,
+kept separate from the ordering commits so an audit can read either alone.
 
 **S6 — Gate and acceptance.** Independent audits of every slice, workspace lint,
 `format:check`, API and web typecheck, all affected suites plus the full serial
