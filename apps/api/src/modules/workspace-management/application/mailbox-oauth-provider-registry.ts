@@ -10,7 +10,11 @@ export type MailboxOAuthProviderConfig = {
   userInfoEndpoint: string;
   /** Field on the provider's userinfo JSON response holding the mailbox address. */
   userInfoEmailField: string;
+  /** OAuth vendors use different access-token placement for userinfo requests. */
+  userInfoAccessTokenTransport: "bearer_header" | "query_parameter";
   scopes: string[];
+  /** OAuth vendors disagree on the delimiter for multiple requested scopes. */
+  scopeDelimiter: " " | ",";
   /** PersAI-managed runtime secret ids, resolved via resolveSecretValueById only. */
   clientIdSecretId: string;
   clientSecretSecretId: string;
@@ -31,7 +35,9 @@ export const MAILBOX_OAUTH_PROVIDERS: Record<MailboxOAuthProviderId, MailboxOAut
     tokenEndpoint: "https://oauth.mail.ru/token",
     userInfoEndpoint: "https://oauth.mail.ru/userinfo",
     userInfoEmailField: "email",
+    userInfoAccessTokenTransport: "query_parameter",
     scopes: ["userinfo", "mail.imap"],
+    scopeDelimiter: " ",
     clientIdSecretId: MAILBOX_OAUTH_CREDENTIAL_IDS.mailru_client_id,
     clientSecretSecretId: MAILBOX_OAUTH_CREDENTIAL_IDS.mailru_client_secret,
     smtp: { host: "smtp.mail.ru", port: 465 }
@@ -43,7 +49,12 @@ export const MAILBOX_OAUTH_PROVIDERS: Record<MailboxOAuthProviderId, MailboxOAut
     tokenEndpoint: "https://oauth.yandex.ru/token",
     userInfoEndpoint: "https://login.yandex.ru/info",
     userInfoEmailField: "default_email",
-    scopes: ["mail:smtp"],
+    userInfoAccessTokenTransport: "bearer_header",
+    // `mail:smtp` authorizes the delivery transport; `login:email` is
+    // separately required for Yandex ID to return `default_email`, which is
+    // the connected mailbox identity persisted by ADR-169.
+    scopes: ["mail:smtp", "login:email"],
+    scopeDelimiter: ",",
     clientIdSecretId: MAILBOX_OAUTH_CREDENTIAL_IDS.yandex_client_id,
     clientSecretSecretId: MAILBOX_OAUTH_CREDENTIAL_IDS.yandex_client_secret,
     smtp: { host: "smtp.yandex.ru", port: 465 }

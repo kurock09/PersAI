@@ -128,7 +128,10 @@ export class AssistantEmailMailboxService {
     authorizationUrl.searchParams.set("response_type", "code");
     authorizationUrl.searchParams.set("client_id", clientId);
     authorizationUrl.searchParams.set("redirect_uri", redirectUri);
-    authorizationUrl.searchParams.set("scope", providerConfig.scopes.join(" "));
+    authorizationUrl.searchParams.set(
+      "scope",
+      providerConfig.scopes.join(providerConfig.scopeDelimiter)
+    );
     authorizationUrl.searchParams.set("state", state);
 
     return { authorizationUrl: authorizationUrl.toString() };

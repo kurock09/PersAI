@@ -5,6 +5,18 @@
 
 ## 2026-08-02 (latest)
 
+- **fix(api): request the Yandex mailbox identity scope with the vendor's
+  required delimiter.** First authenticated Yandex live acceptance proved that
+  OAuth token exchange succeeds but `default_email` remains unavailable when
+  only `mail:smtp` is requested (`mailbox_oauth.email_unresolved`). The
+  provider registry now requests `mail:smtp,login:email`, comma-delimited as
+  Yandex requires. A subsequent Mail.ru authorization reached the callback
+  with the same unresolved-identity result: its userinfo endpoint expects
+  `access_token` in the query string, not a Bearer header. The userinfo client
+  now follows the registry's provider-specific token placement. Focused tests
+  lock the Yandex scopes/delimiter and both providers' userinfo transports.
+  Pending deploy and renewed authenticated acceptance for both providers.
+
 - **fix(api, web, docs): ADR-169 mailbox-connect audit repair — fail-closed
   revocation, single-flight refresh, OAuth return, Admin Tools credentials
   UI, honest failures.** Two independent audits of the S1–S5 mailbox-connect

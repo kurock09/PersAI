@@ -198,7 +198,8 @@ export class HandleMailboxOAuthCallbackService {
     }
     const userInfoOutcome = await this.tokenExchangeClient.fetchUserInfo({
       userInfoEndpoint: provider.userInfoEndpoint,
-      accessToken
+      accessToken,
+      accessTokenTransport: provider.userInfoAccessTokenTransport
     });
     if (userInfoOutcome.kind !== "success") {
       return null;

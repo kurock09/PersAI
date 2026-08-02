@@ -62,7 +62,7 @@ verified against vendor documentation at opening:
 | Provider | Scopes                  | SMTP endpoint              |
 | -------- | ----------------------- | -------------------------- |
 | Mail.ru  | `userinfo`, `mail.imap` | `smtp.mail.ru:465` (SSL)   |
-| Yandex   | `mail:smtp`             | `smtp.yandex.ru:465` (SSL) |
+| Yandex   | `mail:smtp`, `login:email` | `smtp.yandex.ru:465` (SSL) |
 
 Google is deferred and, when it lands, goes through the Gmail API with the
 `gmail.send` scope rather than SMTP: SMTP access requires the restricted
@@ -315,6 +315,26 @@ locally:
 
 Deploy and authenticated live acceptance (S6) remain pending; the OAuth
 applications remain unregistered — this repair does not change that.
+
+## Live Yandex OAuth repair — 2026-08-02
+
+The first authenticated Yandex authorization completed its provider redirect
+and token exchange, then failed closed at the mailbox identity lookup with
+`mailbox_oauth.email_unresolved`: the initial implementation requested only
+`mail:smtp`, which authorizes SMTP delivery but does not grant Yandex ID the
+`default_email` field used to identify the connected mailbox. The provider
+also requires multiple requested scopes to be comma-separated, while the
+generic request builder had joined them with spaces.
+
+Yandex now requests `mail:smtp,login:email` using the vendor-required comma
+delimiter. Mail.ru retains its space-delimited `userinfo mail.imap` request,
+but its `userinfo` endpoint requires `access_token` as a query parameter,
+not the generic Bearer header: the first live Mail.ru authorization likewise
+completed, then logged `mailbox_oauth.email_unresolved` until the transport
+was corrected. Focused tests lock Yandex's scopes/delimiter and each
+provider's userinfo token transport. The Yandex OAuth application must enable
+both matching permissions. This repair is pending deploy and renewed
+authenticated acceptance for both providers.
 
 ## Risks
 

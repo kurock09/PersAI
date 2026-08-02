@@ -36,6 +36,7 @@ export class MailboxOAuthTokenExchangeClientService {
   async fetchUserInfo(params: {
     userInfoEndpoint: string;
     accessToken: string;
+    accessTokenTransport: "bearer_header" | "query_parameter";
   }): Promise<MailboxOAuthHttpOutcome> {
     const controller = new AbortController();
     const timeout = setTimeout(() => {
@@ -44,11 +45,17 @@ export class MailboxOAuthTokenExchangeClientService {
 
     let response: Response;
     try {
-      response = await fetch(params.userInfoEndpoint, {
+      const userInfoUrl = new URL(params.userInfoEndpoint);
+      if (params.accessTokenTransport === "query_parameter") {
+        userInfoUrl.searchParams.set("access_token", params.accessToken);
+      }
+      response = await fetch(userInfoUrl, {
         method: "GET",
         headers: {
           Accept: "application/json",
-          Authorization: `Bearer ${params.accessToken}`
+          ...(params.accessTokenTransport === "bearer_header"
+            ? { Authorization: `Bearer ${params.accessToken}` }
+            : {})
         },
         signal: controller.signal
       });

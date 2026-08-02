@@ -1,5 +1,26 @@
 # SESSION-HANDOFF
 
+## 2026-08-02 — ADR-169 live Yandex OAuth scope repair
+
+- **Live evidence:** the first Yandex authorization reached the public callback
+  and completed its token exchange, but the API logged
+  `mailbox_oauth.email_unresolved`. The failure is after Yandex authorization,
+  not a redirect URI or client-secret failure: the requested `mail:smtp`
+  permission permits SMTP delivery but does not permit the Yandex ID
+  `default_email` field that ADR-169 persists as the connected mailbox.
+- **Repair:** Yandex now requests `mail:smtp,login:email` with Yandex's
+  comma-delimited scope syntax; Mail.ru retains `userinfo mail.imap` with its
+  space-delimited syntax. The subsequent live Mail.ru authorization also
+  completed but logged the same `email_unresolved`: Mail.ru's userinfo
+  endpoint requires its access token in `?access_token=`, while the generic
+  client used a Bearer header. The provider registry now declares this
+  per-provider token placement and the userinfo client follows it. The Yandex
+  OAuth application must enable both corresponding permissions. Focused API
+  tests assert the exact Yandex scope request and both providers' userinfo
+  token transport. The repair is locally verified (format, API typecheck,
+  focused service tests) and awaits commit/push/deploy, then renewed
+  authenticated connection tests for both providers.
+
 ## 2026-08-02 — ADR-169 second-audit repair: auth-vs-policy SMTP classification, bounded assumed TTL, sane lock timeout, server-resolved redirect URI
 
 - **Baseline:** clean tree on top of the `4638f1fe` first-audit repair below.

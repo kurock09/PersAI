@@ -185,6 +185,29 @@ async function testConnectOpportunisticallyCleansConsumedAndExpiredStates(): Pro
   );
 }
 
+async function testYandexConnectRequestsMailboxAndIdentityScopes(): Promise<void> {
+  const { prisma } = createFakePrisma(new Map());
+  const { store } = createSecretStoreMock({
+    clientIdByCredentialId: {
+      "mailbox-oauth/yandex/client-id": "yandex-client-id",
+      "mailbox-oauth/yandex/client-secret": "yandex-client-secret"
+    }
+  });
+  const { service: audit } = createAuditMock();
+  const service = new AssistantEmailMailboxService(prisma, store, audit);
+
+  const { authorizationUrl } = await service.initiateConnect("workspace-yandex", {
+    provider: "yandex"
+  });
+
+  assert.deepEqual(
+    new URL(authorizationUrl).searchParams.get("scope")?.split(",").sort(),
+    ["login:email", "mail:smtp"],
+    "Yandex scopes must use the vendor-required comma delimiter for SMTP and default_email"
+  );
+  console.log("✓ Yandex connect requests SMTP and email-identity scopes");
+}
+
 async function testMissingProviderCredentialsFailClosed(): Promise<void> {
   const { prisma } = createFakePrisma(new Map());
   const { store } = createSecretStoreMock({ failResolve: true });
@@ -242,6 +265,7 @@ async function run(): Promise<void> {
   await testMissingProviderCredentialsFailClosed();
   await testDisconnectClearsColumnsAndDeletesSecret();
   await testConnectOpportunisticallyCleansConsumedAndExpiredStates();
+  await testYandexConnectRequestsMailboxAndIdentityScopes();
   console.log("\n✅ All assistant-email-mailbox.service tests passed");
 }
 
