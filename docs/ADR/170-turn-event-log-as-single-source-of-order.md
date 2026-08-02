@@ -103,7 +103,7 @@ this ADR.
 | `note`         | text                                         | a pre-tool narration segment is complete            |
 | `tool_call`    | tool name, ok, execution mode, tool call id  | a tool invocation completes                         |
 | `answer_text`  | text segment                                 | a segment of the final answer is flushed            |
-| `delivery`     | attachment id, artifact kind, filename, size | an artifact actually becomes available in this chat |
+| `delivery`     | durable attachment id, artifact kind, filename, size | an artifact actually becomes available in this chat |
 | `job_accepted` | job id, job kind                             | an async job is accepted                            |
 | `turn_stopped` | reason                                       | the turn ends by user stop                          |
 | `turn_failed`  | reason                                       | the turn ends by failure                            |
@@ -112,6 +112,19 @@ No `other`, no free-form metadata bag, no per-surface extras. Ephemeral live
 signals — thinking text, tool progress, activity labels (ADR-149) — are **not**
 events: they are transient status, they are never persisted, and they never
 influence order.
+
+`artifactKind` is `image | video | audio | document | file`. Audio is its own
+kind rather than being folded into `file`, because a surface that has to guess
+what a "file" really is has been handed a heuristic.
+
+### D2.1 — `delivery` is emitted only where the durable attachment id exists
+
+The runtime never emits `delivery`. It has no durable chat attachment id at
+emission time, so it could only carry its own artifact id, which would force a
+later artifact-to-attachment reconciliation — the same class of guessing this
+ADR removes. `delivery` is appended exclusively by the server, at the moment the
+attachment row is created, by the same primitive that allocates `seq`. This
+holds for in-loop synchronous attachments and for late job deliveries alike.
 
 ### D3 — Emission at the moment of truth, through one append path
 

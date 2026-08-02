@@ -4122,6 +4122,105 @@ export interface RuntimeTurnDeliveryFacts {
   shellDocumentRegistrations: RuntimeTurnShellDocumentRegistration[];
 }
 
+/**
+ * ADR-170 D1/D2 — the single ordered fact log for an assistant turn.
+ *
+ * `seq` is the ONLY ordering authority for the process stream: it is assigned
+ * once, by the durable server-side append primitive added in ADR-170 S2, at
+ * the moment the fact becomes true, and it is never recomputed, re-sorted, or
+ * re-derived by any consumer. `at` is a wall-clock timestamp carried for
+ * observability only — no surface may use it (or event array index, or any
+ * other field) to order the process stream.
+ *
+ * The runtime (this slice) produces DRAFTS — `TurnEventDraft`, with no `seq` —
+ * as facts occur during the turn. The S2 append primitive is the only writer
+ * that assigns `seq` and turns a draft into a durable `TurnEvent`.
+ *
+ * The kind vocabulary is closed by ADR-170 D2: exactly `note`, `tool_call`,
+ * `answer_text`, `delivery`, `job_accepted`, `turn_stopped`, `turn_failed`.
+ * No `other` case and no free-form metadata bag — adding a kind requires
+ * amending ADR-170.
+ */
+export interface TurnNoteEventDraft {
+  kind: "note";
+  at: IsoTimestamp;
+  /** The complete pre-tool narration text the model wrote for this step. */
+  text: string;
+  /**
+   * ADR-170 D10 — decided once, deterministically, by the runtime at
+   * emission time (see `resolveNoteDisplay`). No surface may re-inspect
+   * `text` to decide this.
+   */
+  display: "step" | "content";
+}
+
+export interface TurnToolCallEventDraft {
+  kind: "tool_call";
+  at: IsoTimestamp;
+  name: string;
+  ok: boolean;
+  toolCallId: string;
+  executionMode?: PersaiRuntimeToolExecutionMode;
+}
+
+export interface TurnAnswerTextEventDraft {
+  kind: "answer_text";
+  at: IsoTimestamp;
+  /** A segment of the final answer. Segmentation is owned by the S2 append primitive (ADR-170 D5.1). */
+  text: string;
+}
+
+/**
+ * ADR-170 D2.1 — the runtime never emits this draft. It has no durable chat
+ * attachment id at emission time, so it could only carry its own artifact id,
+ * forcing a later artifact-to-attachment reconciliation — the same class of
+ * guessing this ADR removes. `delivery` is appended exclusively by the
+ * server-side append primitive (the same one that allocates `seq`), at the
+ * moment the attachment row is created, for both in-loop synchronous
+ * attachments and late job deliveries alike. `attachmentId` is that durable
+ * chat attachment id.
+ */
+export interface TurnDeliveryEventDraft {
+  kind: "delivery";
+  at: IsoTimestamp;
+  attachmentId: string;
+  artifactKind: "image" | "video" | "audio" | "document" | "file";
+  filename: string | null;
+  sizeBytes: number | null;
+}
+
+export interface TurnJobAcceptedEventDraft {
+  kind: "job_accepted";
+  at: IsoTimestamp;
+  jobId: string;
+  jobKind: "media" | "document" | "sandbox";
+}
+
+export interface TurnStoppedEventDraft {
+  kind: "turn_stopped";
+  at: IsoTimestamp;
+  reason: string;
+}
+
+export interface TurnFailedEventDraft {
+  kind: "turn_failed";
+  at: IsoTimestamp;
+  reason: string;
+}
+
+/** ADR-170 D2 — closed union; see per-kind interfaces above to narrow. */
+export type TurnEventDraft =
+  | TurnNoteEventDraft
+  | TurnToolCallEventDraft
+  | TurnAnswerTextEventDraft
+  | TurnDeliveryEventDraft
+  | TurnJobAcceptedEventDraft
+  | TurnStoppedEventDraft
+  | TurnFailedEventDraft;
+
+/** ADR-170 D1/D3 — a draft with its durably-allocated `seq`. Assigned only by the S2 append primitive. */
+export type TurnEvent = TurnEventDraft & { seq: number };
+
 export interface RuntimeTurnResult {
   requestId: string;
   sessionId: string;
@@ -4177,6 +4276,14 @@ export interface RuntimeTurnResult {
    * can mark the message and prevent the model from continuing it.
    */
   truncated?: boolean;
+  /**
+   * ADR-170 S1 — the ordered fact-log drafts produced by this turn, in
+   * emission order (no `seq` yet; that is allocated by the S2 append
+   * primitive). Additive alongside `workingNotes` / `answerText` /
+   * `assistantText` / `toolInvocations` per ADR-170 D5.2 — nothing consumes
+   * this field yet.
+   */
+  turnEvents?: TurnEventDraft[];
 }
 
 export interface RuntimeTurnAutoCompactionState {
@@ -5221,6 +5328,17 @@ export interface RuntimeFailedEvent {
   trace?: RuntimeTrace;
 }
 
+/**
+ * ADR-170 S1 — live delivery of a `TurnEventDraft` at the moment the runtime
+ * emits it, so a still-connected client (and, from S2, the API forwarding
+ * layer) can receive the ordered fact log as it happens rather than only at
+ * turn completion. Nothing consumes this event yet in S1.
+ */
+export interface RuntimeTurnEventStreamEvent {
+  type: "turn_event";
+  event: TurnEventDraft;
+}
+
 export type RuntimeTurnStreamEvent =
   | RuntimeStreamStartedEvent
   | RuntimeTextDeltaEvent
@@ -5229,6 +5347,7 @@ export type RuntimeTurnStreamEvent =
   | RuntimeRetrievalActivityEvent
   | RuntimeProjectActivityEvent
   | RuntimeProjectReasoningSummaryEvent
+  | RuntimeTurnEventStreamEvent
   | RuntimeToolStartedEvent
   | RuntimeToolFinishedEvent
   | RuntimeToolProgressEvent

@@ -2008,6 +2008,16 @@ async function collectStreamEvents(
 ): Promise<RuntimeTurnStreamEvent[]> {
   const events: RuntimeTurnStreamEvent[] = [];
   for await (const event of generator) {
+    // ADR-170 S1 — the runtime now also live-streams `turn_event` drafts
+    // interleaved with the rest of the vocabulary this suite was written
+    // against. Every pre-existing assertion in this file targets the
+    // ordinary event vocabulary that predates ADR-170, so this helper keeps
+    // returning exactly that vocabulary; dedicated ADR-170 emission-order
+    // coverage lives in `turn-event-emission.test.ts`, which drives the
+    // emission points directly rather than through this shared collector.
+    if (event.type === "turn_event") {
+      continue;
+    }
     events.push(event);
   }
   return events;

@@ -84,6 +84,7 @@ import {
   type PersaiRuntimeKnowledgeSource,
   type PersaiRuntimeModelRole,
   type RuntimeTrace,
+  type TurnEventDraft,
   buildAssistantSessionRoot,
   decodeTextGenerationUsageEnvelope
 } from "@persai/runtime-contract";
@@ -119,6 +120,7 @@ import { RuntimeDocumentToolService } from "./runtime-document-tool.service";
 import { stringifyToolResultPayloadForModel } from "./sanitize-tool-result-for-model";
 import { buildSealedToolExchangeBoundary } from "./project-tool-exchanges-for-model";
 import { buildAsyncJobAcceptedEvent } from "./build-async-job-accepted-event";
+import { resolveNoteDisplay } from "./note-display";
 import { RuntimeFilesToolService } from "./runtime-files-tool.service";
 import { RuntimeImageEditToolService } from "./runtime-image-edit-tool.service";
 import { RuntimeImageGenerateToolService } from "./runtime-image-generate-tool.service";
@@ -353,6 +355,13 @@ type TurnExecutionState = {
    * Other providers keep rebuilding developerInstructions each iteration.
    */
   deepseekToolLoopDeveloperFreeze: DeepSeekToolLoopDeveloperFreezeState;
+  /**
+   * ADR-170 S1 — the ordered fact-log drafts accumulated as this turn's facts
+   * become true. Emission order here IS the log order; no other field may be
+   * used to reorder it. Surfaced on `RuntimeTurnResult.turnEvents` and mirrored
+   * live via `RuntimeTurnEventStreamEvent` — see `pushTurnEventDraft`.
+   */
+  turnEvents: TurnEventDraft[];
 };
 
 type DeepSeekToolLoopDeveloperFreezeState = {
@@ -1431,7 +1440,8 @@ export class TurnExecutionService {
                     deliveredText,
                     null,
                     trace?.build("interrupted"),
-                    turnState
+                    turnState,
+                    "aborted_by_user"
                   ),
                   turnState
                 });
@@ -1495,6 +1505,10 @@ export class TurnExecutionService {
                 const stepNote = (event.result.text ?? "").trim();
                 if (stepNote.length > 0) {
                   toolStepTexts.push(stepNote);
+                  const noteTurnEvent = this.recordNoteTurnEvent(turnState, stepNote);
+                  if (noteTurnEvent !== null) {
+                    yield { type: "turn_event", event: noteTurnEvent };
+                  }
                 }
                 this.recordUsageEntry(turnState, {
                   stepType: iteration === 0 ? "main_turn" : "tool_loop_followup",
@@ -1598,7 +1612,12 @@ export class TurnExecutionService {
                           turnState.toolSpillSeals,
                           toolSpillWaveStartIndex
                         );
+                        const turnEventsBeforeToolOutcome = turnState.turnEvents.length;
                         this.applyToolExecutionOutcome(turnState, result.outcome, iteration);
+                        yield* this.drainNewTurnEventStreamEvents(
+                          turnState,
+                          turnEventsBeforeToolOutcome
+                        );
                         this.maybeApplySkillStateMutationFromTool(execution, result.outcome);
                         if (this.toolMutatesVolatilePrefix(result.outcome)) {
                           volatileRefreshNeeded = true;
@@ -1613,9 +1632,15 @@ export class TurnExecutionService {
                           this.readBrowserToolRequestedAction(result.outcome),
                           this.readBrowserToolPendingLogin(result.outcome)
                         );
+                        const turnEventsBeforeAsyncJob = turnState.turnEvents.length;
                         const acceptedAsyncJob = this.createAsyncJobAcceptedStreamEvent(
+                          turnState,
                           acceptedTurn,
                           result.outcome
+                        );
+                        yield* this.drainNewTurnEventStreamEvents(
+                          turnState,
+                          turnEventsBeforeAsyncJob
                         );
                         if (acceptedAsyncJob !== null) {
                           yield acceptedAsyncJob;
@@ -1690,7 +1715,12 @@ export class TurnExecutionService {
                       turnState.toolSpillSeals,
                       toolSpillWaveStartIndex
                     );
+                    const turnEventsBeforeToolOutcome = turnState.turnEvents.length;
                     this.applyToolExecutionOutcome(turnState, outcome, iteration);
+                    yield* this.drainNewTurnEventStreamEvents(
+                      turnState,
+                      turnEventsBeforeToolOutcome
+                    );
                     this.maybeApplySkillStateMutationFromTool(execution, outcome);
                     if (this.toolMutatesVolatilePrefix(outcome)) {
                       volatileRefreshNeeded = true;
@@ -1705,10 +1735,13 @@ export class TurnExecutionService {
                       this.readBrowserToolRequestedAction(outcome),
                       this.readBrowserToolPendingLogin(outcome)
                     );
+                    const turnEventsBeforeAsyncJob = turnState.turnEvents.length;
                     const acceptedAsyncJob = this.createAsyncJobAcceptedStreamEvent(
+                      turnState,
                       acceptedTurn,
                       outcome
                     );
+                    yield* this.drainNewTurnEventStreamEvents(turnState, turnEventsBeforeAsyncJob);
                     if (acceptedAsyncJob !== null) {
                       yield acceptedAsyncJob;
                     }
@@ -1749,6 +1782,7 @@ export class TurnExecutionService {
                     input,
                     turnState
                   });
+                  const turnEventsBeforeResult = turnState.turnEvents.length;
                   const result = this.buildTurnResult(
                     acceptedTurn,
                     terminalProviderResult,
@@ -1757,6 +1791,7 @@ export class TurnExecutionService {
                     trace?.build("ok"),
                     { workingNotes: [], answerText: terminalStaticAssistantText }
                   );
+                  yield* this.drainNewTurnEventStreamEvents(turnState, turnEventsBeforeResult);
                   try {
                     const finalizedResult = await this.finalizeAcceptedTurnWithPostTurnEffects({
                       acceptedTurn,
@@ -1771,6 +1806,7 @@ export class TurnExecutionService {
                     this.logger.error(
                       `[turn-stream-finalize-failed] requestId=${acceptedTurn.receipt.requestId} error=${this.formatLogError(finalizeError)}`
                     );
+                    const turnEventsBeforeFailed = turnState.turnEvents.length;
                     const failed = await this.failAcceptedTurnQuietly(
                       acceptedTurn,
                       finalizeError,
@@ -1778,6 +1814,7 @@ export class TurnExecutionService {
                       turnState
                     );
                     completionFinalizationAttempted = true;
+                    yield* this.drainNewTurnEventStreamEvents(turnState, turnEventsBeforeFailed);
                     yield failed;
                   }
                   return;
@@ -1923,6 +1960,7 @@ export class TurnExecutionService {
                   input,
                   turnState
                 });
+                const turnEventsBeforeResult = turnState.turnEvents.length;
                 const result = this.buildTurnResult(
                   acceptedTurn,
                   correctedProviderResult,
@@ -1931,6 +1969,7 @@ export class TurnExecutionService {
                   trace?.build("ok"),
                   { workingNotes, answerText }
                 );
+                yield* this.drainNewTurnEventStreamEvents(turnState, turnEventsBeforeResult);
                 try {
                   const finalizedResult = await this.finalizeAcceptedTurnWithPostTurnEffects({
                     acceptedTurn,
@@ -1948,6 +1987,7 @@ export class TurnExecutionService {
                   this.logger.error(
                     `[turn-stream-finalize-failed] requestId=${acceptedTurn.receipt.requestId} error=${this.formatLogError(finalizeError)}`
                   );
+                  const turnEventsBeforeFailed = turnState.turnEvents.length;
                   const failed = await this.failAcceptedTurnQuietly(
                     acceptedTurn,
                     finalizeError,
@@ -1955,6 +1995,7 @@ export class TurnExecutionService {
                     turnState
                   );
                   completionFinalizationAttempted = true;
+                  yield* this.drainNewTurnEventStreamEvents(turnState, turnEventsBeforeFailed);
                   yield failed;
                 }
                 return;
@@ -2024,22 +2065,26 @@ export class TurnExecutionService {
                   break;
                 }
                 if (deliveredText.trim().length > 0) {
+                  const turnEventsBeforeInterrupted = turnState.turnEvents.length;
                   const interrupted = this.toInterruptedEvent(
                     acceptedTurn,
                     deliveredText,
                     null,
                     trace?.build("interrupted"),
-                    turnState
+                    turnState,
+                    event.code ?? "provider_stream_failed"
                   );
                   await this.interruptAcceptedTurnQuietly({
                     acceptedTurn,
                     event: interrupted,
                     turnState
                   });
+                  yield* this.drainNewTurnEventStreamEvents(turnState, turnEventsBeforeInterrupted);
                   yield interrupted;
                   return;
                 }
 
+                const turnEventsBeforeFailed = turnState.turnEvents.length;
                 const failed = await this.failAcceptedTurnQuietly(
                   acceptedTurn,
                   {
@@ -2054,6 +2099,7 @@ export class TurnExecutionService {
                   undefined,
                   turnState
                 );
+                yield* this.drainNewTurnEventStreamEvents(turnState, turnEventsBeforeFailed);
                 yield failed;
                 return;
               }
@@ -2085,18 +2131,21 @@ export class TurnExecutionService {
           }
 
           if (deliveredText.trim().length > 0) {
+            const turnEventsBeforeInterrupted = turnState.turnEvents.length;
             const interrupted = this.toInterruptedEvent(
               acceptedTurn,
               deliveredText,
               null,
               trace?.build("interrupted"),
-              turnState
+              turnState,
+              "provider_stream_ended"
             );
             await this.interruptAcceptedTurnQuietly({
               acceptedTurn,
               event: interrupted,
               turnState
             });
+            yield* this.drainNewTurnEventStreamEvents(turnState, turnEventsBeforeInterrupted);
             yield interrupted;
             return;
           }
@@ -2104,22 +2153,26 @@ export class TurnExecutionService {
           // Aborted streams often end with zero provider events (gateway silent
           // return). Prefer interrupt over a sticky provider_stream_ended fail.
           if (activeAbortSignal?.aborted === true) {
+            const turnEventsBeforeInterrupted = turnState.turnEvents.length;
             const interrupted = this.toInterruptedEvent(
               acceptedTurn,
               deliveredText,
               null,
               trace?.build("interrupted"),
-              turnState
+              turnState,
+              "aborted_by_user"
             );
             await this.interruptAcceptedTurnQuietly({
               acceptedTurn,
               event: interrupted,
               turnState
             });
+            yield* this.drainNewTurnEventStreamEvents(turnState, turnEventsBeforeInterrupted);
             yield interrupted;
             return;
           }
 
+          const turnEventsBeforeFailed = turnState.turnEvents.length;
           const failed = await this.failAcceptedTurnQuietly(
             acceptedTurn,
             {
@@ -2134,10 +2187,12 @@ export class TurnExecutionService {
             undefined,
             turnState
           );
+          yield* this.drainNewTurnEventStreamEvents(turnState, turnEventsBeforeFailed);
           yield failed;
           return;
         }
 
+        const turnEventsBeforeExhausted = turnState.turnEvents.length;
         const exhausted = await this.failAcceptedTurnQuietly(
           acceptedTurn,
           {
@@ -2152,6 +2207,7 @@ export class TurnExecutionService {
           undefined,
           turnState
         );
+        yield* this.drainNewTurnEventStreamEvents(turnState, turnEventsBeforeExhausted);
         yield exhausted;
       } catch (error) {
         if (completionFinalizationAttempted) {
@@ -2173,7 +2229,8 @@ export class TurnExecutionService {
               deliveredText,
               null,
               trace?.build("interrupted"),
-              turnState
+              turnState,
+              "aborted_by_user"
             ),
             turnState
           });
@@ -2184,18 +2241,23 @@ export class TurnExecutionService {
           this.logger.warn(
             `[turn-stream-interrupted-with-text] requestId=${requestId} provider=${providerLabel} deliveredTextLen=${String(deliveredText.length)} toolHistoryLen=${String(toolHistory.length)} error=${errorDetail}`
           );
+          const turnEventsBeforeInterrupted = turnState.turnEvents.length;
           const interrupted = this.toInterruptedEvent(
             acceptedTurn,
             deliveredText,
             null,
             trace?.build("interrupted"),
-            turnState
+            turnState,
+            error instanceof Error && error.message.trim().length > 0
+              ? error.message
+              : "turn_execution_interrupted"
           );
           await this.interruptAcceptedTurnQuietly({
             acceptedTurn,
             event: interrupted,
             turnState
           });
+          yield* this.drainNewTurnEventStreamEvents(turnState, turnEventsBeforeInterrupted);
           yield interrupted;
           return;
         }
@@ -2203,12 +2265,14 @@ export class TurnExecutionService {
         this.logger.warn(
           `[turn-stream-failed-empty] requestId=${requestId} provider=${providerLabel} toolHistoryLen=${String(toolHistory.length)} error=${errorDetail}`
         );
+        const turnEventsBeforeFailed = turnState.turnEvents.length;
         const failed = await this.failAcceptedTurnQuietly(
           acceptedTurn,
           error,
           trace?.build("failed"),
           turnState
         );
+        yield* this.drainNewTurnEventStreamEvents(turnState, turnEventsBeforeFailed);
         yield failed;
       }
     } finally {
@@ -2310,6 +2374,17 @@ export class TurnExecutionService {
     const assistantText = providerResult.text ?? "";
     const workingNotes = workingNotesAndAnswer ? [...workingNotesAndAnswer.workingNotes] : [];
     const answerText = workingNotesAndAnswer ? workingNotesAndAnswer.answerText : assistantText;
+    // ADR-170 D5.1 — `answer_text` draft the moment the final answer resolves.
+    // Segmentation is the S2 append primitive's job, not the runtime's: this
+    // is emitted as one segment per resolution, in order, with no invented
+    // boundaries. An empty answer (model chose silence) emits no event.
+    if (answerText.length > 0) {
+      this.pushTurnEventDraft(turnState, {
+        kind: "answer_text",
+        at: new Date().toISOString(),
+        text: answerText
+      });
+    }
 
     const turnRouting =
       routeDecision === undefined ? null : this.toRuntimeTurnRoutingSnapshot(routeDecision);
@@ -2344,7 +2419,8 @@ export class TurnExecutionService {
         ? {}
         : { discoveredFilePaths: [...turnState.discoveredFilePathSet] }),
       deliveryFacts: finalizeTurnDeliveryFacts(turnState.deliveryFacts),
-      ...(providerResult.truncated === true ? { truncated: true } : {})
+      ...(providerResult.truncated === true ? { truncated: true } : {}),
+      ...(turnState.turnEvents.length === 0 ? {} : { turnEvents: [...turnState.turnEvents] })
     };
     if (trace !== undefined) {
       this.runtimeObservabilityService.recordStreamTurn(trace);
@@ -6061,15 +6137,27 @@ export class TurnExecutionService {
   }
 
   private createAsyncJobAcceptedStreamEvent(
+    turnState: TurnExecutionState,
     acceptedTurn: AcceptedRuntimeTurn,
     outcome: ToolExecutionOutcome
   ): RuntimeTurnStreamEvent | null {
-    return buildAsyncJobAcceptedEvent({
+    const event = buildAsyncJobAcceptedEvent({
       requestId: acceptedTurn.receipt.requestId,
       sessionId: acceptedTurn.session.sessionId,
       payload: outcome.payload,
       isError: outcome.exchange.toolResult.isError === true
     });
+    if (event !== null) {
+      // ADR-170 — `job_accepted` draft the moment an async media/document/
+      // sandbox job is accepted (same fact the ADR-152 stream event carries).
+      this.pushTurnEventDraft(turnState, {
+        kind: "job_accepted",
+        at: new Date().toISOString(),
+        jobId: event.jobRef,
+        jobKind: event.kind
+      });
+    }
+    return event;
   }
 
   private readBrowserToolPendingLogin(
@@ -6149,6 +6237,55 @@ export class TurnExecutionService {
     };
   }
 
+  /**
+   * ADR-170 D1/D3 — the single accumulation point for this turn's ordered
+   * fact-log drafts. Emission order is push order; nothing else in the
+   * runtime may reorder `turnState.turnEvents`.
+   */
+  private pushTurnEventDraft(turnState: TurnExecutionState, draft: TurnEventDraft): TurnEventDraft {
+    turnState.turnEvents.push(draft);
+    return draft;
+  }
+
+  /**
+   * ADR-170 — records a pre-tool narration segment as a `note` draft at the
+   * exact moment it is captured (mirrors the `toolStepTexts` trimming/
+   * empty-dropping semantics: a whitespace-only step produces no event).
+   * `display` is decided once here via `resolveNoteDisplay` (ADR-170 D10).
+   */
+  private recordNoteTurnEvent(
+    turnState: TurnExecutionState,
+    stepText: string
+  ): TurnEventDraft | null {
+    const trimmed = stepText.trim();
+    if (trimmed.length === 0) {
+      return null;
+    }
+    return this.pushTurnEventDraft(turnState, {
+      kind: "note",
+      at: new Date().toISOString(),
+      text: trimmed,
+      display: resolveNoteDisplay(trimmed)
+    });
+  }
+
+  /**
+   * ADR-170 — drains and live-streams every `turnState.turnEvents` draft
+   * pushed since `sinceIndex` as `turn_event` stream chunks, in emission
+   * order. Used after any call that may have pushed one or more drafts
+   * (tool outcome, async job acceptance, final answer resolution) so a
+   * still-connected client — and, from S2, the API forwarding layer — can
+   * observe the ordered fact log as it happens.
+   */
+  private *drainNewTurnEventStreamEvents(
+    turnState: TurnExecutionState,
+    sinceIndex: number
+  ): Generator<RuntimeTurnStreamEvent> {
+    for (let index = sinceIndex; index < turnState.turnEvents.length; index += 1) {
+      yield { type: "turn_event", event: turnState.turnEvents[index]! };
+    }
+  }
+
   private createTurnExecutionState(): TurnExecutionState {
     return {
       sharedCompaction: {
@@ -6166,6 +6303,7 @@ export class TurnExecutionService {
       closedOpenLoopRefs: [],
       discoveredFilePathSet: [],
       deliveryFacts: createEmptyTurnDeliveryFacts(),
+      turnEvents: [],
       currentChatId: null,
       workspaceId: "",
       loadedCatalogToolCodes: new Set<string>(),
@@ -6496,15 +6634,29 @@ export class TurnExecutionService {
     iteration: number
   ): void {
     const billingFacts = this.extractBillingFactsFromToolPayload(outcome.payload);
+    const toolInvocationExecutionMode = this.resolveToolInvocationExecutionMode(outcome.payload);
+    const toolInvocationOk = outcome.exchange.toolResult.isError !== true;
     turnState.toolInvocations.push({
       name: outcome.exchange.toolCall.name,
       iteration,
-      ok: outcome.exchange.toolResult.isError !== true,
+      ok: toolInvocationOk,
       toolCallId: outcome.exchange.toolCall.id,
-      ...(this.resolveToolInvocationExecutionMode(outcome.payload) === undefined
+      ...(toolInvocationExecutionMode === undefined
         ? {}
-        : { executionMode: this.resolveToolInvocationExecutionMode(outcome.payload)! }),
+        : { executionMode: toolInvocationExecutionMode }),
       ...(billingFacts === null ? {} : { billingFacts })
+    });
+    // ADR-170 — `tool_call` draft the moment the invocation is recorded.
+    // Deliberately no `iteration`: the loop counter is not an ordering key.
+    this.pushTurnEventDraft(turnState, {
+      kind: "tool_call",
+      at: new Date().toISOString(),
+      name: outcome.exchange.toolCall.name,
+      ok: toolInvocationOk,
+      toolCallId: outcome.exchange.toolCall.id,
+      ...(toolInvocationExecutionMode === undefined
+        ? {}
+        : { executionMode: toolInvocationExecutionMode })
     });
     recordTurnDeliveryFactsFromToolOutcome({
       tracker: turnState.deliveryFacts,
@@ -6571,6 +6723,12 @@ export class TurnExecutionService {
         if (existingIndex >= 0) {
           turnState.artifacts[existingIndex] = artifact;
         } else {
+          // ADR-170 D2.1 — the runtime never emits `delivery`: it has no
+          // durable chat attachment id at this point, only its own
+          // `artifactId`, which would force a later artifact-to-attachment
+          // reconciliation. `delivery` is appended exclusively by the
+          // server-side append primitive, at attachment-row creation, for
+          // both in-loop synchronous attachments and late job deliveries.
           turnState.artifacts.push(artifact);
         }
         const fileHandle: RuntimeFileHandle = {
@@ -8004,8 +8162,19 @@ export class TurnExecutionService {
     assistantText: string,
     respondedAt: string | null,
     trace?: RuntimeTrace,
-    turnState?: TurnExecutionState
+    turnState?: TurnExecutionState,
+    // ADR-170 — reason for the `turn_stopped` draft; each call site passes
+    // the specific circumstance already available there (user abort vs
+    // provider-stream-failed vs provider-stream-ended vs a caught error).
+    reason = "interrupted"
   ): RuntimeInterruptedEvent {
+    if (turnState !== undefined) {
+      this.pushTurnEventDraft(turnState, {
+        kind: "turn_stopped",
+        at: new Date().toISOString(),
+        reason
+      });
+    }
     return {
       type: "interrupted",
       requestId: acceptedTurn.receipt.requestId,
@@ -8099,6 +8268,14 @@ export class TurnExecutionService {
     if (turnState === undefined) {
       return event;
     }
+    // ADR-170 — `turn_failed` draft the moment the terminal failure event is
+    // built, for every `failAcceptedTurnQuietly` branch (single funnel).
+    // `message` is the human-readable reason already available on the event.
+    this.pushTurnEventDraft(turnState, {
+      kind: "turn_failed",
+      at: new Date().toISOString(),
+      reason: event.message
+    });
     return {
       ...event,
       ...(turnState.artifacts.length === 0 ? {} : { artifacts: [...turnState.artifacts] }),

@@ -282,7 +282,10 @@ const TESTS: TestEntry[] = [
   // failing anywhere in the standard gate. Register them so this cannot
   // regress silently again.
   { modulePath: "./deferred-media-acknowledgement.test.ts", mode: "node-test" },
-  { modulePath: "./deferred-document-acknowledgement.test.ts", mode: "node-test" }
+  { modulePath: "./deferred-document-acknowledgement.test.ts", mode: "node-test" },
+  // ADR-170 S1 — turn event log contract + emission.
+  { modulePath: "./note-display.test.ts", mode: "node-test" },
+  { modulePath: "./turn-event-emission.test.ts", exportName: "runTurnEventEmissionTest" }
 ];
 
 function runOneTest(entry: TestEntry): Promise<void> {
