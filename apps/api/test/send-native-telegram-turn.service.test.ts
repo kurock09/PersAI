@@ -1,11 +1,42 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, test } from "node:test";
 import { AssistantRuntimeError } from "../src/modules/workspace-management/application/assistant-runtime.facade";
-import { SendNativeTelegramTurnService } from "../src/modules/workspace-management/application/send-native-telegram-turn.service";
+import {
+  projectTelegramTurnEventsBody,
+  SendNativeTelegramTurnService
+} from "../src/modules/workspace-management/application/send-native-telegram-turn.service";
 import type { AssistantMaterializedSpecRepository } from "../src/modules/workspace-management/domain/assistant-materialized-spec.repository";
 
 const ORIGINAL_ENV = process.env;
 const TELEGRAM_SESSION_ROOT = "/workspace/assistants/assistant-1/sessions/session-1";
+
+/**
+ * Stands in for `AppendTurnEventsService`: the durable writer numbers drafts in
+ * arrival order, which is all Telegram's projection depends on.
+ */
+const numberDraftsAsDurableLog = (
+  drafts: readonly unknown[]
+): ReturnType<typeof projectTelegramTurnEventsBody> extends string
+  ? Parameters<typeof projectTelegramTurnEventsBody>[0]
+  : never =>
+  drafts.map((draft, index) => ({
+    ...(draft as Record<string, unknown>),
+    seq: index + 1
+  })) as Parameters<typeof projectTelegramTurnEventsBody>[0];
+
+const TURN_EVENT_CALLBACKS = { onTurnEventsCompleted: numberDraftsAsDurableLog };
+
+/** One terminal `answer_text` draft for a turn whose body is a single segment. */
+function answerTextDrafts(text: string): Array<Record<string, unknown>> {
+  return [
+    {
+      kind: "answer_text",
+      at: "2026-04-12T10:00:00.000Z",
+      draftKey: "telegram-fixture-answer",
+      text
+    }
+  ];
+}
 
 function setApiEnv(overrides?: Record<string, string | undefined>): void {
   process.env = {
@@ -50,6 +81,18 @@ afterEach(() => {
 });
 
 describe("SendNativeTelegramTurnService", () => {
+  test("projects only visible durable text in seq order", () => {
+    assert.equal(
+      projectTelegramTurnEventsBody([
+        { kind: "answer_text", seq: 5, text: "Answer." },
+        { kind: "delivery", seq: 4 },
+        { kind: "tool_call", seq: 2 },
+        { kind: "note", seq: 1, text: "Note.\n\n" },
+        { kind: "tool_call", seq: 3 }
+      ]),
+      "Note.\n\nAnswer."
+    );
+  });
   test("builds a native Telegram runtime stream request with direct conversation identity", async () => {
     setApiEnv();
     const originalFetch = globalThis.fetch;
@@ -110,6 +153,7 @@ describe("SendNativeTelegramTurnService", () => {
               requestId: "runtime-request-1",
               sessionId: "runtime-session-1",
               assistantText: "telegram hello",
+              turnEvents: answerTextDrafts("telegram hello"),
               artifacts: [
                 {
                   artifactId: "artifact-1",
@@ -191,6 +235,7 @@ describe("SendNativeTelegramTurnService", () => {
           currentTimeIso: "2026-04-12T10:00:00.000Z"
         },
         {
+          ...TURN_EVENT_CALLBACKS,
           onTool: (event) => {
             toolEvents.push(event);
           }
@@ -303,6 +348,7 @@ describe("SendNativeTelegramTurnService", () => {
               requestId: "runtime-request-2",
               sessionId: "runtime-session-2",
               assistantText: "group hello",
+              turnEvents: answerTextDrafts("group hello"),
               artifacts: [],
               respondedAt: "2026-04-12T10:00:01.000Z",
               usage: null
@@ -323,36 +369,39 @@ describe("SendNativeTelegramTurnService", () => {
         findByPublishedVersionId: async () => createMaterializedSpec()
       } as AssistantMaterializedSpecRepository);
 
-      await service.execute({
-        assistantId: "assistant-1",
-        publishedVersionId: "version-1",
-        runtimeTier: "paid_shared_restricted",
-        workspaceId: "workspace-1",
-        threadId: "-10012345",
-        externalUserKey: null,
-        mode: "group",
-        channelContext: {
-          telegram: {
-            schema: "persai.runtime.telegramContext.v1",
-            chat: {
-              id: "-10012345",
-              type: "supergroup",
-              title: "Team"
-            },
-            sender: {
-              telegramUserId: "888",
-              username: "sam",
-              firstName: "Sam",
-              lastName: "Lee",
-              displayName: "Sam Lee"
-            },
-            accessMode: "group_members"
-          }
+      await service.execute(
+        {
+          assistantId: "assistant-1",
+          publishedVersionId: "version-1",
+          runtimeTier: "paid_shared_restricted",
+          workspaceId: "workspace-1",
+          threadId: "-10012345",
+          externalUserKey: null,
+          mode: "group",
+          channelContext: {
+            telegram: {
+              schema: "persai.runtime.telegramContext.v1",
+              chat: {
+                id: "-10012345",
+                type: "supergroup",
+                title: "Team"
+              },
+              sender: {
+                telegramUserId: "888",
+                username: "sam",
+                firstName: "Sam",
+                lastName: "Lee",
+                displayName: "Sam Lee"
+              },
+              accessMode: "group_members"
+            }
+          },
+          userMessageId: "message-2",
+          userMessage: "@bot hi",
+          attachments: []
         },
-        userMessageId: "message-2",
-        userMessage: "@bot hi",
-        attachments: []
-      });
+        TURN_EVENT_CALLBACKS
+      );
 
       assert.deepEqual(capturedBody?.conversation, {
         assistantId: "assistant-1",
@@ -448,6 +497,7 @@ describe("SendNativeTelegramTurnService", () => {
               requestId: "runtime-request-recover",
               sessionId: "runtime-session-recover",
               assistantText: "replayed telegram answer",
+              turnEvents: answerTextDrafts("replayed telegram answer"),
               artifacts: [],
               respondedAt: "2026-04-12T10:00:02.000Z",
               usage: null
@@ -468,18 +518,21 @@ describe("SendNativeTelegramTurnService", () => {
         findByPublishedVersionId: async () => createMaterializedSpec()
       } as AssistantMaterializedSpecRepository);
 
-      const result = await service.execute({
-        assistantId: "assistant-1",
-        publishedVersionId: "version-1",
-        runtimeTier: "paid_shared_restricted",
-        workspaceId: "workspace-1",
-        threadId: "telegram-chat-1",
-        externalUserKey: "telegram-user-1",
-        mode: "direct",
-        userMessageId: "message-recover",
-        userMessage: "search the web",
-        attachments: []
-      });
+      const result = await service.execute(
+        {
+          assistantId: "assistant-1",
+          publishedVersionId: "version-1",
+          runtimeTier: "paid_shared_restricted",
+          workspaceId: "workspace-1",
+          threadId: "telegram-chat-1",
+          externalUserKey: "telegram-user-1",
+          mode: "direct",
+          userMessageId: "message-recover",
+          userMessage: "search the web",
+          attachments: []
+        },
+        TURN_EVENT_CALLBACKS
+      );
 
       assert.equal(result.assistantMessage, "replayed telegram answer");
       assert.equal(fetchCount, 3);
@@ -514,6 +567,7 @@ describe("SendNativeTelegramTurnService", () => {
               requestId: "runtime-request-tool-callback",
               sessionId: "runtime-session-tool-callback",
               assistantText: "tool callback did not break delivery",
+              turnEvents: answerTextDrafts("tool callback did not break delivery"),
               artifacts: [],
               respondedAt: "2026-04-12T10:00:03.000Z",
               usage: null
@@ -548,6 +602,7 @@ describe("SendNativeTelegramTurnService", () => {
           attachments: []
         },
         {
+          ...TURN_EVENT_CALLBACKS,
           onTool: () => {
             throw new Error("chat action failed");
           }
@@ -587,18 +642,21 @@ describe("SendNativeTelegramTurnService", () => {
 
       await assert.rejects(
         () =>
-          service.execute({
-            assistantId: "assistant-1",
-            publishedVersionId: "version-1",
-            runtimeTier: "paid_shared_restricted",
-            workspaceId: "workspace-1",
-            threadId: "telegram-chat-1",
-            externalUserKey: "telegram-user-1",
-            mode: "direct",
-            userMessageId: "message-1",
-            userMessage: "hello native telegram",
-            attachments: []
-          }),
+          service.execute(
+            {
+              assistantId: "assistant-1",
+              publishedVersionId: "version-1",
+              runtimeTier: "paid_shared_restricted",
+              workspaceId: "workspace-1",
+              threadId: "telegram-chat-1",
+              externalUserKey: "telegram-user-1",
+              mode: "direct",
+              userMessageId: "message-1",
+              userMessage: "hello native telegram",
+              attachments: []
+            },
+            TURN_EVENT_CALLBACKS
+          ),
         (error) => {
           const row = error as { errorObject?: { code?: string } };
           return row.errorObject?.code === "native_runtime_conflict";
@@ -619,18 +677,21 @@ describe("SendNativeTelegramTurnService", () => {
 
     await assert.rejects(
       () =>
-        service.execute({
-          assistantId: "assistant-1",
-          publishedVersionId: "version-1",
-          runtimeTier: "paid_shared_restricted",
-          workspaceId: "workspace-1",
-          threadId: "telegram-chat-1",
-          externalUserKey: "telegram-user-1",
-          mode: "direct",
-          userMessageId: "message-1",
-          userMessage: "hello native telegram",
-          attachments: []
-        }),
+        service.execute(
+          {
+            assistantId: "assistant-1",
+            publishedVersionId: "version-1",
+            runtimeTier: "paid_shared_restricted",
+            workspaceId: "workspace-1",
+            threadId: "telegram-chat-1",
+            externalUserKey: "telegram-user-1",
+            mode: "direct",
+            userMessageId: "message-1",
+            userMessage: "hello native telegram",
+            attachments: []
+          },
+          TURN_EVENT_CALLBACKS
+        ),
       (error) =>
         error instanceof AssistantRuntimeError &&
         error.code === "runtime_degraded" &&
@@ -698,18 +759,21 @@ describe("SendNativeTelegramTurnService", () => {
         findByPublishedVersionId: async () => createMaterializedSpec()
       } as AssistantMaterializedSpecRepository);
 
-      const result = await service.execute({
-        assistantId: "assistant-1",
-        publishedVersionId: "version-1",
-        runtimeTier: "paid_shared_restricted",
-        workspaceId: "workspace-1",
-        threadId: "telegram-chat-1",
-        externalUserKey: "telegram-user-1",
-        mode: "direct",
-        userMessageId: "message-1",
-        userMessage: "generate image",
-        attachments: []
-      });
+      const result = await service.execute(
+        {
+          assistantId: "assistant-1",
+          publishedVersionId: "version-1",
+          runtimeTier: "paid_shared_restricted",
+          workspaceId: "workspace-1",
+          threadId: "telegram-chat-1",
+          externalUserKey: "telegram-user-1",
+          mode: "direct",
+          userMessageId: "message-1",
+          userMessage: "generate image",
+          attachments: []
+        },
+        TURN_EVENT_CALLBACKS
+      );
 
       assert.equal(result.assistantMessage, "Tool completed, but follow-up text was interrupted.");
       assert.deepEqual(result.media, [
@@ -816,6 +880,7 @@ describe("SendNativeTelegramTurnService", () => {
               requestId: "runtime-request-ephemeral-1",
               sessionId: "runtime-session-ephemeral-1",
               assistantText: "done",
+              turnEvents: answerTextDrafts("done"),
               artifacts: [],
               respondedAt: "2026-07-25T19:00:01.000Z",
               usage: null
@@ -850,6 +915,7 @@ describe("SendNativeTelegramTurnService", () => {
           attachments: []
         },
         {
+          ...TURN_EVENT_CALLBACKS,
           onTool: (event) => {
             toolEvents.push(event);
           }

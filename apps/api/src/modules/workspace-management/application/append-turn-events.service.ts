@@ -322,12 +322,15 @@ export class AppendTurnEventsService {
     const existingLog = readStoredTurnEventsFromMetadata(current.metadata);
     const persistedBody = current.content;
 
-    if (concatenateAnswerTextEvents(existingLog) === persistedBody) {
+    if (concatenateNumberedTextEvents(existingLog) === persistedBody) {
       // D5.3 — already the same string: no write, no log line, no seq churn.
       return [];
     }
 
-    const { log, changed } = collapseAnswerTextToPersistedBody(existingLog, persistedBody);
+    const { log, changed, discardedNarration } = reconcileNumberedTextToPersistedBody(
+      existingLog,
+      persistedBody
+    );
 
     await tx.assistantChatMessage.update({
       where: { id: messageId },
@@ -340,7 +343,9 @@ export class AppendTurnEventsService {
     });
 
     this.logger.log(
-      `ADR-170 turn_event answer_text reconciled to persisted body messageId=${messageId}`
+      discardedNarration
+        ? `ADR-170 D5.4.1 turn_event narration discarded by settled-body rewrite messageId=${messageId}`
+        : `ADR-170 turn_event answer_text reconciled to persisted body messageId=${messageId}`
     );
 
     return changed;
@@ -410,11 +415,12 @@ type StoredTurnEvent = TurnEvent & { draftKey?: string; draftKeys?: string[] };
  */
 const RECONCILED_ANSWER_TEXT_DRAFT_KEY = "adr170-d5.3:reconciled-answer-text";
 
-/** ADR-170 D5.3 — the plain concatenation of a log's `answer_text` events, in their existing (already `seq`-ordered) array order. */
-function concatenateAnswerTextEvents(log: StoredTurnEvent[]): string {
+/** ADR-170 D5.4 — plain text projection in durable sequence order. */
+function concatenateNumberedTextEvents(log: StoredTurnEvent[]): string {
   return log
     .filter(
-      (event): event is StoredTurnEvent & { kind: "answer_text" } => event.kind === "answer_text"
+      (event): event is StoredTurnEvent & { kind: "note" | "answer_text" } =>
+        event.kind === "note" || event.kind === "answer_text"
     )
     .map((event) => event.text)
     .join("");
@@ -427,10 +433,10 @@ function concatenateAnswerTextEvents(log: StoredTurnEvent[]): string {
  * Called only once the caller has confirmed the plain concatenation of the
  * log's existing `answer_text` events does not already equal `persistedBody`.
  */
-function collapseAnswerTextToPersistedBody(
+function reconcileNumberedTextToPersistedBody(
   existingLog: StoredTurnEvent[],
   persistedBody: string
-): { log: StoredTurnEvent[]; changed: PublicTurnEvent[] } {
+): { log: StoredTurnEvent[]; changed: PublicTurnEvent[]; discardedNarration: boolean } {
   type StoredAnswerTextEvent = StoredTurnEvent & { kind: "answer_text" };
   const answerEntries: Array<{ index: number; event: StoredAnswerTextEvent }> = [];
   existingLog.forEach((event, index) => {
@@ -451,27 +457,67 @@ function collapseAnswerTextToPersistedBody(
       draftKeys: [RECONCILED_ANSWER_TEXT_DRAFT_KEY],
       text: persistedBody
     };
-    return { log: [...existingLog, tailEvent], changed: [projectTurnEventForWire(tailEvent)] };
+    return {
+      log: [...existingLog, tailEvent],
+      changed: [projectTurnEventForWire(tailEvent)],
+      discardedNarration: false
+    };
   }
 
   const [first, ...rest] = answerEntries as [
     { index: number; event: StoredAnswerTextEvent },
     ...Array<{ index: number; event: StoredAnswerTextEvent }>
   ];
+  const noteText = existingLog
+    .filter((event): event is StoredTurnEvent & { kind: "note" } => event.kind === "note")
+    .map((event) => event.text)
+    .join("");
+  // The question is only ever asked of the NOTES: whichever narration the
+  // settled body still opens with survives, and the answer is the rest. Asking
+  // it of notes-plus-answer would compare a stale answer against a corrected
+  // one and drop the characters between them.
+  const narrationSurvived = persistedBody.startsWith(noteText);
+  const survivingNoteLength = narrationSurvived
+    ? noteText.length
+    : longestCommonPrefix(noteText, persistedBody);
+  const discardedNarration = noteText.length > 0 && !narrationSurvived;
+  let remainingSurvivingLength = survivingNoteLength;
+  const reconciledNotes = discardedNarration
+    ? existingLog.map((event) => {
+        if (event.kind !== "note") return event;
+        const text = event.text.slice(0, Math.max(0, remainingSurvivingLength));
+        remainingSurvivingLength -= event.text.length;
+        return { ...event, text };
+      })
+    : existingLog;
+  const answerText = persistedBody.slice(survivingNoteLength);
   const mergedDraftKeys = Array.from(
     new Set(answerEntries.flatMap(({ event }) => event.draftKeys ?? []))
   );
   const collapsedEvent: StoredAnswerTextEvent = {
     ...first.event,
-    text: persistedBody,
+    text: answerText,
     ...(mergedDraftKeys.length > 0 ? { draftKeys: mergedDraftKeys } : {})
   };
   const removeAtIndex = new Set(rest.map(({ index }) => index));
-  const log = existingLog
+  const log = reconciledNotes
     .map((event, index) => (index === first.index ? collapsedEvent : event))
     .filter((_event, index) => !removeAtIndex.has(index));
 
-  return { log, changed: [projectTurnEventForWire(collapsedEvent)] };
+  return {
+    log,
+    changed: log
+      .filter((event) => event.kind === "note" || event.kind === "answer_text")
+      .map(projectTurnEventForWire),
+    discardedNarration
+  };
+}
+
+function longestCommonPrefix(left: string, right: string): number {
+  const length = Math.min(left.length, right.length);
+  let index = 0;
+  while (index < length && left[index] === right[index]) index += 1;
+  return index;
 }
 
 function applyDrafts(

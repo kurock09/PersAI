@@ -1529,12 +1529,9 @@ export class TurnExecutionService {
                 // every iteration, not just iteration 0. Not retroactively
                 // corrected by applyAssistantTextCorrections.
                 const stepNote = (event.result.text ?? "").trim();
+                const bodyBeforeStep = iterationBaseText;
                 if (stepNote.length > 0) {
                   toolStepTexts.push(stepNote);
-                  const noteTurnEvent = this.recordNoteTurnEvent(turnState, stepNote);
-                  if (noteTurnEvent !== null) {
-                    yield { type: "turn_event", event: noteTurnEvent };
-                  }
                 }
                 this.recordUsageEntry(turnState, {
                   stepType: iteration === 0 ? "main_turn" : "tool_loop_followup",
@@ -1546,6 +1543,21 @@ export class TurnExecutionService {
                   assembledText,
                   event.result.text
                 );
+                if (stepNote.length > 0) {
+                  // ADR-170 D5.4 — the note carries this step's growth of the
+                  // body, so concatenating text events reproduces it exactly.
+                  // The merge rules always extend the iteration's base text; if
+                  // that ever stops holding, carry the visible note rather than
+                  // a slice taken at the wrong offset.
+                  const noteTurnEvent = this.recordNoteTurnEvent(
+                    turnState,
+                    assembledText.startsWith(bodyBeforeStep)
+                      ? assembledText.slice(bodyBeforeStep.length)
+                      : stepNote,
+                    stepNote
+                  );
+                  if (noteTurnEvent !== null) yield { type: "turn_event", event: noteTurnEvent };
+                }
                 if (!catchUpLightPresentOnly) {
                   forceFinalTextOnly = false;
                 }
@@ -2404,11 +2416,18 @@ export class TurnExecutionService {
     // Segmentation is the S2 append primitive's job, not the runtime's: this
     // is emitted as one segment per resolution, in order, with no invented
     // boundaries. An empty answer (model chose silence) emits no event.
-    if (answerText.length > 0) {
+    const numberedText = turnState.turnEvents
+      .filter((event) => event.kind === "note" || event.kind === "answer_text")
+      .map((event) => event.text)
+      .join("");
+    const answerEventText = assistantText.startsWith(numberedText)
+      ? assistantText.slice(numberedText.length)
+      : answerText;
+    if (answerEventText.length > 0) {
       this.pushTurnEventDraft(turnState, {
         kind: "answer_text",
         at: new Date().toISOString(),
-        text: answerText
+        text: answerEventText
       });
     }
 
@@ -6302,16 +6321,17 @@ export class TurnExecutionService {
    */
   private recordNoteTurnEvent(
     turnState: TurnExecutionState,
-    stepText: string
+    bodySlice: string,
+    visibleStepText: string
   ): TurnEventDraft | null {
-    const trimmed = stepText.trim();
+    const trimmed = visibleStepText.trim();
     if (trimmed.length === 0) {
       return null;
     }
     return this.pushTurnEventDraft(turnState, {
       kind: "note",
       at: new Date().toISOString(),
-      text: trimmed,
+      text: bodySlice,
       display: resolveNoteDisplay(trimmed)
     });
   }

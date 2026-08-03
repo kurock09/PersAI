@@ -61,7 +61,7 @@ import {
 } from "../assistant-api-client";
 import type { ChatAttachment, ChatMessage } from "./use-chat";
 import { isAttachmentsOnlyPlaceholderText } from "./attachments-only-placeholder";
-import type { TurnEvent } from "@persai/contracts";
+import { isTurnEventVisibleOnSurface, type TurnEvent } from "@persai/contracts";
 
 hljs.registerLanguage("cpp", cpp);
 hljs.registerLanguage("c", cpp);
@@ -987,6 +987,9 @@ function buildTurnEventDisplay(
   const answerSegments: AnswerSegment[] = [];
 
   for (const event of sorted) {
+    if (!isTurnEventVisibleOnSurface("web", event.kind)) {
+      continue;
+    }
     if (event.kind === "note") {
       const text = event.text.trim();
       if (text.length === 0) {

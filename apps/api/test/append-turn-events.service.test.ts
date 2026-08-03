@@ -674,7 +674,7 @@ describe("append-turn-events.service", () => {
             seq: 2
           }
         ],
-        initialContent: "All good."
+        initialContent: "used a toolAll good."
       });
       const service = new AppendTurnEventsService(double.prisma as never);
 
@@ -745,6 +745,92 @@ describe("append-turn-events.service", () => {
       assert.equal((log[1] as { attachmentId: string }).attachmentId, "attachment-1");
       assert.equal((log[1] as { filename: string | null }).filename, "report.pdf");
       assert.equal((log[1] as { sizeBytes: number | null }).sizeBytes, 2048);
+    });
+
+    test("ADR-170 D5.4.1 self-check body replacement preserves seq while discarding superseded narration", async () => {
+      const double = createPrismaDouble({
+        initialTurnEvents: [
+          {
+            kind: "note",
+            at: new Date().toISOString(),
+            draftKey: "seed#1",
+            text: "I will inspect the source.\n\n",
+            display: "step",
+            seq: 1
+          },
+          {
+            kind: "tool_call",
+            at: new Date().toISOString(),
+            draftKey: "seed#2",
+            name: "web_search",
+            ok: true,
+            executionMode: "sync",
+            toolCallId: "tool-1",
+            seq: 2
+          },
+          {
+            kind: "answer_text",
+            at: new Date().toISOString(),
+            draftKey: "seed#3",
+            text: "Original answer.",
+            seq: 3
+          }
+        ],
+        initialContent: "Self-check replacement answer."
+      });
+      const service = new AppendTurnEventsService(double.prisma as never);
+      await service.reconcileAnswerTextToPersistedBody({ messageId: MESSAGE_ID });
+      const log = await service.getLog(MESSAGE_ID);
+      assert.deepEqual(
+        log.map((event) => event.seq),
+        [1, 2, 3]
+      );
+      assert.equal((log[0] as { text: string }).text, "");
+      assert.equal((log[2] as { text: string }).text, "Self-check replacement answer.");
+      assert.equal(
+        log
+          .filter((event) => event.kind === "note" || event.kind === "answer_text")
+          .map((event) => (event as { text: string }).text)
+          .join(""),
+        "Self-check replacement answer."
+      );
+    });
+
+    test("an ordinary answer correction keeps surviving narration and rewrites only the answer segment", async () => {
+      const double = createPrismaDouble({
+        initialTurnEvents: [
+          {
+            kind: "note",
+            at: new Date().toISOString(),
+            draftKey: "seed#1",
+            text: "Проверяю источник.\n\n",
+            display: "step",
+            seq: 1
+          },
+          {
+            kind: "answer_text",
+            at: new Date().toISOString(),
+            draftKey: "seed#2",
+            text: "Итог прежний.",
+            seq: 2
+          }
+        ],
+        // The narration survived verbatim and only the answer was corrected, so
+        // the shared opening must not be mistaken for discarded narration.
+        initialContent: "Проверяю источник.\n\nИтог другой."
+      });
+      const service = new AppendTurnEventsService(double.prisma as never);
+      await service.reconcileAnswerTextToPersistedBody({ messageId: MESSAGE_ID });
+      const log = await service.getLog(MESSAGE_ID);
+      assert.equal((log[0] as { text: string }).text, "Проверяю источник.\n\n");
+      assert.equal((log[1] as { text: string }).text, "Итог другой.");
+      assert.equal(
+        log
+          .filter((event) => event.kind === "note" || event.kind === "answer_text")
+          .map((event) => (event as { text: string }).text)
+          .join(""),
+        "Проверяю источник.\n\nИтог другой."
+      );
     });
 
     test("a silent turn (no answer_text events) plus a substituted body appends exactly one tail segment", async () => {

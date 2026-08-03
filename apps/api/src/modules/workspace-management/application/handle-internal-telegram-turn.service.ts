@@ -46,6 +46,7 @@ import { resolvePendingBrowserLoginFromRuntimeTurn } from "./resolve-pending-bro
 import type { PendingBrowserLoginState } from "@persai/runtime-contract";
 import { WebRuntimeSessionStateClientService } from "./web-runtime-session-state-client.service";
 import { ChatWakeCoordinator } from "./chat-wake-coordinator.service";
+import { AppendTurnEventsService } from "./append-turn-events.service";
 
 export interface InternalTelegramTurnResult {
   assistantMessage: string;
@@ -129,7 +130,13 @@ export class HandleInternalTelegramTurnService {
         currentTurnPreserved: 0,
         currentTurnReleased: 0
       })
-    }
+    },
+    @Optional()
+    @Inject(AppendTurnEventsService)
+    private readonly appendTurnEventsService?: Pick<
+      AppendTurnEventsService,
+      "append" | "getLog" | "releasePending" | "reconcileAnswerTextToPersistedBody"
+    >
   ) {}
 
   async execute(input: TelegramAdapterTurnRequest): Promise<InternalTelegramTurnResult> {
@@ -290,6 +297,68 @@ export class HandleInternalTelegramTurnService {
       // ADR-159 S2 — durable preparing window before runtime accept (receipt).
       await this.chatWakeCoordinator.admitUserTurn(chat.id);
       trace.stage("user_message_saved");
+      // ADR-170 S4 — Telegram needs the same durable message identity as web
+      // before its first runtime draft arrives, so the sole log writer can
+      // allocate seq values as facts occur. It is created lazily at the first
+      // event so a runtime that emits no drafts preserves Telegram's existing
+      // no-empty-message failure behavior.
+      let earlyAssistantMessageId: string | null = null;
+      const ensureEarlyAssistantMessage = async (): Promise<string> => {
+        if (earlyAssistantMessageId !== null) {
+          return earlyAssistantMessageId;
+        }
+        const created = await this.chatRepository.createMessage({
+          chatId: chat.id,
+          assistantId: resolved.assistantId,
+          author: "assistant",
+          content: "",
+          metadata: { sourceUserMessageId: userMessage.id }
+        });
+        earlyAssistantMessageId = created.id;
+        return created.id;
+      };
+      const appendTurnEvent = async (draft: import("@persai/runtime-contract").TurnEventDraft) => {
+        if (this.appendTurnEventsService === undefined) {
+          return;
+        }
+        const messageId = await ensureEarlyAssistantMessage();
+        try {
+          await this.appendTurnEventsService.append({
+            messageId,
+            drafts: [draft]
+          });
+        } catch (error) {
+          this.logger.warn(
+            `ADR-170 Telegram live turn_event append failed messageId=${messageId} kind=${draft.kind}: ${
+              error instanceof Error ? error.message : String(error)
+            }`
+          );
+        }
+      };
+      const completeTurnEvents = async (
+        drafts: import("@persai/runtime-contract").TurnEventDraft[]
+      ) => {
+        if (this.appendTurnEventsService === undefined || drafts.length === 0) {
+          return [];
+        }
+        const messageId = await ensureEarlyAssistantMessage();
+        try {
+          await this.appendTurnEventsService.append({
+            messageId,
+            drafts
+          });
+          return await this.appendTurnEventsService.getLog(messageId);
+        } catch (error) {
+          this.logger.warn(
+            `ADR-170 Telegram turn_event completion reconciliation failed messageId=${messageId}: ${
+              error instanceof Error ? error.message : String(error)
+            }`
+          );
+          return await this.appendTurnEventsService.getLog(messageId);
+        } finally {
+          this.appendTurnEventsService.releasePending(messageId);
+        }
+      };
 
       let enrichedMessage = input.message;
       let runtimeAttachments: ReturnType<typeof toRuntimeAttachmentRef>[] = [];
@@ -398,7 +467,9 @@ export class HandleInternalTelegramTurnService {
       let runtimeResponse: Awaited<ReturnType<SendNativeTelegramTurnService["execute"]>>;
       try {
         runtimeResponse = await this.sendNativeTelegramTurnService.execute(nativeTurnInput, {
-          onTool: input.onRuntimeTool
+          onTool: input.onRuntimeTool,
+          onTurnEvent: appendTurnEvent,
+          onTurnEventsCompleted: completeTurnEvents
         });
       } catch (error: unknown) {
         const retryWaitResult = await this.waitForRetryAfterCompactionConflict(
@@ -413,7 +484,9 @@ export class HandleInternalTelegramTurnService {
           queueWaitResult = retryWaitResult;
         }
         runtimeResponse = await this.sendNativeTelegramTurnService.execute(nativeTurnInput, {
-          onTool: input.onRuntimeTool
+          onTool: input.onRuntimeTool,
+          onTurnEvent: appendTurnEvent,
+          onTurnEventsCompleted: completeTurnEvents
         });
       }
       if (runtimeResponse.runtimeTrace) {
@@ -435,6 +508,7 @@ export class HandleInternalTelegramTurnService {
           discoveredFilePaths: runtimeResponse.discoveredFilePaths,
           deferredMediaJobCount: runtimeResponse.deferredMediaJobs?.length,
           sourceUserMessageId: userMessage.id,
+          reuseMessageId: earlyAssistantMessageId,
           toolExchanges:
             runtimeResponse.toolExchanges !== undefined && runtimeResponse.toolExchanges.length > 0
               ? runtimeResponse.toolExchanges
@@ -447,6 +521,17 @@ export class HandleInternalTelegramTurnService {
         });
         assistantMessageId = assistantChatMessage.id;
         trace.stage("assistant_message_saved");
+        try {
+          await this.appendTurnEventsService?.reconcileAnswerTextToPersistedBody({
+            messageId: assistantMessageId
+          });
+        } catch (error) {
+          this.logger.warn(
+            `ADR-170 Telegram persisted-body answer_text reconciliation failed messageId=${assistantMessageId}: ${
+              error instanceof Error ? error.message : String(error)
+            }`
+          );
+        }
       } catch (error) {
         await this.asyncJobHandleState.finalizeSourceTurn({
           assistantId: resolved.assistantId,

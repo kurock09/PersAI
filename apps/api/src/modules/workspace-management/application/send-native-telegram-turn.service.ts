@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import { loadApiConfig } from "@persai/config";
+import { isTurnEventVisibleOnSurface } from "@persai/contracts";
 import type {
   RuntimeFailedEvent,
   RuntimeAttachmentRef,
@@ -12,7 +13,9 @@ import type {
   RuntimeOutputArtifact,
   RuntimeTurnRequest,
   RuntimeTurnResult,
-  RuntimeTurnStreamEvent
+  RuntimeTurnStreamEvent,
+  TurnEvent,
+  TurnEventDraft
 } from "@persai/runtime-contract";
 import {
   ASSISTANT_MATERIALIZED_SPEC_REPOSITORY,
@@ -68,12 +71,48 @@ export interface SendNativeTelegramTurnCallbacks {
         isError: boolean;
       }) => Promise<void> | void)
     | undefined;
+  /**
+   * ADR-170 S4 — the caller owns the durable assistant-message identity, so
+   * it appends every runtime draft through the sole log writer.
+   */
+  onTurnEvent?: ((draft: TurnEventDraft) => Promise<void> | void) | undefined;
+  /**
+   * ADR-170 D3.3 — terminal replay of the full ordered draft list heals a
+   * missed live append. The returned durable, seq-numbered log is also the
+   * only input to Telegram's rendered body.
+   */
+  onTurnEventsCompleted: (
+    drafts: TurnEventDraft[]
+  ) => Promise<readonly TelegramTurnEvent[]> | readonly TelegramTurnEvent[];
 }
 
 interface JsonResponse {
   ok: boolean;
   status: number;
   body: unknown;
+}
+
+export type TelegramTurnEvent =
+  | { kind: "note"; seq: number; text: string }
+  | { kind: "answer_text"; seq: number; text: string }
+  | { kind: Exclude<TurnEvent["kind"], "note" | "answer_text">; seq: number };
+
+/**
+ * ADR-170 D6 — Telegram's visual form is one flat body. Visibility comes
+ * solely from the shared table; sorting is only by the durable event `seq`.
+ */
+export function projectTelegramTurnEventsBody(events: readonly TelegramTurnEvent[]): string {
+  return [...events]
+    .sort((left, right) => left.seq - right.seq)
+    .reduce((body, event) => {
+      if (
+        !isTurnEventVisibleOnSurface("telegram", event.kind) ||
+        (event.kind !== "note" && event.kind !== "answer_text")
+      ) {
+        return body;
+      }
+      return body + event.text;
+    }, "");
 }
 
 @Injectable()
@@ -87,7 +126,7 @@ export class SendNativeTelegramTurnService {
 
   async execute(
     input: SendNativeTelegramTurnInput,
-    callbacks?: SendNativeTelegramTurnCallbacks
+    callbacks: SendNativeTelegramTurnCallbacks
   ): Promise<AssistantRuntimeWebChatTurnResult> {
     const config = loadApiConfig(process.env);
     const baseUrl = config.PERSAI_RUNTIME_BASE_URL?.trim();
@@ -206,7 +245,7 @@ export class SendNativeTelegramTurnService {
     url: string;
     request: RuntimeTurnRequest;
     signal: AbortSignal;
-    callbacks: SendNativeTelegramTurnCallbacks | undefined;
+    callbacks: SendNativeTelegramTurnCallbacks;
     timeoutMs: number;
     originalError: unknown;
   }): Promise<AssistantRuntimeWebChatTurnResult> {
@@ -245,7 +284,7 @@ export class SendNativeTelegramTurnService {
     url: string;
     request: RuntimeTurnRequest;
     signal: AbortSignal;
-    callbacks: SendNativeTelegramTurnCallbacks | undefined;
+    callbacks: SendNativeTelegramTurnCallbacks;
     streamState: { accepted: boolean };
   }): Promise<AssistantRuntimeWebChatTurnResult> {
     const response = await this.fetchStreamResponse(params.url, params.request, params.signal);
@@ -294,11 +333,8 @@ export class SendNativeTelegramTurnService {
         case "project_activity":
         case "project_reasoning_summary":
           continue;
-        // ADR-170 S2 — the durable log's projection for Telegram is S4 work
-        // (D6: one shared projection table, Telegram byte-identical to its
-        // current cumulative text). Accept and ignore here in the meantime;
-        // Telegram keeps assembling its own text exactly as it does today.
         case "turn_event":
+          await params.callbacks?.onTurnEvent?.(event.event);
           continue;
         case "tool_started":
           if (HIDDEN_RUNTIME_TOOL_NAMES.has(event.toolName)) {
@@ -330,6 +366,7 @@ export class SendNativeTelegramTurnService {
           continue;
         case "interrupted": {
           collectArtifacts(event.artifacts ?? []);
+          await params.callbacks.onTurnEventsCompleted(event.turnEvents ?? []);
           if (collectedMedia.length > 0) {
             return {
               assistantMessage: this.resolveDegradedAssistantMessage(event.assistantText),
@@ -342,6 +379,7 @@ export class SendNativeTelegramTurnService {
         }
         case "failed": {
           collectArtifacts(event.artifacts ?? []);
+          await params.callbacks.onTurnEventsCompleted(event.turnEvents ?? []);
           if (collectedMedia.length > 0) {
             return {
               assistantMessage: DEGRADED_TOOL_OUTPUT_MESSAGE,
@@ -354,8 +392,11 @@ export class SendNativeTelegramTurnService {
         }
         case "completed": {
           collectArtifacts(event.result.artifacts);
+          const turnEvents = await params.callbacks.onTurnEventsCompleted(
+            event.result.turnEvents ?? []
+          );
           return {
-            assistantMessage: event.result.assistantText,
+            assistantMessage: projectTelegramTurnEventsBody(turnEvents),
             respondedAt: event.result.respondedAt,
             media: collectedMedia,
             ...(event.result.textUsageAccounting === undefined

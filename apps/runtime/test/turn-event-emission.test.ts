@@ -22,7 +22,12 @@ import { TurnExecutionService } from "../src/modules/turns/turn-execution.servic
 
 type TurnEventEmissionAccessor = {
   createTurnExecutionState(): { turnEvents: TurnEventDraft[] } & Record<string, unknown>;
-  recordNoteTurnEvent(turnState: unknown, stepText: string): TurnEventDraft | null;
+  recordNoteTurnEvent(
+    turnState: unknown,
+    bodySlice: string,
+    visibleStepText: string
+  ): TurnEventDraft | null;
+  mergeAssistantTurnText(existingText: string, nextText: string | null): string;
   applyToolExecutionOutcome(turnState: unknown, outcome: unknown, iteration: number): void;
   createAsyncJobAcceptedStreamEvent(
     turnState: unknown,
@@ -36,7 +41,7 @@ type TurnEventEmissionAccessor = {
     routeDecision?: unknown,
     trace?: unknown,
     workingNotesAndAnswer?: unknown
-  ): { turnEvents?: TurnEventDraft[] };
+  ): { assistantText: string; turnEvents?: TurnEventDraft[] };
 };
 
 function buildMinimalTurnExecutionServiceForEvents(): TurnExecutionService {
@@ -111,7 +116,7 @@ export async function runTurnEventEmissionTest(): Promise<void> {
   };
 
   // ── Whitespace-only step text produces no `note` event ──
-  const whitespaceNote = accessor.recordNoteTurnEvent(turnState, "   \n\t  ");
+  const whitespaceNote = accessor.recordNoteTurnEvent(turnState, "", "   \n\t  ");
   assert.equal(whitespaceNote, null, "whitespace-only step text must not produce a note draft");
   assert.equal(
     turnState.turnEvents.length,
@@ -120,7 +125,11 @@ export async function runTurnEventEmissionTest(): Promise<void> {
   );
 
   // ── Fact 1: a pre-tool narration note ──
-  const noteDraft = accessor.recordNoteTurnEvent(turnState, "Let me check that file for you.");
+  const noteDraft = accessor.recordNoteTurnEvent(
+    turnState,
+    "Let me check that file for you.",
+    "Let me check that file for you."
+  );
   assert.notEqual(noteDraft, null);
   assert.equal(turnState.turnEvents.length, 1);
   assert.equal(turnState.turnEvents[0]?.kind, "note");
@@ -241,4 +250,37 @@ export async function runTurnEventEmissionTest(): Promise<void> {
       `turn event of kind "${event.kind}" must not carry an "iteration" field`
     );
   }
+
+  // D5.4 acceptance: both sides come from the runtime in this run. Provider
+  // segments are merged by its production assembly, then its emission points
+  // produce the durable text drafts; no expected body is fixture-authored.
+  const d54State = accessor.createTurnExecutionState();
+  let assembled = "";
+  for (const [index, segment] of ["First narration.", "Second narration."].entries()) {
+    const before = assembled;
+    assembled = accessor.mergeAssistantTurnText(assembled, segment);
+    accessor.recordNoteTurnEvent(d54State, assembled.slice(before.length), segment);
+    accessor.applyToolExecutionOutcome(
+      d54State,
+      buildToolExecutionOutcomeFixture({
+        toolCallId: `d54-tool-${String(index)}`,
+        name: "web_search",
+        payload: {}
+      }),
+      index
+    );
+  }
+  const finalBefore = assembled;
+  assembled = accessor.mergeAssistantTurnText(assembled, "Final answer.");
+  const d54Result = accessor.buildTurnResult(
+    acceptedTurn,
+    { ...providerResult, text: assembled },
+    d54State
+  );
+  const emittedText = (d54Result.turnEvents ?? [])
+    .filter((event) => event.kind === "note" || event.kind === "answer_text")
+    .map((event) => (event as { text: string }).text)
+    .join("");
+  assert.equal(emittedText, d54Result.assistantText);
+  assert.equal(finalBefore.length > 0, true);
 }

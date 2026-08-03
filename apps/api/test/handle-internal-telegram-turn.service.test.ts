@@ -203,6 +203,22 @@ function createChatRepositoryMock() {
         content: input.content,
         createdAt: new Date("2026-04-06T00:00:00.000Z")
       };
+    },
+    async updateMessageContent(messageId: string, _assistantId: string, content: string) {
+      return {
+        id: messageId,
+        author: "assistant",
+        content,
+        createdAt: new Date("2026-04-06T00:00:00.000Z")
+      };
+    },
+    async mergeMessageMetadata(messageId: string, _assistantId: string) {
+      return {
+        id: messageId,
+        author: "assistant",
+        content: "",
+        createdAt: new Date("2026-04-06T00:00:00.000Z")
+      };
     }
   };
 }

@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger } from "@nestjs/common";
+import { Inject, Injectable, Logger, Optional } from "@nestjs/common";
 import type { RuntimeChannelContext } from "@persai/runtime-contract";
 import type { RawInboundAttachment } from "./media/media.types";
 import { HandleInternalTelegramTurnService } from "./handle-internal-telegram-turn.service";
@@ -37,6 +37,7 @@ import { appendTelegramBrowserOpenInAppNotice } from "./extract-pending-browser-
 import { NotificationDeliveryWorkerService } from "./notifications/notification-delivery-worker.service";
 import { TelegramAlbumCollectorService } from "./telegram-album-collector.service";
 import { ResolveAssistantInboundRuntimeContextService } from "./resolve-assistant-inbound-runtime-context.service";
+import { AppendTurnEventsService } from "./append-turn-events.service";
 import {
   buildTelegramAlbumFallbackMessage,
   type ClaimedTelegramAlbumCollector,
@@ -550,7 +551,13 @@ export class TelegramChannelAdapterService {
     @Inject(ASSISTANT_CHAT_REPOSITORY)
     private readonly assistantChatRepository: AssistantChatRepository,
     @Inject(ASSISTANT_CHANNEL_SURFACE_BINDING_REPOSITORY)
-    private readonly bindingRepository: AssistantChannelSurfaceBindingRepository
+    private readonly bindingRepository: AssistantChannelSurfaceBindingRepository,
+    @Optional()
+    @Inject(AppendTurnEventsService)
+    private readonly appendTurnEventsService?: Pick<
+      AppendTurnEventsService,
+      "reconcileAnswerTextToPersistedBody"
+    >
   ) {}
 
   async finalizeCollectedAlbum(
@@ -1081,6 +1088,17 @@ export class TelegramChannelAdapterService {
         if (updated === null) {
           this.logger.warn(
             `Failed to persist final Telegram assistant message content for "${turnResult.assistantMessageId}".`
+          );
+        }
+        try {
+          await this.appendTurnEventsService?.reconcileAnswerTextToPersistedBody({
+            messageId: turnResult.assistantMessageId
+          });
+        } catch (error) {
+          this.logger.warn(
+            `ADR-170 Telegram final-body answer_text reconciliation failed messageId=${turnResult.assistantMessageId}: ${
+              error instanceof Error ? error.message : String(error)
+            }`
           );
         }
       }

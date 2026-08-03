@@ -309,6 +309,61 @@ intermediate slice would typecheck. S5 removes the old fields, and there is one
 push after S6, so no deployed state ever has two sources of order. An auditor
 reading a mid-program tree should treat coexistence as expected only before S5.
 
+### D5.4 — A numbered text event carries the exact slice of the body it contributed
+
+S4 exposed that concatenating the log's text events could not reproduce a turn's
+body. Two facts made it impossible: a `note` was emitted trimmed, and the runtime
+joins consecutive provider segments with a blank line through one internal rule
+(`mergeAssistantTurnText`, which inserts `\n\n` unless the boundary already has a
+newline and trims the next segment's start). Trimmed notes have lost exactly the
+whitespace that rule produced, so any surface concatenating them would have to
+re-implement the join — a second source of truth for text assembly, which is the
+defect class this ADR exists to remove. A first attempt at S4 hid this behind a
+test whose two sides were both hand-written, so it proved nothing; that test is
+not acceptable evidence.
+
+The rule is therefore: a numbered text event carries **the exact slice of the
+assembled body that event contributed**. The runtime already computes the merged
+body, so a step's `note` is the body's growth across that step and `answer_text`
+is the remainder after everything numbered. Concatenating text events in `seq`
+order then reproduces the body byte-for-byte **by construction**, on every
+surface, and no surface owns a join rule.
+
+Two consequences fall out. Trimming becomes purely presentational — a web step
+label may trim what it shows, which also removes the whitespace flicker at the
+boundary where the live tail is replaced by its numbered event. And the tail stays
+consistent with the same arithmetic, being the body after everything numbered.
+
+Corrections stay compatible because the runtime already treats notes as final and
+applies corrections to the answer, and because D5.3 reconciliation rewrites the
+trailing `answer_text` so the concatenation equals the persisted body. Any
+evidence that a correction rewrites earlier narration invalidates that and must be
+reported, not worked around.
+
+Equality must be proven against text the runtime actually produced. A fixture
+that authors both sides is circular and fails this decision.
+
+#### D5.4.1 — When a rewrite discards narration, the log says so
+
+One path breaks the stable-prefix assumption, and it is real:
+`runPostFinalChatPlanSelfCheck` sends the assembled body back to the provider with
+a reminder about open plan rows, and a non-empty answer **replaces the whole
+body**. Notes already emitted are then no longer its prefix. This fires only on a
+turn that did substantive work while a chat plan had open rows, so it is rare, but
+rare is not never and it cannot be assumed away.
+
+The log's obligation is to describe the settled message, so on that path
+settlement reconciliation makes the concatenation equal the persisted body again:
+the trailing `answer_text` becomes the body's remainder after the longest common
+prefix, and a note whose text did not survive into the body keeps its `seq` and
+loses its text. Emptying it is the honest outcome — the step still happened, and
+its `tool_call` event still says so; only the narration failed to survive. Nothing
+is renumbered, because a client may already hold those numbers, and a settled
+message is re-read whole rather than by `sinceSeq`.
+
+This path must be logged, so its real frequency is a measurement rather than an
+assumption.
+
 ### D6 — Per-surface difference is one projection table
 
 Which event kinds a surface shows, and in what visual form, is declared once as
