@@ -260,6 +260,7 @@ export class StreamWebChatTurnService {
     private readonly recordModelCostLedgerService: RecordModelCostLedgerService,
     private readonly recordToolPathLedgerFromToolInvocationsService: RecordToolPathLedgerFromToolInvocationsService,
     private readonly mediaDeliveryService: MediaDeliveryService,
+    @Inject(AppendTurnEventsService)
     private readonly appendTurnEventsService: TurnEventAppender,
     private readonly overviewLatencyTraceService: OverviewLatencyTraceService,
     private readonly platformHttpMetricsService: PlatformHttpMetricsService,
