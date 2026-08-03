@@ -112,8 +112,11 @@ Before claiming a change is clean, run:
 
 1. `corepack pnpm -r --if-present run lint`
 2. `corepack pnpm run format:check`
-3. `corepack pnpm --filter @persai/api run typecheck`
-4. `corepack pnpm --filter @persai/web run typecheck`
+3. `corepack pnpm -r --if-present run typecheck`
+
+Typecheck recursively, not just `@persai/api` and `@persai/web`: CI typechecks
+every package, and a green api/web pair has already let a broken
+`apps/runtime` typecheck reach `main`.
 
 If generated artifacts changed, regenerate them before running the checks.
 

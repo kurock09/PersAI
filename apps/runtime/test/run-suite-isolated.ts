@@ -1,11 +1,10 @@
 import { spawnSync } from "node:child_process";
 import { globSync, readFileSync } from "node:fs";
-import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 
-const require = createRequire(import.meta.url);
-const testDir = dirname(fileURLToPath(import.meta.url));
+// This package compiles as CommonJS, so `__dirname` is the portable way to
+// locate the suite; `import.meta` does not typecheck here.
+const testDir = __dirname;
 const tsxPackagePath = require.resolve("tsx/package.json");
 const tsxCliPath = join(dirname(tsxPackagePath), "dist", "cli.mjs");
 
