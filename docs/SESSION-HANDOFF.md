@@ -1,5 +1,59 @@
 # SESSION-HANDOFF
 
+## 2026-08-03 — ADR-170 turn event log: S1–S5 landed, audit repairs landed
+
+- **Scope:** the founder banned the client-side ordering heuristics that made a
+  media receipt jump to the top of a message, ride the cursor, or appear before
+  the narration that produced it, and banned any legacy or parallel path while
+  fixing it. `docs/ADR/170-turn-event-log-as-single-source-of-order.md` replaces
+  all of it with one server-numbered turn event log: the API allocates `seq` in a
+  single row-locked append primitive, web and Telegram render only what that log
+  says, in `seq` order.
+- **Landed locally on baseline `4c6738b0`:** S1 contract plus runtime emission,
+  S2 durable `seq` / persistence / SSE / `sinceSeq` catch-up, S2.1–S2.2 one
+  source for answer text plus the unnumbered live tail, S3a web rendering from
+  the log with the heuristic layer deleted, S3b typed provenance and merge-layer
+  removal, S4 Telegram projection, S5 legacy-field deletion (`e430fcf7`), and the
+  audit repairs (`f7e2feb1`).
+- **S5 also un-hid the runtime suite.** `run-suite-isolated.ts` was a
+  hand-curated list, which is how a reverted fix stayed reverted; it is now a
+  glob runner and 37 never-executed files run for the first time. Four were
+  genuinely stale (admission reservation semantics, a removed download stub with
+  an error-masking mock, a missing `runtimeSessionId`, a turn state without
+  `turnEvents`) and were repaired rather than skipped.
+- **Two independent audits returned DIRTY and both findings were real.** The
+  open-utterance gate lived in per-pod memory, so a deferred delivery appended by
+  a worker on another pod was numbered above the narration — the original bug,
+  reachable in production. It now lives in the log: opening an utterance reserves
+  a `seq` with an empty numbered text event that the next text event fills in
+  place, and the per-process gate map, held-delivery buffer, window and timer are
+  deleted (ADR D5.2.2). On the client a delivery at or after the first answer
+  text was drawn twice, in both the answer stream and the expanded process badge;
+  the sorted log is now partitioned once.
+- **Smaller audit repairs:** Telegram's interrupted and failed branches project
+  from the log instead of `assistantText` or a hardcoded string; the D5.4
+  note-slice fallback logs instead of failing silently; a test double that lacked
+  `reconcileAnswerTextToPersistedBody` hid the D5.3 path behind a caught warning;
+  `optimisticUserMessageIds` is bounded like the provenance maps beside it.
+- **ADR corrections rather than workarounds:** `assistantText` was never meant to
+  be deleted, `voice-stretch-pill` has a real reader in the dev geometry preview,
+  and the "deletes more lines than it adds" criterion is replaced by what matters
+  — the heuristic layer is net deleted and no new client-side ordering decision
+  exists.
+- **Gate run:** recursive lint, `format:check`, API and web typecheck, full API
+  suite, runtime glob suite (101 files), web serial suite 86 files / 1163 tests,
+  provider-gateway, sandbox, and API/runtime/web production builds. All green.
+- **Residuals:** four unrelated pre-existing test doubles still log
+  `... is not a function` in the API suite
+  (`assistantChatRepository.findMessageByIdForAssistant`,
+  `assistantDocumentJobCompletionTurnService.maybeFrameFailure`,
+  `prisma.assistantChat.findUnique`, `tx.assistantDocumentVersion.updateMany`),
+  which means those paths pass without being exercised. S7's mechanical
+  dead-export sweep across `apps/web` has not been done.
+- **Next:** push, deploy, and founder live acceptance of a mixed turn (two images
+  plus one document with narration between them) live, after commit, and after a
+  hard reload, plus a reconnect and a Stop mid-turn.
+
 ## 2026-08-02 — ADR-169 SMTP-permission modal repair
 
 - **Scope:** a successful OAuth callback does not prove SMTP access. The API

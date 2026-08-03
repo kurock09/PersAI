@@ -3,7 +3,39 @@
 > Archive: detailed historical entries from 2026-06-05 and earlier moved to `docs/CHANGELOG.archive-2026-06-05-details-and-earlier.md`; entries from 2026-05-19 and earlier remain in `docs/CHANGELOG.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: current entries plus concise recent summaries only.
 
-## 2026-08-02 (latest)
+## 2026-08-03 (latest)
+
+- **feat(api,web,runtime): one server-numbered turn event log decides process
+  order (ADR-170).** Media receipts used to jump to the top of a message, ride
+  the cursor, or appear before the narration that produced them, because the
+  client guessed order from content offsets, tool-call bindings and arrival
+  bookkeeping. All of that is deleted. The API now allocates `seq` in a single
+  row-locked append primitive, and web and Telegram render only what the log
+  says, in `seq` order, identically live, after commit, and after a reload.
+  Streaming text is an unnumbered tail the server computes, so nothing is
+  numbered while an utterance is open.
+- **fix(api): the open-utterance gate is in the log, not in pod memory.**
+  A deferred delivery is appended by a scheduler-leased worker on any API pod,
+  which saw no open utterance in its own process and numbered the receipt above
+  the narration. Opening an utterance now reserves a `seq` with an empty numbered
+  text event that the next text event fills in place, so any pod is serialised
+  behind it by the row lock. The per-process gate map, held-delivery buffer,
+  bounded window and timer are gone.
+- **fix(web): a receipt landing mid-answer no longer renders twice.** It was
+  pushed into both the answer stream and the process badge, so expanding
+  "Выполнено" drew the same card again.
+- **refactor(runtime): the test runner is a glob, not a hand-curated list.**
+  37 test files had never executed, which is how a previously fixed regression
+  stayed reverted. Four stale ones were repaired rather than skipped.
+- **chore(api,runtime,contracts): the legacy ordering surface is deleted.**
+  `workingNotes`, the presentational `toolInvocations` projection,
+  `inlineMediaPlacement`, `afterToolCallId`, `answerText`,
+  `stripToolInvocationsForClient` and the stale `backfill-working-notes` script
+  are gone from contracts, OpenAPI, persistence and every reader. No backfill and
+  no legacy renderer: a message written before this program simply shows no
+  process block.
+
+## 2026-08-02
 
 - **fix(api): stop refusing a mailbox connection that omits a refresh token.**
   Live Mail.ru callbacks proved the provider returns `access_token` and
