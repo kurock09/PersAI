@@ -824,6 +824,309 @@ describe("AssistantDocumentJobDeliveryService", () => {
     );
   });
 
+  test("ADR-170 D5.3: reconciles the log's answer_text to the persisted body on the legacy_frame web path", async () => {
+    const reconcileCalls: Array<{ messageId: string }> = [];
+
+    const service = new AssistantDocumentJobDeliveryService(
+      {
+        assistantAsyncJobHandle: {
+          findUnique: async () => null
+        },
+        assistantDocumentRenderJob: {
+          count: async () => 1,
+          updateMany: async () => ({ count: 1 })
+        },
+        $transaction: async <T>(callback: (tx: Record<string, unknown>) => Promise<T>) =>
+          callback({
+            assistantDocumentRenderJob: {
+              count: async () => 1,
+              updateMany: async () => ({ count: 1 })
+            },
+            assistantChatMessageAttachment: {
+              updateMany: async () => ({ count: 1 })
+            },
+            assistantDocumentVersion: {
+              update: async () => undefined,
+              updateMany: async () => ({ count: 1 })
+            },
+            assistantDocument: {
+              findUnique: async () => ({ currentVersionId: "version-3" }),
+              update: async () => undefined
+            }
+          })
+      } as never,
+      {
+        listByMessageId: async () => [
+          {
+            id: "attachment-reconcile-1",
+            messageId: "assistant-message-reconcile-1",
+            chatId: "chat-1",
+            assistantId: "assistant-1",
+            workspaceId: "workspace-1",
+            attachmentType: "document",
+            storagePath: "chat/deck-reconcile.pptx",
+            originalFilename: "deck-reconcile.pptx",
+            mimeType: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            sizeBytes: BigInt(42),
+            durationMs: null,
+            width: null,
+            height: null,
+            processingStatus: "ready",
+            transcription: null,
+            metadata: null,
+            createdAt: new Date("2026-05-15T16:00:00.000Z")
+          }
+        ]
+      } as never,
+      {
+        findMessageByIdForAssistant: async () => ({
+          id: "assistant-message-reconcile-1",
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          author: "assistant" as const,
+          content: "",
+          createdAt: new Date("2026-05-15T16:00:00.000Z")
+        }),
+        updateMessageContent: async () => null,
+        deleteMessage: async () => true
+      } as never,
+      {
+        async findById() {
+          return {
+            id: "assistant-1",
+            userId: "user-1",
+            workspaceId: "workspace-1",
+            draftDisplayName: null,
+            draftInstructions: null,
+            draftUpdatedAt: null,
+            applyStatus: "succeeded",
+            applyTargetVersionId: null,
+            applyAppliedVersionId: null,
+            applyRequestedAt: null,
+            applyStartedAt: null,
+            applyFinishedAt: null,
+            applyErrorCode: null,
+            applyErrorMessage: null,
+            createdAt: new Date(),
+            updatedAt: new Date()
+          };
+        }
+      } as never,
+      {
+        deliver: async () => ({ attachments: [] })
+      } as never,
+      {
+        async resolveByAssistantId() {
+          throw new Error("telegram resolution should not run for web jobs");
+        }
+      } as never,
+      {
+        async consumeAssistantMonthlyToolQuotaSuccessOnly() {}
+      } as never,
+      {
+        async maybeFrame() {
+          return null;
+        }
+      } as never,
+      noopRecordModelCostLedgerService,
+      noopAsyncJobHandleState,
+      noopLiveTurnPresent,
+      {
+        async reconcileAnswerTextToPersistedBody(input: { messageId: string }) {
+          reconcileCalls.push(input);
+          return [];
+        }
+      } as never
+    );
+
+    await service.deliverReadyJob({
+      id: "job-reconcile-web-1",
+      docId: "doc-1",
+      versionId: "version-4",
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      chatId: "chat-1",
+      surface: "web",
+      schedulerClaimToken: "claim-reconcile-web-1",
+      providerStatusJson: {
+        artifacts: [
+          {
+            source: "runtime_url",
+            url: "https://example.com/deck-reconcile.pptx",
+            type: "document"
+          }
+        ],
+        assistantText: "Updated deck is ready.",
+        externalDeliveryCommitted: true,
+        completionAssistantMessageId: "assistant-message-reconcile-1"
+      }
+    });
+
+    assert.deepEqual(reconcileCalls, [{ messageId: "assistant-message-reconcile-1" }]);
+  });
+
+  test("ADR-170 D5.3: does not reconcile telegram document deliveries — that surface emits no answer_text turn events", async () => {
+    const reconcileCalls: Array<{ messageId: string }> = [];
+
+    const service = new AssistantDocumentJobDeliveryService(
+      {
+        assistantAsyncJobHandle: {
+          findUnique: async () => null
+        },
+        assistantDocumentRenderJob: {
+          count: async () => 1,
+          updateMany: async () => ({ count: 1 })
+        },
+        $transaction: async <T>(callback: (tx: Record<string, unknown>) => Promise<T>) =>
+          callback({
+            assistantDocumentRenderJob: {
+              count: async () => 1,
+              updateMany: async () => ({ count: 1 })
+            },
+            assistantChatMessageAttachment: {
+              updateMany: async () => ({ count: 1 })
+            },
+            assistantDocumentVersion: {
+              update: async () => undefined,
+              updateMany: async () => ({ count: 1 })
+            },
+            assistantDocument: {
+              findUnique: async () => ({ currentVersionId: "version-3" }),
+              update: async () => undefined
+            }
+          })
+      } as never,
+      {
+        listByMessageId: async () => [
+          {
+            id: "attachment-reconcile-tg-1",
+            messageId: "assistant-message-reconcile-tg-1",
+            chatId: "chat-tg-1",
+            assistantId: "assistant-1",
+            workspaceId: "workspace-1",
+            attachmentType: "document",
+            storagePath: "chat/deck-reconcile-tg.pptx",
+            originalFilename: "deck-reconcile-tg.pptx",
+            mimeType: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            sizeBytes: BigInt(42),
+            durationMs: null,
+            width: null,
+            height: null,
+            processingStatus: "ready",
+            transcription: null,
+            metadata: null,
+            createdAt: new Date("2026-05-15T16:00:00.000Z")
+          }
+        ]
+      } as never,
+      {
+        findMessageByIdForAssistant: async () => ({
+          id: "assistant-message-reconcile-tg-1",
+          chatId: "chat-tg-1",
+          assistantId: "assistant-1",
+          author: "assistant" as const,
+          content: "",
+          createdAt: new Date("2026-05-15T16:00:00.000Z")
+        }),
+        updateMessageContent: async () => null,
+        deleteMessage: async () => true
+      } as never,
+      {
+        async findById() {
+          return {
+            id: "assistant-1",
+            userId: "user-1",
+            workspaceId: "workspace-1",
+            draftDisplayName: null,
+            draftInstructions: null,
+            draftUpdatedAt: null,
+            applyStatus: "succeeded",
+            applyTargetVersionId: null,
+            applyAppliedVersionId: null,
+            applyRequestedAt: null,
+            applyStartedAt: null,
+            applyFinishedAt: null,
+            applyErrorCode: null,
+            applyErrorMessage: null,
+            createdAt: new Date(),
+            updatedAt: new Date()
+          };
+        }
+      } as never,
+      {
+        deliver: async () => ({ attachments: [] })
+      } as never,
+      {
+        async resolveByAssistantId() {
+          return {
+            assistantId: "assistant-1",
+            workspaceId: "workspace-1",
+            locale: "en",
+            botToken: "bot-token-reconcile",
+            botUserId: 9,
+            botUsername: "persai_bot_reconcile",
+            inbound: true,
+            outbound: true,
+            groupReplyMode: "mention_reply",
+            parseMode: "plain_text",
+            defaultDeepModeEnabled: false,
+            accessMode: "owner_only",
+            ownerClaimStatus: "claimed",
+            ownerClaimCode: null,
+            ownerClaimCodeExpiresAt: null,
+            ownerTelegramUserId: 99,
+            ownerTelegramUsername: "alex_reconcile",
+            ownerTelegramChatId: "tg-reconcile-chat-1",
+            runtimeHealth: "ok",
+            webhookSecret: "secret-reconcile"
+          };
+        }
+      } as never,
+      {
+        async consumeAssistantMonthlyToolQuotaSuccessOnly() {}
+      } as never,
+      {
+        async maybeFrame() {
+          return null;
+        }
+      } as never,
+      noopRecordModelCostLedgerService,
+      noopAsyncJobHandleState,
+      noopLiveTurnPresent,
+      {
+        async reconcileAnswerTextToPersistedBody(input: { messageId: string }) {
+          reconcileCalls.push(input);
+          return [];
+        }
+      } as never
+    );
+
+    await service.deliverReadyJob({
+      id: "job-reconcile-tg-1",
+      docId: "doc-1",
+      versionId: "version-4",
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      chatId: "chat-tg-1",
+      surface: "telegram",
+      schedulerClaimToken: "claim-reconcile-tg-1",
+      providerStatusJson: {
+        artifacts: [
+          {
+            source: "runtime_url",
+            url: "https://example.com/deck-reconcile-tg.pptx",
+            type: "document"
+          }
+        ],
+        assistantText: "Обновлённая колода готова.",
+        externalDeliveryCommitted: true,
+        completionAssistantMessageId: "assistant-message-reconcile-tg-1"
+      }
+    });
+
+    assert.deepEqual(reconcileCalls, []);
+  });
+
   test("keeps the previous ready document current when a revision delivery fails", async () => {
     const documentUpdates: Array<Record<string, unknown>> = [];
     const renderJobUpdates: Array<Record<string, unknown>> = [];

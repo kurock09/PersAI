@@ -3234,4 +3234,273 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
     assert.deepEqual([3, ...openJobsSnapshotCounts], [3, 2, 1, 0]);
     assert.equal(openJobIds.size, 0);
   });
+
+  test("ADR-170 D5.3: reconciles the log's answer_text to the persisted body after a web completion settles", async () => {
+    const reconcileCalls: Array<{ messageId: string }> = [];
+    const service = new AssistantMediaJobCompletionDeliveryService(
+      {
+        $transaction: async <T>(callback: (tx: Record<string, unknown>) => Promise<T>) =>
+          callback({
+            $queryRaw: async () => [
+              {
+                id: "job-reconcile-web-1",
+                assistantId: "assistant-1",
+                userId: "user-1",
+                workspaceId: "workspace-1",
+                chatId: "chat-1",
+                surface: "web",
+                kind: "image",
+                sourceUserMessageId: "user-message-reconcile-1",
+                requestJson: {
+                  attachments: [],
+                  sourceUserMessageText: "draw a sunset",
+                  sourceUserMessageCreatedAt: "2026-05-05T09:00:00.000Z",
+                  directToolExecution: {
+                    toolCode: "image_generate",
+                    request: {
+                      toolCode: "image_generate",
+                      prompt: "draw a sunset",
+                      count: 1,
+                      filename: null,
+                      size: "1024x1024",
+                      background: "auto"
+                    }
+                  }
+                },
+                resultText: "Your image is ready.",
+                artifactsJson: [{ artifactId: "artifact-reconcile-1", kind: "image" }],
+                completionAssistantMessageId: null,
+                attemptCount: 1,
+                maxAttempts: 5
+              }
+            ],
+            assistantMediaJob: {
+              update: async () => undefined
+            }
+          }),
+        assistantAsyncJobHandle: {
+          findUnique: async () => null,
+          findMany: async () => []
+        },
+        assistantMediaJob: {
+          count: async () => 1,
+          findFirst: async () => null,
+          updateMany: async () => ({ count: 1 })
+        }
+      } as never,
+      {
+        createMessage: async () => ({
+          id: "assistant-message-reconcile-1",
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          content: "Your image is ready.",
+          createdAt: new Date("2026-05-05T09:10:00.000Z")
+        }),
+        findMessageByIdForAssistant: async () => ({
+          id: "msg",
+          content: "",
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          author: "assistant" as const,
+          createdAt: new Date()
+        }),
+        updateMessageContent: async () => null
+      } as never,
+      {
+        deliver: async () => ({
+          attachments: [
+            {
+              id: "attachment-reconcile-1",
+              originalFilename: "image.png"
+            }
+          ]
+        })
+      } as never,
+      {
+        async deliverPersistedAssistantMessageBestEffort() {
+          throw new Error("telegram reply should not run for web jobs");
+        }
+      } as never,
+      {
+        async resolveByAssistantId() {
+          throw new Error("telegram config should not resolve for web jobs");
+        }
+      } as never,
+      {
+        async maybeFrame() {
+          return { text: "Fresh current-context framing.", usage: null };
+        }
+      } as never,
+      noopRecordModelCostLedgerService,
+      noopAssistantRepository,
+      noopTrackWorkspaceQuotaUsageService,
+      {
+        async prepareDelivery() {
+          return "skip_legacy_frame";
+        },
+        async recordCanonicalCompletion() {
+          return { decision: "skip_legacy_frame", state: "ready" };
+        }
+      } as never,
+      noopLiveTurnPresent,
+      {
+        async reconcileAnswerTextToPersistedBody(input: { messageId: string }) {
+          reconcileCalls.push(input);
+          return [];
+        }
+      } as never
+    );
+
+    const processed = await service.processPendingBatch();
+
+    assert.equal(processed, 1);
+    assert.deepEqual(reconcileCalls, [{ messageId: "assistant-message-reconcile-1" }]);
+  });
+
+  test("ADR-170 D5.3: does not reconcile telegram deliveries — that surface emits no answer_text turn events", async () => {
+    const reconcileCalls: Array<{ messageId: string }> = [];
+    const service = new AssistantMediaJobCompletionDeliveryService(
+      {
+        $transaction: async <T>(callback: (tx: Record<string, unknown>) => Promise<T>) =>
+          callback({
+            $queryRaw: async () => [
+              {
+                id: "job-reconcile-tg-1",
+                assistantId: "assistant-1",
+                userId: "user-1",
+                workspaceId: "workspace-1",
+                chatId: "chat-tg-reconcile-1",
+                surface: "telegram",
+                kind: "image",
+                sourceUserMessageId: "user-message-reconcile-tg-1",
+                requestJson: {
+                  attachments: [],
+                  sourceUserMessageText: "рисуй закат",
+                  sourceUserMessageCreatedAt: "2026-05-05T09:00:00.000Z",
+                  directToolExecution: {
+                    toolCode: "image_generate",
+                    request: {
+                      toolCode: "image_generate",
+                      prompt: "рисуй закат",
+                      count: 1,
+                      filename: null,
+                      size: "1024x1024",
+                      background: "auto"
+                    }
+                  }
+                },
+                resultText: "Ваше изображение готово.",
+                artifactsJson: [{ artifactId: "artifact-reconcile-tg-1", kind: "image" }],
+                completionAssistantMessageId: null,
+                attemptCount: 1,
+                maxAttempts: 5
+              }
+            ],
+            assistantMediaJob: { update: async () => undefined }
+          }),
+        assistantAsyncJobHandle: {
+          findUnique: async () => null,
+          findMany: async () => []
+        },
+        assistantMediaJob: {
+          count: async () => 1,
+          findFirst: async () => null,
+          updateMany: async () => ({ count: 1 })
+        }
+      } as never,
+      {
+        createMessage: async () => ({
+          id: "assistant-message-reconcile-tg-1",
+          chatId: "chat-tg-reconcile-1",
+          assistantId: "assistant-1",
+          content: "",
+          createdAt: new Date("2026-05-05T09:10:00.000Z")
+        }),
+        findChatById: async () => ({
+          id: "chat-tg-reconcile-1",
+          assistantId: "assistant-1",
+          userId: "user-1",
+          workspaceId: "workspace-1",
+          surface: "telegram",
+          surfaceThreadKey: "telegram:tg-reconcile-chat-1:session:session-reconcile",
+          title: null,
+          deepModeEnabled: false,
+          skillDecisionState: null,
+          archivedAt: null,
+          lastMessageAt: null,
+          createdAt: new Date("2026-05-05T09:00:00.000Z"),
+          updatedAt: new Date("2026-05-05T09:00:00.000Z")
+        }),
+        findMessageByIdForAssistant: async () => ({
+          id: "msg",
+          content: "",
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          author: "assistant" as const,
+          createdAt: new Date()
+        }),
+        updateMessageContent: async () => null
+      } as never,
+      {
+        deliver: async () => ({
+          attachments: [{ id: "attachment-reconcile-tg-1", originalFilename: "image.png" }]
+        })
+      } as never,
+      {
+        async deliverPersistedAssistantMessageBestEffort() {
+          return { status: "delivered" };
+        }
+      } as never,
+      {
+        async resolveByAssistantId() {
+          return {
+            assistantId: "assistant-1",
+            workspaceId: "workspace-1",
+            locale: "ru",
+            botToken: "bot-token-reconcile",
+            botUserId: 9,
+            botUsername: "persai_bot_reconcile",
+            inbound: true,
+            outbound: true,
+            groupReplyMode: "mention_reply",
+            parseMode: "plain_text",
+            defaultDeepModeEnabled: false,
+            accessMode: "owner_only",
+            ownerClaimStatus: "claimed",
+            ownerClaimCode: null,
+            ownerClaimCodeExpiresAt: null,
+            ownerTelegramUserId: 99,
+            ownerTelegramUsername: "alex_reconcile",
+            ownerTelegramChatId: "tg-reconcile-chat-1",
+            runtimeHealth: "ok",
+            webhookSecret: "secret-reconcile"
+          };
+        }
+      } as never,
+      {
+        async maybeFrame() {
+          return { text: "Ваше изображение готово.", usage: null };
+        }
+      } as never,
+      noopRecordModelCostLedgerService,
+      noopAssistantRepository,
+      noopTrackWorkspaceQuotaUsageService,
+      // default `noopAsyncJobHandleState` returns "legacy_frame", so
+      // `applyFinalDeliveryHonestyCorrection` DOES run for this telegram job —
+      // reconciliation must still never be invoked for it.
+      noopAsyncJobHandleState,
+      noopLiveTurnPresent,
+      {
+        async reconcileAnswerTextToPersistedBody(input: { messageId: string }) {
+          reconcileCalls.push(input);
+          return [];
+        }
+      } as never
+    );
+
+    const processed = await service.processPendingBatch();
+
+    assert.equal(processed, 1);
+    assert.deepEqual(reconcileCalls, []);
+  });
 });

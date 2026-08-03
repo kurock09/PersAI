@@ -34,6 +34,9 @@ function createFinalizeBaseInput(overrides?: Record<string, unknown>) {
         createdAt: new Date("2026-06-23T00:00:00.000Z")
       })
     },
+    appendTurnEventsService: {
+      reconcileAnswerTextToPersistedBody: async () => []
+    },
     attachmentRepository: {
       listByMessageId: async () => []
     },
@@ -269,5 +272,93 @@ describe("complete web post-runtime turn", () => {
       skillDecisionState: { mode: "fallback" }
     });
     assert.deepEqual(warnings, ["skill failed: skill write failed"]);
+  });
+
+  describe("ADR-170 D5.3 — reconciles the turn event log once the final body is settled", () => {
+    test("reconciles the assistant message's own log after a delivery-honesty correction changes the persisted content", async () => {
+      const reconcileCalls: string[] = [];
+
+      const result = await finalizePersistedWebTurn(
+        createFinalizeBaseInput({
+          appendTurnEventsService: {
+            reconcileAnswerTextToPersistedBody: async (input: { messageId: string }) => {
+              reconcileCalls.push(input.messageId);
+              return [];
+            }
+          }
+        })
+      );
+
+      assert.deepEqual(reconcileCalls, ["assistant-msg-1"]);
+      assert.equal(result.finalAssistantContent, "hello back");
+    });
+
+    test("reconciles even when the correction is a no-op (content unchanged), so log/body parity does not depend on a write happening", async () => {
+      let updateMessageContentCalls = 0;
+      const reconcileCalls: string[] = [];
+
+      await finalizePersistedWebTurn(
+        createFinalizeBaseInput({
+          // assistantText === assistantMessage.content, so
+          // applyFinalDeliveryHonestyCorrection is a no-op and
+          // updateMessageContent must never be called — reconciliation still
+          // must run, because the log could still diverge from the body for
+          // reasons unrelated to whether THIS call wrote anything.
+          assistantChatRepository: {
+            findMessageByIdForAssistant: async () => null,
+            updateMessageContent: async (
+              messageId: string,
+              assistantId: string,
+              content: string
+            ) => {
+              updateMessageContentCalls += 1;
+              return {
+                id: messageId,
+                chatId: "chat-1",
+                assistantId,
+                author: "assistant",
+                content,
+                createdAt: new Date("2026-06-23T00:00:00.000Z")
+              };
+            }
+          },
+          appendTurnEventsService: {
+            reconcileAnswerTextToPersistedBody: async (input: { messageId: string }) => {
+              reconcileCalls.push(input.messageId);
+              return [];
+            }
+          }
+        })
+      );
+
+      assert.equal(updateMessageContentCalls, 0);
+      assert.deepEqual(reconcileCalls, ["assistant-msg-1"]);
+    });
+
+    test("a reconciliation failure is logged and swallowed — it must never fail turn completion", async () => {
+      const warnings: string[] = [];
+
+      const result = await finalizePersistedWebTurn(
+        createFinalizeBaseInput({
+          logger: {
+            warn(message: string) {
+              warnings.push(message);
+            }
+          },
+          appendTurnEventsService: {
+            reconcileAnswerTextToPersistedBody: async () => {
+              throw new Error("simulated reconciliation failure");
+            }
+          }
+        })
+      );
+
+      assert.equal(result.finalAssistantContent, "hello back");
+      assert.ok(
+        warnings.some((message) =>
+          message.includes("ADR-170 turn_event answer_text reconciliation failed")
+        )
+      );
+    });
   });
 });

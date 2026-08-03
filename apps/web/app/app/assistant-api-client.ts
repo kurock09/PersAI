@@ -221,6 +221,7 @@ import type {
   RuntimeTodoItem,
   AssistantBrowserProfileStatus
 } from "@persai/runtime-contract";
+import type { AssistantWebChatTextTail, TurnEvent } from "@persai/contracts";
 export type {
   AssistantBillingSubscriptionActionResult,
   AssistantBillingSubscriptionManagementState
@@ -432,6 +433,10 @@ type WebChatStreamEvent =
     }
   | { event: "runtime_done"; data: { respondedAt: string } }
   | { event: "stream_reset"; data: { reason: string; attempt: number } }
+  /** ADR-170 — the durable, seq-ordered turn-event log, one event per chunk. */
+  | { event: "turn_event"; data: { event: TurnEvent } }
+  /** ADR-170 D5.2.1 — unnumbered live remainder of the open utterance. */
+  | { event: "text_tail"; data: AssistantWebChatTextTail }
   | { event: "completed"; data: { transport: unknown } }
   | { event: "interrupted"; data: { transport: unknown } }
   | { event: "failed"; data: { code?: string; message: string; transport: unknown } }
@@ -544,6 +549,10 @@ export interface AssistantWebChatStreamHandlers {
   }) => void;
   onRuntimeDone?: (payload: { respondedAt: string }) => void;
   onStreamReset?: (payload: { reason: string; attempt: number }) => void;
+  /** ADR-170 — one durable, seq-ordered turn event as it lands (live or catch-up). */
+  onTurnEvent?: (payload: { event: TurnEvent }) => void;
+  /** ADR-170 D5.2.1 — full replacement text for the open live utterance. */
+  onTextTail?: (payload: AssistantWebChatTextTail) => void;
   onTurnStatus?: (payload: { turn: WebChatTurnStatusState }) => void;
   onReattached?: (payload: { turn: WebChatTurnStatusState; live: boolean }) => void;
   onPendingBrowserLogin?: (payload: { pendingBrowserLogin: PendingBrowserLoginState }) => void;
@@ -1407,6 +1416,29 @@ function toStreamEvent(eventName: string, payload: unknown): WebChatStreamEvent 
     const attempt = typeof body.attempt === "number" ? body.attempt : 0;
     return { event: "stream_reset", data: { reason, attempt } };
   }
+  if (eventName === "turn_event") {
+    if (
+      typeof body.event !== "object" ||
+      body.event === null ||
+      typeof (body.event as { seq?: unknown }).seq !== "number" ||
+      typeof (body.event as { kind?: unknown }).kind !== "string"
+    ) {
+      return null;
+    }
+    return { event: "turn_event", data: { event: body.event as TurnEvent } };
+  }
+  if (eventName === "text_tail") {
+    if (
+      (typeof body.messageId !== "string" && body.messageId !== null) ||
+      typeof body.text !== "string"
+    ) {
+      return null;
+    }
+    return {
+      event: "text_tail",
+      data: { messageId: body.messageId, text: body.text }
+    };
+  }
   if (eventName === "compaction") {
     if (
       (body.phase !== "start" && body.phase !== "end") ||
@@ -1607,6 +1639,10 @@ export async function streamAssistantWebChatTurn(
       handlers.onReattached?.(streamEvent.data);
     } else if (streamEvent.event === "pending_browser_login") {
       handlers.onPendingBrowserLogin?.(streamEvent.data);
+    } else if (streamEvent.event === "turn_event") {
+      handlers.onTurnEvent?.(streamEvent.data);
+    } else if (streamEvent.event === "text_tail") {
+      handlers.onTextTail?.(streamEvent.data);
     } else if (streamEvent.event === "completed") {
       sawTerminalEvent = true;
       handlers.onCompleted?.(streamEvent.data);
@@ -1747,6 +1783,8 @@ export async function reattachAssistantWebChatTurnStream(
     else if (streamEvent.event === "reattached") handlers.onReattached?.(streamEvent.data);
     else if (streamEvent.event === "pending_browser_login")
       handlers.onPendingBrowserLogin?.(streamEvent.data);
+    else if (streamEvent.event === "turn_event") handlers.onTurnEvent?.(streamEvent.data);
+    else if (streamEvent.event === "text_tail") handlers.onTextTail?.(streamEvent.data);
     else if (streamEvent.event === "completed") {
       sawTerminalEvent = true;
       handlers.onCompleted?.(streamEvent.data);
@@ -2993,6 +3031,8 @@ export type ChatHistoryMessage = {
   toolInvocations?: RuntimeTurnToolInvocation[];
   /** ADR-165 — organic in-loop image placement after F5 / history reload. */
   inlineMediaPlacement?: Array<{ toolCallId: string; attachmentIds: string[] }>;
+  /** ADR-170 — the durable, server-numbered fact log for this message's turn, sorted by `seq`. */
+  turnEvents?: TurnEvent[];
 };
 
 export type ChatCompactionState = AssistantWebChatCompactionState & {

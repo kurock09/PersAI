@@ -308,6 +308,56 @@ describe("useChat", () => {
     );
   });
 
+  it("ADR-170 D5.2.1 replaces the live turn tail addressed with a null message id", async () => {
+    let releaseStream: (() => void) | undefined;
+    let clearTail: (() => void) | undefined;
+    assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
+      async (
+        _token: string,
+        _payload: unknown,
+        handlers: {
+          onTextTail?: (payload: { messageId: string | null; text: string }) => void;
+        }
+      ) => {
+        handlers.onTextTail?.({ messageId: null, text: "Прив" });
+        handlers.onTextTail?.({ messageId: null, text: "Привет" });
+        clearTail = () => handlers.onTextTail?.({ messageId: null, text: "" });
+        await new Promise<void>((resolve) => {
+          releaseStream = resolve;
+        });
+      }
+    );
+
+    const { result } = renderHook(() => useChat("thread-1"), {
+      wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+    });
+
+    let sendPromise: Promise<void> | undefined;
+    await act(async () => {
+      sendPromise = result.current.send("Hello");
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      const assistant = result.current.messages.find((message) => message.role === "assistant");
+      expect(assistant?.textTail).toBe("Привет");
+    });
+
+    await act(async () => {
+      clearTail?.();
+    });
+
+    await waitFor(() => {
+      const assistant = result.current.messages.find((message) => message.role === "assistant");
+      expect(assistant?.textTail).toBe("");
+    });
+
+    await act(async () => {
+      releaseStream?.();
+      await sendPromise;
+    });
+  });
+
   it("carries the connected extension device on a desktop turn", async () => {
     browserBridgeMocks.getCachedCurrentLocalBrowserBridgeStatus.mockReturnValue({
       connected: true,

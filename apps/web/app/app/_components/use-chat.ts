@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { useAuth } from "@clerk/nextjs";
-import { ContractsApiError } from "@persai/contracts";
+import { ContractsApiError, type TurnEvent } from "@persai/contracts";
 import { useTranslations } from "next-intl";
 import {
   compactChat,
@@ -126,6 +126,10 @@ export interface ChatMessage {
   suppressMediaReceipts?: boolean;
   /** Local-only streaming hint: true while text deltas are actively being appended. */
   streamingTextActive?: boolean;
+  /** ADR-170 D5.2.1 — full unnumbered remainder of the open live utterance. */
+  textTail?: string;
+  /** ADR-170 — the durable, server-numbered fact log for this message's turn, sorted by `seq`. */
+  turnEvents?: TurnEvent[];
 }
 export interface RecentAutoCompactionNotice {
   detectedAt: string;
@@ -868,8 +872,34 @@ function toCommittedChatMessage(message: ChatHistoryMessage): ChatMessage | null
       ? { toolInvocations: message.toolInvocations }
       : {}),
     ...(inlineMediaPlacement !== undefined ? { inlineMediaPlacement } : {}),
+    ...(Array.isArray(message.turnEvents) && message.turnEvents.length > 0
+      ? { turnEvents: message.turnEvents }
+      : {}),
     attachments: attachmentsWithInline
   };
+}
+
+/**
+ * ADR-170 D5.1 — a live `turn_event` chunk is keyed by `seq`. An open
+ * `answer_text` event grows in place at the same `seq`, so this replaces the
+ * existing entry for that `seq` rather than appending a second one; any other
+ * `seq` is inserted in order. The client never recomputes position — it only
+ * merges by identity and keeps the array sorted.
+ */
+function mergeTurnEventIntoMessage(message: ChatMessage, event: TurnEvent): ChatMessage {
+  const prior = Array.isArray(message.turnEvents) ? message.turnEvents : [];
+  const existingIndex = prior.findIndex((candidate) => candidate.seq === event.seq);
+  if (existingIndex !== -1) {
+    const next = [...prior];
+    next[existingIndex] = event;
+    return { ...message, turnEvents: next };
+  }
+  const insertAt = prior.findIndex((candidate) => candidate.seq > event.seq);
+  const next =
+    insertAt === -1
+      ? [...prior, event]
+      : [...prior.slice(0, insertAt), event, ...prior.slice(insertAt)];
+  return { ...message, turnEvents: next };
 }
 
 function reconcileAuthoritativeAssistantContent(
@@ -1244,7 +1274,8 @@ function demoteLiveAssistantLifecycleStatuses(
     return {
       ...message,
       status: terminalKind,
-      streamingTextActive: false
+      streamingTextActive: false,
+      textTail: ""
     };
   });
 }
@@ -4225,6 +4256,40 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                   streamingTextActive: true
                 }));
               },
+              onTurnEvent: ({ event }) => {
+                const assistantMessageId = resolveLiveAssistantId();
+                if (assistantMessageId === null) {
+                  return;
+                }
+                applyThreadMessages(targetThreadKey, (prev) =>
+                  prev.map((message) =>
+                    message.id === assistantMessageId
+                      ? { ...mergeTurnEventIntoMessage(message, event), textTail: "" }
+                      : message
+                  )
+                );
+              },
+              onTextTail: ({ messageId, text }) => {
+                const liveAssistantMessageId = resolveLiveAssistantId();
+                const assistantMessageId = messageId ?? liveAssistantMessageId;
+                if (assistantMessageId === null) {
+                  return;
+                }
+                applyThreadMessages(targetThreadKey, (prev) => {
+                  const targetAssistantMessageId = prev.some(
+                    (message) => message.id === assistantMessageId
+                  )
+                    ? assistantMessageId
+                    : liveAssistantMessageId;
+                  return targetAssistantMessageId === null
+                    ? prev
+                    : prev.map((message) =>
+                        message.id === targetAssistantMessageId
+                          ? { ...message, textTail: text }
+                          : message
+                      );
+                });
+              },
               onThinking: ({ accumulated }) => {
                 const assistantMessageId = resolveLiveAssistantId();
                 if (assistantMessageId === null) {
@@ -5482,6 +5547,28 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
             pendingDelta.raf = requestAnimationFrame(() => flushDelta());
           }
         },
+        onTurnEvent: ({ event }: { event: TurnEvent }) => {
+          applyThreadMessages(sendThreadKey, (prev) =>
+            prev.map((message) =>
+              message.id === assistantMsgId
+                ? { ...mergeTurnEventIntoMessage(message, event), textTail: "" }
+                : message
+            )
+          );
+        },
+        onTextTail: ({ messageId, text }: { messageId: string | null; text: string }) => {
+          applyThreadMessages(sendThreadKey, (prev) => {
+            const targetAssistantMessageId =
+              messageId !== null && prev.some((message) => message.id === messageId)
+                ? messageId
+                : assistantMsgId;
+            return prev.map((message) => {
+              return message.id === targetAssistantMessageId
+                ? { ...message, textTail: text }
+                : message;
+            });
+          });
+        },
         onStreamReset: () => {
           cancelBufferedAssistantFlush();
           pendingDelta.text = "";
@@ -5882,6 +5969,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
               toolInvocations?: RuntimeTurnToolInvocation[];
               attachments?: ChatAttachment[];
               inlineMediaPlacement?: Array<{ toolCallId: string; attachmentIds: string[] }>;
+              turnEvents?: TurnEvent[];
             };
             followUpAssistantMessage?: {
               id?: string;
@@ -5993,6 +6081,14 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                   t.assistantMessage.toolInvocations.length > 0
                     ? t.assistantMessage.toolInvocations
                     : null;
+                // ADR-170 — the completed transport carries the authoritative,
+                // fully-healed log (D3.3); it fully replaces whatever was built
+                // incrementally from live `turn_event` chunks, never merges.
+                const authoritativeTurnEvents =
+                  Array.isArray(t?.assistantMessage?.turnEvents) &&
+                  t.assistantMessage.turnEvents.length > 0
+                    ? t.assistantMessage.turnEvents
+                    : null;
                 const mergedAttachments = (() => {
                   if (assistantAttachments === undefined) {
                     return m.attachments;
@@ -6028,7 +6124,11 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                   ...(authoritativeInlineMediaPlacement !== undefined
                     ? { inlineMediaPlacement: authoritativeInlineMediaPlacement }
                     : {}),
+                  ...(authoritativeTurnEvents !== null
+                    ? { turnEvents: authoritativeTurnEvents }
+                    : {}),
                   status: "committed" as const,
+                  textTail: "",
                   attachments: mergedAttachments
                 };
               }
@@ -6237,6 +6337,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                   ...(interruptedStopReason !== undefined
                     ? { stopReason: interruptedStopReason }
                     : {}),
+                  textTail: "",
                   thoughtFinishedAt:
                     m.thought && !m.thoughtFinishedAt
                       ? interruptedAt
@@ -6298,6 +6399,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                     ? { content: authoritativeAssistantContent }
                     : {}),
                   status: "partial" as const,
+                  textTail: "",
                   thoughtFinishedAt:
                     m.thought && !m.thoughtFinishedAt ? failedAt : (m.thoughtFinishedAt ?? null)
                 }
@@ -6581,6 +6683,26 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                 pendingDelta.raf = requestAnimationFrame(() => flushDelta());
               }
             },
+            onTurnEvent: ({ event }) => {
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === assistantMsgId
+                    ? { ...mergeTurnEventIntoMessage(m, event), textTail: "" }
+                    : m
+                )
+              );
+            },
+            onTextTail: ({ messageId, text }) => {
+              setMessages((prev) => {
+                const targetAssistantMessageId =
+                  messageId !== null && prev.some((message) => message.id === messageId)
+                    ? messageId
+                    : assistantMsgId;
+                return prev.map((m) =>
+                  m.id === targetAssistantMessageId ? { ...m, textTail: text } : m
+                );
+              });
+            },
             onStreamReset: () => {
               cancelBufferedAssistantFlush();
               pendingDelta.text = "";
@@ -6609,6 +6731,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                   workingNotes?: string[];
                   toolInvocations?: RuntimeTurnToolInvocation[];
                   attachments?: ChatAttachment[];
+                  turnEvents?: TurnEvent[];
                 };
                 runtime?: RuntimeTransportMeta;
               } | null;
@@ -6628,6 +6751,12 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                 Array.isArray(t?.assistantMessage?.toolInvocations) &&
                 t.assistantMessage.toolInvocations.length > 0
                   ? t.assistantMessage.toolInvocations
+                  : null;
+              // ADR-170 — fully replace, never merge with live-built events.
+              const authoritativeTurnEvents =
+                Array.isArray(t?.assistantMessage?.turnEvents) &&
+                t.assistantMessage.turnEvents.length > 0
+                  ? t.assistantMessage.turnEvents
                   : null;
               setMessages((prev) =>
                 prev.map((m) => {
@@ -6653,7 +6782,11 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                     ...(authoritativeToolInvocations !== null
                       ? { toolInvocations: authoritativeToolInvocations }
                       : {}),
+                    ...(authoritativeTurnEvents !== null
+                      ? { turnEvents: authoritativeTurnEvents }
+                      : {}),
                     status: "committed" as const,
+                    textTail: "",
                     attachments: assistantAttachments
                   };
                 })

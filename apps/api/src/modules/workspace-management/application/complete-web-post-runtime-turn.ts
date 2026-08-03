@@ -12,6 +12,7 @@ import type {
   RuntimeMediaArtifact
 } from "./assistant-runtime.facade";
 import type { AssistantDocumentJobReadService } from "./assistant-document-job-read.service";
+import type { AppendTurnEventsService } from "./append-turn-events.service";
 import type { AssistantAsyncJobHandleStateService } from "./assistant-async-job-handle-state.service";
 import type { AssistantMediaJobService } from "./workspace-media-job.service";
 import type { AutoSkillRoutingStateService } from "./auto-skill-routing-state.service";
@@ -70,6 +71,7 @@ function parseWebThreadProviderMessageId(providerRef: string | null): string | n
 
 async function persistFinalAssistantContentIfNeeded(input: {
   assistantChatRepository: Pick<AssistantChatRepository, "updateMessageContent">;
+  appendTurnEventsService: Pick<AppendTurnEventsService, "reconcileAnswerTextToPersistedBody">;
   logger: { warn(message: string): void };
   assistantMessage: Pick<AssistantChatMessage, "id" | "content">;
   assistantId: string;
@@ -89,17 +91,37 @@ async function persistFinalAssistantContentIfNeeded(input: {
     attemptedArtifactKind: input.attemptedArtifactKind,
     locale: input.locale
   });
-  if (finalAssistantContent === input.assistantMessage.content) {
-    return finalAssistantContent;
+  if (finalAssistantContent !== input.assistantMessage.content) {
+    const updated = await input.assistantChatRepository.updateMessageContent(
+      input.assistantMessage.id,
+      input.assistantId,
+      finalAssistantContent
+    );
+    if (updated === null) {
+      input.logger.warn(
+        `Failed to persist final delivery-honesty correction for assistant message "${input.assistantMessage.id}".`
+      );
+    }
   }
-  const updated = await input.assistantChatRepository.updateMessageContent(
-    input.assistantMessage.id,
-    input.assistantId,
-    finalAssistantContent
-  );
-  if (updated === null) {
+  // ADR-170 D5.3 — reconcile the log's `answer_text` segments to whatever the
+  // body actually settled to above (a fresh correction, or the pre-existing
+  // content when the correction happened to be a no-op — either way the log
+  // must not keep pointing at pre-correction drafts). Reads `content` fresh
+  // under its own row lock rather than trusting `finalAssistantContent`, so
+  // it is correct even if `updateMessageContent` above raced or no-opped.
+  // Best-effort: a failure here must never fail turn completion — the next
+  // settle of this same message (or a later delivery append noticing the
+  // divergence) is not guaranteed, but losing log/body parity is strictly
+  // better than losing the turn's response.
+  try {
+    await input.appendTurnEventsService.reconcileAnswerTextToPersistedBody({
+      messageId: input.assistantMessage.id
+    });
+  } catch (error) {
     input.logger.warn(
-      `Failed to persist final delivery-honesty correction for assistant message "${input.assistantMessage.id}".`
+      `ADR-170 turn_event answer_text reconciliation failed for assistant message "${input.assistantMessage.id}": ${
+        error instanceof Error ? error.message : String(error)
+      }`
     );
   }
   return finalAssistantContent;
@@ -226,6 +248,7 @@ export async function finalizePersistedWebTurn(input: {
     AssistantChatRepository,
     "findMessageByIdForAssistant" | "updateMessageContent"
   >;
+  appendTurnEventsService: Pick<AppendTurnEventsService, "reconcileAnswerTextToPersistedBody">;
   attachmentRepository: Pick<AssistantChatMessageAttachmentRepository, "listByMessageId">;
   assistantMediaJobService: Pick<AssistantMediaJobService, "listOpenJobsForWebChat">;
   assistantDocumentJobReadService: Pick<AssistantDocumentJobReadService, "listOpenJobsForWebChat">;
@@ -311,6 +334,7 @@ export async function finalizePersistedWebTurn(input: {
   const deliveredAttachments = [...alreadyDeliveredAttachments, ...delivered.attachments];
   const finalAssistantContent = await persistFinalAssistantContentIfNeeded({
     assistantChatRepository: input.assistantChatRepository,
+    appendTurnEventsService: input.appendTurnEventsService,
     logger: input.logger,
     assistantMessage: input.assistantMessage,
     assistantId: input.assistantId,

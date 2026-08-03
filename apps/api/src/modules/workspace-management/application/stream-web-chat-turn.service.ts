@@ -242,6 +242,15 @@ export type StreamWebChatTurnOutcome =
   | StreamWebChatTurnOutcomeInterrupted
   | StreamWebChatTurnOutcomeFailed;
 
+type TurnEventAppender = Pick<
+  AppendTurnEventsService,
+  | "append"
+  | "releasePending"
+  | "reconcileAnswerTextToPersistedBody"
+  | "openUtterance"
+  | "closeUtterance"
+>;
+
 @Injectable()
 export class StreamWebChatTurnService {
   private readonly logger = new Logger(StreamWebChatTurnService.name);
@@ -261,7 +270,7 @@ export class StreamWebChatTurnService {
     private readonly recordModelCostLedgerService: RecordModelCostLedgerService,
     private readonly recordToolPathLedgerFromToolInvocationsService: RecordToolPathLedgerFromToolInvocationsService,
     private readonly mediaDeliveryService: MediaDeliveryService,
-    private readonly appendTurnEventsService: AppendTurnEventsService,
+    private readonly appendTurnEventsService: TurnEventAppender,
     private readonly overviewLatencyTraceService: OverviewLatencyTraceService,
     private readonly platformHttpMetricsService: PlatformHttpMetricsService,
     private readonly attachmentObjectAvailabilityService: AttachmentObjectAvailabilityService,
@@ -435,6 +444,7 @@ export class StreamWebChatTurnService {
        * this turn, live, in the order the append primitive assigned `seq`.
        */
       onTurnEvent?: (events: PublicTurnEvent[]) => void;
+      onTextTail?: (payload: { messageId: string | null; text: string }) => void;
       onDone: (respondedAt: string) => void;
       /**
        * Fired when the cadence watchdog has detected a stalled stream and we are
@@ -905,6 +915,7 @@ export class StreamWebChatTurnService {
       const postRuntime = await finalizePersistedWebTurn({
         logger: this.logger,
         assistantChatRepository: this.assistantChatRepository,
+        appendTurnEventsService: this.appendTurnEventsService,
         attachmentRepository: this.attachmentRepository,
         assistantMediaJobService: this.assistantMediaJobService,
         assistantDocumentJobReadService: this.assistantDocumentJobReadService,
@@ -1641,6 +1652,7 @@ export class StreamWebChatTurnService {
         afterToolCallId?: string;
       }) => void;
       onTurnEvent?: (events: PublicTurnEvent[]) => void;
+      onTextTail?: (payload: { messageId: string | null; text: string }) => void;
       onDone: (respondedAt: string) => void;
       onPendingBrowserLogin?: (state: PendingBrowserLoginState) => void;
     };
@@ -1689,6 +1701,32 @@ export class StreamWebChatTurnService {
     let primaryFirstDeltaMs = input.primaryFirstDeltaMs;
     let toolEventCount = 0;
     let capturedStallReport: CadenceWatchdogStallReport | null = null;
+    // ADR-170 D5.2.1 — the unnumbered remainder of the open utterance. It is
+    // addressed by the durable assistant message id when one already exists,
+    // and by `null` ("the live turn") when it does not: the tail must never
+    // force a message row into existence, because when the row is created is
+    // ADR-167's decision, not this feature's.
+    let utteranceTail = "";
+    let tailMessageId: string | null = null;
+    let tailSent = false;
+
+    const clearTextTail = (terminal = false) => {
+      if (tailSent) {
+        input.callbacks.onTextTail?.({ messageId: tailMessageId, text: "" });
+        if (terminal && tailMessageId !== null) {
+          void this.appendTurnEventsService.closeUtterance(tailMessageId).catch((error) => {
+            this.logger.warn(
+              `ADR-170 text_tail terminal gate flush failed messageId=${String(tailMessageId)}: ${
+                error instanceof Error ? error.message : String(error)
+              }`
+            );
+          });
+        }
+      }
+      utteranceTail = "";
+      tailMessageId = null;
+      tailSent = false;
+    };
 
     const internalAbort = new AbortController();
     const watchdog = createCadenceWatchdog(
@@ -1724,6 +1762,7 @@ export class StreamWebChatTurnService {
         ...(combinedSignal === undefined ? {} : { signal: combinedSignal })
       })) {
         if (input.callbacks.isClientAborted()) {
+          clearTextTail(true);
           return {
             status: "client-aborted",
             accumulated,
@@ -1757,6 +1796,16 @@ export class StreamWebChatTurnService {
           watchdog.recordDelta();
           accumulated += chunk.delta;
           input.callbacks.onDelta(chunk.delta, accumulated);
+          utteranceTail += chunk.delta;
+          // Read the identity, never create it, and stay await-free: this runs
+          // once per token. The gate only has meaning once a message exists,
+          // because a delivery can only target an existing message.
+          tailMessageId = input.liveSyncMediaPresent.earlyAssistantMessageId;
+          if (tailMessageId !== null) {
+            this.appendTurnEventsService.openUtterance(tailMessageId);
+          }
+          tailSent = true;
+          input.callbacks.onTextTail?.({ messageId: tailMessageId, text: utteranceTail });
         }
 
         if (
@@ -1922,6 +1971,9 @@ export class StreamWebChatTurnService {
               ? {}
               : { onTurnEvent: input.callbacks.onTurnEvent })
           });
+          if (chunk.turnEvent.kind === "note" || chunk.turnEvent.kind === "answer_text") {
+            clearTextTail();
+          }
         }
 
         if (
@@ -2013,6 +2065,7 @@ export class StreamWebChatTurnService {
           }
           input.trace.stage("runtime_done");
           input.callbacks.onDone(chunk.respondedAt);
+          clearTextTail(true);
         }
       }
     } catch (error) {
@@ -2033,6 +2086,7 @@ export class StreamWebChatTurnService {
             : { onTurnEvent: input.callbacks.onTurnEvent })
         });
       }
+      clearTextTail(true);
       // If the abort came from our internal watchdog (and not the client), this
       // is a stall, not a real error. Propagate everything else upward so the
       // outer `try/catch` in `streamToCompletion` can persist a partial state

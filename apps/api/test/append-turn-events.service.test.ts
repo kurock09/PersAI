@@ -11,6 +11,8 @@ function createPrismaDouble(
     messageExists?: boolean;
     initialTurnEvents?: TurnEvent[];
     initialMetadata?: Record<string, unknown>;
+    /** ADR-170 D5.3 — the `assistant_chat_messages.content` column this message's row currently holds. */
+    initialContent?: string;
     /** ADR-170 D3.3 — 1-indexed `$transaction` call numbers that should throw, simulating a transient DB hiccup on that specific attempt only. */
     failTransactionCalls?: Set<number>;
   } = {}
@@ -20,6 +22,7 @@ function createPrismaDouble(
     ...(input.initialMetadata ?? {}),
     ...(input.initialTurnEvents === undefined ? {} : { turnEvents: input.initialTurnEvents })
   };
+  let content = input.initialContent ?? "";
   let updateCalls = 0;
   let transactionCallCount = 0;
   // Serializes concurrent `$transaction` bodies onto a single queue, the same
@@ -35,12 +38,12 @@ function createPrismaDouble(
         if (!exists) {
           throw new Error("record not found");
         }
-        return { metadata };
+        return { metadata, content };
       },
       update: async (args: { data: { metadata: Record<string, unknown> } }) => {
         updateCalls += 1;
         metadata = args.data.metadata;
-        return { metadata };
+        return { metadata, content };
       }
     }
   };
@@ -72,7 +75,10 @@ function createPrismaDouble(
   return {
     prisma,
     getMetadata: () => metadata,
-    updateCalls: () => updateCalls
+    updateCalls: () => updateCalls,
+    setContent: (next: string) => {
+      content = next;
+    }
   };
 }
 
@@ -586,5 +592,353 @@ describe("append-turn-events.service", () => {
     const drained = await service.append({ messageId: MESSAGE_ID, drafts: [] });
     assert.deepEqual(drained, []);
     assert.equal(double.updateCalls(), updateCallsAfterSuccess);
+  });
+
+  test("ADR-170 D5.2.1 — a delivery held behind an open utterance receives its seq after the closing note, while a later delivery appends immediately", async () => {
+    const double = createPrismaDouble();
+    const service = new AppendTurnEventsService(double.prisma as never);
+
+    service.openUtterance(MESSAGE_ID);
+    assert.deepEqual(
+      await service.append({ messageId: MESSAGE_ID, drafts: [delivery("tail-delivery-1")] }),
+      []
+    );
+
+    const closed = await service.append({
+      messageId: MESSAGE_ID,
+      drafts: [note("the utterance that was streaming", "tail-gate#0")]
+    });
+    assert.deepEqual(
+      closed.map((event) => event.kind),
+      ["note", "delivery"]
+    );
+    assert.deepEqual(
+      closed.map((event) => event.seq),
+      [1, 2]
+    );
+
+    const immediate = await service.append({
+      messageId: MESSAGE_ID,
+      drafts: [delivery("tail-delivery-2")]
+    });
+    assert.equal(immediate.length, 1);
+    assert.equal(immediate[0]?.kind, "delivery");
+    assert.equal(immediate[0]?.seq, 3);
+  });
+
+  test("ADR-170 D5.2.1 — terminal close drains a held delivery and releasePending removes all per-message state", async () => {
+    const double = createPrismaDouble();
+    const service = new AppendTurnEventsService(double.prisma as never);
+
+    service.openUtterance(MESSAGE_ID);
+    await service.append({ messageId: MESSAGE_ID, drafts: [delivery("terminal-delivery")] });
+    const drained = await service.closeUtterance(MESSAGE_ID);
+    assert.equal(drained.length, 1);
+    assert.equal(drained[0]?.kind, "delivery");
+
+    service.releasePending(MESSAGE_ID);
+    assert.deepEqual(await service.append({ messageId: MESSAGE_ID, drafts: [] }), []);
+  });
+
+  test("ADR-170 D5.2.1 — the five-second safety window releases a delivery when an utterance never closes", async () => {
+    const double = createPrismaDouble();
+    const service = new AppendTurnEventsService(double.prisma as never);
+
+    service.openUtterance(MESSAGE_ID);
+    await service.append({ messageId: MESSAGE_ID, drafts: [delivery("stalled-tail-delivery")] });
+    await new Promise((resolve) => setTimeout(resolve, 5_050));
+
+    const log = await service.getLog(MESSAGE_ID);
+    assert.equal(log.length, 1);
+    assert.equal(log[0]?.kind, "delivery");
+    service.releasePending(MESSAGE_ID);
+  });
+
+  describe("reconcileAnswerTextToPersistedBody (ADR-170 D5.3)", () => {
+    test("concatenation already equal to the persisted body produces zero writes", async () => {
+      const double = createPrismaDouble({
+        initialTurnEvents: [
+          {
+            kind: "note",
+            at: new Date().toISOString(),
+            draftKey: "seed#1",
+            text: "used a tool",
+            display: "step",
+            seq: 1
+          },
+          {
+            kind: "answer_text",
+            at: new Date().toISOString(),
+            draftKey: "seed#2",
+            text: "All good.",
+            seq: 2
+          }
+        ],
+        initialContent: "All good."
+      });
+      const service = new AppendTurnEventsService(double.prisma as never);
+
+      const result = await service.reconcileAnswerTextToPersistedBody({ messageId: MESSAGE_ID });
+
+      assert.deepEqual(result, []);
+      assert.equal(double.updateCalls(), 0);
+
+      const log = await service.getLog(MESSAGE_ID);
+      assert.deepEqual(
+        log.map((event) => event.seq),
+        [1, 2]
+      );
+      assert.equal((log[1] as { text: string }).text, "All good.");
+    });
+
+    test("a correction that strips a link collapses two answer_text segments into one carrying the first segment's seq, while a delivery event between them keeps its own seq and payload", async () => {
+      const double = createPrismaDouble({
+        initialTurnEvents: [
+          {
+            kind: "answer_text",
+            at: new Date().toISOString(),
+            draftKey: "seed#1",
+            text: "Here is your file: ",
+            seq: 1
+          },
+          {
+            kind: "delivery",
+            at: new Date().toISOString(),
+            attachmentId: "attachment-1",
+            artifactKind: "document",
+            filename: "report.pdf",
+            sizeBytes: 2048,
+            seq: 2
+          },
+          {
+            kind: "answer_text",
+            at: new Date().toISOString(),
+            draftKey: "seed#3",
+            text: "[report.pdf](/workspace/report.pdf)",
+            seq: 3
+          }
+        ],
+        // The delivery-honesty correction strips the undelivered local-path
+        // link, so the persisted body no longer matches the raw concatenation
+        // ("Here is your file: [report.pdf](/workspace/report.pdf)").
+        initialContent: "Here is your file: report.pdf"
+      });
+      const service = new AppendTurnEventsService(double.prisma as never);
+
+      const result = await service.reconcileAnswerTextToPersistedBody({ messageId: MESSAGE_ID });
+
+      assert.equal(result.length, 1);
+      assert.equal(result[0]?.kind, "answer_text");
+      assert.equal(result[0]?.seq, 1);
+      assert.equal((result[0] as { text: string }).text, "Here is your file: report.pdf");
+      assert.equal(double.updateCalls(), 1);
+
+      const log = await service.getLog(MESSAGE_ID);
+      assert.equal(log.length, 2);
+      assert.equal(log[0]?.kind, "answer_text");
+      assert.equal(log[0]?.seq, 1);
+      assert.equal((log[0] as { text: string }).text, "Here is your file: report.pdf");
+      // The delivery event keeps its OWN seq and payload untouched — not
+      // renumbered, not moved, not merged.
+      assert.equal(log[1]?.kind, "delivery");
+      assert.equal(log[1]?.seq, 2);
+      assert.equal((log[1] as { attachmentId: string }).attachmentId, "attachment-1");
+      assert.equal((log[1] as { filename: string | null }).filename, "report.pdf");
+      assert.equal((log[1] as { sizeBytes: number | null }).sizeBytes, 2048);
+    });
+
+    test("a silent turn (no answer_text events) plus a substituted body appends exactly one tail segment", async () => {
+      const double = createPrismaDouble({
+        initialTurnEvents: [
+          {
+            kind: "delivery",
+            at: new Date().toISOString(),
+            attachmentId: "attachment-2",
+            artifactKind: "image",
+            filename: "picture.png",
+            sizeBytes: 1024,
+            seq: 1
+          }
+        ],
+        // The model answered with silence; the honesty correction substituted
+        // a fallback body since attachments were delivered.
+        initialContent: "Media sent."
+      });
+      const service = new AppendTurnEventsService(double.prisma as never);
+
+      const result = await service.reconcileAnswerTextToPersistedBody({ messageId: MESSAGE_ID });
+
+      assert.equal(result.length, 1);
+      assert.equal(result[0]?.kind, "answer_text");
+      assert.equal(result[0]?.seq, 2);
+      assert.equal((result[0] as { text: string }).text, "Media sent.");
+
+      const log = await service.getLog(MESSAGE_ID);
+      assert.equal(log.length, 2);
+      assert.equal(log[0]?.kind, "delivery");
+      assert.equal(log[0]?.seq, 1);
+      assert.equal(log[1]?.kind, "answer_text");
+      assert.equal(log[1]?.seq, 2);
+      assert.equal((log[1] as { text: string }).text, "Media sent.");
+    });
+
+    test("a silent turn with no correction (persisted body stays empty) is a no-op", async () => {
+      const double = createPrismaDouble({
+        initialTurnEvents: [
+          {
+            kind: "turn_stopped",
+            at: new Date().toISOString(),
+            draftKey: "seed#1",
+            reason: "user_stopped",
+            seq: 1
+          }
+        ],
+        initialContent: ""
+      });
+      const service = new AppendTurnEventsService(double.prisma as never);
+
+      const result = await service.reconcileAnswerTextToPersistedBody({ messageId: MESSAGE_ID });
+
+      assert.deepEqual(result, []);
+      assert.equal(double.updateCalls(), 0);
+      const log = await service.getLog(MESSAGE_ID);
+      assert.equal(log.length, 1);
+    });
+
+    test("running the reconciliation twice for the same settled body is a no-op the second time", async () => {
+      const double = createPrismaDouble({
+        initialTurnEvents: [
+          {
+            kind: "answer_text",
+            at: new Date().toISOString(),
+            draftKey: "seed#1",
+            text: "Draft answer with a link.",
+            seq: 1
+          }
+        ],
+        initialContent: "Corrected answer without the link."
+      });
+      const service = new AppendTurnEventsService(double.prisma as never);
+
+      const first = await service.reconcileAnswerTextToPersistedBody({ messageId: MESSAGE_ID });
+      assert.equal(first.length, 1);
+      assert.equal(double.updateCalls(), 1);
+
+      const second = await service.reconcileAnswerTextToPersistedBody({ messageId: MESSAGE_ID });
+      assert.deepEqual(second, []);
+      assert.equal(double.updateCalls(), 1);
+
+      const log = await service.getLog(MESSAGE_ID);
+      assert.equal(log.length, 1);
+      assert.equal(log[0]?.seq, 1);
+      assert.equal((log[0] as { text: string }).text, "Corrected answer without the link.");
+    });
+
+    test("a collapse never renumbers or drops any non-answer event, even with several interleaved kinds", async () => {
+      const double = createPrismaDouble({
+        initialTurnEvents: [
+          {
+            kind: "note",
+            at: new Date().toISOString(),
+            draftKey: "seed#1",
+            text: "step one",
+            display: "step",
+            seq: 1
+          },
+          {
+            kind: "tool_call",
+            at: new Date().toISOString(),
+            draftKey: "seed#2",
+            name: "image_generate",
+            ok: true,
+            toolCallId: "call-1",
+            seq: 2
+          },
+          {
+            kind: "answer_text",
+            at: new Date().toISOString(),
+            draftKey: "seed#3",
+            text: "First segment. ",
+            seq: 3
+          },
+          {
+            kind: "delivery",
+            at: new Date().toISOString(),
+            attachmentId: "attachment-3",
+            artifactKind: "image",
+            filename: "photo.png",
+            sizeBytes: 512,
+            seq: 4
+          },
+          {
+            kind: "answer_text",
+            at: new Date().toISOString(),
+            draftKey: "seed#5",
+            text: "Second segment.",
+            seq: 5
+          },
+          {
+            kind: "turn_stopped",
+            at: new Date().toISOString(),
+            draftKey: "seed#6",
+            reason: "completed",
+            seq: 6
+          }
+        ],
+        initialContent: "Corrected final answer."
+      });
+      const service = new AppendTurnEventsService(double.prisma as never);
+
+      await service.reconcileAnswerTextToPersistedBody({ messageId: MESSAGE_ID });
+
+      const log = await service.getLog(MESSAGE_ID);
+      // Six events in, five events out — the two answer_text segments
+      // collapsed into one; every other kind survives with its own seq,
+      // in its original relative order.
+      assert.equal(log.length, 5);
+      assert.equal(log[0]?.kind, "note");
+      assert.equal(log[0]?.seq, 1);
+      assert.equal(log[1]?.kind, "tool_call");
+      assert.equal(log[1]?.seq, 2);
+      assert.equal(log[2]?.kind, "answer_text");
+      assert.equal(log[2]?.seq, 3);
+      assert.equal((log[2] as { text: string }).text, "Corrected final answer.");
+      assert.equal(log[3]?.kind, "delivery");
+      assert.equal(log[3]?.seq, 4);
+      assert.equal(log[4]?.kind, "turn_stopped");
+      assert.equal(log[4]?.seq, 6);
+    });
+
+    test("fails closed when the assistant message row is missing", async () => {
+      const double = createPrismaDouble({ messageExists: false });
+      const service = new AppendTurnEventsService(double.prisma as never);
+
+      await assert.rejects(
+        () => service.reconcileAnswerTextToPersistedBody({ messageId: MESSAGE_ID }),
+        (error: unknown) => error instanceof NotFoundException
+      );
+    });
+
+    test("never exposes draftKey or draftKeys on the wire, even for a freshly collapsed or tail-appended event", async () => {
+      const double = createPrismaDouble({
+        initialTurnEvents: [
+          {
+            kind: "answer_text",
+            at: new Date().toISOString(),
+            draftKey: "seed#1",
+            text: "raw",
+            seq: 1
+          }
+        ],
+        initialContent: "corrected"
+      });
+      const service = new AppendTurnEventsService(double.prisma as never);
+
+      const result = await service.reconcileAnswerTextToPersistedBody({ messageId: MESSAGE_ID });
+      for (const event of [...result, ...(await service.getLog(MESSAGE_ID))]) {
+        assert.equal("draftKey" in event, false);
+        assert.equal("draftKeys" in event, false);
+      }
+    });
   });
 });

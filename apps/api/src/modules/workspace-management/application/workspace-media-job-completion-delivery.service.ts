@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger } from "@nestjs/common";
+import { Inject, Injectable, Logger, Optional } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { type RuntimeOutputArtifact, type RuntimeUsageSnapshot } from "@persai/runtime-contract";
 import {
@@ -9,6 +9,7 @@ import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assist
 import type { WorkspaceMonthlyToolQuotaToolCode } from "../domain/workspace-quota-accounting.repository";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import { runtimeOutputArtifactsToMediaArtifacts } from "./assistant-runtime.facade";
+import { AppendTurnEventsService } from "./append-turn-events.service";
 import {
   applyFinalDeliveryHonestyCorrection,
   buildPartialDeliveryShortfallLine
@@ -155,7 +156,19 @@ export class AssistantMediaJobCompletionDeliveryService {
       })
     },
     @Inject(WebChatLiveTurnPresentService)
-    private readonly liveTurnPresent: WebChatLiveTurnPresentService
+    private readonly liveTurnPresent: WebChatLiveTurnPresentService,
+    // ADR-170 D5.3 — trailing optional dep (default no-op), matching the
+    // `asyncJobHandleState` pattern above, so the many existing positional
+    // test instantiations of this service that predate ADR-170 keep working
+    // unchanged.
+    @Optional()
+    @Inject(AppendTurnEventsService)
+    private readonly appendTurnEventsService: Pick<
+      AppendTurnEventsService,
+      "reconcileAnswerTextToPersistedBody"
+    > = {
+      reconcileAnswerTextToPersistedBody: async () => []
+    }
   ) {}
 
   private async persistCompletionFramingLedger(input: {
@@ -519,6 +532,27 @@ export class AssistantMediaJobCompletionDeliveryService {
           assistantId: job.assistantId,
           nextText: finalText
         });
+      }
+      // ADR-170 D5.3 — same divergence class as the streamed-turn path
+      // reconciles in `persistFinalAssistantContentIfNeeded`:
+      // `applyFinalDeliveryHonestyCorrection` above can settle a body that no
+      // longer matches this message's `answer_text` log segments (e.g. media
+      // job async completion narration lands on the same open-turn message
+      // that already carries streamed `answer_text` events). This branch is
+      // web-only — the Telegram branch above already returned, and Telegram
+      // messages are not wired to emit `answer_text` turn events at all, so
+      // reconciling them would fabricate a first-ever log entry instead of
+      // correcting one. Best-effort: never let this fail job completion.
+      try {
+        await this.appendTurnEventsService.reconcileAnswerTextToPersistedBody({
+          messageId
+        });
+      } catch (error) {
+        this.logger.warn(
+          `ADR-170 turn_event answer_text reconciliation failed for assistant message "${messageId}": ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
       }
 
       const terminalStatus = delivered.attachments.length > 0 ? "delivered" : "failed";

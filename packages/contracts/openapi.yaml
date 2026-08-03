@@ -14192,6 +14192,23 @@ components:
         - $ref: "#/components/schemas/TurnJobAcceptedEvent"
         - $ref: "#/components/schemas/TurnStoppedEvent"
         - $ref: "#/components/schemas/TurnFailedEvent"
+    AssistantWebChatTextTail:
+      description: >-
+        ADR-170 D5.2.1 live-only unnumbered remainder of the current provider
+        utterance. SSE consumers replace `text`; an empty string clears it.
+        `messageId` is null while the turn has no durable assistant message row
+        yet, which means "the live turn" — the tail never forces a row to exist.
+      type: object
+      required:
+        - messageId
+        - text
+      properties:
+        messageId:
+          type: string
+          format: uuid
+          nullable: true
+        text:
+          type: string
     TurnNoteEvent:
       type: object
       required:

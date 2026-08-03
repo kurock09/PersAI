@@ -16,6 +16,12 @@ type PrismaTransactionClient = Prisma.TransactionClient;
  * long-lived pod is a worse outcome than a rare, logged, healed gap.
  */
 const PENDING_DRAFTS_MAX_LENGTH = 500;
+/**
+ * Five seconds is deliberately far longer than normal provider delta gaps,
+ * yet short enough that a lost/stalled stream cannot visibly hold a receipt
+ * behind an utterance for an open-ended period.
+ */
+const OPEN_UTTERANCE_GATE_MS = 5_000;
 
 export type AppendTurnEventsInput = {
   messageId: string;
@@ -85,6 +91,8 @@ export type AppendTurnEventsInput = {
 export class AppendTurnEventsService {
   private readonly logger = new Logger(AppendTurnEventsService.name);
   private readonly pendingDraftsByMessageId = new Map<string, TurnEventDraft[]>();
+  private readonly gateHeldDeliveriesByMessageId = new Map<string, TurnEventDraft[]>();
+  private readonly openUtterancesByMessageId = new Map<string, ReturnType<typeof setTimeout>>();
 
   constructor(private readonly prisma: WorkspaceManagementPrismaService) {}
 
@@ -106,7 +114,31 @@ export class AppendTurnEventsService {
     tx?: PrismaTransactionClient
   ): Promise<PublicTurnEvent[]> {
     const pending = this.pendingDraftsByMessageId.get(input.messageId) ?? [];
-    const combinedDrafts = [...pending, ...input.drafts];
+    const gateHeld = this.gateHeldDeliveriesByMessageId.get(input.messageId) ?? [];
+    const closesUtterance = input.drafts.some(
+      (draft) => draft.kind === "note" || draft.kind === "answer_text"
+    );
+    const utteranceOpen = this.openUtterancesByMessageId.has(input.messageId);
+    if (utteranceOpen && input.drafts.every((draft) => draft.kind === "delivery")) {
+      const held = [...gateHeld, ...input.drafts];
+      if (held.length > PENDING_DRAFTS_MAX_LENGTH) {
+        this.gateHeldDeliveriesByMessageId.delete(input.messageId);
+        this.releaseOpenUtterance(input.messageId);
+        this.logger.error(
+          `ADR-170 text_tail pending buffer overflow messageId=${input.messageId} draftCount=${String(held.length)} cap=${String(PENDING_DRAFTS_MAX_LENGTH)} — gate released`
+        );
+        return this.append({ messageId: input.messageId, drafts: held }, tx);
+      }
+      this.gateHeldDeliveriesByMessageId.set(input.messageId, held);
+      return [];
+    }
+    // A held delivery happened during the utterance that this text event now
+    // closes, so the text must receive its seq before that delivery. Ordinary
+    // D3.3 failure-pending drafts still drain before newer work when no
+    // utterance gate is involved.
+    const combinedDrafts = closesUtterance
+      ? [...pending, ...input.drafts, ...gateHeld]
+      : [...pending, ...input.drafts, ...gateHeld];
     if (combinedDrafts.length === 0) {
       return [];
     }
@@ -120,6 +152,10 @@ export class AppendTurnEventsService {
       // The whole combined batch (previously-pending + new) is now durable
       // (or was already idempotently present) — nothing left waiting.
       this.pendingDraftsByMessageId.delete(input.messageId);
+      this.gateHeldDeliveriesByMessageId.delete(input.messageId);
+      if (closesUtterance) {
+        this.releaseOpenUtterance(input.messageId);
+      }
       return appended;
     } catch (error) {
       if (combinedDrafts.length > PENDING_DRAFTS_MAX_LENGTH) {
@@ -155,6 +191,50 @@ export class AppendTurnEventsService {
    */
   releasePending(messageId: string): void {
     this.pendingDraftsByMessageId.delete(messageId);
+    this.gateHeldDeliveriesByMessageId.delete(messageId);
+    this.releaseOpenUtterance(messageId);
+  }
+
+  /**
+   * D5.2.1 — marks the current unclassified provider utterance as live. A
+   * delivery is held separately from the D3.3 failure buffer until a note or
+   * answer_text closes it. The timeout is a safety valve for a stalled stream:
+   * after five seconds, held delivery resumes rather than waiting indefinitely.
+   */
+  openUtterance(messageId: string): void {
+    if (this.openUtterancesByMessageId.has(messageId)) {
+      return;
+    }
+    const timeout = setTimeout(() => {
+      this.openUtterancesByMessageId.delete(messageId);
+      const held = this.gateHeldDeliveriesByMessageId.get(messageId);
+      if (held === undefined || held.length === 0) {
+        return;
+      }
+      void this.append({ messageId, drafts: [] }).catch((error) => {
+        this.logger.warn(
+          `ADR-170 text_tail bounded gate flush failed messageId=${messageId}: ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
+      });
+    }, OPEN_UTTERANCE_GATE_MS);
+    timeout.unref?.();
+    this.openUtterancesByMessageId.set(messageId, timeout);
+  }
+
+  /** D5.2.1 terminal path: stop gating and drain any held delivery. */
+  async closeUtterance(messageId: string): Promise<PublicTurnEvent[]> {
+    this.releaseOpenUtterance(messageId);
+    return this.append({ messageId, drafts: [] });
+  }
+
+  private releaseOpenUtterance(messageId: string): void {
+    const timeout = this.openUtterancesByMessageId.get(messageId);
+    if (timeout !== undefined) {
+      clearTimeout(timeout);
+      this.openUtterancesByMessageId.delete(messageId);
+    }
   }
 
   /** The full durable log for a message, in `seq` order. Empty when the message has none (D7). */
@@ -170,6 +250,100 @@ export class AppendTurnEventsService {
   async getSince(messageId: string, sinceSeq: number): Promise<PublicTurnEvent[]> {
     const log = await this.getLog(messageId);
     return log.filter((event) => event.seq > sinceSeq);
+  }
+
+  /**
+   * ADR-170 D5.3 — reconciles a message's `answer_text` log segments to its
+   * actual, already-settled `content` column, which by the time any caller
+   * reaches this method is the one and only source of truth for what the
+   * turn's answer really is: the runtime's own draft text for the ordinary
+   * case, or a server-side rewrite for the two documented exceptions (the
+   * API's delivery-honesty correction stripping a technical summary / an
+   * undelivered local link, or a substituted body for a genuinely silent
+   * reply) — see `apps/api/.../final-delivery-honesty.ts` and its call
+   * sites. Reading `content` directly from the row under the same lock,
+   * rather than trusting a string a caller computed, means every caller can
+   * call this unconditionally once it has finished settling a turn's body,
+   * with no risk of passing a body that does not match what actually landed
+   * through a call site's own anti-wipe / reuse guards.
+   *
+   * Exactly one equality check, one defined fallback, both deterministic —
+   * no similarity matching, no prefix guessing, no partial-segment surgery:
+   *  - If the plain concatenation of the log's `answer_text` events (in
+   *    their existing order) already equals `content`, this is a no-op: no
+   *    write, no log line, no `seq` churn. This is the overwhelmingly common
+   *    case (the model's own text survived uncorrected).
+   *  - Otherwise every `answer_text` event in the log collapses into ONE
+   *    corrected segment carrying the FIRST such event's `seq`, holding
+   *    `content` verbatim. Every non-`answer_text` event keeps its own
+   *    `seq` and its exact relative position — nothing is renumbered,
+   *    re-sorted, or dropped (a `delivery` that landed between two answer
+   *    segments simply ends up next to the single collapsed one instead of
+   *    inside it, exactly as D5.3 documents as the accepted cost).
+   *  - If the log has NO `answer_text` event at all (a silent turn) and
+   *    `content` is non-empty, a single `answer_text` event is appended at
+   *    the tail — never inserted at an invented position.
+   *
+   * Idempotent: once the collapsed/tail event's text equals `content`, the
+   * concatenation check above is true on every later call, so running this
+   * twice for the same settled body is a no-op the second time.
+   *
+   * Reuses the exact same `SELECT ... FOR UPDATE` row-lock serialization
+   * `append()`/`appendLocked` already use, so a concurrent `delivery` append
+   * for the same message cannot interleave with this collapse. Pass `tx` to
+   * run inside a transaction the caller already holds; otherwise a new one
+   * is opened.
+   */
+  async reconcileAnswerTextToPersistedBody(
+    input: { messageId: string },
+    tx?: PrismaTransactionClient
+  ): Promise<PublicTurnEvent[]> {
+    return tx !== undefined
+      ? this.reconcileLocked(tx, input.messageId)
+      : this.prisma.$transaction((innerTx) => this.reconcileLocked(innerTx, input.messageId));
+  }
+
+  private async reconcileLocked(
+    tx: PrismaTransactionClient,
+    messageId: string
+  ): Promise<PublicTurnEvent[]> {
+    const locked = await tx.$queryRaw<Array<{ id: string }>>(
+      Prisma.sql`SELECT id FROM assistant_chat_messages WHERE id = ${messageId}::uuid FOR UPDATE`
+    );
+    if (locked.length !== 1) {
+      throw new NotFoundException("chat_message_not_found");
+    }
+
+    const current = await tx.assistantChatMessage.findUniqueOrThrow({
+      where: { id: messageId },
+      select: { metadata: true, content: true }
+    });
+    const existingMetadata = asMetadataRecord(current.metadata);
+    const existingLog = readStoredTurnEventsFromMetadata(current.metadata);
+    const persistedBody = current.content;
+
+    if (concatenateAnswerTextEvents(existingLog) === persistedBody) {
+      // D5.3 — already the same string: no write, no log line, no seq churn.
+      return [];
+    }
+
+    const { log, changed } = collapseAnswerTextToPersistedBody(existingLog, persistedBody);
+
+    await tx.assistantChatMessage.update({
+      where: { id: messageId },
+      data: {
+        metadata: {
+          ...existingMetadata,
+          turnEvents: log
+        } as unknown as Prisma.InputJsonValue
+      }
+    });
+
+    this.logger.log(
+      `ADR-170 turn_event answer_text reconciled to persisted body messageId=${messageId}`
+    );
+
+    return changed;
   }
 
   private async appendLocked(
@@ -225,6 +399,80 @@ export class AppendTurnEventsService {
  * message).
  */
 type StoredTurnEvent = TurnEvent & { draftKey?: string; draftKeys?: string[] };
+
+/**
+ * ADR-170 D5.3 — the idempotency key stamped on an `answer_text` event this
+ * reconciliation creates (a brand-new tail event, or an existing event whose
+ * `draftKeys` union is empty for some reason). Never collides with a
+ * runtime-issued key (`${requestId}#${n}`, always containing `#`), so a real
+ * draft replay can never be mistaken for a reconciliation artifact or vice
+ * versa.
+ */
+const RECONCILED_ANSWER_TEXT_DRAFT_KEY = "adr170-d5.3:reconciled-answer-text";
+
+/** ADR-170 D5.3 — the plain concatenation of a log's `answer_text` events, in their existing (already `seq`-ordered) array order. */
+function concatenateAnswerTextEvents(log: StoredTurnEvent[]): string {
+  return log
+    .filter(
+      (event): event is StoredTurnEvent & { kind: "answer_text" } => event.kind === "answer_text"
+    )
+    .map((event) => event.text)
+    .join("");
+}
+
+/**
+ * ADR-170 D5.3 — the deterministic collapse itself, factored out of
+ * `reconcileLocked` for the same reason `applyDrafts` is factored out of
+ * `appendLocked`: pure input/output, no Prisma, trivially unit-testable.
+ * Called only once the caller has confirmed the plain concatenation of the
+ * log's existing `answer_text` events does not already equal `persistedBody`.
+ */
+function collapseAnswerTextToPersistedBody(
+  existingLog: StoredTurnEvent[],
+  persistedBody: string
+): { log: StoredTurnEvent[]; changed: PublicTurnEvent[] } {
+  type StoredAnswerTextEvent = StoredTurnEvent & { kind: "answer_text" };
+  const answerEntries: Array<{ index: number; event: StoredAnswerTextEvent }> = [];
+  existingLog.forEach((event, index) => {
+    if (event.kind === "answer_text") {
+      answerEntries.push({ index, event });
+    }
+  });
+
+  if (answerEntries.length === 0) {
+    // D5.3 — a silent turn: no answer_text event exists to collapse, so one
+    // is appended at the tail rather than invented at some earlier position.
+    const nextSeq = existingLog.reduce((max, event) => Math.max(max, event.seq), 0) + 1;
+    const tailEvent: StoredAnswerTextEvent = {
+      kind: "answer_text",
+      at: new Date().toISOString(),
+      seq: nextSeq,
+      draftKey: RECONCILED_ANSWER_TEXT_DRAFT_KEY,
+      draftKeys: [RECONCILED_ANSWER_TEXT_DRAFT_KEY],
+      text: persistedBody
+    };
+    return { log: [...existingLog, tailEvent], changed: [projectTurnEventForWire(tailEvent)] };
+  }
+
+  const [first, ...rest] = answerEntries as [
+    { index: number; event: StoredAnswerTextEvent },
+    ...Array<{ index: number; event: StoredAnswerTextEvent }>
+  ];
+  const mergedDraftKeys = Array.from(
+    new Set(answerEntries.flatMap(({ event }) => event.draftKeys ?? []))
+  );
+  const collapsedEvent: StoredAnswerTextEvent = {
+    ...first.event,
+    text: persistedBody,
+    ...(mergedDraftKeys.length > 0 ? { draftKeys: mergedDraftKeys } : {})
+  };
+  const removeAtIndex = new Set(rest.map(({ index }) => index));
+  const log = existingLog
+    .map((event, index) => (index === first.index ? collapsedEvent : event))
+    .filter((_event, index) => !removeAtIndex.has(index));
+
+  return { log, changed: [projectTurnEventForWire(collapsedEvent)] };
+}
 
 function applyDrafts(
   existingLog: StoredTurnEvent[],

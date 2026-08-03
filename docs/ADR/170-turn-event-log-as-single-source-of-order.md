@@ -242,6 +242,66 @@ One consequence every consumer must honor: an open `answer_text` event's text
 therefore keys events by `seq` and replaces, never appends a second row for the
 same `seq`.
 
+### D5.2.1 — Streaming text is an unnumbered tail, and nothing is numbered ahead of an open utterance
+
+Once a surface renders from the log, a turn that used tools would show nothing
+while the model streams: its log already holds notes, but the answer segment only
+exists at resolution. A turn without tools accidentally still worked because its
+log was empty and the surface fell back. Behavior that differs by whether the
+turn used a tool is exactly the class of defect this ADR closes.
+
+The obvious fix — emit answer text incrementally per delta — is wrong, and the
+provider contract is why: identical text deltas arrive before the provider
+reveals whether that response ends as a completion or as a tool call. The same
+sentence becomes a working note on one ending and the answer on the other, so
+classifying it while it streams would persist pre-tool narration as answer text.
+The runtime genuinely cannot know the kind until the response terminates.
+
+So the log keeps numbering text only at the boundaries where its kind is known —
+which is what the existing emission points already do, one `note` per finished
+step and one `answer_text` at resolution — and the streaming remainder is carried
+**unnumbered**:
+
+- The server sends a live-only `text_tail` chunk holding the FULL current
+  remainder of the open utterance, not a delta, so a consumer replaces rather
+  than accumulates. The tail is cleared when the numbered event that supersedes
+  it arrives, and at turn completion, so a committed message never has one.
+- A consumer renders numbered events by `seq` and then the tail. That is not a
+  guess: anything not yet numbered happened after everything that is. The tail
+  renders where a streaming answer renders today; when it closes as a note it
+  collapses into the process block exactly as a finished step does now.
+- **Nothing may be numbered while an utterance is open.** A delivery that lands
+  mid-sentence waits for that utterance's event, then takes the next number, so a
+  receipt is attached under the sentence it interrupted instead of jumping above
+  it. This is the founder's actual requirement, and it reuses D3.3's ordered
+  pending buffer rather than adding a second mechanism. The wait is bounded: a
+  turn reaching completion, interruption or failure flushes everything, and an
+  utterance that stays open beyond a bounded window stops holding the queue.
+
+This keeps `message.content` out of rendering entirely. A consumer must never
+subtract, strip, or offset one text against another to find the remainder — the
+server computes it, because only the server knows what it has already numbered.
+
+### D5.3 — The answer text has one source, and server rewrites go through it
+
+A surface renders answer text **only** from the log's `answer_text` events, live
+and committed alike. Rendering the log while streaming and the stored message
+body once committed would be two sources of the same sentence, which is how
+order drifted between the live view and history in the first place.
+
+That makes the existing server-side final corrections part of the log's
+contract, not a layer above it: the API's delivery-honesty correction and the
+runtime's deferred-job acknowledgement fallback both rewrite the final assistant
+text after drafts were already emitted. Whenever the persisted body is not the
+plain concatenation of the turn's `answer_text` events, the server collapses
+those segments into one corrected segment carrying the first segment's `seq`.
+
+The cost is explicit and bounded: in that rewrite case a delivery that landed
+mid-answer ends up after the answer rather than inside it. It only happens when
+a correction actually changed the text — the model violating the delivery
+honesty contract, or answering with silence after a deferred job — and it is
+preferred over letting two sources of the answer exist.
+
 ### D5.2 — Transient duplication during the program, never in a deploy
 
 Slices S1–S4 necessarily carry both the log and the fields it replaces, or no
@@ -552,7 +612,15 @@ snapshot" are rewritten, because their rules stay meaningful when the log is the
 only truth.
 
 **S4 — Telegram projection.** One shared projection table; Telegram output
-proven byte-identical to the current cumulative text on a fixture turn.
+proven byte-identical to the current cumulative text on a fixture turn. Telegram
+has no durable log today — the API deliberately ignores `turn_event` on that
+path — so S4 also persists the log for Telegram turns and extends D5.3's
+answer-text reconciliation to the two Telegram body-settling call sites that were
+correctly excluded while no log existed for them. Telegram
+has no durable log today — the API deliberately ignores `turn_event` on that
+path — so S4 also persists the log for Telegram turns and extends D5.3's
+answer-text reconciliation to the two Telegram body-settling call sites that were
+correctly excluded while no log existed for them.
 
 **S5 — Legacy fields removed and junk cleared.** `workingNotes`,
 `toolInvocations`, `inlineMediaPlacement` gone from contract, OpenAPI, mapper,

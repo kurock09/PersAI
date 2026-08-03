@@ -185,7 +185,8 @@ export interface AssistantRuntimeWebChatTurnStreamChunk {
     | "activity"
     | "project_activity"
     | "project_reasoning_summary"
-    | "turn_event";
+    | "turn_event"
+    | "text_tail";
   delta?: string;
   accumulated?: string;
   respondedAt?: string;
@@ -204,6 +205,11 @@ export interface AssistantRuntimeWebChatTurnStreamChunk {
   truncated?: boolean;
   /** ADR-170 S2 — carried on `turn_event` chunks only: the live draft the runtime just emitted. */
   turnEvent?: TurnEventDraft;
+  /**
+   * ADR-170 D5.2.1 — live-only, unnumbered remainder of the provider utterance.
+   * Consumers replace this full string; it is never persisted in turnEvents.
+   */
+  textTail?: { messageId: string | null; text: string };
   /**
    * ADR-170 D3.3 — carried on `done` only: the turn's FULL ordered draft
    * list — from `RuntimeTurnResult.turnEvents` on the completed path, or the

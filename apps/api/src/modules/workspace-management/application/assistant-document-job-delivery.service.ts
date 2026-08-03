@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger } from "@nestjs/common";
+import { Inject, Injectable, Logger, Optional } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import type { RuntimeOutputArtifact, RuntimeUsageSnapshot } from "@persai/runtime-contract";
 import {
@@ -32,6 +32,7 @@ import {
   updateDocumentAttachmentCurrentness
 } from "./assistant-document-link-metadata";
 import { AssistantAsyncJobHandleStateService } from "./assistant-async-job-handle-state.service";
+import { AppendTurnEventsService } from "./append-turn-events.service";
 import { WebChatLiveTurnPresentService } from "./web-chat-live-turn-present.service";
 
 const DOCUMENT_DELIVERY_LAST_ERROR_MAX_CHARS = 1_000;
@@ -134,7 +135,19 @@ export class AssistantDocumentJobDeliveryService {
       })
     },
     @Inject(WebChatLiveTurnPresentService)
-    private readonly liveTurnPresent: WebChatLiveTurnPresentService
+    private readonly liveTurnPresent: WebChatLiveTurnPresentService,
+    // ADR-170 D5.3 — trailing optional dep (default no-op), matching the
+    // `asyncJobHandleState` pattern above, so the many existing positional
+    // test instantiations of this service that predate ADR-170 keep working
+    // unchanged.
+    @Optional()
+    @Inject(AppendTurnEventsService)
+    private readonly appendTurnEventsService: Pick<
+      AppendTurnEventsService,
+      "reconcileAnswerTextToPersistedBody"
+    > = {
+      reconcileAnswerTextToPersistedBody: async () => []
+    }
   ) {}
 
   private async publishOpenJobsIfOpenTurn(
@@ -658,6 +671,28 @@ export class AssistantDocumentJobDeliveryService {
               }`
             );
           });
+      }
+      // ADR-170 D5.3 — the `legacy_frame` correction above is the same class
+      // of divergence the web streamed-turn path reconciles in
+      // `persistFinalAssistantContentIfNeeded`: `applyFinalDeliveryHonestyCorrection`
+      // can settle a body that no longer matches the message's `answer_text`
+      // log segments. Web only — Telegram messages are not wired to emit
+      // `answer_text` turn events at all (see the same scoping decision in
+      // `workspace-media-job-completion-delivery.service.ts`), so reconciling
+      // them would fabricate a first-ever log entry instead of correcting one.
+      // Best-effort: never let a reconciliation failure fail document delivery.
+      if (narrationDecision === "legacy_frame" && job.surface === "web") {
+        try {
+          await this.appendTurnEventsService.reconcileAnswerTextToPersistedBody({
+            messageId: completionAssistantMessageId
+          });
+        } catch (error) {
+          this.logger.warn(
+            `ADR-170 turn_event answer_text reconciliation failed for assistant message "${completionAssistantMessageId}": ${
+              error instanceof Error ? error.message : String(error)
+            }`
+          );
+        }
       }
     } catch (error) {
       if (currentPayload?.externalDeliveryCommitted === true) {

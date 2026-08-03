@@ -61,7 +61,7 @@ import {
 } from "../assistant-api-client";
 import type { ChatAttachment, ChatMessage } from "./use-chat";
 import { isAttachmentsOnlyPlaceholderText } from "./attachments-only-placeholder";
-import type { RuntimeTurnToolInvocation } from "@persai/runtime-contract";
+import type { TurnEvent } from "@persai/contracts";
 
 hljs.registerLanguage("cpp", cpp);
 hljs.registerLanguage("c", cpp);
@@ -919,15 +919,34 @@ function MarkdownFragment({ content }: { content: string }) {
 
 type IterationProcessPiece =
   | { kind: "text"; markdown: string }
-  | { kind: "tool"; tool: RuntimeTurnToolInvocation }
-  // Receipt position comes from `buildIterationBlocks` — the note it was
-  // narrated under, floored by the arrival snapshot `ChatMessageBubble`
-  // freezes the first time it sees the attachment.
+  | { kind: "tool"; tool: { name: string; ok: boolean } }
   | { kind: "receipt"; attachment: ChatAttachment };
 
 type IterationBlock =
   | { kind: "content"; markdown: string }
   | { kind: "process"; pieces: IterationProcessPiece[] };
+
+/** A resolved delivery embedded inside the streaming/reconciling answer text
+ * at the exact `seq` position the log recorded it — see `buildTurnEventDisplay`. */
+type AnswerSegment =
+  | { kind: "text"; text: string }
+  | { kind: "receipt"; attachment: ChatAttachment };
+
+type TurnEventDisplay = {
+  iterationBlocks: IterationBlock[];
+  /** Process pieces whose `seq` precedes the turn's first `answer_text` —
+   * the live/reconciling note+receipt stream that renders above the answer. */
+  livePreAnswerPieces: IterationProcessPiece[];
+  /** `answer_text` and `delivery` events from the first `answer_text` onward,
+   * in `seq` order. Empty until the model's final answer starts. */
+  answerSegments: AnswerSegment[];
+};
+
+const EMPTY_TURN_EVENT_DISPLAY: TurnEventDisplay = {
+  iterationBlocks: [],
+  livePreAnswerPieces: [],
+  answerSegments: []
+};
 
 function shouldSuppressMediaReceipts(message: ChatMessage): boolean {
   if (message.suppressMediaReceipts === true) {
@@ -937,187 +956,83 @@ function shouldSuppressMediaReceipts(message: ChatMessage): boolean {
   return message.id.includes("async-cont");
 }
 
-function isContentBlock(text: string): boolean {
-  if (/^\s*\|.*\|.*\|/m.test(text)) return true;
-  if (/^\s*#{2,}\s+\S/m.test(text)) return true;
-  if (/```/.test(text)) return true;
-
-  const lines = text.split(/\r?\n/);
-  let consecutiveListLines = 0;
-  for (const line of lines) {
-    if (/^\s*([-*+]|\d+\.)\s+\S/.test(line)) {
-      consecutiveListLines += 1;
-      if (consecutiveListLines >= 3) return true;
-    } else if (line.trim().length === 0) {
-      // Blank lines keep a markdown list visually continuous.
-    } else {
-      consecutiveListLines = 0;
-    }
-  }
-  return false;
+/** ADR-170 D2.1/D11 — a `delivery` event carries only the durable attachment
+ * id; the receipt it renders is resolved by that id, never by array
+ * position or tool-call placement. Absent from `attachments` yet (not
+ * caught up on this frame) renders nothing rather than guessing. */
+function resolveDeliveryAttachment(
+  attachmentId: string,
+  attachments: readonly ChatAttachment[]
+): ChatAttachment | null {
+  return attachments.find((attachment) => attachment.id === attachmentId) ?? null;
 }
 
 /**
- * Live `message.content` is the raw cumulative provider stream (every
- * tool-loop step's text plus the final answer, concatenated with no reset
- * at iteration/tool-call boundaries) — NOT the clean final-answer-only text
- * the server persists at commit. Rendering that raw blob as "the answer"
- * duplicates workingNotes narration inside content and makes any fixed
- * before/after placement of the note+receipt stream wrong: notes the model
- * wrote AFTER a receipt end up trapped inside the same growing blob as
- * notes it wrote before, so the receipt always renders relative to the
- * wrong half. Strip the exact workingNotes prefix (each note occurs once,
- * in order, in the raw stream) so only genuine post-tool-loop answer text
- * remains live. Committed messages already have clean answerText content,
- * so the notes will not be found and this is a safe no-op.
+ * ADR-170 D4/D12 — the single derivation from the server-owned, seq-ordered
+ * turn-event log to everything this component renders. Events are sorted
+ * once by `seq`; every grouping below is a partition of that one order, not
+ * a re-derived guess. `note.display` alone decides step-vs-content (D10);
+ * a `delivery` before the turn's first `answer_text` joins the pre-answer
+ * process stream, one at or after it is interleaved into the answer at its
+ * exact position (D5/D5.1) — never a character offset. A message with no
+ * events returns the empty display; that is the general rule for empty
+ * input (D7), not a branch on "this message has no log".
  */
-function deriveLiveAnswer(
-  content: string,
-  workingNotes: readonly string[]
-): { text: string; strippedLength: number } {
-  let cursor = 0;
-  for (const note of workingNotes) {
-    if (note.length === 0) {
-      continue;
-    }
-    const idx = content.indexOf(note, cursor);
-    if (idx === -1) {
-      // Raw stream doesn't match the note prefix exactly (e.g. already-clean
-      // committed content, or a correction changed the text) — do not guess.
-      return { text: content, strippedLength: 0 };
-    }
-    cursor = idx + note.length;
-  }
-  while (cursor < content.length && /\s/.test(content.charAt(cursor))) {
-    cursor += 1;
-  }
-  // `strippedLength` lets the caller map an absolute offset into the raw
-  // cumulative stream onto the live text currently on screen — the raw
-  // stream only ever grows, so an offset frozen in it stays valid even as
-  // finished narration migrates out of it into `workingNotes`.
-  return { text: content.slice(cursor), strippedLength: cursor };
-}
+function buildTurnEventDisplay(
+  events: readonly TurnEvent[],
+  attachments: readonly ChatAttachment[]
+): TurnEventDisplay {
+  const sorted = [...events].sort((left, right) => left.seq - right.seq);
+  const firstAnswerSeq =
+    sorted.find((event) => event.kind === "answer_text")?.seq ?? Number.POSITIVE_INFINITY;
 
-/** Per-attachment snapshot the caller freezes the first time it sees an
- * unclaimed receipt, keyed by attachment id — see `ChatMessageBubble`. */
-type UnclaimedReceiptArrival = {
-  /** `workingNotes.length` at first observation. */
-  noteCount: number;
-  /** Length of the raw cumulative `message.content` stream at first
-   * observation. The raw stream only ever appends, so this offset stays a
-   * valid anchor for the whole turn: everything the user had already read
-   * when the receipt landed is before it, everything the model says
-   * afterwards is after it. */
-  contentLength: number;
-  /** True if the model was mid-sentence (streaming narration that had not
-   * yet become a finished `workingNotes` entry) when the receipt landed. */
-  hadInFlightText: boolean;
-};
-
-/** Where a receipt belongs among the finished notes, from the caller's
- * arrival snapshot: after the note it was narrated under. While the model
- * was still mid-sentence that note is number `noteCount + 1`, which has not
- * been committed yet — until it is, the live view anchors the receipt inside
- * the streaming text (see `liveAnswerSegments` in `ChatMessageBubble`). */
-function arrivalNoteIndex(arrival: UnclaimedReceiptArrival): number {
-  return arrival.noteCount + (arrival.hadInFlightText ? 1 : 0);
-}
-
-function buildIterationBlocks(
-  workingNotes: string[],
-  toolInvocations: RuntimeTurnToolInvocation[],
-  receiptAttachments: ChatAttachment[] = [],
-  receiptArrival: ReadonlyMap<string, UnclaimedReceiptArrival> = new Map()
-): IterationBlock[] {
-  const allPieces: IterationProcessPiece[] = [];
+  const wholeLogPieces: Array<{ seq: number; piece: IterationProcessPiece }> = [];
   const contentBlocks: string[] = [];
-  const placedReceiptIds = new Set<string>();
-  const iterations = Math.max(
-    workingNotes.length,
-    ...toolInvocations.map((tool) => tool.iteration + 1),
-    0
-  );
+  const answerSegments: AnswerSegment[] = [];
 
-  const iterationByToolCallId = new Map<string, number>();
-  for (const tool of toolInvocations) {
-    if (typeof tool.toolCallId === "string" && tool.toolCallId.length > 0) {
-      iterationByToolCallId.set(tool.toolCallId, tool.iteration);
-    }
-  }
-
-  // One rule for every receipt, whichever delivery path produced it: it sits
-  // after the note it was narrated under, and never earlier than where it
-  // was first seen. A receipt bound to a tool call normally lands right
-  // after that call — but for a job that finishes long after the call that
-  // started it, that position is far above narration the user has already
-  // read (live repro 2026-07-31: a delivered PDF stuck to the very top of
-  // the turn). The arrival snapshot is the floor that prevents that.
-  const byNoteIndex = new Map<number, ChatAttachment[]>();
-  for (const attachment of receiptAttachments) {
-    const toolIteration =
-      attachment.inlineAfterToolCallId === undefined
-        ? undefined
-        : iterationByToolCallId.get(attachment.inlineAfterToolCallId);
-    const arrival = receiptArrival.get(attachment.id);
-    const arrivalIndex = arrival === undefined ? undefined : arrivalNoteIndex(arrival);
-    const toolIndex = toolIteration === undefined ? undefined : toolIteration + 1;
-    const noteIndex =
-      toolIndex === undefined
-        ? (arrivalIndex ?? workingNotes.length)
-        : arrivalIndex === undefined
-          ? toolIndex
-          : Math.max(toolIndex, arrivalIndex);
-    const bucket = byNoteIndex.get(noteIndex);
-    if (bucket === undefined) {
-      byNoteIndex.set(noteIndex, [attachment]);
-    } else {
-      bucket.push(attachment);
-    }
-  }
-  const pushReceiptsAt = (noteIndex: number) => {
-    const bucket = byNoteIndex.get(noteIndex);
-    if (bucket === undefined) {
-      return;
-    }
-    for (const attachment of bucket) {
-      if (placedReceiptIds.has(attachment.id)) {
+  for (const event of sorted) {
+    if (event.kind === "note") {
+      const text = event.text.trim();
+      if (text.length === 0) {
         continue;
       }
-      allPieces.push({ kind: "receipt", attachment });
-      placedReceiptIds.add(attachment.id);
-    }
-  };
-
-  pushReceiptsAt(0);
-  for (let i = 0; i < iterations; i += 1) {
-    const text = (workingNotes[i] ?? "").trim();
-    if (text.length > 0) {
-      if (isContentBlock(text)) {
+      if (event.display === "content") {
         contentBlocks.push(text);
       } else {
-        allPieces.push({ kind: "text", markdown: text });
+        wholeLogPieces.push({ seq: event.seq, piece: { kind: "text", markdown: text } });
       }
-    }
-
-    const toolsAtIteration = toolInvocations.filter((tool) => tool.iteration === i);
-    for (const tool of toolsAtIteration) {
-      allPieces.push({ kind: "tool", tool });
-    }
-
-    pushReceiptsAt(i + 1);
-  }
-
-  // Safety net: a receipt whose target index sits beyond the notes known so
-  // far (its note has not been committed yet) still joins the stream at the
-  // end rather than vanishing — live rendering anchors those inside the
-  // streaming text instead.
-  for (const attachment of receiptAttachments) {
-    if (placedReceiptIds.has(attachment.id)) {
       continue;
     }
-    allPieces.push({ kind: "receipt", attachment });
-    placedReceiptIds.add(attachment.id);
+    if (event.kind === "tool_call") {
+      wholeLogPieces.push({
+        seq: event.seq,
+        piece: { kind: "tool", tool: { name: event.name, ok: event.ok } }
+      });
+      continue;
+    }
+    if (event.kind === "delivery") {
+      const attachment = resolveDeliveryAttachment(event.attachmentId, attachments);
+      if (attachment === null) {
+        continue;
+      }
+      wholeLogPieces.push({ seq: event.seq, piece: { kind: "receipt", attachment } });
+      if (event.seq >= firstAnswerSeq) {
+        answerSegments.push({ kind: "receipt", attachment });
+      }
+      continue;
+    }
+    if (event.kind === "answer_text") {
+      answerSegments.push({ kind: "text", text: event.text });
+      continue;
+    }
+    // `job_accepted`, `turn_stopped`, `turn_failed` carry no visible piece —
+    // they are bookkeeping / terminal facts, not process or answer content.
   }
+
+  const allPieces = wholeLogPieces.map((entry) => entry.piece);
+  const livePreAnswerPieces = wholeLogPieces
+    .filter((entry) => entry.piece.kind !== "receipt" || entry.seq < firstAnswerSeq)
+    .map((entry) => entry.piece);
 
   const blocks: IterationBlock[] = [];
   // Receipt-only bubbles must not invent a process badge solely for «Получено…».
@@ -1130,7 +1045,7 @@ function buildIterationBlocks(
   for (const contentBlock of contentBlocks) {
     blocks.push({ kind: "content", markdown: contentBlock });
   }
-  return blocks;
+  return { iterationBlocks: blocks, livePreAnswerPieces, answerSegments };
 }
 
 type ToolFamilyId =
@@ -1369,27 +1284,34 @@ function ProcessNoteReceiptStream({
 }
 
 /**
- * Streaming answer text with delivery receipts cut into it at the point the
- * model had reached when each one landed — see `answerAnchoredReceipts`.
+ * ADR-170 D5/D5.1/D5.3 — the answer text has exactly one source: this
+ * renders every message that has a turn-event log, live and committed
+ * alike, straight from `answer_text`/`delivery` segments in `seq` order
+ * (never a character offset, and never a fallback to `message.content` —
+ * see `ChatMessageBubble`). A delivery landing mid-answer simply becomes
+ * one more segment at its exact position; there is no separate branch for
+ * "no delivery landed inside the answer".
  */
-function LiveAnswerSegments({
+function AnswerSegmentStream({
   segments,
+  tail,
   chatId,
   streaming,
   onAction,
   className
 }: {
-  segments: Array<{ kind: "text"; text: string } | { kind: "receipt"; attachment: ChatAttachment }>;
+  segments: AnswerSegment[];
+  tail?: string | undefined;
   chatId?: string | null | undefined;
   streaming: boolean;
   onAction?: ((text: string) => void) | undefined;
   className?: string | undefined;
 }) {
-  if (segments.length === 0) {
+  if (segments.length === 0 && !tail) {
     return null;
   }
   return (
-    <div className={cn("space-y-2", className)} data-testid="live-answer-segments">
+    <div className={cn("space-y-2", className)}>
       {segments.map((segment, index) => {
         if (segment.kind === "text") {
           return (
@@ -1412,6 +1334,11 @@ function LiveAnswerSegments({
           />
         );
       })}
+      {tail ? (
+        <div key="text-tail">
+          <StreamingMarkdownMessageContent content={tail} onAction={onAction} />
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -1709,40 +1636,6 @@ function MediaReceiptLines({
       })}
     </div>
   );
-}
-
-function resolveReceiptAttachments(input: {
-  attachments: ChatAttachment[] | undefined;
-  inlineMediaPlacement: Array<{ toolCallId: string; attachmentIds: string[] }> | undefined;
-}): ChatAttachment[] {
-  const attachments = input.attachments ?? [];
-  if (attachments.length === 0) {
-    return [];
-  }
-  const attachmentsById = new Map(attachments.map((attachment) => [attachment.id, attachment]));
-  const seen = new Set<string>();
-  const ordered: ChatAttachment[] = [];
-
-  for (const placement of input.inlineMediaPlacement ?? []) {
-    for (const attachmentId of placement.attachmentIds) {
-      const attachment = attachmentsById.get(attachmentId);
-      if (attachment === undefined || seen.has(attachment.id)) {
-        continue;
-      }
-      ordered.push(attachment);
-      seen.add(attachment.id);
-    }
-  }
-
-  for (const attachment of attachments) {
-    if (seen.has(attachment.id)) {
-      continue;
-    }
-    ordered.push(attachment);
-    seen.add(attachment.id);
-  }
-
-  return ordered;
 }
 
 function AssistantActionChips({
@@ -2706,10 +2599,7 @@ function AttachmentStrip({
         </div>
       ) : null}
       {groupedAttachments.audio.length > 0 ? (
-        <div
-          data-testid="attachment-strip-audio"
-          className="flex min-w-0 flex-col items-start gap-2.5"
-        >
+        <div className="flex min-w-0 flex-col items-start gap-2.5">
           {groupedAttachments.audio.map(renderAttachment)}
         </div>
       ) : null}
@@ -2758,114 +2648,27 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
   const isStreaming = message.status === "streaming" && message.role === "assistant";
   // ADR-158: non-live reattach uses reconciling — show a quiet wait cursor, not «Думаю».
   const isAssistantReconciling = message.role === "assistant" && message.status === "reconciling";
-  // Freezes, per attachment id, exactly how much the model had already said
-  // the *first* time a receipt is observed. Without this every re-render
-  // re-derives the position from whatever is on screen now, so the banner
-  // keeps moving to sit just above the live cursor as the model keeps
-  // talking (regression, 2026-07-31). Keyed by attachment id so it survives
-  // this message's own re-renders but resets for a different message.
-  //
-  // Only recorded while the turn is live: a message this component first
-  // meets already committed has no arrival information to offer, and must
-  // keep using the tool-call position for bound receipts instead of a
-  // meaningless "arrived after everything" snapshot.
-  const receiptArrivalRef = useRef<Map<string, UnclaimedReceiptArrival>>(new Map());
-  // High-water marks, not the current frame: mid-turn reconciliation can
-  // briefly hand us a message whose attachments are present while its notes
-  // or content are not yet reattached. Freezing from such a frame would pin
-  // a receipt to the very top of the turn (live repro 2026-07-31: a
-  // delivered PDF stuck above everything). Notes and the raw stream only
-  // grow, so the maximum seen so far is the honest picture.
-  const liveTextHighWaterRef = useRef<{ noteCount: number; contentLength: number }>({
-    noteCount: 0,
-    contentLength: 0
-  });
-  const hasObservedLiveFrameRef = useRef(false);
-  // Receipts already present on the first live frame we rendered: we did not
-  // witness them arrive, so we have no honest arrival snapshot for them and
-  // must never invent one later. A tool-bound receipt keeps its tool-call
-  // position; an unbound one is frozen on that first sighting instead.
-  const receiptsWithoutArrivalInfoRef = useRef<Set<string>>(new Set());
-  const assistantSegments = useMemo(() => {
+  const isAssistantLive =
+    message.role === "assistant" &&
+    (message.status === "streaming" || message.status === "reconciling");
+  // ADR-170 — the single derivation from the server-owned, seq-ordered turn
+  // event log. A message with no log gets the empty display (D7): that is
+  // the general rule for empty input, not a branch on history vs. live.
+  const turnEventDisplay = useMemo(() => {
     if (message.role !== "assistant") {
-      return { iterationBlocks: [], answerText: message.content, answerStrippedLength: 0 };
+      return EMPTY_TURN_EVENT_DISPLAY;
     }
-    // workingNotes is the structured multi-step field from the server (one entry
-    // per tool-loop step). Committed content is the clean final answer, but
-    // live content is the raw cumulative stream (notes + answer); strip the
-    // notes prefix so only the true post-tool-loop answer renders as content.
-    const workingNotes = Array.isArray(message.workingNotes)
-      ? message.workingNotes.map((note) => note.trim()).filter((note) => note.length > 0)
-      : [];
-    const toolInvocations = Array.isArray(message.toolInvocations) ? message.toolInvocations : [];
-    // Receipts are process pieces after their tool (same stream as short notes).
-    // Live: stream renders after streamed answer text (replicas), not under the
-    // process badge. Committed: stream folds into the expand; terminal strip
-    // below the answer owns the files.
-    const receiptAttachments = shouldSuppressMediaReceipts(message)
+    const events = Array.isArray(message.turnEvents) ? message.turnEvents : [];
+    const attachmentsForReceipts = shouldSuppressMediaReceipts(message)
       ? []
-      : resolveReceiptAttachments({
-          attachments: message.attachments,
-          inlineMediaPlacement: message.inlineMediaPlacement
-        }).map((attachment) => {
-          if (attachment.inlineAfterToolCallId !== undefined) {
-            return attachment;
-          }
-          const placementToolCallId = message.inlineMediaPlacement?.find((entry) =>
-            entry.attachmentIds.includes(attachment.id)
-          )?.toolCallId;
-          return placementToolCallId !== undefined
-            ? { ...attachment, inlineAfterToolCallId: placementToolCallId }
-            : attachment;
-        });
-    const { text: answerText, strippedLength } = deriveLiveAnswer(message.content, workingNotes);
-    const live = message.status === "streaming" || message.status === "reconciling";
-    if (live) {
-      const highWater = liveTextHighWaterRef.current;
-      highWater.noteCount = Math.max(highWater.noteCount, workingNotes.length);
-      highWater.contentLength = Math.max(highWater.contentLength, message.content.length);
-      const witnessedArrivals = hasObservedLiveFrameRef.current;
-      for (const attachment of receiptAttachments) {
-        if (
-          receiptArrivalRef.current.has(attachment.id) ||
-          receiptsWithoutArrivalInfoRef.current.has(attachment.id)
-        ) {
-          continue; // already decided on an earlier render
-        }
-        if (attachment.inlineAfterToolCallId !== undefined && !witnessedArrivals) {
-          // Was already delivered before we rendered anything, and it carries
-          // a real tool call to sit under — that position is the honest one.
-          receiptsWithoutArrivalInfoRef.current.add(attachment.id);
-          continue;
-        }
-        receiptArrivalRef.current.set(attachment.id, {
-          noteCount: highWater.noteCount,
-          contentLength: highWater.contentLength,
-          hadInFlightText: highWater.contentLength > strippedLength || answerText.trim().length > 0
-        });
-      }
-      hasObservedLiveFrameRef.current = true;
-    }
-    return {
-      iterationBlocks: buildIterationBlocks(
-        workingNotes,
-        toolInvocations,
-        receiptAttachments,
-        receiptArrivalRef.current
-      ),
-      answerText,
-      answerStrippedLength: strippedLength
-    };
+      : (message.attachments ?? []);
+    return buildTurnEventDisplay(events, attachmentsForReceipts);
   }, [
-    message.status,
     message.attachments,
-    message.content,
     message.id,
-    message.inlineMediaPlacement,
     message.role,
     message.suppressMediaReceipts,
-    message.toolInvocations,
-    message.workingNotes
+    message.turnEvents
   ]);
   const bottomStripAttachments = useMemo(() => {
     // Keep the full attachment strip out of active assistant bubbles. Terminal
@@ -2878,88 +2681,27 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
     }
     return message.attachments ?? [];
   }, [message.attachments, message.role, message.status]);
-  const isAssistantLive =
-    message.role === "assistant" &&
-    (message.status === "streaming" || message.status === "reconciling");
-  const liveProcessPieces = useMemo(() => {
-    if (!isAssistantLive) {
-      return [] as IterationProcessPiece[];
-    }
-    return assistantSegments.iterationBlocks.flatMap((block) =>
-      block.kind === "process" ? block.pieces : []
-    );
-  }, [assistantSegments.iterationBlocks, isAssistantLive]);
-  // Live narration streams through `message.content`, not `workingNotes` —
-  // a note only lands in `workingNotes` once its step finishes. So a receipt
-  // that arrives while the model is mid-sentence has no finished note to sit
-  // under yet. Anchor it inside the streaming text at the exact point the
-  // model had reached when it landed: text written before stays above it,
-  // everything said afterwards renders below it. That is what keeps it in
-  // chronological place instead of gluing it above the live cursor.
-  const answerAnchoredReceipts = useMemo(() => {
-    if (!isAssistantLive) {
-      return [] as Array<{ attachment: ChatAttachment; offset: number }>;
-    }
-    const answerLength = assistantSegments.answerText.length;
-    const anchored: Array<{ attachment: ChatAttachment; offset: number }> = [];
-    for (const piece of liveProcessPieces) {
-      if (piece.kind !== "receipt") {
-        continue;
-      }
-      const arrival = receiptArrivalRef.current.get(piece.attachment.id);
-      if (arrival === undefined || !arrival.hadInFlightText) {
-        continue;
-      }
-      // Once the sentence it landed under has finished, it becomes a real
-      // note and the receipt goes back to the note stream at the same
-      // visual spot — no anchor needed anymore.
-      if (arrival.contentLength <= assistantSegments.answerStrippedLength) {
-        continue;
-      }
-      const offset = Math.min(
-        arrival.contentLength - assistantSegments.answerStrippedLength,
-        answerLength
-      );
-      anchored.push({ attachment: piece.attachment, offset });
-    }
-    return anchored.sort((left, right) => left.offset - right.offset);
-  }, [
-    assistantSegments.answerStrippedLength,
-    assistantSegments.answerText.length,
-    isAssistantLive,
-    liveProcessPieces
-  ]);
-  const liveBeforeContentPieces = useMemo(() => {
-    const anchoredIds = new Set(answerAnchoredReceipts.map((entry) => entry.attachment.id));
-    return liveProcessPieces.filter(
-      (piece) => !(piece.kind === "receipt" && anchoredIds.has(piece.attachment.id))
-    );
-  }, [answerAnchoredReceipts, liveProcessPieces]);
-  /** Streaming answer text cut into chunks around any anchored receipt. */
-  const liveAnswerSegments = useMemo(() => {
-    const answerText = assistantSegments.answerText;
-    const segments: Array<
-      { kind: "text"; text: string } | { kind: "receipt"; attachment: ChatAttachment }
-    > = [];
-    let cursor = 0;
-    for (const entry of answerAnchoredReceipts) {
-      const chunk = answerText.slice(cursor, entry.offset);
-      if (chunk.trim().length > 0) {
-        segments.push({ kind: "text", text: chunk });
-      }
-      segments.push({ kind: "receipt", attachment: entry.attachment });
-      cursor = entry.offset;
-    }
-    const tail = answerText.slice(cursor);
-    if (tail.trim().length > 0) {
-      segments.push({ kind: "text", text: tail });
-    }
-    return segments;
-  }, [answerAnchoredReceipts, assistantSegments.answerText]);
-  const hasLiveNoteOrReceipt = liveBeforeContentPieces.some(
+  const hasLiveNoteOrReceipt = turnEventDisplay.livePreAnswerPieces.some(
     (piece) => piece.kind === "text" || piece.kind === "receipt"
   );
-  const hasVisibleAnswerText = assistantSegments.answerText.trim().length > 0;
+  // ADR-170 D5.3 — the answer text has exactly one source. A message that
+  // has a log renders its answer only from the log's `answer_text` events
+  // (live and committed alike, via `AnswerSegmentStream`) — never from
+  // `message.content`, and never only when a delivery happens to land
+  // inside it. `message.content` stays legitimate for exactly two cases:
+  // a message with no `turnEvents` at all (D7 — old conversations, no
+  // process block) and user messages (rendered elsewhere in this
+  // component). The server guarantees the persisted body already equals
+  // the concatenation of the turn's `answer_text` events (D5.3), so no
+  // client-side consistency check against `message.content` is needed or
+  // added here.
+  const hasTurnEventsLog = Array.isArray(message.turnEvents) && message.turnEvents.length > 0;
+  const liveTextTail = isStreaming ? (message.textTail ?? "") : "";
+  const hasVisibleAnswerText = hasTurnEventsLog
+    ? turnEventDisplay.answerSegments.some(
+        (segment) => segment.kind === "text" && segment.text.trim().length > 0
+      )
+    : liveTextTail.trim().length > 0 || message.content.trim().length > 0;
   const isStreamingTextActive = message.streamingTextActive === true;
   const showInlineStreamingStatus =
     isStreaming && preResponseStatus !== undefined && !isStreamingTextActive;
@@ -3155,82 +2897,66 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
           <div className="prose-invert min-w-0 max-w-full text-sm break-words text-text [overflow-wrap:anywhere]">
             <ThoughtBlock message={message} />
             <IterationBlocks
-              blocks={assistantSegments.iterationBlocks}
+              blocks={turnEventDisplay.iterationBlocks}
               chatId={chatId}
               live={isAssistantLive}
             />
-            {isStreaming ? (
-              <>
-                {hasLiveNoteOrReceipt ? (
-                  <div data-testid="process-live-note-receipt-anchor">
-                    <ProcessNoteReceiptStream
-                      pieces={liveBeforeContentPieces}
-                      chatId={chatId}
-                      live
-                      testId="process-live-note-receipt-stream"
-                    />
-                  </div>
-                ) : null}
-                <LiveAnswerSegments
-                  segments={liveAnswerSegments}
-                  chatId={chatId}
-                  streaming
-                  onAction={onAssistantAction}
-                  className={hasLiveNoteOrReceipt ? "mt-2" : undefined}
-                />
-                {(showInlineStreamingStatus || showCursorOnlyStatus) && (
-                  <div className="mt-2 flex items-start gap-2">
-                    {showInlineStreamingStatus ? (
-                      <InlineStreamingStatus
-                        preResponseStatus={preResponseStatus}
-                        showShadowRoutingLabel={showShadowRoutingLabel}
-                      />
-                    ) : null}
-                    {!showInlineStreamingStatus ? (
-                      <span
-                        aria-hidden="true"
-                        data-testid="streaming-cursor"
-                        className="inline-block h-4 w-1.5 animate-pulse rounded-sm bg-accent/70 align-middle"
-                      />
-                    ) : null}
-                  </div>
-                )}
-              </>
-            ) : isAssistantReconciling ? (
-              <>
-                {hasLiveNoteOrReceipt ? (
-                  <div data-testid="process-live-note-receipt-anchor">
-                    <ProcessNoteReceiptStream
-                      pieces={liveBeforeContentPieces}
-                      chatId={chatId}
-                      live
-                      testId="process-live-note-receipt-stream"
-                    />
-                  </div>
-                ) : null}
-                <LiveAnswerSegments
-                  segments={liveAnswerSegments}
-                  chatId={chatId}
-                  streaming={false}
-                  onAction={onAssistantAction}
-                  className={hasLiveNoteOrReceipt ? "mt-2" : undefined}
-                />
-                {!hasVisibleAnswerText ? (
-                  <div className="mt-2 flex items-center gap-2">
-                    <span
-                      aria-hidden="true"
-                      data-testid="reconciling-cursor"
-                      className="inline-block h-4 w-1.5 animate-pulse rounded-sm bg-accent/45 align-middle"
-                    />
-                  </div>
-                ) : null}
-              </>
-            ) : (
-              <MarkdownMessageContent
-                content={assistantSegments.answerText}
-                onAction={onAssistantAction}
+            {isAssistantLive && hasLiveNoteOrReceipt ? (
+              <ProcessNoteReceiptStream
+                pieces={turnEventDisplay.livePreAnswerPieces}
+                chatId={chatId}
+                live
+                testId="process-live-note-receipt-stream"
               />
+            ) : null}
+            {hasTurnEventsLog ? (
+              <AnswerSegmentStream
+                segments={turnEventDisplay.answerSegments}
+                tail={liveTextTail}
+                chatId={chatId}
+                streaming={isStreaming}
+                onAction={onAssistantAction}
+                className={hasLiveNoteOrReceipt ? "mt-2" : undefined}
+              />
+            ) : isStreaming ? (
+              <div className={hasLiveNoteOrReceipt ? "mt-2" : undefined}>
+                <StreamingMarkdownMessageContent
+                  content={liveTextTail || message.content}
+                  onAction={onAssistantAction}
+                />
+              </div>
+            ) : isAssistantReconciling ? (
+              <div className={hasLiveNoteOrReceipt ? "mt-2" : undefined}>
+                <MarkdownMessageContent content={message.content} onAction={onAssistantAction} />
+              </div>
+            ) : (
+              <MarkdownMessageContent content={message.content} onAction={onAssistantAction} />
             )}
+            {isStreaming && (showInlineStreamingStatus || showCursorOnlyStatus) && (
+              <div className="mt-2 flex items-start gap-2">
+                {showInlineStreamingStatus ? (
+                  <InlineStreamingStatus
+                    preResponseStatus={preResponseStatus}
+                    showShadowRoutingLabel={showShadowRoutingLabel}
+                  />
+                ) : null}
+                {!showInlineStreamingStatus ? (
+                  <span
+                    aria-hidden="true"
+                    data-testid="streaming-cursor"
+                    className="inline-block h-4 w-1.5 animate-pulse rounded-sm bg-accent/70 align-middle"
+                  />
+                ) : null}
+              </div>
+            )}
+            {isAssistantReconciling && !hasVisibleAnswerText ? (
+              <div className="mt-2 flex items-center gap-2">
+                <span
+                  aria-hidden="true"
+                  className="inline-block h-4 w-1.5 animate-pulse rounded-sm bg-accent/45 align-middle"
+                />
+              </div>
+            ) : null}
             {bottomStripAttachments.length > 0 && (
               <AttachmentStrip
                 chatId={chatId}
@@ -3241,12 +2967,7 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
             {backgroundWaitFooter !== undefined &&
             backgroundWaitFooter !== null &&
             backgroundWaitFooter.length > 0 ? (
-              <p
-                role="status"
-                aria-live="polite"
-                data-testid="background-wait-footer"
-                className="mt-2 text-sm text-text-muted italic"
-              >
+              <p role="status" aria-live="polite" className="mt-2 text-sm text-text-muted italic">
                 {backgroundWaitFooter}
               </p>
             ) : null}

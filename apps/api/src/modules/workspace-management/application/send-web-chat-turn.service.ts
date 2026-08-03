@@ -63,6 +63,7 @@ import { CompactionAdvisoryFollowUpService } from "./compaction-advisory-follow-
 import { BackgroundCompactionQueueService } from "./background-compaction-queue.service";
 import { NotificationDeliveryWorkerService } from "./notifications/notification-delivery-worker.service";
 import { persistAssistantMessage } from "./persist-assistant-message";
+import { AppendTurnEventsService } from "./append-turn-events.service";
 import { AssistantAsyncJobHandleStateService } from "./assistant-async-job-handle-state.service";
 import { extractToolInvocationsFromMetadata } from "./web-chat-message-state.mapper";
 import { stripToolInvocationsForClient } from "./strip-tool-invocations-for-client";
@@ -218,6 +219,18 @@ export class SendWebChatTurnService {
         currentTurnReleased: 0
       }),
       listOpenSandboxJobsForWebChat: async () => []
+    },
+    // ADR-170 D5.3 — trailing optional dep (default no-op), matching the
+    // `asyncJobHandleState` pattern above, so the many existing positional
+    // test instantiations of this service that predate ADR-170 keep working
+    // unchanged.
+    @Optional()
+    @Inject(AppendTurnEventsService)
+    private readonly appendTurnEventsService: Pick<
+      AppendTurnEventsService,
+      "reconcileAnswerTextToPersistedBody"
+    > = {
+      reconcileAnswerTextToPersistedBody: async () => []
     }
   ) {}
 
@@ -528,6 +541,7 @@ export class SendWebChatTurnService {
       const postRuntime = await finalizePersistedWebTurn({
         logger: this.logger,
         assistantChatRepository: this.assistantChatRepository,
+        appendTurnEventsService: this.appendTurnEventsService,
         attachmentRepository: this.attachmentRepository,
         assistantMediaJobService: this.assistantMediaJobService,
         assistantDocumentJobReadService: this.assistantDocumentJobReadService,

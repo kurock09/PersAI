@@ -1609,6 +1609,9 @@ export class AssistantController {
             sendSse("turn_event", { event });
           }
         },
+        onTextTail: ({ messageId, text }) => {
+          sendSse("text_tail", { messageId, text });
+        },
         onActivity: ({ source, phase, resultCount, skillName, skillIconEmoji }) => {
           sendSse("activity", {
             source,

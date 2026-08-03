@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { forwardRef, type ReactEventHandler } from "react";
 import { ChatMessageBubble, resolveInternalChatCta } from "./chat-message";
 import type { ChatMessage } from "./use-chat";
+import type { TurnEvent } from "@persai/contracts";
 
 const CHAT_SESSION_ROOT = "/workspace/assistants/assistant-1/sessions/runtime-session-1";
 
@@ -369,6 +370,70 @@ function makeAssistantMessage(overrides: Partial<ChatMessage> = {}): ChatMessage
     status: "streaming",
     ...overrides
   };
+}
+
+// ADR-170 — small event-log fixture builders. Each test reads as a list of
+// events with an explicit `seq`, never hand-assembled JSON, and `seq` is the
+// only ordering fact any of them carry.
+const EVENT_AT = "2026-08-01T00:00:00.000Z";
+
+function noteEvent(seq: number, text: string, display: "step" | "content" = "step"): TurnEvent {
+  return { kind: "note", seq, at: EVENT_AT, text, display };
+}
+
+function toolCallEvent(
+  seq: number,
+  name: string,
+  options: { ok?: boolean; toolCallId?: string } = {}
+): TurnEvent {
+  return {
+    kind: "tool_call",
+    seq,
+    at: EVENT_AT,
+    name,
+    ok: options.ok ?? true,
+    toolCallId: options.toolCallId ?? `call-${seq}`
+  };
+}
+
+function deliveryEvent(
+  seq: number,
+  attachmentId: string,
+  options: {
+    artifactKind?: "image" | "video" | "audio" | "document" | "file";
+    filename?: string | null;
+    sizeBytes?: number | null;
+  } = {}
+): TurnEvent {
+  return {
+    kind: "delivery",
+    seq,
+    at: EVENT_AT,
+    attachmentId,
+    artifactKind: options.artifactKind ?? "image",
+    filename: options.filename ?? null,
+    sizeBytes: options.sizeBytes ?? null
+  };
+}
+
+function answerTextEvent(seq: number, text: string): TurnEvent {
+  return { kind: "answer_text", seq, at: EVENT_AT, text };
+}
+
+function jobAcceptedEvent(
+  seq: number,
+  jobId: string,
+  jobKind: "media" | "document" | "sandbox" = "media"
+): TurnEvent {
+  return { kind: "job_accepted", seq, at: EVENT_AT, jobId, jobKind };
+}
+
+function turnStoppedEvent(seq: number, reason = "user_stopped"): TurnEvent {
+  return { kind: "turn_stopped", seq, at: EVENT_AT, reason };
+}
+
+function turnFailedEvent(seq: number, reason = "provider_error"): TurnEvent {
+  return { kind: "turn_failed", seq, at: EVENT_AT, reason };
 }
 
 const ATTACHMENTS_ONLY_PLACEHOLDER_TEXT = "(attached files)";
@@ -1379,14 +1444,17 @@ describe("ChatMessageBubble — pre-response status", () => {
     expect(screen.queryByText("activityKnowledgeSearchDone")).not.toBeInTheDocument();
   });
 
-  it("renders table working notes inline as content blocks without a process badge", () => {
+  it("ADR-170: a note with display 'content' renders inline as content without a process badge", () => {
     render(
       <ChatMessageBubble
         chatId="chat-1"
         message={makeAssistantMessage({
           status: "committed",
           content: "Финал.",
-          workingNotes: ["Текст 1\n| col | col |\n|---|---|\n| a | b |\n| c | d |"]
+          turnEvents: [
+            noteEvent(1, "Текст 1\n| col | col |\n|---|---|\n| a | b |\n| c | d |", "content"),
+            answerTextEvent(2, "Финал.")
+          ]
         })}
       />
     );
@@ -1397,49 +1465,43 @@ describe("ChatMessageBubble — pre-response status", () => {
     expect(screen.getByText("Финал.")).toBeInTheDocument();
   });
 
-  it("renders list working notes with at least three items inline as content", () => {
+  it("ADR-170: a multi-line content note renders inline as content regardless of its markdown shape", () => {
+    // D10 — the server's `note.display` flag decides step-vs-content, not
+    // client markdown sniffing. This text is plain (no table/heading/list)
+    // yet is still rendered as content purely because `display: "content"`.
     render(
       <ChatMessageBubble
         chatId="chat-1"
         message={makeAssistantMessage({
           status: "committed",
           content: "Финал.",
-          workingNotes: ["1. step\n2. step\n3. step"]
+          turnEvents: [
+            noteEvent(1, "Обычный текст без разметки.", "content"),
+            answerTextEvent(2, "Финал.")
+          ]
         })}
       />
     );
 
-    expect(screen.getByText(/1\. step/)).toBeInTheDocument();
-    expect(screen.getByText(/2\. step/)).toBeInTheDocument();
-    expect(screen.getByText(/3\. step/)).toBeInTheDocument();
+    expect(screen.getByText("Обычный текст без разметки.")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Выполнено/ })).toBeNull();
   });
 
-  it("renders heading working notes inline as content", () => {
-    render(
-      <ChatMessageBubble
-        chatId="chat-1"
-        message={makeAssistantMessage({
-          status: "committed",
-          content: "Финал.",
-          workingNotes: ["## Title\nbody"]
-        })}
-      />
-    );
-
-    expect(screen.getByText("Title")).toBeInTheDocument();
-    expect(screen.getByText("body")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Выполнено/ })).toBeNull();
-  });
-
-  it("groups only short connective working notes into one process badge", () => {
+  it("ADR-170: a note with display 'step' folds into the collapsed process badge, never rendered as content", () => {
+    // Same underlying text shape flipped only by `display` — proves the
+    // classification is the server flag alone, not text inspection.
     render(
       <ChatMessageBubble
         chatId="chat-1"
         message={makeAssistantMessage({
           status: "committed",
           content: "Готово.",
-          workingNotes: ["сейчас", "готово", "продолжаю"]
+          turnEvents: [
+            noteEvent(1, "сейчас", "step"),
+            noteEvent(2, "готово", "step"),
+            noteEvent(3, "продолжаю", "step"),
+            answerTextEvent(4, "Готово.")
+          ]
         })}
       />
     );
@@ -1459,9 +1521,10 @@ describe("ChatMessageBubble — pre-response status", () => {
         message={makeAssistantMessage({
           status: "committed",
           content: "Готово.",
-          toolInvocations: [
-            { name: "web_search", iteration: 0, ok: true },
-            { name: "web_search", iteration: 0, ok: true }
+          turnEvents: [
+            toolCallEvent(1, "web_search", { toolCallId: "call-1" }),
+            toolCallEvent(2, "web_search", { toolCallId: "call-2" }),
+            answerTextEvent(3, "Готово.")
           ]
         })}
       />
@@ -1483,22 +1546,19 @@ describe("ChatMessageBubble — pre-response status", () => {
   }
 
   it("ADR-167: committed reply folds delivery receipts into Выполнено; terminal strip stays below", () => {
-    const image = {
-      ...makeImageAttachment("att-inline-1"),
-      inlineAfterToolCallId: "call-img-1",
-      sizeBytes: 1024 * 1024
-    };
+    const image = { ...makeImageAttachment("att-inline-1"), sizeBytes: 1024 * 1024 };
     const { container } = render(
       <ChatMessageBubble
         chatId="chat-1"
         message={makeAssistantMessage({
           status: "committed",
           content: "Вот картинка.",
-          workingNotes: ["сейчас"],
-          toolInvocations: [
-            { name: "image_generate", iteration: 0, ok: true, toolCallId: "call-img-1" }
+          turnEvents: [
+            noteEvent(1, "сейчас"),
+            toolCallEvent(2, "image_generate", { toolCallId: "call-img-1" }),
+            deliveryEvent(3, "att-inline-1"),
+            answerTextEvent(4, "Вот картинка.")
           ],
-          inlineMediaPlacement: [{ toolCallId: "call-img-1", attachmentIds: ["att-inline-1"] }],
           attachments: [image]
         })}
       />
@@ -1522,24 +1582,21 @@ describe("ChatMessageBubble — pre-response status", () => {
   });
 
   it("ADR-167: live USER_TURN shows note+receipt stream before the true answer text, not under badge", () => {
-    const image = {
-      ...makeImageAttachment("att-inline-1"),
-      inlineAfterToolCallId: "call-img-1",
-      sizeBytes: 1024 * 1024
-    };
-    // Raw live content is the cumulative provider stream: the note prefix
-    // ("сейчас") plus the genuine post-tool-loop answer that follows it.
+    const image = { ...makeImageAttachment("att-inline-1"), sizeBytes: 1024 * 1024 };
+    // Live rendering trusts `message.content` for the plain-answer case —
+    // the server is responsible for keeping it the clean final answer.
     render(
       <ChatMessageBubble
         chatId="chat-1"
         message={makeAssistantMessage({
           status: "streaming",
-          content: "сейчас Пишу итоговый ответ.",
-          workingNotes: ["сейчас"],
-          toolInvocations: [
-            { name: "image_generate", iteration: 0, ok: true, toolCallId: "call-img-1" }
+          content: "Пишу итоговый ответ.",
+          turnEvents: [
+            noteEvent(1, "сейчас"),
+            toolCallEvent(2, "image_generate", { toolCallId: "call-img-1" }),
+            deliveryEvent(3, "att-inline-1"),
+            answerTextEvent(4, "Пишу итоговый ответ.")
           ],
-          inlineMediaPlacement: [{ toolCallId: "call-img-1", attachmentIds: ["att-inline-1"] }],
           attachments: [image]
         })}
       />
@@ -1557,71 +1614,24 @@ describe("ChatMessageBubble — pre-response status", () => {
     const badge = screen.getByRole("button", { name: /Выполнено|Сгенерировано/ });
     // Live stream must not sit under the process badge above streamed replicas.
     expect(badge.contains(stream)).toBe(false);
-    // The note prefix is stripped from live content — only the genuine
-    // post-tool-loop answer renders as content, and it must follow the
-    // note+receipt stream (the raw note text stays inside the stream only,
-    // it is not duplicated as answer text below).
     const answer = screen.getByText("Пишу итоговый ответ.");
     expect(stream.compareDocumentPosition(answer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     const cursor = screen.getByTestId("streaming-cursor");
     expect(answer.compareDocumentPosition(cursor) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it("ADR-167: strips the raw workingNotes prefix from live content so answer text never duplicates notes", () => {
-    render(
-      <ChatMessageBubble
-        chatId="chat-1"
-        message={makeAssistantMessage({
-          status: "streaming",
-          // Raw cumulative stream: note 1 + note 2 + the real answer, with no
-          // reset between tool-loop iterations (matches production content).
-          content: "Готовлю генерацию.Генерация: круг.Итоговый ответ готов.",
-          workingNotes: ["Готовлю генерацию.", "Генерация: круг."]
-        })}
-      />
-    );
-
-    // Only the genuine post-tool-loop remainder renders as answer text.
-    expect(screen.getByText("Итоговый ответ готов.")).toBeInTheDocument();
-    expect(screen.queryByText(/^Готовлю генерацию\.Генерация/)).toBeNull();
-    const stream = screen.getByTestId("process-live-note-receipt-stream");
-    expect(stream).toHaveTextContent("Готовлю генерацию.");
-    expect(stream).toHaveTextContent("Генерация: круг.");
-  });
-
-  it("ADR-167: live content matching no workingNotes prefix renders unchanged (safe fallback)", () => {
-    render(
-      <ChatMessageBubble
-        chatId="chat-1"
-        message={makeAssistantMessage({
-          status: "streaming",
-          // workingNotes text was corrected/edited and no longer matches the
-          // raw stream exactly — must not swallow any text.
-          content: "Другой текст, не совпадающий с заметками.",
-          workingNotes: ["Заметка, которой нет в content."]
-        })}
-      />
-    );
-
-    expect(screen.getByText("Другой текст, не совпадающий с заметками.")).toBeInTheDocument();
-  });
-
   it("ADR-167: live receipt banner opens the received image in the lightbox", () => {
-    const image = {
-      ...makeImageAttachment("att-open-1"),
-      inlineAfterToolCallId: "call-img-1",
-      sizeBytes: 1024 * 1024
-    };
+    const image = { ...makeImageAttachment("att-open-1"), sizeBytes: 1024 * 1024 };
     render(
       <ChatMessageBubble
         chatId="chat-1"
         message={makeAssistantMessage({
           status: "streaming",
           content: "",
-          toolInvocations: [
-            { name: "image_generate", iteration: 0, ok: true, toolCallId: "call-img-1" }
+          turnEvents: [
+            toolCallEvent(1, "image_generate", { toolCallId: "call-img-1" }),
+            deliveryEvent(2, "att-open-1")
           ],
-          inlineMediaPlacement: [{ toolCallId: "call-img-1", attachmentIds: ["att-open-1"] }],
           attachments: [image]
         })}
       />
@@ -1636,20 +1646,17 @@ describe("ChatMessageBubble — pre-response status", () => {
   });
 
   it("ADR-167: live receipt banner downloads a received document", () => {
-    const document = {
-      ...makeDocumentAttachment("att-dl-1"),
-      inlineAfterToolCallId: "call-doc-1"
-    };
+    const document = makeDocumentAttachment("att-dl-1");
     render(
       <ChatMessageBubble
         chatId="chat-1"
         message={makeAssistantMessage({
           status: "streaming",
           content: "",
-          toolInvocations: [
-            { name: "document_render", iteration: 0, ok: true, toolCallId: "call-doc-1" }
+          turnEvents: [
+            toolCallEvent(1, "document_render", { toolCallId: "call-doc-1" }),
+            deliveryEvent(2, "att-dl-1", { artifactKind: "document" })
           ],
-          inlineMediaPlacement: [{ toolCallId: "call-doc-1", attachmentIds: ["att-dl-1"] }],
           attachments: [document]
         })}
       />
@@ -1666,7 +1673,6 @@ describe("ChatMessageBubble — pre-response status", () => {
       ...makeImageAttachment("att-no-path"),
       path: null,
       thumbnailStoragePath: null,
-      inlineAfterToolCallId: "call-img-1",
       sizeBytes: 1024 * 1024
     };
     render(
@@ -1675,10 +1681,10 @@ describe("ChatMessageBubble — pre-response status", () => {
         message={makeAssistantMessage({
           status: "streaming",
           content: "",
-          toolInvocations: [
-            { name: "image_generate", iteration: 0, ok: true, toolCallId: "call-img-1" }
+          turnEvents: [
+            toolCallEvent(1, "image_generate", { toolCallId: "call-img-1" }),
+            deliveryEvent(2, "att-no-path")
           ],
-          inlineMediaPlacement: [{ toolCallId: "call-img-1", attachmentIds: ["att-no-path"] }],
           attachments: [image]
         })}
       />
@@ -1689,23 +1695,17 @@ describe("ChatMessageBubble — pre-response status", () => {
   });
 
   it("ADR-167: delivery receipts survive live to committed and terminal strip appears only after commit", () => {
-    const image = {
-      ...makeImageAttachment("att-live-commit-1"),
-      inlineAfterToolCallId: "call-img-1",
-      sizeBytes: 1024 * 1024
-    };
+    const image = { ...makeImageAttachment("att-live-commit-1"), sizeBytes: 1024 * 1024 };
     const { rerender } = render(
       <ChatMessageBubble
         chatId="chat-1"
         message={makeAssistantMessage({
           status: "streaming",
           content: "",
-          workingNotes: ["сейчас"],
-          toolInvocations: [
-            { name: "image_generate", iteration: 0, ok: true, toolCallId: "call-img-1" }
-          ],
-          inlineMediaPlacement: [
-            { toolCallId: "call-img-1", attachmentIds: ["att-live-commit-1"] }
+          turnEvents: [
+            noteEvent(1, "сейчас"),
+            toolCallEvent(2, "image_generate", { toolCallId: "call-img-1" }),
+            deliveryEvent(3, "att-live-commit-1")
           ],
           attachments: [image]
         })}
@@ -1724,12 +1724,11 @@ describe("ChatMessageBubble — pre-response status", () => {
         message={makeAssistantMessage({
           status: "committed",
           content: "Готово.",
-          workingNotes: ["сейчас"],
-          toolInvocations: [
-            { name: "image_generate", iteration: 0, ok: true, toolCallId: "call-img-1" }
-          ],
-          inlineMediaPlacement: [
-            { toolCallId: "call-img-1", attachmentIds: ["att-live-commit-1"] }
+          turnEvents: [
+            noteEvent(1, "сейчас"),
+            toolCallEvent(2, "image_generate", { toolCallId: "call-img-1" }),
+            deliveryEvent(3, "att-live-commit-1"),
+            answerTextEvent(4, "Готово.")
           ],
           attachments: [image]
         })}
@@ -1746,60 +1745,19 @@ describe("ChatMessageBubble — pre-response status", () => {
     expect(folded).not.toHaveAttribute("role");
   });
 
-  it("ADR-167: delivery order follows tool chronology inside the note+receipt stream", () => {
-    const pdf = {
-      ...makeDocumentAttachment("att-pdf-1"),
-      originalFilename: "test-report.pdf",
-      sizeBytes: 7680
-    };
-    const image = {
-      ...makeImageAttachment("att-img-1"),
-      sizeBytes: 778240
-    };
-    render(
-      <ChatMessageBubble
-        chatId="chat-1"
-        message={makeAssistantMessage({
-          status: "committed",
-          content: "Готово.",
-          workingNotes: ["сейчас"],
-          toolInvocations: [
-            { name: "document", iteration: 0, ok: true, toolCallId: "call-doc-1" },
-            { name: "image_generate", iteration: 1, ok: true, toolCallId: "call-img-1" }
-          ],
-          inlineMediaPlacement: [
-            { toolCallId: "call-doc-1", attachmentIds: ["att-pdf-1"] },
-            { toolCallId: "call-img-1", attachmentIds: ["att-img-1"] }
-          ],
-          attachments: [pdf, image]
-        })}
-      />
-    );
-
-    expect(screen.queryByTestId("media-receipt-lines")).toBeNull();
-    expandProcessBadge();
-    const stream = screen.getByTestId("process-timeline-receipts");
-    expect(stream.textContent).toMatch(
-      /Получен файл — test-report\.pdf[\s\S]*Получено изображение — генерация/
-    );
-  });
-
   it("suppresses a live continuation strip until terminal commit", () => {
-    const image = {
-      ...makeImageAttachment("att-catchup-1"),
-      sizeBytes: 1024 * 1024
-    };
+    const image = { ...makeImageAttachment("att-catchup-1"), sizeBytes: 1024 * 1024 };
     const { container } = render(
       <ChatMessageBubble
         chatId="chat-1"
         message={makeAssistantMessage({
           status: "streaming",
           content: "",
-          workingNotes: ["догоняю"],
-          toolInvocations: [
-            { name: "image_generate", iteration: 0, ok: true, toolCallId: "call-img-1" }
+          turnEvents: [
+            noteEvent(1, "догоняю"),
+            toolCallEvent(2, "image_generate", { toolCallId: "call-img-1" }),
+            deliveryEvent(3, "att-catchup-1")
           ],
-          inlineMediaPlacement: [{ toolCallId: "call-img-1", attachmentIds: ["att-catchup-1"] }],
           attachments: [image]
         })}
       />
@@ -1813,331 +1771,8 @@ describe("ChatMessageBubble — pre-response status", () => {
     expect(container.querySelector('img[alt="photo.jpg"]')).toBeNull();
   });
 
-  it("ADR-165: live USER_TURN shows orphan media receipts when placement is missing", () => {
-    const image = {
-      ...makeImageAttachment("att-orphan-1"),
-      sizeBytes: 1024 * 1024
-    };
-    render(
-      <ChatMessageBubble
-        chatId="chat-1"
-        message={makeAssistantMessage({
-          status: "streaming",
-          content: "",
-          workingNotes: ["жду"],
-          toolInvocations: [
-            { name: "image_generate", iteration: 0, ok: true, toolCallId: "call-img-1" }
-          ],
-          attachments: [image]
-        })}
-      />
-    );
-
-    expect(screen.queryByTestId("attachment-strip")).toBeNull();
-    // The narrated note ("жду") never bound to this receipt's tool call, so
-    // it is unclaimed — but no final answer text has started yet (`content`
-    // is empty), so it renders inline in the ordinary note/receipt stream at
-    // its frozen arrival position, not shunted into a separate after-answer
-    // stream (that stream is reserved for the narrower case where the
-    // receipt arrives *after* answer text already started — see the
-    // dedicated regression test below).
-    const stream = screen.getByTestId("process-live-note-receipt-stream");
-    expect(stream).toHaveTextContent("жду");
-    expect(stream).toHaveTextContent(/Получено изображение.*генерация.*1\.0 MB/);
-    expect(screen.queryByTestId("process-live-unclaimed-receipt-stream")).toBeNull();
-  });
-
-  it("regression: an unclaimed receipt that arrives mid-tool-loop does not ride the live cursor as later notes stream in", () => {
-    // Live repro (persai.dev, 2026-07-31, founder screenshot): the receipt
-    // rendered correctly right after the note that was live when it
-    // arrived, but then kept "sliding down" to stay glued just above
-    // whatever note/status was currently live, as each *later* note
-    // streamed in — because the old design appended every unclaimed receipt
-    // after whatever notes were known *at render time*, recomputed fresh on
-    // every render. This asserts the receipt settles once, between the note
-    // that was live when it arrived and the very next note, and does not
-    // move as later notes are appended.
-    const image = {
-      ...makeImageAttachment("att-riding-1"),
-      sizeBytes: 1024 * 1024
-    };
-    const baseMessage = makeAssistantMessage({
-      status: "streaming",
-      content: "",
-      toolInvocations: [
-        { name: "image_generate", iteration: 0, ok: true, toolCallId: "call-img-1" }
-      ],
-      attachments: [image]
-    });
-
-    const { rerender } = render(
-      <ChatMessageBubble
-        chatId="chat-1"
-        message={{
-          ...baseMessage,
-          workingNotes: ["Генерирую жёлтый круг.", "Изображение готово."]
-        }}
-      />
-    );
-    const streamBeforeMoreNotes = screen.getByTestId("process-live-note-receipt-stream");
-    const notesBefore = Array.from(streamBeforeMoreNotes.children).map((node) => node.textContent);
-    const receiptIndexBefore = notesBefore.findIndex((text) =>
-      /Получено изображение/.test(text ?? "")
-    );
-    expect(receiptIndexBefore).toBe(2); // right after "Изображение готово." (index 1)
-
-    // Two more notes stream in after the receipt already arrived.
-    rerender(
-      <ChatMessageBubble
-        chatId="chat-1"
-        message={{
-          ...baseMessage,
-          workingNotes: [
-            "Генерирую жёлтый круг.",
-            "Изображение готово.",
-            "Формирую PDF.",
-            "Готовлю документ."
-          ]
-        }}
-      />
-    );
-    const streamAfterMoreNotes = screen.getByTestId("process-live-note-receipt-stream");
-    const notesAfter = Array.from(streamAfterMoreNotes.children).map((node) => node.textContent);
-    const receiptIndexAfter = notesAfter.findIndex((text) =>
-      /Получено изображение/.test(text ?? "")
-    );
-    // Must stay pinned right after "Изображение готово." — not slide down to
-    // sit just before "Готовлю документ." (the new live tail/cursor).
-    expect(receiptIndexAfter).toBe(2);
-    expect(notesAfter[3]).toMatch("Формирую PDF.");
-    expect(notesAfter[4]).toMatch("Готовлю документ.");
-  });
-
-  it("regression: a receipt that lands mid-sentence stays anchored in the streaming text as the model keeps talking", () => {
-    // Live repro (persai.dev, 2026-07-31, second founder report): live
-    // narration streams through `content`, not `workingNotes` — a note only
-    // lands in `workingNotes` once its step finishes. The receipt therefore
-    // arrives while the model is mid-sentence, and the old design put every
-    // such receipt in a fixed block after all streamed text, i.e. glued
-    // right above the live cursor forever ("липнет к курсору сверху").
-    const image = {
-      ...makeImageAttachment("att-midsentence-1"),
-      sizeBytes: 1024 * 1024
-    };
-    const baseMessage = makeAssistantMessage({
-      status: "streaming",
-      workingNotes: [],
-      toolInvocations: [
-        { name: "image_generate", iteration: 0, ok: true, toolCallId: "call-img-1" }
-      ],
-      attachments: [image]
-    });
-
-    // The receipt lands right here, while "Картинка готова." is on screen.
-    const { rerender } = render(
-      <ChatMessageBubble
-        chatId="chat-1"
-        message={{ ...baseMessage, content: "Картинка готова." }}
-      />
-    );
-    const receipt = screen.getByTestId("process-live-answer-receipt-stream");
-    expect(receipt).toHaveTextContent(/Получено изображение.*генерация.*1\.0 MB/);
-    expect(
-      screen.getByText("Картинка готова.").compareDocumentPosition(receipt) &
-        Node.DOCUMENT_POSITION_FOLLOWING
-    ).toBeTruthy();
-
-    // The model keeps talking. The new text must render BELOW the banner —
-    // the banner must not follow the cursor down.
-    rerender(
-      <ChatMessageBubble
-        chatId="chat-1"
-        message={{
-          ...baseMessage,
-          content: "Картинка готова. Теперь собираю PDF. Осталось подписать."
-        }}
-      />
-    );
-    const settledReceipt = screen.getByTestId("process-live-answer-receipt-stream");
-    const laterText = screen.getByText(/Теперь собираю PDF\. Осталось подписать\./);
-    expect(
-      settledReceipt.compareDocumentPosition(laterText) & Node.DOCUMENT_POSITION_FOLLOWING
-    ).toBeTruthy();
-    expect(screen.getByText("Картинка готова.")).toBeInTheDocument();
-  });
-
-  it("regression: a late-delivered receipt bound to an early tool call does not jump to the top of the turn", () => {
-    // Live repro (persai.dev, 2026-07-31, third founder report): the image
-    // receipt held its place, but «Получен файл — test-output.pdf» stuck to
-    // the very top. A receipt bound to a tool call used to render right
-    // after that call unconditionally — which is far above narration the
-    // user already read when the job only finishes much later.
-    const pdf = {
-      ...makeDocumentAttachment("att-late-pdf-1"),
-      originalFilename: "test-output.pdf",
-      sizeBytes: 502100
-    };
-    const baseMessage = makeAssistantMessage({
-      status: "streaming",
-      content: "",
-      toolInvocations: [{ name: "document", iteration: 0, ok: true, toolCallId: "call-doc-1" }]
-    });
-
-    // Frames before delivery: the model narrates several steps.
-    const { rerender } = render(
-      <ChatMessageBubble
-        chatId="chat-1"
-        message={{ ...baseMessage, workingNotes: ["Первый шаг.", "Второй шаг."] }}
-      />
-    );
-
-    // Delivery lands now, bound to the *early* document tool call.
-    rerender(
-      <ChatMessageBubble
-        chatId="chat-1"
-        message={{
-          ...baseMessage,
-          workingNotes: ["Первый шаг.", "Второй шаг.", "Третий шаг."],
-          inlineMediaPlacement: [{ toolCallId: "call-doc-1", attachmentIds: ["att-late-pdf-1"] }],
-          attachments: [pdf]
-        }}
-      />
-    );
-
-    const stream = screen.getByTestId("process-live-note-receipt-stream");
-    const rows = Array.from(stream.children).map((node) => node.textContent);
-    const receiptIndex = rows.findIndex((text) => /Получен файл/.test(text ?? ""));
-    // Must sit after everything already narrated, not at index 0.
-    expect(receiptIndex).toBe(3);
-    expect(rows[0]).toMatch("Первый шаг.");
-    expect(rows[2]).toMatch("Третий шаг.");
-  });
-
-  it("regression: mid-turn reconciliation with attachments but no notes yet cannot pin a receipt to the top", () => {
-    // Mid-turn reconcile can briefly hand the bubble a message whose
-    // attachments are present while notes/content are not reattached yet.
-    // Freezing from that frame used to place the receipt above everything.
-    const image = {
-      ...makeImageAttachment("att-reconcile-1"),
-      sizeBytes: 1024 * 1024
-    };
-    const baseMessage = makeAssistantMessage({ status: "streaming", content: "" });
-
-    const { rerender } = render(
-      <ChatMessageBubble
-        chatId="chat-1"
-        message={{ ...baseMessage, workingNotes: ["Шаг один.", "Шаг два."] }}
-      />
-    );
-    // The bad frame: attachments arrive, notes momentarily empty.
-    rerender(
-      <ChatMessageBubble
-        chatId="chat-1"
-        message={{ ...baseMessage, workingNotes: [], attachments: [image] }}
-      />
-    );
-    // Notes come back.
-    rerender(
-      <ChatMessageBubble
-        chatId="chat-1"
-        message={{
-          ...baseMessage,
-          workingNotes: ["Шаг один.", "Шаг два.", "Шаг три."],
-          attachments: [image]
-        }}
-      />
-    );
-
-    const stream = screen.getByTestId("process-live-note-receipt-stream");
-    const rows = Array.from(stream.children).map((node) => node.textContent);
-    expect(rows.findIndex((text) => /Получено изображение/.test(text ?? ""))).toBe(2);
-    expect(rows[0]).toMatch("Шаг один.");
-  });
-
-  it("regression: a receipt anchored mid-sentence moves into the note stream once that sentence becomes a finished note", () => {
-    // Same receipt, one step later: the sentence it landed under has
-    // finished and moved into `workingNotes`. The banner must keep the same
-    // visual spot — right after that note — instead of jumping.
-    const image = {
-      ...makeImageAttachment("att-settle-1"),
-      sizeBytes: 1024 * 1024
-    };
-    const baseMessage = makeAssistantMessage({
-      status: "streaming",
-      toolInvocations: [
-        { name: "image_generate", iteration: 0, ok: true, toolCallId: "call-img-1" }
-      ],
-      attachments: [image]
-    });
-
-    const { rerender } = render(
-      <ChatMessageBubble
-        chatId="chat-1"
-        message={{ ...baseMessage, workingNotes: [], content: "Картинка готова." }}
-      />
-    );
-    expect(screen.getByTestId("process-live-answer-receipt-stream")).toBeInTheDocument();
-
-    rerender(
-      <ChatMessageBubble
-        chatId="chat-1"
-        message={{
-          ...baseMessage,
-          workingNotes: ["Картинка готова.", "Собираю PDF."],
-          content: "Картинка готова. Собираю PDF."
-        }}
-      />
-    );
-    expect(screen.queryByTestId("process-live-answer-receipt-stream")).toBeNull();
-    const stream = screen.getByTestId("process-live-note-receipt-stream");
-    const rows = Array.from(stream.children).map((node) => node.textContent);
-    expect(rows[0]).toMatch("Картинка готова.");
-    expect(rows[1]).toMatch(/Получено изображение/);
-    expect(rows[2]).toMatch("Собираю PDF.");
-  });
-
-  it("regression: a receipt that arrives while the model is already narrating its answer renders below that narration, not above it", () => {
-    // Live repro (persai.dev, 2026-07-30): the model finishes its tool loop
-    // and starts streaming its final answer text ("Генерирую...", "Жду
-    // результат.") as `content`, not as separate `workingNotes` — so by the
-    // time the async image job delivers, there is no narrated tool call left
-    // for the receipt to bind to (unclaimed). The banner must not render
-    // above narration the user already read.
-    const image = {
-      ...makeImageAttachment("att-mid-narration-1"),
-      sizeBytes: 1024 * 1024
-    };
-    render(
-      <ChatMessageBubble
-        chatId="chat-1"
-        message={makeAssistantMessage({
-          status: "streaming",
-          content: "Генерирую изображение. Жду результат.",
-          workingNotes: [],
-          toolInvocations: [
-            { name: "image_generate", iteration: 0, ok: true, toolCallId: "call-img-1" }
-          ],
-          attachments: [image]
-        })}
-      />
-    );
-
-    expect(screen.queryByTestId("process-live-note-receipt-stream")).toBeNull();
-    const answer = screen.getByText(/Генерирую изображение\. Жду результат\./);
-    const receiptStream = screen.getByTestId("process-live-answer-receipt-stream");
-    expect(receiptStream).toHaveTextContent(/Получено изображение.*генерация.*1\.0 MB/);
-    // DOM order is render order here (no CSS reordering in this component) —
-    // the answer text node must precede the receipt stream container.
-    expect(
-      answer.compareDocumentPosition(receiptStream) & Node.DOCUMENT_POSITION_FOLLOWING
-    ).toBeTruthy();
-  });
-
   it("ADR-167: async-cont delivery-only bubble suppresses technical Получено receipts", () => {
-    const image = {
-      ...makeImageAttachment("att-async-delivery-1"),
-      sizeBytes: 1024 * 1024
-    };
+    const image = { ...makeImageAttachment("att-async-delivery-1"), sizeBytes: 1024 * 1024 };
     render(
       <ChatMessageBubble
         chatId="chat-1"
@@ -2147,9 +1782,7 @@ describe("ChatMessageBubble — pre-response status", () => {
           content: "",
           suppressMediaReceipts: true,
           attachments: [image],
-          inlineMediaPlacement: [
-            { toolCallId: "call-img-1", attachmentIds: ["att-async-delivery-1"] }
-          ]
+          turnEvents: [deliveryEvent(1, "att-async-delivery-1")]
         })}
       />
     );
@@ -2160,37 +1793,8 @@ describe("ChatMessageBubble — pre-response status", () => {
     expect(screen.queryByTestId("attachment-strip")).toBeNull();
   });
 
-  it("ADR-167: async-cont optimistic id suppresses Получено without explicit flag", () => {
-    const image = {
-      ...makeImageAttachment("att-async-id-heuristic-1"),
-      sizeBytes: 1024 * 1024
-    };
-    render(
-      <ChatMessageBubble
-        chatId="chat-1"
-        message={makeAssistantMessage({
-          id: "local-assistant-async-cont:heuristic-1",
-          status: "streaming",
-          content: "",
-          workingNotes: ["догоняю"],
-          toolInvocations: [{ name: "web_fetch", iteration: 0, ok: true }],
-          attachments: [image],
-          inlineMediaPlacement: [
-            { toolCallId: "call-img-1", attachmentIds: ["att-async-id-heuristic-1"] }
-          ]
-        })}
-      />
-    );
-
-    expect(screen.queryByTestId("media-receipt-lines")).toBeNull();
-    expect(screen.queryByText(/Получено изображение/)).toBeNull();
-  });
-
   it("ADR-167: async-cont with real work keeps one process badge but no technical Получено", () => {
-    const image = {
-      ...makeImageAttachment("att-async-work-1"),
-      sizeBytes: 1024 * 1024
-    };
+    const image = { ...makeImageAttachment("att-async-work-1"), sizeBytes: 1024 * 1024 };
     render(
       <ChatMessageBubble
         chatId="chat-1"
@@ -2199,10 +1803,13 @@ describe("ChatMessageBubble — pre-response status", () => {
           status: "committed",
           content: "Продолжаю.",
           suppressMediaReceipts: true,
-          workingNotes: ["сверяю"],
-          toolInvocations: [{ name: "web_fetch", iteration: 0, ok: true }],
           attachments: [image],
-          inlineMediaPlacement: [{ toolCallId: "call-img-1", attachmentIds: ["att-async-work-1"] }]
+          turnEvents: [
+            noteEvent(1, "сверяю"),
+            toolCallEvent(2, "web_fetch", { toolCallId: "call-1" }),
+            deliveryEvent(3, "att-async-work-1"),
+            answerTextEvent(4, "Продолжаю.")
+          ]
         })}
       />
     );
@@ -2214,21 +1821,18 @@ describe("ChatMessageBubble — pre-response status", () => {
   });
 
   it("ADR-167: document/PDF receipt stays visible live first, then persists with full strip", () => {
-    const documentAttachment = {
-      ...makeDocumentAttachment("att-doc-1"),
-      inlineAfterToolCallId: "call-doc-1"
-    };
+    const documentAttachment = makeDocumentAttachment("att-doc-1");
     const { rerender } = render(
       <ChatMessageBubble
         chatId="chat-1"
         message={makeAssistantMessage({
           status: "streaming",
           content: "",
-          workingNotes: ["готовлю файл"],
-          toolInvocations: [
-            { name: "document_render", iteration: 0, ok: true, toolCallId: "call-doc-1" }
+          turnEvents: [
+            noteEvent(1, "готовлю файл"),
+            toolCallEvent(2, "document_render", { toolCallId: "call-doc-1" }),
+            deliveryEvent(3, "att-doc-1", { artifactKind: "document" })
           ],
-          inlineMediaPlacement: [{ toolCallId: "call-doc-1", attachmentIds: ["att-doc-1"] }],
           attachments: [documentAttachment]
         })}
       />
@@ -2246,11 +1850,12 @@ describe("ChatMessageBubble — pre-response status", () => {
         message={makeAssistantMessage({
           status: "committed",
           content: "Готово.",
-          workingNotes: ["готовлю файл"],
-          toolInvocations: [
-            { name: "document_render", iteration: 0, ok: true, toolCallId: "call-doc-1" }
+          turnEvents: [
+            noteEvent(1, "готовлю файл"),
+            toolCallEvent(2, "document_render", { toolCallId: "call-doc-1" }),
+            deliveryEvent(3, "att-doc-1", { artifactKind: "document" }),
+            answerTextEvent(4, "Готово.")
           ],
-          inlineMediaPlacement: [{ toolCallId: "call-doc-1", attachmentIds: ["att-doc-1"] }],
           attachments: [documentAttachment]
         })}
       />
@@ -2272,6 +1877,322 @@ describe("ChatMessageBubble — pre-response status", () => {
     ).toBeInTheDocument();
   });
 
+  it("ADR-170: strict seq order places a delivery exactly between two answer segments", () => {
+    const image = { ...makeImageAttachment("att-mid-answer-1"), sizeBytes: 1024 * 1024 };
+    render(
+      <ChatMessageBubble
+        chatId="chat-1"
+        message={makeAssistantMessage({
+          status: "streaming",
+          content: "Первая часть. Вторая часть.",
+          turnEvents: [
+            answerTextEvent(1, "Первая часть. "),
+            deliveryEvent(2, "att-mid-answer-1"),
+            answerTextEvent(3, "Вторая часть.")
+          ],
+          attachments: [image]
+        })}
+      />
+    );
+
+    const firstPart = screen.getByText("Первая часть.");
+    const receipt = screen.getByTestId("process-live-answer-receipt-stream");
+    const secondPart = screen.getByText("Вторая часть.");
+    expect(receipt).toHaveTextContent(/Получено изображение.*генерация.*1\.0 MB/);
+    expect(
+      firstPart.compareDocumentPosition(receipt) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    expect(
+      receipt.compareDocumentPosition(secondPart) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+  });
+
+  it("ADR-170 D5.3: a COMMITTED message renders a delivery interleaved between two answer segments", () => {
+    // The founder's complaint was specifically about the committed/expanded
+    // view disagreeing with the live view — this proves the committed render
+    // path also reads the log's `seq` order, not `message.content`.
+    const image = { ...makeImageAttachment("att-committed-mid-answer-1"), sizeBytes: 1024 * 1024 };
+    render(
+      <ChatMessageBubble
+        chatId="chat-1"
+        message={makeAssistantMessage({
+          status: "committed",
+          content: "Первая часть. Вторая часть.",
+          turnEvents: [
+            answerTextEvent(1, "Первая часть. "),
+            deliveryEvent(2, "att-committed-mid-answer-1"),
+            answerTextEvent(3, "Вторая часть.")
+          ],
+          attachments: [image]
+        })}
+      />
+    );
+
+    const firstPart = screen.getByText("Первая часть.");
+    const receipt = screen.getByTestId("process-live-answer-receipt-stream");
+    const secondPart = screen.getByText("Вторая часть.");
+    expect(receipt).toHaveTextContent(/Получено изображение.*генерация.*1\.0 MB/);
+    expect(
+      firstPart.compareDocumentPosition(receipt) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    expect(
+      receipt.compareDocumentPosition(secondPart) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+  });
+
+  it("ADR-170 D5.3 regression: the same log renders the same element order live and committed (the founder's reported defect)", () => {
+    // The original defect: a receipt sat correctly in the live stream, then
+    // reordered in the committed message and the expanded process block once
+    // the turn ended, because live trusted the log while committed trusted a
+    // separately assembled `message.content`. One source (the log) for both
+    // means the order can no longer disagree between the two renders.
+    const image = { ...makeImageAttachment("att-same-order-1"), sizeBytes: 1024 * 1024 };
+    const sharedTurnEvents = [
+      answerTextEvent(1, "Готовлю картинку. "),
+      deliveryEvent(2, "att-same-order-1"),
+      answerTextEvent(3, "Вот результат.")
+    ];
+
+    const { rerender } = render(
+      <ChatMessageBubble
+        chatId="chat-1"
+        message={makeAssistantMessage({
+          status: "streaming",
+          content: "Готовлю картинку. Вот результат.",
+          turnEvents: sharedTurnEvents,
+          attachments: [image]
+        })}
+      />
+    );
+    const liveContainer = screen.getByTestId("process-live-answer-receipt-stream").parentElement!;
+    const liveOrder = Array.from(liveContainer.children).map((node) =>
+      node.textContent?.includes("Получено") ? "receipt" : node.textContent?.trim()
+    );
+
+    rerender(
+      <ChatMessageBubble
+        chatId="chat-1"
+        message={makeAssistantMessage({
+          status: "committed",
+          content: "Готовлю картинку. Вот результат.",
+          turnEvents: sharedTurnEvents,
+          attachments: [image]
+        })}
+      />
+    );
+    const committedContainer = screen.getByTestId(
+      "process-live-answer-receipt-stream"
+    ).parentElement!;
+    const committedOrder = Array.from(committedContainer.children).map((node) =>
+      node.textContent?.includes("Получено") ? "receipt" : node.textContent?.trim()
+    );
+
+    expect(committedOrder).toEqual(liveOrder);
+    expect(liveOrder).toEqual(["Готовлю картинку.", "receipt", "Вот результат."]);
+  });
+
+  it("ADR-170: an open answer_text growing in place at the same seq renders one element, not two", () => {
+    const baseMessage = makeAssistantMessage({
+      status: "streaming",
+      content: "Hello ",
+      turnEvents: [answerTextEvent(1, "Hello ")]
+    });
+    const { rerender } = render(<ChatMessageBubble chatId="chat-1" message={baseMessage} />);
+    expect(screen.getAllByText(/Hello/)).toHaveLength(1);
+
+    // The same event, same `seq`, grew in place — this must still be exactly
+    // one rendered text node with the concatenated text, never a second one.
+    rerender(
+      <ChatMessageBubble
+        chatId="chat-1"
+        message={{
+          ...baseMessage,
+          content: "Hello world",
+          turnEvents: [answerTextEvent(1, "Hello world")]
+        }}
+      />
+    );
+    expect(screen.getAllByText(/Hello world/)).toHaveLength(1);
+    expect(screen.queryByText("Hello ")).toBeNull();
+  });
+
+  it("ADR-170 D5.2.1: renders the unnumbered tail after every numbered event and replaces it", () => {
+    const { rerender } = render(
+      <ChatMessageBubble
+        chatId="chat-1"
+        message={makeAssistantMessage({
+          turnEvents: [noteEvent(1, "сейчас"), answerTextEvent(2, "Готово.")],
+          textTail: "Прив"
+        })}
+      />
+    );
+
+    const answer = screen.getByText("Готово.");
+    const tail = screen.getByText("Прив");
+    expect(answer.compareDocumentPosition(tail) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    rerender(
+      <ChatMessageBubble
+        chatId="chat-1"
+        message={makeAssistantMessage({
+          turnEvents: [noteEvent(1, "сейчас"), answerTextEvent(2, "Готово.")],
+          textTail: "Привет"
+        })}
+      />
+    );
+
+    expect(screen.getByText("Привет")).toBeInTheDocument();
+    expect(screen.queryByText("Прив")).toBeNull();
+
+    rerender(
+      <ChatMessageBubble
+        chatId="chat-1"
+        message={makeAssistantMessage({
+          turnEvents: [noteEvent(1, "сейчас"), answerTextEvent(2, "Готово.")],
+          textTail: ""
+        })}
+      />
+    );
+
+    expect(screen.queryByText("Привет")).toBeNull();
+  });
+
+  it("ADR-170 D5.2.1: renders a tail when the live message has no numbered events", () => {
+    render(
+      <ChatMessageBubble
+        chatId="chat-1"
+        message={makeAssistantMessage({ content: "", textTail: "Потоковый текст." })}
+      />
+    );
+
+    expect(screen.getByText("Потоковый текст.")).toBeInTheDocument();
+  });
+
+  it("ADR-170 D5.2.1: ignores a stale tail on a committed message", () => {
+    render(
+      <ChatMessageBubble
+        chatId="chat-1"
+        message={makeAssistantMessage({
+          status: "committed",
+          content: "Готово.",
+          turnEvents: [answerTextEvent(1, "Готово.")],
+          textTail: "Устаревший хвост"
+        })}
+      />
+    );
+
+    expect(screen.getByText("Готово.")).toBeInTheDocument();
+    expect(screen.queryByText("Устаревший хвост")).toBeNull();
+  });
+
+  it("ADR-170 D7: a message with no turnEvents renders no process block, only the answer and attachments", () => {
+    const image = makeImageAttachment("att-no-log-1");
+    render(
+      <ChatMessageBubble
+        chatId="chat-1"
+        message={makeAssistantMessage({
+          status: "committed",
+          content: "Готово, без лога.",
+          attachments: [image]
+        })}
+      />
+    );
+
+    expect(screen.getByText("Готово, без лога.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Выполнено|Найдено|Прочитано/ })).toBeNull();
+    expect(screen.queryByTestId("media-receipt-lines")).toBeNull();
+    expect(screen.getByTestId("attachment-strip")).toBeInTheDocument();
+  });
+
+  it("ADR-170 D2.1/D11: a delivery whose attachment id is not yet in attachments renders nothing rather than crash or guess", () => {
+    render(
+      <ChatMessageBubble
+        chatId="chat-1"
+        message={makeAssistantMessage({
+          status: "streaming",
+          content: "",
+          turnEvents: [
+            noteEvent(1, "готовлю"),
+            toolCallEvent(2, "image_generate", { toolCallId: "call-img-1" }),
+            deliveryEvent(3, "att-not-yet-caught-up")
+          ],
+          attachments: []
+        })}
+      />
+    );
+
+    // The note still renders; the unresolved delivery renders nothing.
+    const stream = screen.getByTestId("process-live-note-receipt-stream");
+    expect(stream).toHaveTextContent("готовлю");
+    expect(screen.queryByTestId("media-receipt-lines")).toBeNull();
+    expect(screen.queryByText(/Получено/)).toBeNull();
+  });
+
+  it("ADR-170: a job_accepted bookkeeping event carries no visible piece of its own", () => {
+    render(
+      <ChatMessageBubble
+        chatId="chat-1"
+        message={makeAssistantMessage({
+          status: "streaming",
+          content: "",
+          turnEvents: [
+            noteEvent(1, "запускаю фон"),
+            jobAcceptedEvent(2, "job-1", "media"),
+            toolCallEvent(3, "image_generate", { toolCallId: "call-1" })
+          ]
+        })}
+      />
+    );
+
+    const stream = screen.getByTestId("process-live-note-receipt-stream");
+    expect(stream).toHaveTextContent("запускаю фон");
+    expect(stream).not.toHaveTextContent("job-1");
+  });
+
+  it("ADR-170: a turn_stopped log keeps the partial answer and prior notes visible with no crash", () => {
+    render(
+      <ChatMessageBubble
+        chatId="chat-1"
+        message={makeAssistantMessage({
+          status: "partial",
+          stopReason: "user_stopped",
+          content: "Успел написать часть.",
+          turnEvents: [
+            noteEvent(1, "сейчас"),
+            answerTextEvent(2, "Успел написать часть."),
+            turnStoppedEvent(3)
+          ]
+        })}
+      />
+    );
+
+    expect(screen.getByText("Успел написать часть.")).toBeInTheDocument();
+    expect(screen.getByTestId("user-stopped-badge")).toBeInTheDocument();
+  });
+
+  it("ADR-170: a turn_failed log renders whatever notes/answer preceded it with no crash", () => {
+    render(
+      <ChatMessageBubble
+        chatId="chat-1"
+        message={makeAssistantMessage({
+          status: "committed",
+          content: "Частичный ответ.",
+          turnEvents: [
+            noteEvent(1, "пробую"),
+            answerTextEvent(2, "Частичный ответ."),
+            turnFailedEvent(3)
+          ]
+        })}
+      />
+    );
+
+    // The terminal `turn_failed` fact carries no visible piece of its own —
+    // it must not crash rendering, and the notes/answer that preceded it
+    // still render normally.
+    expect(screen.getByText("Частичный ответ.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Выполнено · 1 шаг" })).toBeInTheDocument();
+  });
+
   it("preserves order for mixed connective text, content, then connective text plus tool", () => {
     const { container } = render(
       <ChatMessageBubble
@@ -2279,8 +2200,13 @@ describe("ChatMessageBubble — pre-response status", () => {
         message={makeAssistantMessage({
           status: "committed",
           content: "Итог.",
-          workingNotes: ["сейчас", "## Content Title\nbody", "продолжаю"],
-          toolInvocations: [{ name: "web_fetch", iteration: 2, ok: true }]
+          turnEvents: [
+            noteEvent(1, "сейчас"),
+            noteEvent(2, "## Content Title\nbody", "content"),
+            noteEvent(3, "продолжаю"),
+            toolCallEvent(4, "web_fetch", { toolCallId: "call-1" }),
+            answerTextEvent(5, "Итог.")
+          ]
         })}
       />
     );
@@ -2295,17 +2221,19 @@ describe("ChatMessageBubble — pre-response status", () => {
     expect(container).toHaveTextContent("Итог.");
   });
 
-  it("skips empty working notes between tools and groups only tool pieces", () => {
+  it("skips empty notes between tools and groups only tool pieces", () => {
     render(
       <ChatMessageBubble
         chatId="chat-1"
         message={makeAssistantMessage({
           status: "committed",
           content: "Готово.",
-          workingNotes: ["", ""],
-          toolInvocations: [
-            { name: "web_fetch", iteration: 0, ok: true },
-            { name: "web_fetch", iteration: 1, ok: true }
+          turnEvents: [
+            noteEvent(1, ""),
+            toolCallEvent(2, "web_fetch", { toolCallId: "call-1" }),
+            noteEvent(3, ""),
+            toolCallEvent(4, "web_fetch", { toolCallId: "call-2" }),
+            answerTextEvent(5, "Готово.")
           ]
         })}
       />
@@ -2322,7 +2250,7 @@ describe("ChatMessageBubble — pre-response status", () => {
         message={makeAssistantMessage({
           status: "committed",
           content: "ок",
-          workingNotes: ["сейчас"]
+          turnEvents: [noteEvent(1, "сейчас"), answerTextEvent(2, "ок")]
         })}
       />
     );
@@ -2338,8 +2266,11 @@ describe("ChatMessageBubble — pre-response status", () => {
         message={makeAssistantMessage({
           status: "committed",
           content: "Готово.",
-          workingNotes: ["сейчас"],
-          toolInvocations: [{ name: "web_fetch", iteration: 0, ok: false }]
+          turnEvents: [
+            noteEvent(1, "сейчас"),
+            toolCallEvent(2, "web_fetch", { ok: false, toolCallId: "call-1" }),
+            answerTextEvent(3, "Готово.")
+          ]
         })}
       />
     );
@@ -2355,7 +2286,7 @@ describe("ChatMessageBubble — pre-response status", () => {
     expect(screen.getByText("Прочитано · 1 страница · 1 ошибка")).toBeInTheDocument();
   });
 
-  it("renders only final text for an empty assistant message body with no working notes or tools", () => {
+  it("renders only final text for an empty assistant message body with no turn events", () => {
     render(
       <ChatMessageBubble
         chatId="chat-1"
@@ -2377,8 +2308,13 @@ describe("ChatMessageBubble — pre-response status", () => {
         message={makeAssistantMessage({
           status: "streaming",
           content: "Итог.",
-          workingNotes: ["связка1", "## Content Title\nbody", "связка2"],
-          toolInvocations: [{ name: "web_fetch", iteration: 2, ok: true }]
+          turnEvents: [
+            noteEvent(1, "связка1"),
+            noteEvent(2, "## Content Title\nbody", "content"),
+            noteEvent(3, "связка2"),
+            toolCallEvent(4, "web_fetch", { toolCallId: "call-1" }),
+            answerTextEvent(5, "Итог.")
+          ]
         })}
       />
     );
@@ -2398,8 +2334,13 @@ describe("ChatMessageBubble — pre-response status", () => {
         message={makeAssistantMessage({
           status: "committed",
           content: "Итог.",
-          workingNotes: ["связка1", "## Content Title\nbody", "связка2"],
-          toolInvocations: [{ name: "web_fetch", iteration: 2, ok: true }]
+          turnEvents: [
+            noteEvent(1, "связка1"),
+            noteEvent(2, "## Content Title\nbody", "content"),
+            noteEvent(3, "связка2"),
+            toolCallEvent(4, "web_fetch", { toolCallId: "call-1" }),
+            answerTextEvent(5, "Итог.")
+          ]
         })}
       />
     );
@@ -2419,9 +2360,10 @@ describe("ChatMessageBubble — pre-response status", () => {
         message={makeAssistantMessage({
           status: "committed",
           content: "Готово.",
-          toolInvocations: [
-            { name: "knowledge_search", iteration: 0, ok: true },
-            { name: "knowledge_search", iteration: 1, ok: true }
+          turnEvents: [
+            toolCallEvent(1, "knowledge_search", { toolCallId: "call-1" }),
+            toolCallEvent(2, "knowledge_search", { toolCallId: "call-2" }),
+            answerTextEvent(3, "Готово.")
           ]
         })}
       />
@@ -2437,9 +2379,10 @@ describe("ChatMessageBubble — pre-response status", () => {
         message={makeAssistantMessage({
           status: "committed",
           content: "Готово.",
-          toolInvocations: [
-            { name: "web_search", iteration: 0, ok: true },
-            { name: "image_generate", iteration: 1, ok: true }
+          turnEvents: [
+            toolCallEvent(1, "web_search", { toolCallId: "call-1" }),
+            toolCallEvent(2, "image_generate", { toolCallId: "call-2" }),
+            answerTextEvent(3, "Готово.")
           ]
         })}
       />
@@ -2455,7 +2398,10 @@ describe("ChatMessageBubble — pre-response status", () => {
         message={makeAssistantMessage({
           status: "committed",
           content: "Готово.",
-          toolInvocations: [{ name: "image_edit", iteration: 0, ok: true }]
+          turnEvents: [
+            toolCallEvent(1, "image_edit", { toolCallId: "call-1" }),
+            answerTextEvent(2, "Готово.")
+          ]
         })}
       />
     );
@@ -2470,9 +2416,10 @@ describe("ChatMessageBubble — pre-response status", () => {
         message={makeAssistantMessage({
           status: "committed",
           content: "Готово.",
-          toolInvocations: [
-            { name: "document", iteration: 0, ok: true },
-            { name: "document", iteration: 1, ok: true }
+          turnEvents: [
+            toolCallEvent(1, "document", { toolCallId: "call-1" }),
+            toolCallEvent(2, "document", { toolCallId: "call-2" }),
+            answerTextEvent(3, "Готово.")
           ]
         })}
       />
@@ -2488,7 +2435,10 @@ describe("ChatMessageBubble — pre-response status", () => {
         message={makeAssistantMessage({
           status: "committed",
           content: "Готово.",
-          toolInvocations: [{ name: "shell", iteration: 0, ok: true }]
+          turnEvents: [
+            toolCallEvent(1, "shell", { toolCallId: "call-1" }),
+            answerTextEvent(2, "Готово.")
+          ]
         })}
       />
     );
@@ -2503,10 +2453,12 @@ describe("ChatMessageBubble — pre-response status", () => {
         message={makeAssistantMessage({
           status: "committed",
           content: "Готово.",
-          workingNotes: ["alpha", "beta"],
-          toolInvocations: [
-            { name: "web_fetch", iteration: 0, ok: true },
-            { name: "image_generate", iteration: 1, ok: true }
+          turnEvents: [
+            noteEvent(1, "alpha"),
+            noteEvent(2, "beta"),
+            toolCallEvent(3, "web_fetch", { toolCallId: "call-1" }),
+            toolCallEvent(4, "image_generate", { toolCallId: "call-2" }),
+            answerTextEvent(5, "Готово.")
           ]
         })}
       />
@@ -2533,13 +2485,14 @@ describe("ChatMessageBubble — pre-response status", () => {
         message={makeAssistantMessage({
           status: "committed",
           content: "Готово.",
-          toolInvocations: [
-            { name: "browser", iteration: 0, ok: true },
-            { name: "browser", iteration: 1, ok: true },
-            { name: "browser", iteration: 2, ok: true },
-            { name: "browser", iteration: 3, ok: true },
-            { name: "shell", iteration: 4, ok: true },
-            { name: "todo_write", iteration: 5, ok: true }
+          turnEvents: [
+            toolCallEvent(1, "browser", { toolCallId: "call-1" }),
+            toolCallEvent(2, "browser", { toolCallId: "call-2" }),
+            toolCallEvent(3, "browser", { toolCallId: "call-3" }),
+            toolCallEvent(4, "browser", { toolCallId: "call-4" }),
+            toolCallEvent(5, "shell", { toolCallId: "call-5" }),
+            toolCallEvent(6, "todo_write", { toolCallId: "call-6" }),
+            answerTextEvent(7, "Готово.")
           ]
         })}
       />
@@ -2564,7 +2517,7 @@ describe("ChatMessageBubble — pre-response status", () => {
         message={makeAssistantMessage({
           status: "committed",
           content: "Done.",
-          workingNotes: ["Checking facts."]
+          turnEvents: [noteEvent(1, "Checking facts."), answerTextEvent(2, "Done.")]
         })}
       />
     );

@@ -4188,6 +4188,16 @@ export interface TurnAnswerTextEventDraft {
 }
 
 /**
+ * ADR-170 D5.2.1 — live-only unnumbered remainder for an utterance whose
+ * eventual kind is not known until the provider completes or requests tools.
+ * It is deliberately not a TurnEvent and carries no sequence.
+ */
+export interface RuntimeTextTail {
+  messageId: string;
+  text: string;
+}
+
+/**
  * ADR-170 D2.1 — the runtime never emits this draft. It has no durable chat
  * attachment id at emission time, so it could only carry its own artifact id,
  * forcing a later artifact-to-attachment reconciliation — the same class of
