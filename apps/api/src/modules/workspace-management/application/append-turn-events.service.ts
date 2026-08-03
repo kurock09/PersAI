@@ -16,12 +16,6 @@ type PrismaTransactionClient = Prisma.TransactionClient;
  * long-lived pod is a worse outcome than a rare, logged, healed gap.
  */
 const PENDING_DRAFTS_MAX_LENGTH = 500;
-/**
- * Five seconds is deliberately far longer than normal provider delta gaps,
- * yet short enough that a lost/stalled stream cannot visibly hold a receipt
- * behind an utterance for an open-ended period.
- */
-const OPEN_UTTERANCE_GATE_MS = 5_000;
 
 export type AppendTurnEventsInput = {
   messageId: string;
@@ -86,13 +80,18 @@ export type AppendTurnEventsInput = {
  * method doc), and `PENDING_DRAFTS_MAX_LENGTH` caps how large one message's
  * buffer can grow before a sustained failure gets it cleared instead of
  * grown further.
+ *
+ * D5.2.2 — the open-utterance gate lives in the log itself, not in pod
+ * memory. See `openUtterance()` and the reserved-slot fill logic in
+ * `applyDrafts()` below for the mechanism; there is no per-process gate map,
+ * no held-delivery buffer, and no bounded timer, because a deferred
+ * `delivery` appended by a scheduler-leased worker on a DIFFERENT API pod
+ * must never depend on THIS pod's in-memory state to be ordered correctly.
  */
 @Injectable()
 export class AppendTurnEventsService {
   private readonly logger = new Logger(AppendTurnEventsService.name);
   private readonly pendingDraftsByMessageId = new Map<string, TurnEventDraft[]>();
-  private readonly gateHeldDeliveriesByMessageId = new Map<string, TurnEventDraft[]>();
-  private readonly openUtterancesByMessageId = new Map<string, ReturnType<typeof setTimeout>>();
 
   constructor(private readonly prisma: WorkspaceManagementPrismaService) {}
 
@@ -114,31 +113,7 @@ export class AppendTurnEventsService {
     tx?: PrismaTransactionClient
   ): Promise<PublicTurnEvent[]> {
     const pending = this.pendingDraftsByMessageId.get(input.messageId) ?? [];
-    const gateHeld = this.gateHeldDeliveriesByMessageId.get(input.messageId) ?? [];
-    const closesUtterance = input.drafts.some(
-      (draft) => draft.kind === "note" || draft.kind === "answer_text"
-    );
-    const utteranceOpen = this.openUtterancesByMessageId.has(input.messageId);
-    if (utteranceOpen && input.drafts.every((draft) => draft.kind === "delivery")) {
-      const held = [...gateHeld, ...input.drafts];
-      if (held.length > PENDING_DRAFTS_MAX_LENGTH) {
-        this.gateHeldDeliveriesByMessageId.delete(input.messageId);
-        this.releaseOpenUtterance(input.messageId);
-        this.logger.error(
-          `ADR-170 text_tail pending buffer overflow messageId=${input.messageId} draftCount=${String(held.length)} cap=${String(PENDING_DRAFTS_MAX_LENGTH)} — gate released`
-        );
-        return this.append({ messageId: input.messageId, drafts: held }, tx);
-      }
-      this.gateHeldDeliveriesByMessageId.set(input.messageId, held);
-      return [];
-    }
-    // A held delivery happened during the utterance that this text event now
-    // closes, so the text must receive its seq before that delivery. Ordinary
-    // D3.3 failure-pending drafts still drain before newer work when no
-    // utterance gate is involved.
-    const combinedDrafts = closesUtterance
-      ? [...pending, ...input.drafts, ...gateHeld]
-      : [...pending, ...input.drafts, ...gateHeld];
+    const combinedDrafts = [...pending, ...input.drafts];
     if (combinedDrafts.length === 0) {
       return [];
     }
@@ -152,10 +127,6 @@ export class AppendTurnEventsService {
       // The whole combined batch (previously-pending + new) is now durable
       // (or was already idempotently present) — nothing left waiting.
       this.pendingDraftsByMessageId.delete(input.messageId);
-      this.gateHeldDeliveriesByMessageId.delete(input.messageId);
-      if (closesUtterance) {
-        this.releaseOpenUtterance(input.messageId);
-      }
       return appended;
     } catch (error) {
       if (combinedDrafts.length > PENDING_DRAFTS_MAX_LENGTH) {
@@ -191,50 +162,26 @@ export class AppendTurnEventsService {
    */
   releasePending(messageId: string): void {
     this.pendingDraftsByMessageId.delete(messageId);
-    this.gateHeldDeliveriesByMessageId.delete(messageId);
-    this.releaseOpenUtterance(messageId);
   }
 
   /**
-   * D5.2.1 — marks the current unclassified provider utterance as live. A
-   * delivery is held separately from the D3.3 failure buffer until a note or
-   * answer_text closes it. The timeout is a safety valve for a stalled stream:
-   * after five seconds, held delivery resumes rather than waiting indefinitely.
+   * ADR-170 D5.2.2 — reserves the `seq` for a not-yet-classified provider
+   * utterance by appending a numbered text event with EMPTY text through the
+   * SAME append primitive every other draft uses. Because the reservation is
+   * a real, durable, numbered log entry, any pod appending a `delivery`
+   * afterward is serialized behind it by the row lock alone — there is
+   * nothing pod-local left to miss. `draftKey` must be a stable per-utterance
+   * identity (the caller derives it, e.g. from the message id plus an
+   * incrementing utterance index) so a retried reserve is a no-op, and the
+   * NEXT numbered text event (`note` or `answer_text`) fills this reserved
+   * slot in place — see `applyDrafts()`'s reserved-slot fill branch. One
+   * awaited call per utterance; never call this per token.
    */
-  openUtterance(messageId: string): void {
-    if (this.openUtterancesByMessageId.has(messageId)) {
-      return;
-    }
-    const timeout = setTimeout(() => {
-      this.openUtterancesByMessageId.delete(messageId);
-      const held = this.gateHeldDeliveriesByMessageId.get(messageId);
-      if (held === undefined || held.length === 0) {
-        return;
-      }
-      void this.append({ messageId, drafts: [] }).catch((error) => {
-        this.logger.warn(
-          `ADR-170 text_tail bounded gate flush failed messageId=${messageId}: ${
-            error instanceof Error ? error.message : String(error)
-          }`
-        );
-      });
-    }, OPEN_UTTERANCE_GATE_MS);
-    timeout.unref?.();
-    this.openUtterancesByMessageId.set(messageId, timeout);
-  }
-
-  /** D5.2.1 terminal path: stop gating and drain any held delivery. */
-  async closeUtterance(messageId: string): Promise<PublicTurnEvent[]> {
-    this.releaseOpenUtterance(messageId);
-    return this.append({ messageId, drafts: [] });
-  }
-
-  private releaseOpenUtterance(messageId: string): void {
-    const timeout = this.openUtterancesByMessageId.get(messageId);
-    if (timeout !== undefined) {
-      clearTimeout(timeout);
-      this.openUtterancesByMessageId.delete(messageId);
-    }
+  async openUtterance(messageId: string, draftKey: string): Promise<PublicTurnEvent[]> {
+    return this.append({
+      messageId,
+      drafts: [{ kind: "answer_text", at: new Date().toISOString(), draftKey, text: "" }]
+    });
   }
 
   /** The full durable log for a message, in `seq` order. Empty when the message has none (D7). */
@@ -370,10 +317,14 @@ export class AppendTurnEventsService {
     const existingMetadata = asMetadataRecord(current.metadata);
     const existingLog = readStoredTurnEventsFromMetadata(current.metadata);
 
-    const { log, appended } = applyDrafts(existingLog, drafts);
-    if (appended.length === 0) {
+    const { log, appended, mutated } = applyDrafts(existingLog, drafts);
+    if (!mutated) {
       // Every draft was an idempotent no-op (already-present draftKey, or a
-      // repeat `delivery` attachmentId); no write needed.
+      // repeat `delivery` attachmentId); no write needed. Distinct from
+      // `appended` being empty: a late/duplicate D5.2.2 reserve DOES mutate
+      // the log (its key merges onto the utterance's existing text event so
+      // a future replay of that same key is recognized too) but reports no
+      // wire-visible change, since the merge alters no seq/kind/text.
       return [];
     }
 
@@ -520,12 +471,36 @@ function longestCommonPrefix(left: string, right: string): number {
   return index;
 }
 
+/**
+ * ADR-170 D2.1/D5.2.2 — `delivery` is a different axis from narration order:
+ * "no delivery is ever held" means a `delivery` landing between an open
+ * utterance's reserved slot and its eventual fill must not stop that fill
+ * from finding and reusing the reserved `seq`. This scans backward from the
+ * tail SKIPPING OVER `delivery` events (and only `delivery` events) to find
+ * the nearest event that actually participates in narration/answer order.
+ * D5.1's answer_text-extend rule is deliberately NOT routed through this —
+ * it keeps using the literal last event, so an intervening non-delivery kind
+ * (e.g. `tool_call`) still closes an open answer_text segment as documented.
+ */
+function findNearestNonDeliveryEvent(
+  log: readonly StoredTurnEvent[]
+): { index: number; event: StoredTurnEvent } | null {
+  for (let index = log.length - 1; index >= 0; index -= 1) {
+    const event = log[index]!;
+    if (event.kind !== "delivery") {
+      return { index, event };
+    }
+  }
+  return null;
+}
+
 function applyDrafts(
   existingLog: StoredTurnEvent[],
   drafts: TurnEventDraft[]
-): { log: StoredTurnEvent[]; appended: PublicTurnEvent[] } {
+): { log: StoredTurnEvent[]; appended: PublicTurnEvent[]; mutated: boolean } {
   const log = [...existingLog];
   const appended: PublicTurnEvent[] = [];
+  let mutated = false;
   let nextSeq = log.reduce((max, event) => Math.max(max, event.seq), 0) + 1;
 
   for (const draft of drafts) {
@@ -541,6 +516,7 @@ function applyDrafts(
       const event: StoredTurnEvent = { ...draft, seq: nextSeq };
       nextSeq += 1;
       log.push(event);
+      mutated = true;
       appended.push(projectTurnEventForWire(event));
       continue;
     }
@@ -556,16 +532,80 @@ function applyDrafts(
     }
 
     const last = log[log.length - 1];
-    if (draft.kind === "answer_text" && last !== undefined && last.kind === "answer_text") {
+    const nearestNonDelivery = findNearestNonDeliveryEvent(log);
+
+    if ((draft.kind === "note" || draft.kind === "answer_text") && draft.text === "") {
+      // ADR-170 D5.2.2 — an empty-text draft is a RESERVE (only
+      // `openUtterance` ever produces one; a real note/answer_text is never
+      // emitted empty). It contributes no text of its own, so it either joins
+      // an existing reservation or opens one:
+      //  - an unfilled reservation already sits at the tail (possibly with a
+      //    `delivery` after it): this reserve merges its `draftKey` onto that
+      //    slot and allocates nothing, because one utterance needs one number.
+      //  - otherwise it allocates a fresh empty slot below. That includes the
+      //    case where the nearest numbered text already carries real text:
+      //    treating "already has text" as "this utterance is settled" would be
+      //    a guess, and a wrong one the moment two utterances close without an
+      //    intervening tool call — the second utterance would silently lose its
+      //    reservation and a cross-pod delivery could outrun its narration
+      //    again. A reserve that turns out to be late is harmless: an empty
+      //    slot renders nothing on every surface and the next numbered text
+      //    fills it.
+      const reservation =
+        nearestNonDelivery !== null &&
+        (nearestNonDelivery.event.kind === "note" ||
+          nearestNonDelivery.event.kind === "answer_text") &&
+        nearestNonDelivery.event.text === ""
+          ? nearestNonDelivery
+          : null;
+      if (reservation !== null) {
+        const target = reservation.event;
+        const merged: StoredTurnEvent = {
+          ...target,
+          draftKeys: [...(target.draftKeys ?? []), draft.draftKey]
+        };
+        log[reservation.index] = merged;
+        mutated = true;
+        continue;
+      }
+    } else if (
+      nearestNonDelivery !== null &&
+      (nearestNonDelivery.event.kind === "note" ||
+        nearestNonDelivery.event.kind === "answer_text") &&
+      nearestNonDelivery.event.text === ""
+    ) {
+      // ADR-170 D5.2.2 — the nearest non-`delivery` event is a reserved
+      // empty-text slot, possibly with one or more `delivery` events already
+      // appended after it (D2.1: no delivery is ever held). This numbered
+      // text event FILLS it in place — same `seq`, kind and text replaced,
+      // no new `seq` allocated, at its ORIGINAL position — instead of
+      // appending a new event at the tail. A slot counts as reserved only
+      // while it is empty, so at most one can ever exist per message.
+      const target = nearestNonDelivery.event;
+      const filled: StoredTurnEvent = {
+        ...draft,
+        seq: target.seq,
+        at: target.at,
+        draftKeys: [...(target.draftKeys ?? []), draft.draftKey]
+      };
+      log[nearestNonDelivery.index] = filled;
+      mutated = true;
+      appended.push(projectTurnEventForWire(filled));
+      continue;
+    } else if (draft.kind === "answer_text" && last !== undefined && last.kind === "answer_text") {
       // D5.1 — extend the open answer_text segment; keep its seq, refresh
       // nothing else. Every merged draft's key survives in `draftKeys` so a
       // later replay of any one of them is still recognized as present.
+      // Deliberately the STRICT literal-last check (not delivery-skipping):
+      // appending any other kind — `delivery` included — still closes an
+      // already-filled open segment, exactly as before this ADR.
       const extended: StoredTurnEvent = {
         ...last,
         text: last.text + draft.text,
         draftKeys: [...(last.draftKeys ?? []), draft.draftKey]
       };
       log[log.length - 1] = extended;
+      mutated = true;
       appended.push(projectTurnEventForWire(extended));
       continue;
     }
@@ -573,10 +613,11 @@ function applyDrafts(
     const event: StoredTurnEvent = { ...draft, seq: nextSeq, draftKeys: [draft.draftKey] };
     nextSeq += 1;
     log.push(event);
+    mutated = true;
     appended.push(projectTurnEventForWire(event));
   }
 
-  return { log, appended };
+  return { log, appended, mutated };
 }
 
 function asMetadataRecord(metadata: unknown): Record<string, unknown> {

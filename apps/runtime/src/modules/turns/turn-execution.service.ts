@@ -1499,11 +1499,22 @@ export class TurnExecutionService {
                   // The merge rules always extend the iteration's base text; if
                   // that ever stops holding, carry the visible note rather than
                   // a slice taken at the wrong offset.
+                  let noteBodySlice: string;
+                  if (assembledText.startsWith(bodyBeforeStep)) {
+                    noteBodySlice = assembledText.slice(bodyBeforeStep.length);
+                  } else {
+                    // Defensive fallback only — this silently breaks D5.4
+                    // byte-equality (concatenating this turn's text events will
+                    // no longer reproduce `assembledText` exactly), so it must
+                    // never be a silent signal-free path.
+                    this.logger.error(
+                      `adr170_d5.4_note_body_slice_fallback requestId=${turnState.turnEventRequestId} iteration=${String(iteration)} reason=assembledText_does_not_start_with_bodyBeforeStep`
+                    );
+                    noteBodySlice = stepNote;
+                  }
                   const noteTurnEvent = this.recordNoteTurnEvent(
                     turnState,
-                    assembledText.startsWith(bodyBeforeStep)
-                      ? assembledText.slice(bodyBeforeStep.length)
-                      : stepNote,
+                    noteBodySlice,
                     stepNote
                   );
                   if (noteTurnEvent !== null) yield { type: "turn_event", event: noteTurnEvent };

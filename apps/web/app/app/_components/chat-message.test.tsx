@@ -1991,6 +1991,90 @@ describe("ChatMessageBubble — pre-response status", () => {
     expect(liveOrder).toEqual(["Готовлю картинку.", "receipt", "Вот результат."]);
   });
 
+  it("ADR-170 FIX: a delivery at/after the first answer_text renders exactly once — the answer stream, not duplicated inside the expanded committed badge", () => {
+    // The suite this program inherited never combined a preceding note/tool
+    // (which creates a process badge) with a delivery landing inside the
+    // answer — the exact combination that rendered the receipt twice:
+    // once via `allPieces` feeding the badge, once via `answerSegments`.
+    const image = { ...makeImageAttachment("att-double-render-1"), sizeBytes: 1024 * 1024 };
+    render(
+      <ChatMessageBubble
+        chatId="chat-1"
+        message={makeAssistantMessage({
+          status: "committed",
+          content: "Часть текста. Продолжение.",
+          turnEvents: [
+            noteEvent(1, "готовлю"),
+            toolCallEvent(2, "image_generate", { toolCallId: "call-img-1" }),
+            answerTextEvent(3, "Часть текста. "),
+            deliveryEvent(4, "att-double-render-1"),
+            answerTextEvent(5, "Продолжение.")
+          ],
+          attachments: [image]
+        })}
+      />
+    );
+
+    // Collapsed: exactly one visible receipt anywhere in the bubble.
+    expect(screen.getAllByTestId("media-receipt-open-att-double-render-1")).toHaveLength(1);
+
+    const badge = expandProcessBadge(/Выполнено|Сгенерировано/);
+    expect(badge).toHaveAttribute("aria-expanded", "true");
+    // Expanded: still exactly one — expanding must not reveal a second copy.
+    expect(screen.getAllByTestId("media-receipt-open-att-double-render-1")).toHaveLength(1);
+
+    const folded = screen.getByTestId("process-timeline-receipts");
+    expect(within(folded).queryByTestId("media-receipt-open-att-double-render-1")).toBeNull();
+    expect(folded).toHaveTextContent("готовлю");
+
+    const firstPart = screen.getByText("Часть текста.");
+    const receipt = screen.getByTestId("media-receipt-open-att-double-render-1");
+    const secondPart = screen.getByText("Продолжение.");
+    // seq order: narration (1,2) < answer part 1 (3) < receipt (4) < answer part 2 (5).
+    expect(
+      folded.compareDocumentPosition(firstPart) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    expect(
+      firstPart.compareDocumentPosition(receipt) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    expect(
+      receipt.compareDocumentPosition(secondPart) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+  });
+
+  it("ADR-170 FIX mirror case: a delivery before the first answer_text renders exactly once, in the process stream, never in the answer stream", () => {
+    const image = { ...makeImageAttachment("att-pre-answer-only-1"), sizeBytes: 1024 * 1024 };
+    render(
+      <ChatMessageBubble
+        chatId="chat-1"
+        message={makeAssistantMessage({
+          status: "committed",
+          content: "Готово.",
+          turnEvents: [
+            noteEvent(1, "готовлю"),
+            toolCallEvent(2, "image_generate", { toolCallId: "call-img-1" }),
+            deliveryEvent(3, "att-pre-answer-only-1"),
+            answerTextEvent(4, "Готово.")
+          ],
+          attachments: [image]
+        })}
+      />
+    );
+
+    // Collapsed: no receipt outside the badge, no answer-stream receipt.
+    expect(screen.queryByTestId("media-receipt-open-att-pre-answer-only-1")).toBeNull();
+    expect(screen.queryByTestId("process-live-answer-receipt-stream")).toBeNull();
+
+    expandProcessBadge();
+    // Expanded: exactly one receipt, inside the process stream.
+    expect(screen.getAllByTestId("media-receipt-open-att-pre-answer-only-1")).toHaveLength(1);
+    const folded = screen.getByTestId("process-timeline-receipts");
+    expect(
+      within(folded).getByTestId("media-receipt-open-att-pre-answer-only-1")
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId("process-live-answer-receipt-stream")).toBeNull();
+  });
+
   it("ADR-170: an open answer_text growing in place at the same seq renders one element, not two", () => {
     const baseMessage = makeAssistantMessage({
       status: "streaming",
@@ -2102,6 +2186,79 @@ describe("ChatMessageBubble — pre-response status", () => {
     expect(screen.queryByRole("button", { name: /Выполнено|Найдено|Прочитано/ })).toBeNull();
     expect(screen.queryByTestId("media-receipt-lines")).toBeNull();
     expect(screen.getByTestId("attachment-strip")).toBeInTheDocument();
+  });
+
+  it("ADR-170 D5.2.2: a log whose only event is an empty reserved answer_text renders no assistant text and no process block", () => {
+    const { container } = render(
+      <ChatMessageBubble
+        chatId="chat-1"
+        message={makeAssistantMessage({
+          status: "committed",
+          content: "",
+          turnEvents: [answerTextEvent(1, "")]
+        })}
+      />
+    );
+
+    expect(screen.queryByRole("button", { name: /Выполнено|Найдено|Прочитано/ })).toBeNull();
+    expect(screen.queryByTestId("process-live-answer-receipt-stream")).toBeNull();
+    expect(screen.queryByTestId("process-live-note-receipt-stream")).toBeNull();
+    expect(screen.queryByTestId("process-timeline-receipts")).toBeNull();
+    // No stray empty bubble, step row, or separator of any kind.
+    expect(container.textContent).toBe("");
+  });
+
+  it("ADR-170 D5.2.2: a reserved slot that is later filled renders exactly once, at its original seq position, with no flicker artifact left behind", () => {
+    const { rerender } = render(
+      <ChatMessageBubble
+        chatId="chat-1"
+        message={makeAssistantMessage({
+          status: "streaming",
+          content: "",
+          turnEvents: [noteEvent(1, "сейчас"), answerTextEvent(2, "")]
+        })}
+      />
+    );
+
+    // While the seq-2 slot is reserved (empty), only the note is visible.
+    const liveStreamBeforeFill = screen.getByTestId("process-live-note-receipt-stream");
+    expect(liveStreamBeforeFill).toHaveTextContent("сейчас");
+    expect(screen.queryByText("Готово.")).toBeNull();
+
+    // The server fills the SAME seq in place — same event, kind and text
+    // replaced, never a second event appended.
+    rerender(
+      <ChatMessageBubble
+        chatId="chat-1"
+        message={makeAssistantMessage({
+          status: "streaming",
+          content: "",
+          turnEvents: [noteEvent(1, "сейчас"), answerTextEvent(2, "Готово.")]
+        })}
+      />
+    );
+
+    const filled = screen.getAllByText("Готово.");
+    expect(filled).toHaveLength(1);
+    const liveStreamAfterFill = screen.getByTestId("process-live-note-receipt-stream");
+    expect(
+      liveStreamAfterFill.compareDocumentPosition(filled[0]!) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+  });
+
+  it("ADR-170 D5.2.2: an empty reserved note does not increment the process badge step count", () => {
+    render(
+      <ChatMessageBubble
+        chatId="chat-1"
+        message={makeAssistantMessage({
+          status: "committed",
+          content: "Готово.",
+          turnEvents: [noteEvent(1, "сейчас"), noteEvent(2, ""), answerTextEvent(3, "Готово.")]
+        })}
+      />
+    );
+
+    expect(screen.getByRole("button", { name: "Выполнено · 1 шаг" })).toBeInTheDocument();
   });
 
   it("ADR-170 D2.1/D11: a delivery whose attachment id is not yet in attachments renders nothing rather than crash or guess", () => {

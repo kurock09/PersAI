@@ -366,10 +366,19 @@ export class SendNativeTelegramTurnService {
           continue;
         case "interrupted": {
           collectArtifacts(event.artifacts ?? []);
-          await params.callbacks.onTurnEventsCompleted(event.turnEvents ?? []);
+          const turnEvents = await params.callbacks.onTurnEventsCompleted(event.turnEvents ?? []);
           if (collectedMedia.length > 0) {
+            // ADR-170 D6 — the body comes from the reconciled log, exactly
+            // like the `completed` branch; the degraded wording survives
+            // only as the fallback used when the projection is empty (an
+            // honest "there is no assistant text", not a second assembly
+            // path).
+            const projectedBody = projectTelegramTurnEventsBody(turnEvents);
             return {
-              assistantMessage: this.resolveDegradedAssistantMessage(event.assistantText),
+              assistantMessage:
+                projectedBody.length > 0
+                  ? projectedBody
+                  : this.resolveDegradedAssistantMessage(event.assistantText),
               respondedAt: event.respondedAt ?? new Date().toISOString(),
               media: collectedMedia,
               ...(event.trace === undefined ? {} : { runtimeTrace: event.trace })
@@ -379,10 +388,15 @@ export class SendNativeTelegramTurnService {
         }
         case "failed": {
           collectArtifacts(event.artifacts ?? []);
-          await params.callbacks.onTurnEventsCompleted(event.turnEvents ?? []);
+          const turnEvents = await params.callbacks.onTurnEventsCompleted(event.turnEvents ?? []);
           if (collectedMedia.length > 0) {
+            // ADR-170 D6 — same rule as `interrupted` above: log first, the
+            // hardcoded degraded wording only as the empty-projection
+            // fallback.
+            const projectedBody = projectTelegramTurnEventsBody(turnEvents);
             return {
-              assistantMessage: DEGRADED_TOOL_OUTPUT_MESSAGE,
+              assistantMessage:
+                projectedBody.length > 0 ? projectedBody : DEGRADED_TOOL_OUTPUT_MESSAGE,
               respondedAt: new Date().toISOString(),
               media: collectedMedia,
               ...(event.trace === undefined ? {} : { runtimeTrace: event.trace })

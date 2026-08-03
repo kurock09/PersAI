@@ -699,6 +699,259 @@ describe("SendNativeTelegramTurnService", () => {
     );
   });
 
+  test("ADR-170 D6 — an interrupted turn with media projects the assistant message from the reconciled turn event log, not the raw runtime assistantText", async () => {
+    setApiEnv();
+    const originalFetch = globalThis.fetch;
+
+    globalThis.fetch = (async () => {
+      return new Response(
+        [
+          JSON.stringify({
+            type: "started",
+            requestId: "runtime-request-4",
+            sessionId: "runtime-session-4"
+          }),
+          JSON.stringify({
+            type: "artifact",
+            requestId: "runtime-request-4",
+            sessionId: "runtime-session-4",
+            artifact: {
+              artifactId: "artifact-interrupted-1",
+              kind: "image",
+              storagePath: `${TELEGRAM_SESSION_ROOT}/interrupted.png`,
+              mimeType: "image/png",
+              filename: "interrupted.png",
+              sizeBytes: 512,
+              voiceNote: false
+            }
+          }),
+          JSON.stringify({
+            type: "interrupted",
+            requestId: "runtime-request-4",
+            sessionId: "runtime-session-4",
+            // Deliberately a DECOY that must NOT reach the user: if this
+            // branch regressed to `resolveDegradedAssistantMessage(event.assistantText)`
+            // instead of projecting the reconciled log, the assertion below
+            // would fail on this exact string.
+            assistantText: "raw runtime assistantText that must not be used",
+            respondedAt: null,
+            artifacts: [
+              {
+                artifactId: "artifact-interrupted-1",
+                kind: "image",
+                storagePath: `${TELEGRAM_SESSION_ROOT}/interrupted.png`,
+                mimeType: "image/png",
+                filename: "interrupted.png",
+                sizeBytes: 512,
+                voiceNote: false
+              }
+            ],
+            turnEvents: answerTextDrafts("Narration recovered from the durable log.")
+          })
+        ].join("\n"),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/x-ndjson"
+          }
+        }
+      );
+    }) as typeof fetch;
+
+    try {
+      const service = new SendNativeTelegramTurnService({
+        findByPublishedVersionId: async () => createMaterializedSpec()
+      } as AssistantMaterializedSpecRepository);
+
+      const result = await service.execute(
+        {
+          assistantId: "assistant-1",
+          publishedVersionId: "version-1",
+          runtimeTier: "paid_shared_restricted",
+          workspaceId: "workspace-1",
+          threadId: "telegram-chat-1",
+          externalUserKey: "telegram-user-1",
+          mode: "direct",
+          userMessageId: "message-1",
+          userMessage: "generate image",
+          attachments: []
+        },
+        TURN_EVENT_CALLBACKS
+      );
+
+      assert.equal(result.assistantMessage, "Narration recovered from the durable log.");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("ADR-170 D6 — an interrupted turn with media falls back to the degraded assistant text only when the log projection is empty", async () => {
+    setApiEnv();
+    const originalFetch = globalThis.fetch;
+
+    globalThis.fetch = (async () => {
+      return new Response(
+        [
+          JSON.stringify({
+            type: "started",
+            requestId: "runtime-request-5",
+            sessionId: "runtime-session-5"
+          }),
+          JSON.stringify({
+            type: "artifact",
+            requestId: "runtime-request-5",
+            sessionId: "runtime-session-5",
+            artifact: {
+              artifactId: "artifact-interrupted-2",
+              kind: "image",
+              storagePath: `${TELEGRAM_SESSION_ROOT}/interrupted-2.png`,
+              mimeType: "image/png",
+              filename: "interrupted-2.png",
+              sizeBytes: 512,
+              voiceNote: false
+            }
+          }),
+          JSON.stringify({
+            type: "interrupted",
+            requestId: "runtime-request-5",
+            sessionId: "runtime-session-5",
+            // No narration ever made it into the durable log for this turn,
+            // so the fallback is the honest thing to send.
+            assistantText: "",
+            respondedAt: null,
+            artifacts: [
+              {
+                artifactId: "artifact-interrupted-2",
+                kind: "image",
+                storagePath: `${TELEGRAM_SESSION_ROOT}/interrupted-2.png`,
+                mimeType: "image/png",
+                filename: "interrupted-2.png",
+                sizeBytes: 512,
+                voiceNote: false
+              }
+            ],
+            turnEvents: []
+          })
+        ].join("\n"),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/x-ndjson"
+          }
+        }
+      );
+    }) as typeof fetch;
+
+    try {
+      const service = new SendNativeTelegramTurnService({
+        findByPublishedVersionId: async () => createMaterializedSpec()
+      } as AssistantMaterializedSpecRepository);
+
+      const result = await service.execute(
+        {
+          assistantId: "assistant-1",
+          publishedVersionId: "version-1",
+          runtimeTier: "paid_shared_restricted",
+          workspaceId: "workspace-1",
+          threadId: "telegram-chat-1",
+          externalUserKey: "telegram-user-1",
+          mode: "direct",
+          userMessageId: "message-1",
+          userMessage: "generate image",
+          attachments: []
+        },
+        TURN_EVENT_CALLBACKS
+      );
+
+      assert.equal(result.assistantMessage, "Tool completed, but follow-up text was interrupted.");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("ADR-170 D6 — a failed turn with media projects the assistant message from the reconciled turn event log, not the hardcoded degraded wording", async () => {
+    setApiEnv();
+    const originalFetch = globalThis.fetch;
+
+    globalThis.fetch = (async () => {
+      return new Response(
+        [
+          JSON.stringify({
+            type: "started",
+            requestId: "runtime-request-6",
+            sessionId: "runtime-session-6"
+          }),
+          JSON.stringify({
+            type: "artifact",
+            requestId: "runtime-request-6",
+            sessionId: "runtime-session-6",
+            artifact: {
+              artifactId: "artifact-failed-1",
+              kind: "image",
+              storagePath: `${TELEGRAM_SESSION_ROOT}/failed.png`,
+              mimeType: "image/png",
+              filename: "failed.png",
+              sizeBytes: 512,
+              voiceNote: false
+            }
+          }),
+          JSON.stringify({
+            type: "failed",
+            requestId: "runtime-request-6",
+            sessionId: "runtime-session-6",
+            code: "provider_stream_failed",
+            message: "Follow-up failed.",
+            willRetry: false,
+            artifacts: [
+              {
+                artifactId: "artifact-failed-1",
+                kind: "image",
+                storagePath: `${TELEGRAM_SESSION_ROOT}/failed.png`,
+                mimeType: "image/png",
+                filename: "failed.png",
+                sizeBytes: 512,
+                voiceNote: false
+              }
+            ],
+            turnEvents: answerTextDrafts("Narration recovered before the failure.")
+          })
+        ].join("\n"),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/x-ndjson"
+          }
+        }
+      );
+    }) as typeof fetch;
+
+    try {
+      const service = new SendNativeTelegramTurnService({
+        findByPublishedVersionId: async () => createMaterializedSpec()
+      } as AssistantMaterializedSpecRepository);
+
+      const result = await service.execute(
+        {
+          assistantId: "assistant-1",
+          publishedVersionId: "version-1",
+          runtimeTier: "paid_shared_restricted",
+          workspaceId: "workspace-1",
+          threadId: "telegram-chat-1",
+          externalUserKey: "telegram-user-1",
+          mode: "direct",
+          userMessageId: "message-1",
+          userMessage: "generate image",
+          attachments: []
+        },
+        TURN_EVENT_CALLBACKS
+      );
+
+      assert.equal(result.assistantMessage, "Narration recovered before the failure.");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   test("returns degraded media result when runtime fails after emitting an artifact", async () => {
     setApiEnv();
     const originalFetch = globalThis.fetch;

@@ -238,11 +238,7 @@ export type StreamWebChatTurnOutcome =
 
 type TurnEventAppender = Pick<
   AppendTurnEventsService,
-  | "append"
-  | "releasePending"
-  | "reconcileAnswerTextToPersistedBody"
-  | "openUtterance"
-  | "closeUtterance"
+  "append" | "releasePending" | "reconcileAnswerTextToPersistedBody" | "openUtterance"
 >;
 
 @Injectable()
@@ -1610,23 +1606,25 @@ export class StreamWebChatTurnService {
     let utteranceTail = "";
     let tailMessageId: string | null = null;
     let tailSent = false;
+    // ADR-170 D5.2.2 — one incrementing index per utterance opened during
+    // this stream, used to derive a stable per-utterance reserve `draftKey`
+    // so a retried reserve (e.g. drained later from the D3.3 pending buffer)
+    // is a no-op rather than a second reservation. `utteranceReserved` guards
+    // against reserving more than once per utterance — the reserve itself is
+    // durable (it lives in the log, not pod memory), so there is nothing
+    // else left to gate.
+    let utteranceIndex = 0;
+    let utteranceReserved = false;
 
-    const clearTextTail = (terminal = false) => {
+    const clearTextTail = () => {
       if (tailSent) {
         input.callbacks.onTextTail?.({ messageId: tailMessageId, text: "" });
-        if (terminal && tailMessageId !== null) {
-          void this.appendTurnEventsService.closeUtterance(tailMessageId).catch((error) => {
-            this.logger.warn(
-              `ADR-170 text_tail terminal gate flush failed messageId=${String(tailMessageId)}: ${
-                error instanceof Error ? error.message : String(error)
-              }`
-            );
-          });
-        }
       }
       utteranceTail = "";
       tailMessageId = null;
       tailSent = false;
+      utteranceReserved = false;
+      utteranceIndex += 1;
     };
 
     const internalAbort = new AbortController();
@@ -1663,7 +1661,7 @@ export class StreamWebChatTurnService {
         ...(combinedSignal === undefined ? {} : { signal: combinedSignal })
       })) {
         if (input.callbacks.isClientAborted()) {
-          clearTextTail(true);
+          clearTextTail();
           return {
             status: "client-aborted",
             accumulated,
@@ -1697,12 +1695,38 @@ export class StreamWebChatTurnService {
           accumulated += chunk.delta;
           input.callbacks.onDelta(chunk.delta, accumulated);
           utteranceTail += chunk.delta;
-          // Read the identity, never create it, and stay await-free: this runs
-          // once per token. The gate only has meaning once a message exists,
-          // because a delivery can only target an existing message.
+          // Read the identity, never create it: the reserve only has meaning
+          // once a message exists, because a delivery can only target an
+          // existing message.
           tailMessageId = input.liveSyncMediaPresent.earlyAssistantMessageId;
-          if (tailMessageId !== null) {
-            this.appendTurnEventsService.openUtterance(tailMessageId);
+          if (tailMessageId !== null && !utteranceReserved) {
+            // ADR-170 D5.2.2 — one AWAITED reserve per utterance, never per
+            // token: appends a numbered text event with empty text, which
+            // durably reserves this utterance's `seq` in the log itself. Any
+            // pod appending a `delivery` afterward is serialized behind this
+            // reservation by the row lock alone — there is no per-process
+            // gate map left to miss if this pod dies mid-stream. An
+            // unawaited reserve would reintroduce the exact race this
+            // decision replaces. Best-effort like the sibling live
+            // `turn_event` append above: a failure here only means this
+            // utterance's window loses its ordering guarantee against a
+            // concurrently-landing delivery, never that the turn itself
+            // fails, so it is logged and swallowed rather than propagated.
+            utteranceReserved = true;
+            const reserveMessageId = tailMessageId;
+            const reserveIndex = utteranceIndex;
+            try {
+              await this.appendTurnEventsService.openUtterance(
+                reserveMessageId,
+                `adr170-utterance-reserve:${reserveMessageId}:${String(reserveIndex)}`
+              );
+            } catch (error) {
+              this.logger.warn(
+                `ADR-170 D5.2.2 utterance reserve failed messageId=${reserveMessageId} index=${String(reserveIndex)}: ${
+                  error instanceof Error ? error.message : String(error)
+                }`
+              );
+            }
           }
           tailSent = true;
           input.callbacks.onTextTail?.({ messageId: tailMessageId, text: utteranceTail });
@@ -1962,7 +1986,7 @@ export class StreamWebChatTurnService {
           }
           input.trace.stage("runtime_done");
           input.callbacks.onDone(chunk.respondedAt);
-          clearTextTail(true);
+          clearTextTail();
         }
       }
     } catch (error) {
@@ -1983,7 +2007,7 @@ export class StreamWebChatTurnService {
             : { onTurnEvent: input.callbacks.onTurnEvent })
         });
       }
-      clearTextTail(true);
+      clearTextTail();
       // If the abort came from our internal watchdog (and not the client), this
       // is a stall, not a real error. Propagate everything else upward so the
       // outer `try/catch` in `streamToCompletion` can persist a partial state

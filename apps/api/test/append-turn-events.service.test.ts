@@ -3,6 +3,7 @@ import { describe, test } from "node:test";
 import { NotFoundException } from "@nestjs/common";
 import type { TurnEvent, TurnEventDraft } from "@persai/runtime-contract";
 import { AppendTurnEventsService } from "../src/modules/workspace-management/application/append-turn-events.service";
+import { projectTelegramTurnEventsBody } from "../src/modules/workspace-management/application/send-native-telegram-turn.service";
 
 const MESSAGE_ID = "22222222-2222-4222-8222-222222222222";
 
@@ -593,64 +594,180 @@ describe("append-turn-events.service", () => {
     assert.equal(double.updateCalls(), updateCallsAfterSuccess);
   });
 
-  test("ADR-170 D5.2.1 — a delivery held behind an open utterance receives its seq after the closing note, while a later delivery appends immediately", async () => {
+  test("ADR-170 D5.2.2 — a delivery appended with no knowledge of the open utterance is numbered after the reserved slot, and the utterance's text later fills the reserved slot at its original seq", async () => {
     const double = createPrismaDouble();
     const service = new AppendTurnEventsService(double.prisma as never);
 
-    service.openUtterance(MESSAGE_ID);
-    assert.deepEqual(
-      await service.append({ messageId: MESSAGE_ID, drafts: [delivery("tail-delivery-1")] }),
-      []
+    // The utterance opens on THIS pod, which durably reserves its seq.
+    const reserved = await service.openUtterance(MESSAGE_ID, "utterance-reserve#0");
+    assert.equal(reserved.length, 1);
+    assert.equal(reserved[0]?.kind, "answer_text");
+    assert.equal(reserved[0]?.seq, 1);
+    assert.equal((reserved[0] as { text: string }).text, "");
+
+    // A DIFFERENT pod appends a deferred delivery with NO knowledge of the
+    // gate whatsoever — it never calls `openUtterance`, `closeUtterance`, or
+    // any other gate method; it just appends through the ordinary primitive,
+    // exactly as a scheduler-leased worker on another pod would.
+    const delivered = await service.append({
+      messageId: MESSAGE_ID,
+      drafts: [delivery("cross-pod-delivery")]
+    });
+    assert.equal(delivered.length, 1);
+    assert.equal(delivered[0]?.kind, "delivery");
+    assert.equal(
+      delivered[0]?.seq,
+      2,
+      "the delivery is numbered AFTER the reserved slot, never before it"
     );
 
+    // The utterance's own text finally closes — it FILLS the reserved slot
+    // in place (same seq), even though a `delivery` has since become the
+    // literal last row, so the durable order is narration-then-receipt
+    // regardless of arrival order.
     const closed = await service.append({
       messageId: MESSAGE_ID,
       drafts: [note("the utterance that was streaming", "tail-gate#0")]
     });
-    assert.deepEqual(
-      closed.map((event) => event.kind),
-      ["note", "delivery"]
+    assert.equal(closed.length, 1);
+    assert.equal(closed[0]?.kind, "note");
+    assert.equal(
+      closed[0]?.seq,
+      1,
+      "the fill reuses the reserved seq; it never allocates a new one"
     );
-    assert.deepEqual(
-      closed.map((event) => event.seq),
-      [1, 2]
-    );
-
-    const immediate = await service.append({
-      messageId: MESSAGE_ID,
-      drafts: [delivery("tail-delivery-2")]
-    });
-    assert.equal(immediate.length, 1);
-    assert.equal(immediate[0]?.kind, "delivery");
-    assert.equal(immediate[0]?.seq, 3);
-  });
-
-  test("ADR-170 D5.2.1 — terminal close drains a held delivery and releasePending removes all per-message state", async () => {
-    const double = createPrismaDouble();
-    const service = new AppendTurnEventsService(double.prisma as never);
-
-    service.openUtterance(MESSAGE_ID);
-    await service.append({ messageId: MESSAGE_ID, drafts: [delivery("terminal-delivery")] });
-    const drained = await service.closeUtterance(MESSAGE_ID);
-    assert.equal(drained.length, 1);
-    assert.equal(drained[0]?.kind, "delivery");
-
-    service.releasePending(MESSAGE_ID);
-    assert.deepEqual(await service.append({ messageId: MESSAGE_ID, drafts: [] }), []);
-  });
-
-  test("ADR-170 D5.2.1 — the five-second safety window releases a delivery when an utterance never closes", async () => {
-    const double = createPrismaDouble();
-    const service = new AppendTurnEventsService(double.prisma as never);
-
-    service.openUtterance(MESSAGE_ID);
-    await service.append({ messageId: MESSAGE_ID, drafts: [delivery("stalled-tail-delivery")] });
-    await new Promise((resolve) => setTimeout(resolve, 5_050));
 
     const log = await service.getLog(MESSAGE_ID);
-    assert.equal(log.length, 1);
-    assert.equal(log[0]?.kind, "delivery");
-    service.releasePending(MESSAGE_ID);
+    assert.deepEqual(
+      log.map((event) => ({ kind: event.kind, seq: event.seq })),
+      [
+        { kind: "note", seq: 1 },
+        { kind: "delivery", seq: 2 }
+      ]
+    );
+    assert.equal((log[0] as { text: string }).text, "the utterance that was streaming");
+  });
+
+  test("ADR-170 D5.2.2 — a numbered text event with no prior reserve behaves normally, and a later duplicate reserve for the same utterance is a no-op", async () => {
+    const double = createPrismaDouble();
+    const service = new AppendTurnEventsService(double.prisma as never);
+
+    // No reserve was ever attempted for this utterance (e.g. the reserve
+    // failed transiently, or the caller simply never called it) — the real
+    // text event just takes its own number, exactly as before this decision.
+    const appended = await service.append({
+      messageId: MESSAGE_ID,
+      drafts: [note("no reserve happened for this one", "no-reserve#0")]
+    });
+    assert.equal(appended.length, 1);
+    assert.equal(appended[0]?.seq, 1);
+
+    // A reserve arriving after that utterance already closed opens a fresh
+    // empty slot rather than trying to recognize that it is late. Deciding
+    // "the nearest numbered text already has text, so this utterance must be
+    // settled" would be a guess, and it silently loses the reservation of a
+    // second utterance that closes without an intervening tool call. An empty
+    // slot costs nothing: D5.2.2 makes it render nothing on every surface.
+    const lateReserve = await service.openUtterance(MESSAGE_ID, "late-reserve#0");
+    assert.equal(lateReserve.length, 1);
+    assert.equal(lateReserve[0]?.seq, 2);
+    assert.equal((lateReserve[0] as { text: string }).text, "");
+
+    // Retrying the identical reserve is a no-op by `draftKey`.
+    const retriedLateReserve = await service.openUtterance(MESSAGE_ID, "late-reserve#0");
+    assert.deepEqual(retriedLateReserve, []);
+
+    const log = await service.getLog(MESSAGE_ID);
+    assert.deepEqual(
+      log.map((event) => ({ kind: event.kind, seq: event.seq })),
+      [
+        { kind: "note", seq: 1 },
+        { kind: "answer_text", seq: 2 }
+      ]
+    );
+    assert.equal((log[0] as { text: string }).text, "no reserve happened for this one");
+    assert.equal((log[1] as { text: string }).text, "");
+  });
+
+  test("ADR-170 D5.2.2 — a second utterance closing without an intervening tool call keeps its own reservation", async () => {
+    const double = createPrismaDouble();
+    const service = new AppendTurnEventsService(double.prisma as never);
+
+    await service.openUtterance(MESSAGE_ID, "two-utterances#reserve-0");
+    await service.append({
+      messageId: MESSAGE_ID,
+      drafts: [note("first utterance", "two-utterances#0")]
+    });
+
+    // Nothing separates the two utterances — no tool call, no delivery. The
+    // second reserve must still get its own number, or a delivery appended by
+    // a worker on another pod would be numbered ahead of the second
+    // utterance's narration, which is the defect D5.2.2 exists to close.
+    await service.openUtterance(MESSAGE_ID, "two-utterances#reserve-1");
+    await service.append({
+      messageId: MESSAGE_ID,
+      drafts: [delivery("attachment-two-utterances")]
+    });
+    await service.append({
+      messageId: MESSAGE_ID,
+      drafts: [answerText("second utterance", "two-utterances#1")]
+    });
+
+    const log = await service.getLog(MESSAGE_ID);
+    assert.deepEqual(
+      log.map((event) => ({ kind: event.kind, seq: event.seq })),
+      [
+        { kind: "note", seq: 1 },
+        { kind: "answer_text", seq: 2 },
+        { kind: "delivery", seq: 3 }
+      ]
+    );
+    assert.equal((log[1] as { text: string }).text, "second utterance");
+  });
+
+  test("ADR-170 D5.2.2 — a reserved slot never filled stays in the log with empty text, and neither reconciliation nor the Telegram projection breaks on it", async () => {
+    const double = createPrismaDouble({ initialContent: "Media sent." });
+    const service = new AppendTurnEventsService(double.prisma as never);
+
+    // The utterance opens (a delivery arrives during it, per D5.2.2), but
+    // the turn ends silently — the reservation is never filled.
+    await service.openUtterance(MESSAGE_ID, "abandoned-reserve#0");
+    await service.append({ messageId: MESSAGE_ID, drafts: [delivery("silent-turn-delivery")] });
+
+    const logBeforeReconciliation = await service.getLog(MESSAGE_ID);
+    assert.equal(logBeforeReconciliation.length, 2);
+    assert.equal(logBeforeReconciliation[0]?.kind, "answer_text");
+    assert.equal((logBeforeReconciliation[0] as { text: string }).text, "");
+    assert.equal(logBeforeReconciliation[1]?.kind, "delivery");
+
+    // The Telegram projection concatenates note/answer_text text in `seq`
+    // order — an unfilled reserved slot contributes nothing and never
+    // throws, exactly like any other empty segment.
+    const telegramProjectionInput = logBeforeReconciliation.map((event) => ({
+      kind: event.kind,
+      seq: event.seq,
+      ...(event.kind === "note" || event.kind === "answer_text"
+        ? { text: (event as { text: string }).text }
+        : {})
+    })) as Parameters<typeof projectTelegramTurnEventsBody>[0];
+    assert.equal(projectTelegramTurnEventsBody(telegramProjectionInput), "");
+
+    // D5.3 reconciliation must tolerate the unfilled reserved slot exactly
+    // like a note whose text did not survive under D5.4.1: it settles the
+    // (only) answer_text entry — the empty reserved slot itself — to the
+    // corrected body at that SAME seq, rather than throwing or leaving an
+    // orphaned empty slot behind.
+    const reconciled = await service.reconcileAnswerTextToPersistedBody({ messageId: MESSAGE_ID });
+    assert.equal(reconciled.length, 1);
+    assert.equal(reconciled[0]?.kind, "answer_text");
+    assert.equal(reconciled[0]?.seq, 1);
+    assert.equal((reconciled[0] as { text: string }).text, "Media sent.");
+
+    const log = await service.getLog(MESSAGE_ID);
+    assert.equal(log.length, 2);
+    assert.equal(log[0]?.kind, "answer_text");
+    assert.equal((log[0] as { text: string }).text, "Media sent.");
+    assert.equal(log[1]?.kind, "delivery");
   });
 
   describe("reconcileAnswerTextToPersistedBody (ADR-170 D5.3)", () => {

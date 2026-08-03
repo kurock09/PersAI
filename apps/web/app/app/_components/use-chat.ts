@@ -263,7 +263,10 @@ type AssistantMessageProvenance = "optimistic" | "active_overlay";
  * being re-derived from the shape of an id. Only client-created identities are
  * recorded: a message the server sent is simply absent here, so a long history
  * scroll adds nothing. Entries are evicted oldest-first because a tab can stay
- * open across hundreds of turns and these outlive every hook instance.
+ * open across hundreds of turns and these outlive every hook instance. This
+ * bound applies to all three module-level collections below, including the
+ * `optimisticUserMessageIds` presence set — a tab open across hundreds of
+ * turns must not grow it forever either.
  */
 const MAX_TRACKED_CLIENT_IDENTITIES = 256;
 
@@ -290,6 +293,11 @@ function recordAssistantMessageProvenance(
 ): void {
   assistantMessageProvenanceById.set(messageId, provenance);
   evictOldestBeyondCap(assistantMessageProvenanceById);
+}
+
+function recordOptimisticUserMessageId(messageId: string): void {
+  optimisticUserMessageIds.add(messageId);
+  evictOldestBeyondCap(optimisticUserMessageIds);
 }
 
 /**
@@ -4838,7 +4846,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
       // ADR-165 — may be rebound to the early server assistant row on first media SSE.
       let assistantMsgId = `local-assistant-${Date.now()}`;
       recordTurnProvenance(clientTurnId, "ordinary");
-      optimisticUserMessageIds.add(userMsgId);
+      recordOptimisticUserMessageId(userMsgId);
       recordAssistantMessageProvenance(assistantMsgId, "optimistic");
       const controller = new AbortController();
       // User send wins the single stream-owner slot: abort any in-flight

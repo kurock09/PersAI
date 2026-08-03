@@ -1014,13 +1014,23 @@ function buildTurnEventDisplay(
       if (attachment === null) {
         continue;
       }
-      wholeLogPieces.push({ seq: event.seq, piece: { kind: "receipt", attachment } });
+      // ADR-170 D5/D5.1/D4 — one event renders in exactly one place: a
+      // delivery at/after the first `answer_text` is part of the answer
+      // region and belongs only to `answerSegments`; one before it belongs
+      // only to the pre-answer process stream. Never both.
       if (event.seq >= firstAnswerSeq) {
         answerSegments.push({ kind: "receipt", attachment });
+      } else {
+        wholeLogPieces.push({ seq: event.seq, piece: { kind: "receipt", attachment } });
       }
       continue;
     }
     if (event.kind === "answer_text") {
+      // ADR-170 D5.2.2 — a reserved slot holds empty text until filled; an
+      // empty numbered text event renders nothing on every surface.
+      if (event.text.trim().length === 0) {
+        continue;
+      }
       answerSegments.push({ kind: "text", text: event.text });
       continue;
     }
@@ -1028,23 +1038,24 @@ function buildTurnEventDisplay(
     // they are bookkeeping / terminal facts, not process or answer content.
   }
 
-  const allPieces = wholeLogPieces.map((entry) => entry.piece);
-  const livePreAnswerPieces = wholeLogPieces
-    .filter((entry) => entry.piece.kind !== "receipt" || entry.seq < firstAnswerSeq)
-    .map((entry) => entry.piece);
+  // `wholeLogPieces` already excludes any delivery that belongs to the
+  // answer region (partitioned above at push time), so it is the one array
+  // for both the process badge and the pre-answer live stream — never two
+  // derivations of the same events.
+  const processPieces = wholeLogPieces.map((entry) => entry.piece);
 
   const blocks: IterationBlock[] = [];
   // Receipt-only bubbles must not invent a process badge solely for «Получено…».
-  const hasNonReceiptProcess = allPieces.some(
+  const hasNonReceiptProcess = processPieces.some(
     (piece) => piece.kind === "text" || piece.kind === "tool"
   );
   if (hasNonReceiptProcess) {
-    blocks.push({ kind: "process", pieces: allPieces });
+    blocks.push({ kind: "process", pieces: processPieces });
   }
   for (const contentBlock of contentBlocks) {
     blocks.push({ kind: "content", markdown: contentBlock });
   }
-  return { iterationBlocks: blocks, livePreAnswerPieces, answerSegments };
+  return { iterationBlocks: blocks, livePreAnswerPieces: processPieces, answerSegments };
 }
 
 type ToolFamilyId =

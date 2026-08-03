@@ -4261,10 +4261,11 @@ export interface RuntimeTurnResult {
   requestId: string;
   sessionId: string;
   /**
-   * Backward-compat full text: the cumulative corrected turn text, in which
-   * every working note appears exactly once followed by the final answer.
-   * Equals `answerText` when no tools ran. Telegram and non-web consumers
-   * should continue using this field.
+   * The settled body of the turn: every working note appears exactly once,
+   * followed by the final answer. Used for provider replay and by Telegram
+   * and other non-web consumers. Presentation order for web comes only from
+   * `turnEvents` below — `assistantText`'s segmentation, not its existence,
+   * is what moved into the log (ADR-170).
    */
   assistantText: string;
   artifacts: RuntimeOutputArtifact[];

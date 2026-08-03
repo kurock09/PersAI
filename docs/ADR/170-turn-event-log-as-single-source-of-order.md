@@ -270,17 +270,53 @@ step and one `answer_text` at resolution — and the streaming remainder is carr
   guess: anything not yet numbered happened after everything that is. The tail
   renders where a streaming answer renders today; when it closes as a note it
   collapses into the process block exactly as a finished step does now.
-- **Nothing may be numbered while an utterance is open.** A delivery that lands
-  mid-sentence waits for that utterance's event, then takes the next number, so a
-  receipt is attached under the sentence it interrupted instead of jumping above
-  it. This is the founder's actual requirement, and it reuses D3.3's ordered
-  pending buffer rather than adding a second mechanism. The wait is bounded: a
-  turn reaching completion, interruption or failure flushes everything, and an
-  utterance that stays open beyond a bounded window stops holding the queue.
+- **Nothing may be numbered ahead of an open utterance.** A delivery that lands
+  mid-sentence must take a number after that utterance's event, so a receipt sits
+  under the sentence it interrupted instead of jumping above it. This is the
+  founder's actual requirement. D5.2.2 states how it is enforced.
 
 This keeps `message.content` out of rendering entirely. A consumer must never
 subtract, strip, or offset one text against another to find the remainder — the
 server computes it, because only the server knows what it has already numbered.
+
+### D5.2.2 — An open utterance holds its own number; the gate is not pod memory
+
+D5.2.1's requirement was first enforced by holding deliveries in a per-process
+map until a note or answer text closed the utterance. That is wrong for the
+system it runs in: a deferred delivery is appended by a scheduler-leased worker
+on **any** API pod, while the utterance is open on the pod that owns the stream.
+The worker's pod sees no open utterance, numbers the delivery immediately, and
+the receipt lands above the narration — the exact symptom this ADR exists to
+kill, reachable in production and invisible to a single-process test.
+
+The gate therefore lives in the log itself. When an utterance opens, the API
+appends a numbered text event with empty text, which **reserves that seq**. The
+next numbered text event for the message fills the reserved slot in place — same
+`seq`, kind and text replaced — instead of allocating a new one. A slot counts as
+reserved only while its text is empty and no later numbered text event exists;
+`delivery` events appended after it do not disqualify it, because a delivery is a
+different axis and is never held. At most one reservation can exist per message,
+which is already true of open utterances. A reserve arriving after its utterance
+already closed does not try to recognise that: it opens a fresh empty slot, which
+renders nothing and is filled by the next numbered text.
+
+Consequences, all of them simplifications:
+
+- No delivery is ever held. Any pod appending a delivery gets a number after the
+  reserved slot, because the slot already exists in the row it locks.
+- The per-process open-utterance map, the held-delivery buffer, the bounded gate
+  window and its timer are deleted. There is no gate state outside the log, so
+  there is nothing to lose when a pod dies and nothing to reconcile.
+- Reserving is idempotent by `draftKey`, one key per utterance, so a retried
+  reserve is a no-op and a numbered event that arrives before its reserve simply
+  takes the number itself.
+- A reserved slot never filled — the turn ends silent, or the pod dies mid-
+  utterance — stays in the log with empty text. **A numbered text event with
+  empty text renders nothing on every surface**, so an unfilled reservation is
+  invisible rather than a blank bubble, and settlement reconciliation (D5.4.1)
+  already tolerates a note whose text did not survive.
+- The reservation is one append per utterance, not per token. It is awaited, not
+  fired and forgotten: an unawaited reserve is the same race in a new costume.
 
 ### D5.3 — The answer text has one source, and server rewrites go through it
 
@@ -377,6 +413,13 @@ concatenated in `seq` order. That is byte-equivalent to the current cumulative
 `assistantText` it sends, so Telegram output does not change — it merely stops
 depending on a separately assembled blob. Telegram continues to show no tool
 activity and no receipts.
+
+This holds on **every** terminal outcome, not only completion. An interrupted or
+failed turn that still produced media used to send a separately assembled body,
+which is the same parallel source in a rarer branch. Those branches project from
+the log too; the degraded wording survives only as what is sent when the
+projection is empty, which is an honest "there is no assistant text" fallback
+rather than a second assembly path.
 
 ### D7 — No legacy, no parallel source
 
@@ -508,8 +551,12 @@ the final answer resolves.
 `persist-assistant-message.ts`, and `extractInlineMediaPlacementFromMetadata`
 in `web-chat-message-state.mapper.ts`.
 
-**Contract changes**: `RuntimeTurnResult` loses `workingNotes`, `answerText`,
-`assistantText`, `toolInvocations`; `RuntimeTurnToolInvocation` loses
+**Contract changes**: `RuntimeTurnResult` loses `workingNotes`, `answerText` and
+the presentational `toolInvocations` projection. `assistantText` **stays**: it is
+the settled body used for provider replay and for non-web consumers, and its
+segmentation — not its existence — is what moved into the log. Earlier drafts of
+this inventory listed it for removal, which was a mistake, not a decision.
+`RuntimeTurnToolInvocation` loses
 `iteration`; `AssistantWebChatMessageState` loses `workingNotes`,
 `toolInvocations`, `inlineMediaPlacement` and gains `turnEvents`;
 `AssistantRuntimeWebChatTurnResult` / `AssistantRuntimeWebChatTurnStreamChunk`
@@ -556,7 +603,9 @@ These are not ordering defects; they are the junk that let ordering defects hide
    `assistant-body-high-water` (the last a leftover of the browser-geometry
    mechanism ADR-167 D3 already retired). Deleted, not "kept just in case".
 4. **Two test ids exist in source and are asserted nowhere**: `chat-title-pill`,
-   `voice-stretch-pill`. Removed unless a rebuilt test claims them.
+   `voice-stretch-pill`. `chat-title-pill` is removed. `voice-stretch-pill` stays:
+   no test claims it, but `scripts/dev/claude-geometry-preview.js` selects on it,
+   so it has a real reader and deleting it silently breaks a dev tool.
 5. **`use-chat.ts` has 43 invalid UTF-8 characters across 11 lines** — em dashes
    and arrows destroyed by an earlier Windows shell write, confirmed by a byte
    scan, not a display artifact. A repo-wide scan of `apps/` and `packages/`
@@ -729,8 +778,11 @@ web suite, production build, one push, deploy, founder live acceptance.
    reload, with no receipt above narration that preceded it.
 2. `rg` for the retired symbols returns nothing outside this ADR and the
    changelog.
-3. The program deletes more lines than it adds. A net addition means a
-   compensation layer was rebuilt instead of removed.
+3. The heuristic layer is net deleted: every symbol in the deletion inventory is
+   gone and nothing replaced it. Total repo lines are not the measure — one
+   durable append primitive plus its tests legitimately outweighs the scattered
+   client guesses it retires — but a new client-side ordering decision of any
+   size fails this criterion outright.
 4. Telegram renders the same turn in the same relative order as web, through
    the shared projection table.
 5. Reconnect mid-turn replays by `sinceSeq` with no duplicate and no missing

@@ -35,6 +35,14 @@ function createOverviewLatencyTraceServiceMock() {
 describe("ADR-149 tool_progress touchRunningAttempt", () => {
   test("tool_progress SSE chunk heartbeats the running attempt without rewriting activity", async () => {
     const touchRunningAttemptCalls: Array<Record<string, unknown>> = [];
+    // ADR-170 D5.3 — this turn settles with no `answer_text` log event (the
+    // runtime never emits `turn_event` chunks in this fixture) and a
+    // non-empty final answer, so `finalizePersistedWebTurn` must reconcile
+    // the log to the settled body exactly once, for this message. Regression
+    // coverage for the audit finding where this double lacked the method
+    // entirely and the reconciliation call silently warned
+    // "... is not a function" on every run.
+    const reconcileAnswerTextCalls: Array<{ messageId: string }> = [];
     const webChatTurnAttemptService = {
       async markCurrentActivity() {
         throw new Error("tool_progress must not clobber currentActivity via markCurrentActivity");
@@ -147,7 +155,18 @@ describe("ADR-149 tool_progress touchRunningAttempt", () => {
         deliver: async () => ({ attachments: [] })
       } as never,
       {
-        append: async () => []
+        append: async () => [],
+        reconcileAnswerTextToPersistedBody: async (input: { messageId: string }) => {
+          reconcileAnswerTextCalls.push(input);
+          return [
+            {
+              kind: "answer_text",
+              at: "2026-04-05T12:00:01.000Z",
+              seq: 1,
+              text: "Done."
+            }
+          ];
+        }
       } as never,
       createOverviewLatencyTraceServiceMock() as never,
       {
@@ -238,5 +257,10 @@ describe("ADR-149 tool_progress touchRunningAttempt", () => {
       surfaceThreadKey: "thread-1",
       clientTurnId: "turn-shell-progress-1"
     });
+
+    // ADR-170 D5.3 — proves the reconciliation path actually ran (not just
+    // that the double had the method): exactly one call, for this turn's
+    // settled assistant message.
+    assert.deepEqual(reconcileAnswerTextCalls, [{ messageId: "assistant-msg-1" }]);
   });
 });
