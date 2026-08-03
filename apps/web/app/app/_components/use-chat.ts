@@ -50,7 +50,7 @@ import type { ActivityEvent } from "./activity-badge";
 import { isAttachmentsOnlyPlaceholderText } from "./attachments-only-placeholder";
 import { dispatchProjectFilesChanged } from "./project-files-events";
 import { scopeThreadKey, useStreamingThreadsRegistry } from "./streaming-threads";
-/** * Pre-headers timeout (ms) for `streamAssistantWebChatTurn`. If the server * does not return 2xx headers within this window, the request is aborted * and the user bubble flips to "send_failed". 10s is well above normal * server response time but short enough to feel responsive on flaky * mobile networks. (ADR-075 T� "Single-slot pending send".) */ const HEADERS_TIMEOUT_MS = 10_000;
+/** * Pre-headers timeout (ms) for `streamAssistantWebChatTurn`. If the server * does not return 2xx headers within this window, the request is aborted * and the user bubble flips to "send_failed". 10s is well above normal * server response time but short enough to feel responsive on flaky * mobile networks. (ADR-075 T1 — "Single-slot pending send".) */ const HEADERS_TIMEOUT_MS = 10_000;
 /** Avoid duplicate focus/visibility refresh bursts from the same browser resume. */ const RESUME_REFRESH_DEBOUNCE_MS = 1_500;
 /** Skip resume refresh right after history hydrate (F5 fires pageshow immediately). */ const HISTORY_HYDRATION_QUIET_MS = 12_000;
 const SOFT_DETACH_RECONCILE_INTERVAL_MS = 2_000;
@@ -68,8 +68,8 @@ function isStreamAuthRetryable(error: unknown): error is ContractsApiError {
   return error instanceof ContractsApiError && error.status === 401;
 }
 
-export type ChatMessageRole = "user" | "assistant";
-/** * Lifecycle of a message bubble. * * "sending" / "send_failed" are the new pending-slot states from * ADR-075 T� "Single-slot pending send". Only user bubbles can be in those * states; assistant bubbles still go committed ��� streaming ��� partial. * * - "sending"     : optimistic user message, request is in-flight (staging *                   attachments and/or waiting for the stream to return 2xx *                   headers). Composer is disabled, no second send allowed. * - "send_failed" : pre-headers failure (offline / stall / 10s timeout / etc). *                   Bubble shows a small red exclamation with Retry / Cancel *                   inline; composer stays disabled until user resolves it. */ export type ChatMessageStatus =
+type ChatMessageRole = "user" | "assistant";
+/** * Lifecycle of a message bubble. * * "sending" / "send_failed" are the new pending-slot states from * ADR-075 T1 — "Single-slot pending send". Only user bubbles can be in those * states; assistant bubbles still go committed → streaming → partial. * * - "sending"     : optimistic user message, request is in-flight (staging *                   attachments and/or waiting for the stream to return 2xx *                   headers). Composer is disabled, no second send allowed. * - "send_failed" : pre-headers failure (offline / stall / 10s timeout / etc). *                   Bubble shows a small red exclamation with Retry / Cancel *                   inline; composer stays disabled until user resolves it. */ type ChatMessageStatus =
 
     | "committed"
     | "streaming"
@@ -79,7 +79,7 @@ export type ChatMessageRole = "user" | "assistant";
     | "send_failed"
     | "send_failed_unconfirmed"
     | "send_failed_confirmed";
-export type PendingSendStatus =
+type PendingSendStatus =
   | "sending"
   | "reconciling"
   | "send_failed"
@@ -91,7 +91,7 @@ export type ChatAttachment = ChatHistoryAttachment & {
   /** ADR-165/167 — durable delivery-order hint for assistant-facing receipt lines. */
   inlineAfterToolCallId?: string | undefined;
 };
-export type ChatPlatformNotice = {
+type ChatPlatformNotice = {
   kind: "safety_inbound_warn" | "safety_inbound_restricted";
   reasonCode: string;
 };
@@ -119,11 +119,8 @@ export interface ChatMessage {
    * receipt events. Committed UI still uses the classic bottom attachment strip.
    */
   inlineMediaPlacement?: Array<{ toolCallId: string; attachmentIds: string[] }>;
-  /**
-   * ADR-167 — async-continuation bubbles must not project technical «Получено…»
-   * receipt lines for ConversationalPublish attachment delivery alone.
-   */
-  suppressMediaReceipts?: boolean;
+  /** ADR-170 D9 — server-projected ConversationalPublish provenance. */
+  conversationalPublish?: true;
   /** Local-only streaming hint: true while text deltas are actively being appended. */
   streamingTextActive?: boolean;
   /** ADR-170 D5.2.1 — full unnumbered remainder of the open live utterance. */
@@ -131,12 +128,12 @@ export interface ChatMessage {
   /** ADR-170 — the durable, server-numbered fact log for this message's turn, sorted by `seq`. */
   turnEvents?: TurnEvent[];
 }
-export interface RecentAutoCompactionNotice {
+interface RecentAutoCompactionNotice {
   detectedAt: string;
   tokensBefore: number | null;
   tokensAfter: number | null;
 }
-export type ChatEntry =
+type ChatEntry =
   | { kind: "message"; message: ChatMessage }
   | { kind: "activity"; event: ActivityEvent };
 
@@ -213,7 +210,7 @@ export interface UseChatReturn {
   loadHistory: (chatId: string) => Promise<void>;
   /**   * Mark the active thread as "no history will be loaded" so the empty-state   * UI can render. Used by `chat/page.tsx` when the active threadKey does not   * correspond to any existing chat row (i.e. it's a brand-new conversation).   * See the `historyLoading` optimistic-true reset in the threadKey-change   * branch below for the rationale.   */ markHistoryEmpty: () => void;
   loadOlderMessages: () => Promise<void>;
-  /**   * Current pending-send slot state, or null when no message is awaiting   * delivery confirmation. See ADR-075 T� "Single-slot pending send".   */ pendingSendStatus: PendingSendStatus | null;
+  /**   * Current pending-send slot state, or null when no message is awaiting   * delivery confirmation. See ADR-075 T1 — "Single-slot pending send".   */ pendingSendStatus: PendingSendStatus | null;
   /** Exact failed user row that currently owns retry/cancel actions. */
   pendingSendUserMessageId: string | null;
   /** Retry the failed pending send. No-op if there is no failed bubble. */
@@ -258,7 +255,7 @@ type RuntimeTransportMeta = {
     } | null;
   } | null;
 };
-export interface ChatSendOptions {
+interface ChatSendOptions {
   addToKnowledgeBase?: boolean | undefined;
   chatMode?: AssistantChatMode | undefined;
   deepModeEnabled?: boolean | undefined;
@@ -785,7 +782,7 @@ function applyToolProgressToLiveActivity(
       : {})
   };
 }
-export function formatTurnRoutingBadgeLabel(
+function formatTurnRoutingBadgeLabel(
   turnRouting: NonNullable<RuntimeTransportMeta["turnRouting"]>
 ): string {
   return `${turnRouting.executionMode} (${turnRouting.source})`;
@@ -875,6 +872,7 @@ function toCommittedChatMessage(message: ChatHistoryMessage): ChatMessage | null
     ...(Array.isArray(message.turnEvents) && message.turnEvents.length > 0
       ? { turnEvents: message.turnEvents }
       : {}),
+    ...(message.conversationalPublish === true ? { conversationalPublish: true } : {}),
     attachments: attachmentsWithInline
   };
 }
@@ -900,6 +898,10 @@ function mergeTurnEventIntoMessage(message: ChatMessage, event: TurnEvent): Chat
       ? [...prior, event]
       : [...prior.slice(0, insertAt), event, ...prior.slice(insertAt)];
   return { ...message, turnEvents: next };
+}
+
+function highestTurnEventSeq(message: ChatMessage | undefined): number {
+  return Math.max(0, ...(message?.turnEvents?.map((event) => event.seq) ?? []));
 }
 
 function reconcileAuthoritativeAssistantContent(
@@ -1032,7 +1034,9 @@ function toActiveTurnOverlayMessages(activeTurn: WebChatActiveTurnState | null |
         {
           ...assistantOverlay,
           status: "streaming",
-          ...(isAsyncContinuation ? { suppressMediaReceipts: true } : {})
+          ...(assistantOverlay.conversationalPublish === true
+            ? { conversationalPublish: true }
+            : {})
         }
       ],
       liveActivitiesByMessageId,
@@ -1167,30 +1171,8 @@ function mergeTerminalAssistantWithLiveAttachments(
       : {}),
     ...(nextPlacement !== undefined && nextPlacement.length > 0
       ? { inlineMediaPlacement: nextPlacement }
-      : {}),
-    // ADR-167: async-cont technical «Получено…» suppression is client-only and
-    // must survive live → terminal absorb (history rows do not carry the flag).
-    ...(live.suppressMediaReceipts === true || committed.suppressMediaReceipts === true
-      ? { suppressMediaReceipts: true }
       : {})
   };
-}
-
-function stampSuppressMediaReceiptsFromLive(
-  messages: ChatMessage[],
-  liveMessages: ChatMessage[]
-): ChatMessage[] {
-  const suppressIds = new Set(
-    liveMessages
-      .filter((message) => message.suppressMediaReceipts === true)
-      .map((message) => message.id)
-  );
-  if (suppressIds.size === 0) {
-    return messages;
-  }
-  return messages.map((message) =>
-    suppressIds.has(message.id) ? { ...message, suppressMediaReceipts: true } : message
-  );
 }
 function isTransientActiveAssistantMessage(message: ChatMessage): boolean {
   return (
@@ -1925,10 +1907,7 @@ function mergeCommittedHistoryWithActiveTurn(input: {
     (message) => !isOptimisticLocalMessage(message) && !isTransientActiveAssistantMessage(message)
   );
   return {
-    messages: stampSuppressMediaReceiptsFromLive(
-      mergeChatMessagesById(baseWithoutActive, sanitizedLoadedForReplace),
-      activeSnapshot.messages
-    ),
+    messages: mergeChatMessagesById(baseWithoutActive, sanitizedLoadedForReplace),
     replacedActiveTurn: true
   };
 }
@@ -1998,7 +1977,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
   const [activeMediaJobs, setActiveMediaJobs] = useState<WebChatActiveMediaJobState[]>([]);
   const [activeDocumentJobs, setActiveDocumentJobs] = useState<WebChatActiveDocumentJobState[]>([]);
   const [activeSandboxJobs, setActiveSandboxJobs] = useState<WebChatActiveSandboxJobState[]>([]);
-  /* Slice 1.1 ��� per-thread streaming flag. */ /*  */ /* `isStreaming` used to be a single `useState(false)` local to this hook. */ /* That meant Chat A's in-flight stream blocked the composer in Chat B as */ /* soon as the user switched threads. We now lift "which threads are */ /* streaming?" into a shared registry keyed by `surfaceThreadKey`, so each */ /* thread has its own independent boolean and AbortController. */ /* See `streaming-threads.tsx`. */ const {
+  /* Slice 1.1 → per-thread streaming flag. */ /*  */ /* `isStreaming` used to be a single `useState(false)` local to this hook. */ /* That meant Chat A's in-flight stream blocked the composer in Chat B as */ /* soon as the user switched threads. We now lift "which threads are */ /* streaming?" into a shared registry keyed by `surfaceThreadKey`, so each */ /* thread has its own independent boolean and AbortController. */ /* See `streaming-threads.tsx`. */ const {
     activeThreads,
     markDocumentActive,
     markMediaActive,
@@ -2036,7 +2015,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
   const [pendingSendUserMessageId, setPendingSendUserMessageIdState] = useState<string | null>(
     null
   );
-  /* Slice 1.1 ��� abort controllers are per-thread now (was a single `useRef`). */ /* The single ref clobbered itself when Chat A's stream cleaned up while */ /* Chat B was already mid-flight, which made `stop()` either no-op or abort */ /* the wrong stream. Keying by `threadKey` keeps each turn's controller */ /* independent until *its* stream completes or the user explicitly stops it */ /* from that thread's view. */ /*  */ /* Slice 1.2 ��� each entry now also carries the `clientTurnId` of the */ /* turn it owns. `stop()` needs the id to call the new */ /* `stopAssistantWebChatTurn` API (see `assistant-api-client.ts`); see */ /* the `stop` callback below for why this distinction matters */ /* (soft-detach vs hard-stop). */ const abortControllersByThreadRef =
+  /* Slice 1.1 → abort controllers are per-thread now (was a single `useRef`). */ /* The single ref clobbered itself when Chat A's stream cleaned up while */ /* Chat B was already mid-flight, which made `stop()` either no-op or abort */ /* the wrong stream. Keying by `threadKey` keeps each turn's controller */ /* independent until *its* stream completes or the user explicitly stops it */ /* from that thread's view. */ /*  */ /* Slice 1.2 → each entry now also carries the `clientTurnId` of the */ /* turn it owns. `stop()` needs the id to call the new */ /* `stopAssistantWebChatTurn` API (see `assistant-api-client.ts`); see */ /* the `stop` callback below for why this distinction matters */ /* (soft-detach vs hard-stop). */ const abortControllersByThreadRef =
     useRef<Map<string, { controller: AbortController; clientTurnId: string }>>(new Map());
   const hardStoppedClientTurnIdsRef = useRef<Set<string>>(new Set());
   const softDetachedClientTurnIdsRef = useRef<Set<string>>(new Set());
@@ -2805,7 +2784,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
     replaceActiveMediaJobs(cachedHistorySnapshot?.activeMediaJobs ?? []);
     replaceActiveDocumentJobs(cachedHistorySnapshot?.activeDocumentJobs ?? []);
     replaceActiveSandboxJobs(cachedHistorySnapshot?.activeSandboxJobs ?? []);
-    /*     * Optimistically flip historyLoading to true the moment the user     * navigates to a different thread. Without this, there is one render     * frame between the synchronous reset above and the post-render effect     * in `chat/page.tsx` that triggers `loadHistory()` ��� and during that     * frame `messages.length === 0 && historyLoading === false`, which     * renders the EmptyState. On a slow fetch the EmptyState then flickers     * for the entire 0.5���1s the history takes to arrive (founder report     * 2026-04-25). The `markHistoryEmpty()` callback below clears this back     * to false when the active thread is brand-new and has no history to     * load.     */ setHistoryLoading(
+    /*     * Optimistically flip historyLoading to true the moment the user     * navigates to a different thread. Without this, there is one render     * frame between the synchronous reset above and the post-render effect     * in `chat/page.tsx` that triggers `loadHistory()` → and during that     * frame `messages.length === 0 && historyLoading === false`, which     * renders the EmptyState. On a slow fetch the EmptyState then flickers     * for the entire 0.5–1s the history takes to arrive (founder report     * 2026-04-25). The `markHistoryEmpty()` callback below clears this back     * to false when the active thread is brand-new and has no history to     * load.     */ setHistoryLoading(
       restoredSnapshot === undefined
     );
     historyLoadedRef.current = new Set();
@@ -3168,13 +3147,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                 ) {
                   return [mergeTerminalAssistantWithLiveAttachments(replacement, message)];
                 }
-                // Preserve client-only async-cont receipt suppression across
-                // same-id history replacement after the live snapshot tears down.
-                return [
-                  message.suppressMediaReceipts === true
-                    ? { ...replacement, suppressMediaReceipts: true }
-                    : replacement
-                ];
+                return [replacement];
               }
               if (
                 shouldReplaceActiveTurn &&
@@ -3560,7 +3533,6 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
               }),
           content: nextContent,
           status: assistantLifecycleStatus,
-          ...(isAsyncContinuation ? { suppressMediaReceipts: true } : {}),
           ...(preservedAttachments !== undefined && preservedAttachments.length > 0
             ? { attachments: preservedAttachments }
             : publishAssistantId !== null
@@ -4037,6 +4009,15 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
         const reattachState: {
           latestResult: "running" | "terminal" | "terminal_status" | "unknown";
         } = { latestResult: "unknown" };
+        const sinceSeq = highestTurnEventSeq(
+          activeTurnSnapshotsRef.current
+            .get(targetThreadKey)
+            ?.messages.find(
+              (message) =>
+                message.id ===
+                activeTurnSnapshotsRef.current.get(targetThreadKey)?.liveAssistantMessageId
+            )
+        );
         // ADR-158: headers alone do not imply a live token bus; onReattached.live does.
         let liveTokenStream = false;
         const resolveLiveAssistantId = (): string | null =>
@@ -4122,7 +4103,9 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                     thought: previousLiveAssistant?.thought ?? "",
                     thoughtStartedAt: previousLiveAssistant?.thoughtStartedAt ?? null,
                     thoughtFinishedAt: previousLiveAssistant?.thoughtFinishedAt ?? null,
-                    suppressMediaReceipts: true,
+                    ...(committedPublishRow?.conversationalPublish === true
+                      ? { conversationalPublish: true }
+                      : {}),
                     ...(committedPublishRow?.attachments !== undefined &&
                     committedPublishRow.attachments.length > 0
                       ? { attachments: committedPublishRow.attachments }
@@ -4625,7 +4608,8 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                 await finalizeAfterTerminal("partial");
               }
             },
-            controller.signal
+            controller.signal,
+            sinceSeq
           );
           // SSE ended without a clean terminal — not a durable live attachment.
           // Soft-detached ordinary turns keep the busy/Stop affordance until
@@ -5052,7 +5036,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
     async (text: string, files?: File[], options?: ChatSendOptions) => {
       const trimmed = text.trim();
       if (trimmed.length === 0 || isStreaming) return;
-      /* While a previous send is in send_failed state the composer must stay */ /* single-slot ��� the user has to Retry or Cancel it before another send */ /* can start. (ADR-075 T� "Single-slot pending send".) */ if (
+      /* While a previous send is in send_failed state the composer must stay */ /* single-slot → the user has to Retry or Cancel it before another send */ /* can start. (ADR-075 T1 — "Single-slot pending send".) */ if (
         pendingSendStatusRef.current !== null
       )
         return;
@@ -5185,7 +5169,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
         content: trimmed,
         attachments: localAttachments.length > 0 ? localAttachments : undefined
       };
-      /* Cold offline pre-flight. We deliberately do NOT call markStreaming */ /* here ��� there's no in-flight stream ��� so the chat-input renders the */ /* pending-send helper line, not the "stop" button. */ if (
+      /* Cold offline pre-flight. We deliberately do NOT call markStreaming */ /* here → there's no in-flight stream → so the chat-input renders the */ /* pending-send helper line, not the "stop" button. */ if (
         typeof navigator !== "undefined" &&
         navigator.onLine === false
       ) {
@@ -5440,7 +5424,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
           prev.map((m) => (m.id === assistantMsgId ? { ...m, streamingTextActive: false } : m))
         );
       };
-      /* Pre-headers watchdog: if the server never returns 2xx headers within */ /* HEADERS_TIMEOUT_MS, abort the request so the bubble flips to */ /* "send_failed" instead of hanging indefinitely. Tool turns can stay */ /* silent for tens of seconds AFTER headers, which is fine ��� we only */ /* measure up to the headers, not to the first SSE event. */ let headersOk = false;
+      /* Pre-headers watchdog: if the server never returns 2xx headers within */ /* HEADERS_TIMEOUT_MS, abort the request so the bubble flips to */ /* "send_failed" instead of hanging indefinitely. Tool turns can stay */ /* silent for tens of seconds AFTER headers, which is fine → we only */ /* measure up to the headers, not to the first SSE event. */ let headersOk = false;
       let softDetached = false;
       let completedSuccessfully = false;
       let streamAccepted = false;
@@ -6274,7 +6258,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
           setThreadPendingSend(
             sendThreadKey,
             null
-          ); /* Files are already staged before the stream ��� no post-stream upload needed */
+          ); /* Files are already staged before the stream → no post-stream upload needed */
         },
         onInterrupted: ({ transport }: { transport: unknown }) => {
           acceptStartedStream();
@@ -6455,7 +6439,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
           if (preHeaderIssue !== null && shouldSurfacePreHeaderIssueAsBanner(preHeaderIssue)) {
             dismissPreHeaderTurnWithIssue(preHeaderIssue);
           } else {
-            /* Pre-headers failure: the request was aborted or never reached the */ /* server. The whole turn is "didn't fly" ��� flip the user bubble to */ /* send_failed and drop the unused assistant placeholder. Skip the */ /* existing issue banner: the bubble + composer helper carry the UX. */ sendFailedCleanup(
+            /* Pre-headers failure: the request was aborted or never reached the */ /* server. The whole turn is "didn't fly" → flip the user bubble to */ /* send_failed and drop the unused assistant placeholder. Skip the */ /* existing issue banner: the bubble + composer helper carry the UX. */ sendFailedCleanup(
               true
             );
           }

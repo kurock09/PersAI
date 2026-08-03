@@ -949,11 +949,7 @@ const EMPTY_TURN_EVENT_DISPLAY: TurnEventDisplay = {
 };
 
 function shouldSuppressMediaReceipts(message: ChatMessage): boolean {
-  if (message.suppressMediaReceipts === true) {
-    return true;
-  }
-  // Live async-cont placeholders keep `async-cont` in the optimistic id.
-  return message.id.includes("async-cont");
+  return message.conversationalPublish === true;
 }
 
 /** ADR-170 D2.1/D11 — a `delivery` event carries only the durable attachment
@@ -2663,13 +2659,7 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
       ? []
       : (message.attachments ?? []);
     return buildTurnEventDisplay(events, attachmentsForReceipts);
-  }, [
-    message.attachments,
-    message.id,
-    message.role,
-    message.suppressMediaReceipts,
-    message.turnEvents
-  ]);
+  }, [message.attachments, message.conversationalPublish, message.role, message.turnEvents]);
   const bottomStripAttachments = useMemo(() => {
     // Keep the full attachment strip out of active assistant bubbles. Terminal
     // commit restores the classic strip below the answer.

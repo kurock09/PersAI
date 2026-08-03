@@ -1821,7 +1821,8 @@ describe("useChat", () => {
       "token-1",
       continuationClientTurnId,
       expect.any(Object),
-      expect.any(AbortSignal)
+      expect.any(AbortSignal),
+      expect.any(Number)
     );
     // Dedupe: effect re-runs must not storm reattach for the same clientTurnId.
     const reattachCalls = assistantApiMocks.reattachAssistantWebChatTurnStream.mock.calls.filter(
@@ -1939,7 +1940,8 @@ describe("useChat", () => {
       "token-1",
       continuationClientTurnId,
       expect.any(Object),
-      expect.any(AbortSignal)
+      expect.any(AbortSignal),
+      expect.any(Number)
     );
     expect(result.current.isStreaming).toBe(true);
     expect(
@@ -3437,7 +3439,7 @@ describe("useChat", () => {
     resolveReattachHold?.();
   });
 
-  it("ADR-167: async-cont overlay sets suppressMediaReceipts and keeps it after same-id history absorb", async () => {
+  it("uses durable ConversationalPublish provenance across live and committed history", async () => {
     const continuationClientTurnId = "async-cont:handle-suppress-receipts-1";
     const publishAttachment = {
       id: "att-publish-suppress-1",
@@ -3461,6 +3463,7 @@ describe("useChat", () => {
       workingNotes: ["сверяю"],
       toolInvocations: [{ name: "web_fetch", iteration: 0, ok: true }],
       inlineMediaPlacement: [{ toolCallId: "call-img-1", attachmentIds: [publishAttachment.id] }],
+      conversationalPublish: true,
       createdAt: "2026-07-19T12:00:02.000Z"
     };
     assistantApiMocks.getChatMessages.mockResolvedValue({
@@ -3559,7 +3562,7 @@ describe("useChat", () => {
     await waitFor(() => {
       const live = result.current.messages.find((message) => message.id === publishMessage.id);
       expect(live?.status).toBe("streaming");
-      expect(live?.suppressMediaReceipts).toBe(true);
+      expect(live?.conversationalPublish).toBe(true);
     });
 
     const terminalPublish = {
@@ -3601,7 +3604,7 @@ describe("useChat", () => {
     await waitFor(() => {
       const committed = result.current.messages.find((message) => message.id === publishMessage.id);
       expect(committed?.status).toBe("committed");
-      expect(committed?.suppressMediaReceipts).toBe(true);
+      expect(committed?.conversationalPublish).toBe(true);
       expect(committed?.attachments?.map((attachment) => attachment.id)).toEqual([
         publishAttachment.id
       ]);
@@ -5240,7 +5243,8 @@ describe("useChat", () => {
       "token-1",
       clientTurnId,
       expect.any(Object),
-      expect.any(AbortSignal)
+      expect.any(AbortSignal),
+      expect.any(Number)
     );
 
     await act(async () => {
@@ -6806,7 +6810,8 @@ describe("useChat", () => {
         "token-1",
         clientTurnId,
         expect.any(Object),
-        expect.any(AbortSignal)
+        expect.any(AbortSignal),
+        expect.any(Number)
       );
       expect(result.current.messages.map((message) => message.id)).toEqual([
         "server-user-running",

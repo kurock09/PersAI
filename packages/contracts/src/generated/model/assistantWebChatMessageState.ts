@@ -23,4 +23,6 @@ export interface AssistantWebChatMessageState {
   workingNotes?: string[];
   /** ADR-170 — the durable, server-numbered fact log for this message's turn, sorted by `seq`. Absent/empty for a historical message with no log. */
   turnEvents?: TurnEvent[];
+  /** ADR-170 D9 — this message was created by ConversationalPublish. */
+  conversationalPublish?: boolean;
 }

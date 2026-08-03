@@ -1780,7 +1780,7 @@ describe("ChatMessageBubble — pre-response status", () => {
           id: "local-assistant-async-cont:delivery-1",
           status: "streaming",
           content: "",
-          suppressMediaReceipts: true,
+          conversationalPublish: true,
           attachments: [image],
           turnEvents: [deliveryEvent(1, "att-async-delivery-1")]
         })}
@@ -1802,7 +1802,7 @@ describe("ChatMessageBubble — pre-response status", () => {
           id: "publish-async-cont-1",
           status: "committed",
           content: "Продолжаю.",
-          suppressMediaReceipts: true,
+          conversationalPublish: true,
           attachments: [image],
           turnEvents: [
             noteEvent(1, "сверяю"),

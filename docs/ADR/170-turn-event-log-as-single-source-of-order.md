@@ -349,7 +349,12 @@ No code may derive meaning from the shape of an id. Three current sniffs are
 deleted:
 
 - `shouldSuppressMediaReceipts` matching `message.id.includes("async-cont")`
-  becomes an explicit server-set flag on the message.
+  stops sniffing the id and reads a server fact that already exists:
+  ConversationalPublish stamps `metadata.conversationalPublish` on the message it
+  creates, so the message-state mapper projects that existing fact as a typed
+  field. No new concept is invented, nothing is inferred from the log's shape,
+  and the client-only stamping that had to survive live → absorb → F5 disappears
+  because the fact now arrives with the message on every read.
 - `isLocalScopedAssistantId` matching `local-assistant-` / `active-assistant-`
   prefixes across 30+ call sites becomes one typed provenance field set once by
   the send path.

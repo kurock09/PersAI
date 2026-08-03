@@ -1537,6 +1537,45 @@ function parseSseBlock(block: string): { eventName: string; data: string } | nul
   };
 }
 
+function dispatchAssistantWebChatStreamEvent(
+  streamEvent: WebChatStreamEvent,
+  handlers: AssistantWebChatStreamHandlers
+): boolean {
+  if (streamEvent.event === "started") handlers.onStarted?.(streamEvent.data);
+  else if (streamEvent.event === "thinking") handlers.onThinking?.(streamEvent.data);
+  else if (streamEvent.event === "delta") handlers.onDelta?.(streamEvent.data);
+  else if (streamEvent.event === "tool") handlers.onTool?.(streamEvent.data);
+  else if (streamEvent.event === "tool_progress") handlers.onToolProgress?.(streamEvent.data);
+  else if (streamEvent.event === "async_job_accepted")
+    handlers.onAsyncJobAccepted?.(streamEvent.data);
+  else if (streamEvent.event === "async_jobs_open") handlers.onAsyncJobsOpen?.(streamEvent.data);
+  else if (streamEvent.event === "media") handlers.onMedia?.(streamEvent.data);
+  else if (streamEvent.event === "activity") handlers.onActivity?.(streamEvent.data);
+  else if (streamEvent.event === "project_activity") handlers.onProjectActivity?.(streamEvent.data);
+  else if (streamEvent.event === "project_reasoning_summary")
+    handlers.onProjectReasoningSummary?.(streamEvent.data);
+  else if (streamEvent.event === "compaction") handlers.onCompaction?.(streamEvent.data);
+  else if (streamEvent.event === "runtime_done") handlers.onRuntimeDone?.(streamEvent.data);
+  else if (streamEvent.event === "stream_reset") handlers.onStreamReset?.(streamEvent.data);
+  else if (streamEvent.event === "turn_status") handlers.onTurnStatus?.(streamEvent.data);
+  else if (streamEvent.event === "reattached") handlers.onReattached?.(streamEvent.data);
+  else if (streamEvent.event === "pending_browser_login")
+    handlers.onPendingBrowserLogin?.(streamEvent.data);
+  else if (streamEvent.event === "turn_event") handlers.onTurnEvent?.(streamEvent.data);
+  else if (streamEvent.event === "text_tail") handlers.onTextTail?.(streamEvent.data);
+  else if (streamEvent.event === "completed") {
+    handlers.onCompleted?.(streamEvent.data);
+    return true;
+  } else if (streamEvent.event === "interrupted") {
+    handlers.onInterrupted?.(streamEvent.data);
+    return true;
+  } else if (streamEvent.event === "failed") {
+    handlers.onFailed?.(streamEvent.data);
+    return true;
+  }
+  return false;
+}
+
 export async function streamAssistantWebChatTurn(
   token: string,
   payload: AssistantWebChatStreamPayload,
@@ -1604,57 +1643,6 @@ export async function streamAssistantWebChatTurn(
   let buffer = "";
   let sawTerminalEvent = false;
 
-  const handleStreamEvent = (streamEvent: WebChatStreamEvent): void => {
-    if (streamEvent.event === "started") {
-      handlers.onStarted?.(streamEvent.data);
-    } else if (streamEvent.event === "thinking") {
-      handlers.onThinking?.(streamEvent.data);
-    } else if (streamEvent.event === "delta") {
-      handlers.onDelta?.(streamEvent.data);
-    } else if (streamEvent.event === "tool") {
-      handlers.onTool?.(streamEvent.data);
-    } else if (streamEvent.event === "tool_progress") {
-      handlers.onToolProgress?.(streamEvent.data);
-    } else if (streamEvent.event === "async_job_accepted") {
-      handlers.onAsyncJobAccepted?.(streamEvent.data);
-    } else if (streamEvent.event === "async_jobs_open") {
-      handlers.onAsyncJobsOpen?.(streamEvent.data);
-    } else if (streamEvent.event === "media") {
-      handlers.onMedia?.(streamEvent.data);
-    } else if (streamEvent.event === "activity") {
-      handlers.onActivity?.(streamEvent.data);
-    } else if (streamEvent.event === "project_activity") {
-      handlers.onProjectActivity?.(streamEvent.data);
-    } else if (streamEvent.event === "project_reasoning_summary") {
-      handlers.onProjectReasoningSummary?.(streamEvent.data);
-    } else if (streamEvent.event === "compaction") {
-      handlers.onCompaction?.(streamEvent.data);
-    } else if (streamEvent.event === "runtime_done") {
-      handlers.onRuntimeDone?.(streamEvent.data);
-    } else if (streamEvent.event === "stream_reset") {
-      handlers.onStreamReset?.(streamEvent.data);
-    } else if (streamEvent.event === "turn_status") {
-      handlers.onTurnStatus?.(streamEvent.data);
-    } else if (streamEvent.event === "reattached") {
-      handlers.onReattached?.(streamEvent.data);
-    } else if (streamEvent.event === "pending_browser_login") {
-      handlers.onPendingBrowserLogin?.(streamEvent.data);
-    } else if (streamEvent.event === "turn_event") {
-      handlers.onTurnEvent?.(streamEvent.data);
-    } else if (streamEvent.event === "text_tail") {
-      handlers.onTextTail?.(streamEvent.data);
-    } else if (streamEvent.event === "completed") {
-      sawTerminalEvent = true;
-      handlers.onCompleted?.(streamEvent.data);
-    } else if (streamEvent.event === "interrupted") {
-      sawTerminalEvent = true;
-      handlers.onInterrupted?.(streamEvent.data);
-    } else if (streamEvent.event === "failed") {
-      sawTerminalEvent = true;
-      handlers.onFailed?.(streamEvent.data);
-    }
-  };
-
   for (;;) {
     const { done, value } = await reader.read();
     if (done) {
@@ -1683,7 +1671,7 @@ export async function streamAssistantWebChatTurn(
         continue;
       }
 
-      handleStreamEvent(streamEvent);
+      sawTerminalEvent ||= dispatchAssistantWebChatStreamEvent(streamEvent, handlers);
     }
   }
 
@@ -1701,7 +1689,7 @@ export async function streamAssistantWebChatTurn(
       const streamEvent =
         payloadObject === null ? null : toStreamEvent(parsed.eventName, payloadObject);
       if (streamEvent !== null) {
-        handleStreamEvent(streamEvent);
+        sawTerminalEvent ||= dispatchAssistantWebChatStreamEvent(streamEvent, handlers);
       }
     }
   }
@@ -1715,7 +1703,8 @@ export async function reattachAssistantWebChatTurnStream(
   token: string,
   clientTurnId: string,
   handlers: AssistantWebChatStreamHandlers,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  sinceSeq = 0
 ): Promise<void> {
   const requestInit: RequestInit = {
     method: "GET",
@@ -1729,7 +1718,9 @@ export async function reattachAssistantWebChatTurnStream(
   }
 
   const response = await fetch(
-    `${getApiBaseUrl()}/assistant/chat/web/turns/${encodeURIComponent(clientTurnId)}/stream`,
+    `${getApiBaseUrl()}/assistant/chat/web/turns/${encodeURIComponent(
+      clientTurnId
+    )}/stream?sinceSeq=${encodeURIComponent(String(Math.max(0, Math.trunc(sinceSeq))))}`,
     requestInit
   );
   if (!response.ok) {
@@ -1761,42 +1752,6 @@ export async function reattachAssistantWebChatTurnStream(
         }, REATTACH_STREAM_IDLE_TIMEOUT_MS);
       })
     ]);
-  const handleStreamEvent = (streamEvent: WebChatStreamEvent): void => {
-    if (streamEvent.event === "started") handlers.onStarted?.(streamEvent.data);
-    else if (streamEvent.event === "delta") handlers.onDelta?.(streamEvent.data);
-    else if (streamEvent.event === "thinking") handlers.onThinking?.(streamEvent.data);
-    else if (streamEvent.event === "tool") handlers.onTool?.(streamEvent.data);
-    else if (streamEvent.event === "tool_progress") handlers.onToolProgress?.(streamEvent.data);
-    else if (streamEvent.event === "async_job_accepted")
-      handlers.onAsyncJobAccepted?.(streamEvent.data);
-    else if (streamEvent.event === "async_jobs_open") handlers.onAsyncJobsOpen?.(streamEvent.data);
-    else if (streamEvent.event === "media") handlers.onMedia?.(streamEvent.data);
-    else if (streamEvent.event === "activity") handlers.onActivity?.(streamEvent.data);
-    else if (streamEvent.event === "project_activity")
-      handlers.onProjectActivity?.(streamEvent.data);
-    else if (streamEvent.event === "project_reasoning_summary")
-      handlers.onProjectReasoningSummary?.(streamEvent.data);
-    else if (streamEvent.event === "compaction") handlers.onCompaction?.(streamEvent.data);
-    else if (streamEvent.event === "runtime_done") handlers.onRuntimeDone?.(streamEvent.data);
-    else if (streamEvent.event === "stream_reset") handlers.onStreamReset?.(streamEvent.data);
-    else if (streamEvent.event === "turn_status") handlers.onTurnStatus?.(streamEvent.data);
-    else if (streamEvent.event === "reattached") handlers.onReattached?.(streamEvent.data);
-    else if (streamEvent.event === "pending_browser_login")
-      handlers.onPendingBrowserLogin?.(streamEvent.data);
-    else if (streamEvent.event === "turn_event") handlers.onTurnEvent?.(streamEvent.data);
-    else if (streamEvent.event === "text_tail") handlers.onTextTail?.(streamEvent.data);
-    else if (streamEvent.event === "completed") {
-      sawTerminalEvent = true;
-      handlers.onCompleted?.(streamEvent.data);
-    } else if (streamEvent.event === "interrupted") {
-      sawTerminalEvent = true;
-      handlers.onInterrupted?.(streamEvent.data);
-    } else if (streamEvent.event === "failed") {
-      sawTerminalEvent = true;
-      handlers.onFailed?.(streamEvent.data);
-    }
-  };
-
   try {
     for (;;) {
       const { done, value } = await readWithIdleTimeout();
@@ -1816,7 +1771,7 @@ export async function reattachAssistantWebChatTurnStream(
         }
         const streamEvent = toStreamEvent(parsed.eventName, payloadObject);
         if (streamEvent !== null) {
-          handleStreamEvent(streamEvent);
+          sawTerminalEvent ||= dispatchAssistantWebChatStreamEvent(streamEvent, handlers);
         }
       }
     }
@@ -1844,7 +1799,7 @@ export async function reattachAssistantWebChatTurnStream(
       const streamEvent =
         payloadObject === null ? null : toStreamEvent(parsed.eventName, payloadObject);
       if (streamEvent !== null) {
-        handleStreamEvent(streamEvent);
+        sawTerminalEvent ||= dispatchAssistantWebChatStreamEvent(streamEvent, handlers);
       }
     }
   }
@@ -3033,6 +2988,8 @@ export type ChatHistoryMessage = {
   inlineMediaPlacement?: Array<{ toolCallId: string; attachmentIds: string[] }>;
   /** ADR-170 — the durable, server-numbered fact log for this message's turn, sorted by `seq`. */
   turnEvents?: TurnEvent[];
+  /** ADR-170 D9 — durable ConversationalPublish provenance. */
+  conversationalPublish?: true;
 };
 
 export type ChatCompactionState = AssistantWebChatCompactionState & {

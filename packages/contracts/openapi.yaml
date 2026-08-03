@@ -14182,6 +14182,11 @@ components:
             ADR-170 — the durable, server-numbered fact log for this
             message's turn, sorted by `seq`. Absent/empty for a historical
             message with no log.
+        conversationalPublish:
+          type: boolean
+          enum: [true]
+          description: >-
+            ADR-170 D9 — this message was created by ConversationalPublish.
     TurnEvent:
       description: ADR-170 D2 — the closed turn-event vocabulary. `seq` is the sole ordering authority for the process stream.
       oneOf:

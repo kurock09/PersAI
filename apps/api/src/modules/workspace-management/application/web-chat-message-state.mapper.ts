@@ -58,6 +58,7 @@ export function mapAssistantChatMessageToWebState(input: {
   const toolInvocations = extractToolInvocationsFromMetadata(input.message.metadata);
   const inlineMediaPlacement = extractInlineMediaPlacementFromMetadata(input.message.metadata);
   const turnEvents = extractTurnEventsFromMetadata(input.message.metadata);
+  const conversationalPublish = extractConversationalPublishFromMetadata(input.message.metadata);
   const lifecycle = extractMessageLifecycleFromMetadata(input.message.metadata);
   return {
     id: input.message.id,
@@ -72,8 +73,15 @@ export function mapAssistantChatMessageToWebState(input: {
     ...(workingNotes.length > 0 ? { workingNotes } : {}),
     ...(toolInvocations.length > 0 ? { toolInvocations } : {}),
     ...(inlineMediaPlacement.length > 0 ? { inlineMediaPlacement } : {}),
-    ...(turnEvents.length > 0 ? { turnEvents } : {})
+    ...(turnEvents.length > 0 ? { turnEvents } : {}),
+    ...(conversationalPublish ? { conversationalPublish: true } : {})
   };
+}
+
+export function extractConversationalPublishFromMetadata(
+  metadata: Record<string, unknown> | null | undefined
+): boolean {
+  return metadata?.conversationalPublish === true;
 }
 
 export function extractWorkingNotesFromMetadata(

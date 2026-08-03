@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {
+  extractConversationalPublishFromMetadata,
   extractAssistantWebChatPlatformNotice,
   extractTurnEventsFromMetadata,
   mapAssistantChatMessageToWebState
@@ -16,6 +17,9 @@ function run(): void {
   );
   assert.equal(extractAssistantWebChatPlatformNotice(null), null);
   assert.equal(extractAssistantWebChatPlatformNotice({ kind: "other" }), null);
+  assert.equal(extractConversationalPublishFromMetadata({ conversationalPublish: true }), true);
+  assert.equal(extractConversationalPublishFromMetadata({ conversationalPublish: false }), false);
+  assert.equal(extractConversationalPublishFromMetadata(null), false);
 
   // ADR-170 — turnEvents projection.
   assert.deepEqual(
@@ -95,6 +99,18 @@ function run(): void {
   assert.deepEqual(withLog.turnEvents, [
     { kind: "answer_text", at: "2026-08-02T00:00:02.000Z", text: "Done.", seq: 1 }
   ]);
+
+  const conversationalPublish = mapAssistantChatMessageToWebState({
+    message: { ...baseMessage, metadata: { conversationalPublish: true } },
+    attachments: []
+  });
+  assert.equal(conversationalPublish.conversationalPublish, true);
+
+  const ordinary = mapAssistantChatMessageToWebState({
+    message: { ...baseMessage, metadata: { conversationalPublish: false } },
+    attachments: []
+  });
+  assert.equal("conversationalPublish" in ordinary, false);
 }
 
 run();

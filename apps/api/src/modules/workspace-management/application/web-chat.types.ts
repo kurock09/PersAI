@@ -134,6 +134,8 @@ export interface AssistantWebChatMessageState {
    * special-case branch for that.
    */
   turnEvents?: PublicTurnEvent[];
+  /** ADR-170 D9 — durable ConversationalPublish provenance from message metadata. */
+  conversationalPublish?: true;
 }
 
 export interface AssistantWebChatTurnRoutingState {
