@@ -387,7 +387,7 @@ export function ChatArea({
       chat.messages
         .map(
           (message) =>
-            `${message.id}:${message.status}:${message.content.length}:${message.streamingTextActive === true ? 1 : 0}:${(message.workingNotes ?? []).reduce((sum, note) => sum + note.length, 0)}`
+            `${message.id}:${message.status}:${message.content.length}:${message.textTail?.length ?? 0}:${Math.max(0, ...(message.turnEvents?.map((event) => event.seq) ?? []))}`
         )
         .join("|"),
     [chat.messages]

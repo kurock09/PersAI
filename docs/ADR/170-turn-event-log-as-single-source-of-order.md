@@ -343,6 +343,31 @@ Reconnect, thread restore, and history reconciliation request events after a
 known `seq`. Idempotency is `seq` identity. This replaces the existing
 per-handler dedupe and attachment-preservation compensations.
 
+### D8.1 — The log says which artifacts exist; payloads are a by-id store that never shrinks
+
+Deleting the merge layer exposed a real question: a `media` frame delivers
+durable attachments, a later status frame may not repeat them, and without the
+old stitching the already-confirmed artifact disappeared. That is the founder's
+"image vanishes when catch-up narration arrives" defect, and the answer is not to
+let the client keep guessing which frame was more complete.
+
+Two different things were tangled together. **Order and existence** come from the
+log: a `delivery` event names a durable attachment id at a fixed `seq`, and the
+log is append-only, so it can never regress. **Payload** — path, thumbnail, size,
+kind — is delivery metadata the client looks up by that id.
+
+So a surface keeps one by-id payload store per message which only ever gains
+entries. A frame that omits a payload does not delete it, because nothing in this
+product ever un-delivers an artifact. This is an invariant, not a compensation,
+and it is why the merge layer can go: what is deleted is all the *deciding* —
+longer-string-wins picks, terminal-versus-live snapshot comparisons,
+missed-terminal special cases, and the attachment-preservation fallback chain in
+the status path. What remains is a dictionary keyed by an id the server issued.
+
+A frame may therefore never be treated as a full replacement of a message's
+artifacts. Nothing renders from that store directly either: it is only consulted
+for the ids the log already ordered.
+
 ### D9 — Identity and provenance are typed fields, never string prefixes
 
 No code may derive meaning from the shape of an id. Three current sniffs are

@@ -633,7 +633,6 @@ describe("useChat", () => {
     );
 
     expect(assistantEntry?.message.content).toBe("Итоговый ответ");
-    expect(assistantEntry?.message.workingNotes).toEqual(["Проверяю сайт."]);
   });
 
   it("keeps primary stream ownership when focus status returns running before completed", async () => {
@@ -8394,9 +8393,6 @@ describe("useChat", () => {
         );
         expect(assistant?.status).toBe("streaming");
         expect(assistant?.attachments?.map((attachment) => attachment.id)).toContain("att-doc-sse");
-        expect(assistant?.inlineMediaPlacement).toEqual([
-          { toolCallId: "tool-doc-1", attachmentIds: ["att-doc-sse"] }
-        ]);
       });
 
       await act(async () => {
@@ -8410,9 +8406,6 @@ describe("useChat", () => {
       expect(assistant?.attachments?.map((attachment) => attachment.id).sort()).toEqual([
         "att-doc-history",
         "att-doc-sse"
-      ]);
-      expect(assistant?.inlineMediaPlacement).toEqual([
-        { toolCallId: "tool-doc-1", attachmentIds: ["att-doc-sse"] }
       ]);
 
       streamGate.release();
@@ -8905,10 +8898,6 @@ describe("useChat", () => {
         expect(assistant?.attachments?.map((attachment) => attachment.id)).toEqual([
           "att-sse-only"
         ]);
-        expect(assistant?.inlineMediaPlacement).toEqual([
-          { toolCallId: "tool-img-place", attachmentIds: ["att-sse-only"] }
-        ]);
-        expect(assistant?.attachments?.[0]?.inlineAfterToolCallId).toBe("tool-img-place");
       });
 
       streamGate.release();
@@ -9010,10 +8999,6 @@ describe("useChat", () => {
         expect(assistant?.attachments?.map((attachment) => attachment.id)).toEqual([
           "att-sse-only"
         ]);
-        expect(assistant?.inlineMediaPlacement).toEqual([
-          { toolCallId: "tool-img-place-reattach", attachmentIds: ["att-sse-only"] }
-        ]);
-        expect(assistant?.attachments?.[0]?.inlineAfterToolCallId).toBe("tool-img-place-reattach");
       });
     });
 

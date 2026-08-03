@@ -1857,7 +1857,7 @@ export async function streamAssistantWebChatContinuationDiscovery(
       const payload = JSON.parse(dataLines.join("\n")) as { clientTurnId?: unknown };
       if (
         typeof payload.clientTurnId === "string" &&
-        payload.clientTurnId.startsWith("async-cont:") &&
+        payload.clientTurnId.length > 0 &&
         payload.clientTurnId.length <= 200
       ) {
         lastCursor = nextCursor;

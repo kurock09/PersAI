@@ -110,15 +110,8 @@ export interface ChatMessage {
   thought?: string;
   thoughtStartedAt?: string | null;
   thoughtFinishedAt?: string | null;
-  /** The texts the model wrote before each tool call across the tool loop. Absent/empty when no tools ran. */
-  workingNotes?: string[];
   /** Sanitized tool calls emitted by the runtime, used to interleave process badges with working notes. */
   toolInvocations?: RuntimeTurnToolInvocation[];
-  /**
-   * ADR-165/167 — which attachments belong after which tool call for process-timeline
-   * receipt events. Committed UI still uses the classic bottom attachment strip.
-   */
-  inlineMediaPlacement?: Array<{ toolCallId: string; attachmentIds: string[] }>;
   /** ADR-170 D9 — server-projected ConversationalPublish provenance. */
   conversationalPublish?: true;
   /** Local-only streaming hint: true while text deltas are actively being appended. */
@@ -266,6 +259,55 @@ interface UseChatOptions {
   assistantId?: string | null;
 }
 type LiveActivitySource = "tool" | "compaction" | "retrieval" | "project";
+type TurnProvenance = "ordinary" | "async_continuation";
+type AssistantMessageProvenance = "optimistic" | "active_overlay";
+
+/**
+ * ADR-170 D9 — provenance is stated once where the fact is known instead of
+ * being re-derived from the shape of an id. Only client-created identities are
+ * recorded: a message the server sent is simply absent here, so a long history
+ * scroll adds nothing. Entries are evicted oldest-first because a tab can stay
+ * open across hundreds of turns and these outlive every hook instance.
+ */
+const MAX_TRACKED_CLIENT_IDENTITIES = 256;
+
+const turnProvenanceByClientTurnId = new Map<string, TurnProvenance>();
+const assistantMessageProvenanceById = new Map<string, AssistantMessageProvenance>();
+const optimisticUserMessageIds = new Set<string>();
+
+function evictOldestBeyondCap(tracked: Map<string, unknown> | Set<string>): void {
+  while (tracked.size > MAX_TRACKED_CLIENT_IDENTITIES) {
+    const oldest = tracked.keys().next().value as string | undefined;
+    if (oldest === undefined) return;
+    tracked.delete(oldest);
+  }
+}
+
+function recordTurnProvenance(clientTurnId: string, provenance: TurnProvenance): void {
+  turnProvenanceByClientTurnId.set(clientTurnId, provenance);
+  evictOldestBeyondCap(turnProvenanceByClientTurnId);
+}
+
+function recordAssistantMessageProvenance(
+  messageId: string,
+  provenance: AssistantMessageProvenance
+): void {
+  assistantMessageProvenanceById.set(messageId, provenance);
+  evictOldestBeyondCap(assistantMessageProvenanceById);
+}
+
+/**
+ * A committed row read back from the server owns its own identity, so the id
+ * stops being client-owned. Dropping the entry rather than marking it "server"
+ * says the same thing and keeps history hydration from growing the map.
+ */
+function forgetClientOwnedAssistantMessage(messageId: string): void {
+  assistantMessageProvenanceById.delete(messageId);
+}
+
+function isOptimisticUserMessageId(messageId: string | null): boolean {
+  return messageId !== null && optimisticUserMessageIds.has(messageId);
+}
 type LiveActivityEvent = ActivityEvent & {
   source: LiveActivitySource;
   skillDetail?: string | undefined;
@@ -274,6 +316,7 @@ type LiveActivityEvent = ActivityEvent & {
 };
 type ActiveTurnSnapshot = {
   clientTurnId: string;
+  turnProvenance?: TurnProvenance;
   messages: ChatMessage[];
   /**
    * Identity of the user/assistant messages that BELONG to this live turn.
@@ -817,6 +860,9 @@ function buildKnowledgeUploadActivity(params: {
   };
 }
 function toCommittedChatMessage(message: ChatHistoryMessage): ChatMessage | null {
+  if (message.author === "assistant") {
+    forgetClientOwnedAssistantMessage(message.id);
+  }
   if (message.content === WELCOME_TURN_SENTINEL) {
     return null;
   }
@@ -839,21 +885,6 @@ function toCommittedChatMessage(message: ChatHistoryMessage): ChatMessage | null
   ) {
     return null;
   }
-  const inlineMediaPlacement =
-    Array.isArray(message.inlineMediaPlacement) && message.inlineMediaPlacement.length > 0
-      ? message.inlineMediaPlacement
-      : undefined;
-  const attachmentsWithInline =
-    message.attachments.length > 0
-      ? (message.attachments as ChatAttachment[]).map((attachment) => {
-          const placementToolCallId = inlineMediaPlacement?.find((entry) =>
-            entry.attachmentIds.includes(attachment.id)
-          )?.toolCallId;
-          return placementToolCallId === undefined
-            ? attachment
-            : { ...attachment, inlineAfterToolCallId: placementToolCallId };
-        })
-      : undefined;
   return {
     id: message.id,
     role: message.author,
@@ -862,18 +893,15 @@ function toCommittedChatMessage(message: ChatHistoryMessage): ChatMessage | null
     ...(stopReason !== undefined ? { stopReason } : {}),
     createdAt: message.createdAt,
     ...(message.platformNotice ? { platformNotice: message.platformNotice } : {}),
-    ...(Array.isArray(message.workingNotes) && message.workingNotes.length > 0
-      ? { workingNotes: message.workingNotes }
-      : {}),
     ...(Array.isArray(message.toolInvocations) && message.toolInvocations.length > 0
       ? { toolInvocations: message.toolInvocations }
       : {}),
-    ...(inlineMediaPlacement !== undefined ? { inlineMediaPlacement } : {}),
     ...(Array.isArray(message.turnEvents) && message.turnEvents.length > 0
       ? { turnEvents: message.turnEvents }
       : {}),
     ...(message.conversationalPublish === true ? { conversationalPublish: true } : {}),
-    attachments: attachmentsWithInline
+    attachments:
+      message.attachments.length > 0 ? (message.attachments as ChatAttachment[]) : undefined
   };
 }
 
@@ -970,7 +998,7 @@ function toActiveTurnOverlayMessages(activeTurn: WebChatActiveTurnState | null |
       liveAssistantMessageId: null
     };
   }
-  const isAsyncContinuation = isAsyncContinuationClientTurnId(activeTurn.clientTurnId);
+  const isAsyncContinuation = isAsyncContinuationTurn(activeTurn.clientTurnId);
   const userMessage =
     isAsyncContinuation || !activeTurn.userMessage
       ? null
@@ -979,11 +1007,11 @@ function toActiveTurnOverlayMessages(activeTurn: WebChatActiveTurnState | null |
     ? toCommittedChatMessage(activeTurn.assistantMessage)
     : null;
   const boundPublishAssistantId =
-    assistantMessage !== null && !isLocalScopedAssistantId(assistantMessage.id)
+    assistantMessage !== null && !isClientOwnedAssistantMessage(assistantMessage.id)
       ? assistantMessage.id
       : typeof activeTurn.assistantMessageId === "string" &&
           activeTurn.assistantMessageId.trim().length > 0 &&
-          !isLocalScopedAssistantId(activeTurn.assistantMessageId)
+          !isClientOwnedAssistantMessage(activeTurn.assistantMessageId)
         ? activeTurn.assistantMessageId.trim()
         : null;
   if (!userMessage && !isAsyncContinuation) {
@@ -1012,6 +1040,9 @@ function toActiveTurnOverlayMessages(activeTurn: WebChatActiveTurnState | null |
             content: "",
             status: "streaming"
           } satisfies ChatMessage);
+  if (assistantMessage === null && boundPublishAssistantId === null) {
+    recordAssistantMessageProvenance(assistantOverlayBase.id, "active_overlay");
+  }
   const assistantOverlay: ChatMessage = { ...assistantOverlayBase };
   const liveActivitiesByMessageId =
     activeTurn.currentActivity && activeTurn.currentActivity.phase === "start"
@@ -1055,130 +1086,42 @@ function toActiveTurnOverlayMessages(activeTurn: WebChatActiveTurnState | null |
   };
 }
 function isOptimisticLocalMessage(message: ChatMessage): boolean {
-  return message.id.startsWith("local-user-") || message.id.startsWith("local-assistant-");
+  return (
+    (message.role === "assistant" && isClientOwnedAssistantMessage(message.id)) ||
+    (message.role === "user" && optimisticUserMessageIds.has(message.id))
+  );
 }
 function isActiveAssistantLifecycleStatus(status: ChatMessageStatus): boolean {
   return status === "streaming" || status === "reconciling";
 }
 
 /**
- * ADR-166 D1 — attachments merge set-like by id. Live/SSE fields win on the
- * same id so history refresh never strips SSE-only attachments or placement.
+ * ADR-170 D8.1 — attachment payloads are a message-scoped dictionary keyed by
+ * the durable server attachment id. Frames only add/enrich payloads; the log
+ * remains the sole source of artifact existence and presentation order.
  */
 function mergeAttachmentsById(
-  live: ChatAttachment[] | undefined,
-  committed: ChatAttachment[] | undefined
+  known: ChatAttachment[] | undefined,
+  incoming: ChatAttachment[] | undefined
 ): ChatAttachment[] | undefined {
-  if (
-    (live === undefined || live.length === 0) &&
-    (committed === undefined || committed.length === 0)
-  ) {
+  if ((known?.length ?? 0) === 0 && (incoming?.length ?? 0) === 0) {
     return undefined;
   }
-  const byId = new Map<string, ChatAttachment>();
-  for (const attachment of committed ?? []) {
-    byId.set(attachment.id, attachment);
+  const attachments = new Map<string, ChatAttachment>();
+  for (const attachment of known ?? []) {
+    attachments.set(attachment.id, attachment);
   }
-  for (const attachment of live ?? []) {
-    const existing = byId.get(attachment.id);
-    byId.set(attachment.id, existing !== undefined ? { ...existing, ...attachment } : attachment);
+  for (const attachment of incoming ?? []) {
+    attachments.set(attachment.id, { ...attachments.get(attachment.id), ...attachment });
   }
-  return Array.from(byId.values());
+  return [...attachments.values()];
 }
 
-function mergeInlineMediaPlacementByToolCallId(
-  live: ChatMessage["inlineMediaPlacement"],
-  committed: ChatMessage["inlineMediaPlacement"]
-): ChatMessage["inlineMediaPlacement"] {
-  if (
-    (live === undefined || live.length === 0) &&
-    (committed === undefined || committed.length === 0)
-  ) {
-    return undefined;
-  }
-  const byToolCallId = new Map<string, { toolCallId: string; attachmentIds: string[] }>();
-  for (const entry of committed ?? []) {
-    byToolCallId.set(entry.toolCallId, {
-      toolCallId: entry.toolCallId,
-      attachmentIds: [...entry.attachmentIds]
-    });
-  }
-  for (const entry of live ?? []) {
-    const existing = byToolCallId.get(entry.toolCallId);
-    if (existing === undefined) {
-      byToolCallId.set(entry.toolCallId, {
-        toolCallId: entry.toolCallId,
-        attachmentIds: [...entry.attachmentIds]
-      });
-      continue;
-    }
-    const ids = new Set(existing.attachmentIds);
-    for (const attachmentId of entry.attachmentIds) {
-      ids.add(attachmentId);
-    }
-    byToolCallId.set(entry.toolCallId, {
-      toolCallId: entry.toolCallId,
-      attachmentIds: Array.from(ids)
-    });
-  }
-  return Array.from(byToolCallId.values());
-}
-
-/**
- * ADR-166 D1 — while the exact attempt is live, same-id history may contribute
- * durable createdAt/attachments/content but must preserve live lifecycle
- * status, receipts, streamingTextActive, and thought/working/tool state.
- */
-function mergeLiveAssistantWithCommittedHistory(
-  live: ChatMessage,
-  committed: ChatMessage
-): ChatMessage {
-  const nextAttachments = mergeAttachmentsById(live.attachments, committed.attachments);
-  const nextPlacement = mergeInlineMediaPlacementByToolCallId(
-    live.inlineMediaPlacement,
-    committed.inlineMediaPlacement
-  );
-  const nextCreatedAt = live.createdAt ?? committed.createdAt;
-  const nextContent =
-    committed.content.length > live.content.length ? committed.content : live.content;
-  return {
-    ...live,
-    ...(nextCreatedAt !== undefined ? { createdAt: nextCreatedAt } : {}),
-    content: nextContent,
-    ...(nextAttachments !== undefined && nextAttachments.length > 0
-      ? { attachments: nextAttachments }
-      : {}),
-    ...(nextPlacement !== undefined && nextPlacement.length > 0
-      ? { inlineMediaPlacement: nextPlacement }
-      : {})
-  };
-}
-
-/** Terminal same-id absorb: committed row wins; keep union of attachments. */
-function mergeTerminalAssistantWithLiveAttachments(
-  committed: ChatMessage,
-  live: ChatMessage
-): ChatMessage {
-  const nextAttachments = mergeAttachmentsById(live.attachments, committed.attachments);
-  const nextPlacement = mergeInlineMediaPlacementByToolCallId(
-    live.inlineMediaPlacement,
-    committed.inlineMediaPlacement
-  );
-  return {
-    ...committed,
-    ...(nextAttachments !== undefined && nextAttachments.length > 0
-      ? { attachments: nextAttachments }
-      : {}),
-    ...(nextPlacement !== undefined && nextPlacement.length > 0
-      ? { inlineMediaPlacement: nextPlacement }
-      : {})
-  };
-}
 function isTransientActiveAssistantMessage(message: ChatMessage): boolean {
   return (
     message.role === "assistant" &&
     isActiveAssistantLifecycleStatus(message.status) &&
-    (message.id.startsWith("local-assistant-") || message.id.startsWith("active-assistant-"))
+    isClientOwnedAssistantMessage(message.id)
   );
 }
 function isEmptyActiveAssistantPlaceholder(message: ChatMessage): boolean {
@@ -1229,7 +1172,7 @@ function stripEmptyActiveAssistantPlaceholders(
     if (
       committedLiveAssistantExists &&
       index === lastAssistantIndex &&
-      (liveTurnIds?.has(message.id) === true || isLocalScopedAssistantId(message.id))
+      (liveTurnIds?.has(message.id) === true || isClientOwnedAssistantMessage(message.id))
     ) {
       return false;
     }
@@ -1278,14 +1221,14 @@ function finalizeActiveTurnMessages(
   const hasServerAssistant = demoted.some(
     (message) =>
       message.role === "assistant" &&
-      !isLocalScopedAssistantId(message.id) &&
+      !isClientOwnedAssistantMessage(message.id) &&
       (message.status === "committed" || message.status === "partial")
   );
   if (!hasServerAssistant) {
     return demoted;
   }
   return demoted.filter(
-    (message) => !(message.role === "assistant" && isLocalScopedAssistantId(message.id))
+    (message) => !(message.role === "assistant" && isClientOwnedAssistantMessage(message.id))
   );
 }
 function isPassiveStreamDisconnect(error: unknown): boolean {
@@ -1350,7 +1293,16 @@ function mergeChatMessagesById(...groups: ChatMessage[][]): ChatMessage[] {
   const messagesById = new Map<string, ChatMessage>();
   for (const group of groups) {
     for (const message of group) {
-      messagesById.set(message.id, message);
+      const known = messagesById.get(message.id);
+      messagesById.set(
+        message.id,
+        known === undefined
+          ? message
+          : {
+              ...message,
+              attachments: mergeAttachmentsById(known.attachments, message.attachments)
+            }
+      );
     }
   }
   return sortChatMessagesChronologically(Array.from(messagesById.values()));
@@ -1377,11 +1329,13 @@ function jobNeedsContinuationReattach(job: {
   if (clientTurnId === undefined || clientTurnId.length === 0) {
     return null;
   }
+  recordTurnProvenance(clientTurnId, "async_continuation");
   return clientTurnId;
 }
 
-function isAsyncContinuationClientTurnId(clientTurnId: string): boolean {
-  return clientTurnId.startsWith("async-cont:");
+/** True for a turn that arrived as an async continuation rather than a send. */
+function isAsyncContinuationTurn(clientTurnId: string): boolean {
+  return turnProvenanceByClientTurnId.get(clientTurnId) === "async_continuation";
 }
 
 /**
@@ -1393,14 +1347,14 @@ function asyncContPublishHistoryHasFinalContent(
   loaded: ChatMessage[],
   publishAssistantMessageId: string
 ): boolean {
-  if (isLocalScopedAssistantId(publishAssistantMessageId)) {
+  if (isClientOwnedAssistantMessage(publishAssistantMessageId)) {
     return false;
   }
   const committed = loaded.find(
     (message) =>
       message.role === "assistant" &&
       message.id === publishAssistantMessageId &&
-      !isLocalScopedAssistantId(message.id)
+      !isClientOwnedAssistantMessage(message.id)
   );
   return committed !== undefined && committed.content.trim().length > 0;
 }
@@ -1412,116 +1366,6 @@ function asyncContPublishHistoryHasFinalContent(
  * the local stream is dead and no open jobs remain. Authoritative
  * turn_status / reattach owns contentful terminals (no content polling storm).
  */
-function ordinarySameIdMissedTerminalAttachmentOnly(
-  loaded: ChatMessage[],
-  liveAssistantMessageId: string
-): boolean {
-  if (isLocalScopedAssistantId(liveAssistantMessageId)) {
-    return false;
-  }
-  const committed = loaded.find(
-    (message) =>
-      message.role === "assistant" &&
-      message.id === liveAssistantMessageId &&
-      !isLocalScopedAssistantId(message.id)
-  );
-  if (committed === undefined) {
-    return false;
-  }
-  return committed.content.trim().length === 0 && (committed.attachments?.length ?? 0) > 0;
-}
-
-function isOrdinarySameIdHistoryTerminal(input: {
-  loaded: ChatMessage[];
-  liveAssistantMessageId: string;
-  localStreamDead: boolean;
-  hasOpenBackgroundJobs: boolean;
-  attemptKnownTerminal?: boolean;
-  attemptKnownRunning?: boolean;
-}): boolean {
-  if (!input.localStreamDead || isLocalScopedAssistantId(input.liveAssistantMessageId)) {
-    return false;
-  }
-  if (input.hasOpenBackgroundJobs || input.attemptKnownRunning === true) {
-    return false;
-  }
-  if (input.attemptKnownTerminal === true) {
-    return input.loaded.some(
-      (message) =>
-        message.role === "assistant" &&
-        message.id === input.liveAssistantMessageId &&
-        !isLocalScopedAssistantId(message.id)
-    );
-  }
-  return ordinarySameIdMissedTerminalAttachmentOnly(input.loaded, input.liveAssistantMessageId);
-}
-
-/**
- * ADR-166 D3/D7 — set-like media merge for primary + reattach onMedia.
- * Same attachment id on retry still enriches `inlineMediaPlacement` /
- * `inlineAfterToolCallId` when a later event supplies `afterToolCallId`.
- */
-function mergeMediaEventIntoAssistantMessage(
-  message: ChatMessage,
-  input: {
-    attachments: ChatHistoryAttachment[];
-    afterToolCallId?: string;
-  }
-): ChatMessage {
-  if (input.attachments.length === 0) {
-    return message;
-  }
-  const existing = message.attachments ?? [];
-  const existingIds = new Set(existing.map((attachment) => attachment.id));
-  const incomingIds = input.attachments.map((attachment) => attachment.id);
-  const newAttachments: ChatAttachment[] = input.attachments
-    .filter((attachment) => !existingIds.has(attachment.id))
-    .map((attachment) => ({
-      ...attachment,
-      ...(input.afterToolCallId === undefined
-        ? {}
-        : { inlineAfterToolCallId: input.afterToolCallId })
-    }));
-  if (newAttachments.length === 0 && input.afterToolCallId === undefined) {
-    return message;
-  }
-  let nextAttachments: ChatAttachment[] = [...existing, ...newAttachments];
-  if (input.afterToolCallId !== undefined) {
-    const enrichIds = new Set(incomingIds);
-    nextAttachments = nextAttachments.map((attachment) =>
-      enrichIds.has(attachment.id)
-        ? { ...attachment, inlineAfterToolCallId: input.afterToolCallId }
-        : attachment
-    );
-  }
-  const nextPlacement =
-    input.afterToolCallId === undefined
-      ? message.inlineMediaPlacement
-      : [
-          ...(message.inlineMediaPlacement ?? []).filter(
-            (entry) => entry.toolCallId !== input.afterToolCallId
-          ),
-          {
-            toolCallId: input.afterToolCallId,
-            attachmentIds: Array.from(
-              new Set([
-                ...((message.inlineMediaPlacement ?? []).find(
-                  (entry) => entry.toolCallId === input.afterToolCallId
-                )?.attachmentIds ?? []),
-                ...incomingIds
-              ])
-            )
-          }
-        ];
-  return {
-    ...message,
-    status: "streaming",
-    streamingTextActive: false,
-    attachments: nextAttachments,
-    ...(nextPlacement !== undefined ? { inlineMediaPlacement: nextPlacement } : {})
-  };
-}
-
 function committedHistoryHasActiveTurnResult(
   loaded: ChatMessage[],
   activeTurn: WebChatActiveTurnState,
@@ -1530,7 +1374,7 @@ function committedHistoryHasActiveTurnResult(
   // Catch-up has no ordinary user row. A dead local stream plus final content
   // on its publish identity is its established terminal recovery path, even
   // when a stale activeTurn projection still says running.
-  if (isAsyncContinuationClientTurnId(activeTurn.clientTurnId)) {
+  if (isAsyncContinuationTurn(activeTurn.clientTurnId)) {
     if (options?.localStreamDead !== true) {
       return false;
     }
@@ -1562,8 +1406,10 @@ function committedHistoryHasActiveTurnResult(
     loaded.slice(activeUserIndex + 1).some((message) => message.role === "assistant")
   );
 }
-function isLocalScopedAssistantId(id: string): boolean {
-  return id.startsWith("local-assistant-") || id.startsWith("active-assistant-");
+/** True for an assistant bubble this client created, never for a server row. */
+function isClientOwnedAssistantMessage(id: string): boolean {
+  const provenance = assistantMessageProvenanceById.get(id);
+  return provenance === "optimistic" || provenance === "active_overlay";
 }
 
 /** ADR-165 — replace local streaming assistant id with the early server row id. */
@@ -1625,9 +1471,9 @@ function committedHistoryHasActiveSnapshotResult(
   // Status reconciliation wins for ordinary USER_TURN F5 recovery. Async
   // continuation keeps its independent stale-running terminal-history path.
   if (
-    !isAsyncContinuationClientTurnId(activeSnapshot.clientTurnId) &&
+    !isAsyncContinuationTurn(activeSnapshot.clientTurnId) &&
     options?.attemptKnownRunning === true &&
-    !isLocalScopedAssistantId(activeSnapshot.liveAssistantMessageId) &&
+    !isClientOwnedAssistantMessage(activeSnapshot.liveAssistantMessageId) &&
     loaded.some((message) => message.id === activeSnapshot.liveAssistantMessageId)
   ) {
     return false;
@@ -1636,7 +1482,7 @@ function committedHistoryHasActiveSnapshotResult(
   // user must not look like "this continuation already committed".
   // ADR-162: early publish-id bind is overlay while live; same-id final
   // content + dead/missed stream clears the stuck overlay.
-  if (isAsyncContinuationClientTurnId(activeSnapshot.clientTurnId)) {
+  if (isAsyncContinuationTurn(activeSnapshot.clientTurnId)) {
     if (options?.localStreamDead !== true) {
       return false;
     }
@@ -1644,13 +1490,13 @@ function committedHistoryHasActiveSnapshotResult(
   }
   const liveAssistantId = activeSnapshot.liveAssistantMessageId;
   if (
-    !isLocalScopedAssistantId(liveAssistantId) &&
+    !isClientOwnedAssistantMessage(liveAssistantId) &&
     loaded.some((message) => message.id === liveAssistantId)
   ) {
     return true;
   }
   const liveUserId = activeSnapshot.liveUserMessageId;
-  if (liveUserId === null || liveUserId.startsWith("local-user-")) {
+  if (liveUserId === null || isOptimisticUserMessageId(liveUserId)) {
     return false;
   }
   const userIndex = loaded.findIndex((message) => message.id === liveUserId);
@@ -1662,7 +1508,7 @@ function committedHistoryHasActiveSnapshotResult(
     .some(
       (message) =>
         message.role === "assistant" &&
-        !isLocalScopedAssistantId(message.id) &&
+        !isClientOwnedAssistantMessage(message.id) &&
         message.id !== liveAssistantId
     );
 }
@@ -1675,7 +1521,7 @@ function dropSupersededLiveAssistantPlaceholder(
   }
   const liveUserId = activeSnapshot.liveUserMessageId;
   const liveAssistantId = activeSnapshot.liveAssistantMessageId;
-  if (liveUserId === null || liveUserId.startsWith("local-user-")) {
+  if (liveUserId === null || isOptimisticUserMessageId(liveUserId)) {
     return messages;
   }
   const liveUserIndex = messages.findIndex((message) => message.id === liveUserId);
@@ -1687,10 +1533,10 @@ function dropSupersededLiveAssistantPlaceholder(
     .some(
       (message) =>
         message.role === "assistant" &&
-        !isLocalScopedAssistantId(message.id) &&
+        !isClientOwnedAssistantMessage(message.id) &&
         message.id !== liveAssistantId
     );
-  if (!hasCommittedAssistantAfterLiveUser || !isLocalScopedAssistantId(liveAssistantId)) {
+  if (!hasCommittedAssistantAfterLiveUser || !isClientOwnedAssistantMessage(liveAssistantId)) {
     return messages;
   }
   return messages.filter((message) => message.id !== liveAssistantId);
@@ -1703,8 +1549,8 @@ function getSnapshotTerminalAssistantReplacementId(
   const liveAssistantId = snapshot.liveAssistantMessageId;
   if (
     liveUserId === null ||
-    liveUserId.startsWith("local-user-") ||
-    !isLocalScopedAssistantId(liveAssistantId) ||
+    isOptimisticUserMessageId(liveUserId) ||
+    !isClientOwnedAssistantMessage(liveAssistantId) ||
     snapshot.messages.some((message) => message.id === liveAssistantId)
   ) {
     return null;
@@ -1720,7 +1566,7 @@ function getSnapshotTerminalAssistantReplacementId(
         (message) =>
           message.role === "assistant" &&
           !liveTurnIds.has(message.id) &&
-          !isLocalScopedAssistantId(message.id)
+          !isClientOwnedAssistantMessage(message.id)
       )?.id ?? null
   );
 }
@@ -1773,8 +1619,8 @@ function mergeCommittedHistoryWithActiveTurn(input: {
     liveAssistantId
   ]);
   const baseMessageIds = new Set((baseMessages ?? []).map((message) => message.id));
-  const liveUserIsOptimistic = liveUserId !== null && liveUserId.startsWith("local-user-");
-  const liveAssistantIsOptimistic = isLocalScopedAssistantId(liveAssistantId);
+  const liveUserIsOptimistic = isOptimisticUserMessageId(liveUserId);
+  const liveAssistantIsOptimistic = isClientOwnedAssistantMessage(liveAssistantId);
   const newLoadedUserMessages =
     baseMessages === undefined
       ? []
@@ -1794,7 +1640,7 @@ function mergeCommittedHistoryWithActiveTurn(input: {
       .some(
         (message) =>
           message.role === "assistant" &&
-          !isLocalScopedAssistantId(message.id) &&
+          !isClientOwnedAssistantMessage(message.id) &&
           message.id !== liveAssistantId
       );
   const loadedHasLiveAssistantId =
@@ -1807,7 +1653,7 @@ function mergeCommittedHistoryWithActiveTurn(input: {
     loaded[loaded.length - 1]?.role === "assistant" &&
     newLoadedUserMessages.length === 1 &&
     newLoadedAssistantMessages.length === 1;
-  const isAsyncContinuation = isAsyncContinuationClientTurnId(activeSnapshot.clientTurnId);
+  const isAsyncContinuation = isAsyncContinuationTurn(activeSnapshot.clientTurnId);
   const knownMessageIds = new Set<string>([
     ...baseMessageIds,
     ...activeSnapshot.messages.map((message) => message.id)
@@ -1817,7 +1663,7 @@ function mergeCommittedHistoryWithActiveTurn(input: {
     loaded.some(
       (message) =>
         message.role === "assistant" &&
-        !isLocalScopedAssistantId(message.id) &&
+        !isClientOwnedAssistantMessage(message.id) &&
         message.id !== liveAssistantId &&
         // Only a newly landed continuation row replaces the live slot.
         !knownMessageIds.has(message.id)
@@ -1831,21 +1677,13 @@ function mergeCommittedHistoryWithActiveTurn(input: {
     isAsyncContinuation &&
     localStreamDead &&
     asyncContPublishHistoryHasFinalContent(loaded, liveAssistantId);
-  // ADR-166 D1: ordinary USER_TURN same-id presence is overlay while the
-  // attempt is live — not terminal replacement. Do not use non-empty content
-  // as terminal truth; require authoritative attempt terminal or missed-
-  // terminal attachment-only empty text with no open jobs.
   const ordinarySameIdTerminal =
     !isAsyncContinuation &&
     loadedHasLiveAssistantId &&
-    isOrdinarySameIdHistoryTerminal({
-      loaded,
-      liveAssistantMessageId: liveAssistantId,
-      localStreamDead,
-      hasOpenBackgroundJobs,
-      attemptKnownTerminal,
-      attemptKnownRunning
-    });
+    localStreamDead &&
+    !hasOpenBackgroundJobs &&
+    attemptKnownTerminal &&
+    !attemptKnownRunning;
   const shouldReplaceActiveTurn = isAsyncContinuation
     ? loadedHasContinuationAssistant || asyncContSameIdTerminal
     : loadedHasAssistantAfterActiveUser ||
@@ -1871,29 +1709,8 @@ function mergeCommittedHistoryWithActiveTurn(input: {
       (message) => liveTurnIds.has(message.id) || message.id === terminalReplacementAssistantId
     );
     const merged = mergeChatMessagesById(sanitizedLoaded, liveSnapshotMessages);
-    // ADR-166 D1: same-id live overlay must keep lifecycle/receipts and
-    // set-like-merge durable attachments from the committed row.
-    const liveAssistantMessage = liveSnapshotMessages.find(
-      (message) => message.id === liveAssistantId
-    );
-    const committedAssistantMessage = sanitizedLoaded.find(
-      (message) => message.id === liveAssistantId
-    );
-    const messagesWithLiveMerge =
-      liveAssistantMessage !== undefined &&
-      committedAssistantMessage !== undefined &&
-      isActiveAssistantLifecycleStatus(liveAssistantMessage.status)
-        ? merged.map((message) =>
-            message.id === liveAssistantId
-              ? mergeLiveAssistantWithCommittedHistory(
-                  liveAssistantMessage,
-                  committedAssistantMessage
-                )
-              : message
-          )
-        : merged;
     return {
-      messages: dropSupersededLiveAssistantPlaceholder(messagesWithLiveMerge, activeSnapshot),
+      messages: dropSupersededLiveAssistantPlaceholder(merged, activeSnapshot),
       replacedActiveTurn: false
     };
   }
@@ -3012,9 +2829,9 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
               (value): value is string => typeof value === "string"
             )
           );
-          const liveUserIsOptimistic = liveUserId !== null && liveUserId.startsWith("local-user-");
+          const liveUserIsOptimistic = isOptimisticUserMessageId(liveUserId);
           const liveAssistantIsOptimistic =
-            liveAssistantId !== null && isLocalScopedAssistantId(liveAssistantId);
+            liveAssistantId !== null && isClientOwnedAssistantMessage(liveAssistantId);
           const currentBaseMessages = cachedSnapshot?.messages ?? activeSnapshot?.messages ?? [];
           const currentBaseMessageIds = new Set(currentBaseMessages.map((message) => message.id));
           let loadedHasActiveUserMessage = false;
@@ -3036,7 +2853,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                 .some(
                   (message) =>
                     message.role === "assistant" &&
-                    !isLocalScopedAssistantId(message.id) &&
+                    !isClientOwnedAssistantMessage(message.id) &&
                     message.id !== liveAssistantId
                 );
             const newLoadedUserMessages = loaded.filter(
@@ -3053,14 +2870,14 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
               newLoadedUserMessages.length === 1 &&
               newLoadedAssistantMessages.length === 1;
             if (
-              !isAsyncContinuationClientTurnId(activeSnapshot.clientTurnId) &&
+              !isAsyncContinuationTurn(activeSnapshot.clientTurnId) &&
               loadedHasActiveUserMessage &&
               loadedHasAssistantMessageAfterActiveUser
             ) {
               reconciledOptimisticTurn = true;
             }
             if (
-              !isAsyncContinuationClientTurnId(activeSnapshot.clientTurnId) &&
+              !isAsyncContinuationTurn(activeSnapshot.clientTurnId) &&
               loadedIntroducedCommittedTurnTail
             ) {
               reconciledOptimisticTurn = true;
@@ -3083,8 +2900,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
               newServerUserMessages.length === 1 &&
               newServerAssistantMessages.length === 1;
             const isAsyncContinuation =
-              activeSnapshot !== undefined &&
-              isAsyncContinuationClientTurnId(activeSnapshot.clientTurnId);
+              activeSnapshot !== undefined && isAsyncContinuationTurn(activeSnapshot.clientTurnId);
             const hasOpenBackgroundJobs =
               nextActiveMediaJobs.length > 0 ||
               nextActiveDocumentJobs.length > 0 ||
@@ -3103,14 +2919,15 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
             const ordinarySameIdTerminal =
               !isAsyncContinuation &&
               activeSnapshot !== undefined &&
-              isOrdinarySameIdHistoryTerminal({
-                loaded,
-                liveAssistantMessageId: activeSnapshot.liveAssistantMessageId,
-                localStreamDead,
-                hasOpenBackgroundJobs,
-                attemptKnownTerminal,
-                attemptKnownRunning
-              });
+              localStreamDead &&
+              !hasOpenBackgroundJobs &&
+              attemptKnownTerminal &&
+              !attemptKnownRunning &&
+              loaded.some(
+                (message) =>
+                  message.role === "assistant" &&
+                  message.id === activeSnapshot.liveAssistantMessageId
+              );
             const shouldReplaceActiveTurn =
               asyncContSameIdTerminal ||
               ordinarySameIdTerminal ||
@@ -3123,31 +2940,15 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
             }
             // ADR-166 D1: ordinary USER_TURN same-id live merge matches async-cont —
             // history must not demote streaming/reconciling or wipe receipts/SSE media.
-            const liveAssistantIdForOverlay =
-              activeSnapshot !== undefined &&
-              !asyncContSameIdTerminal &&
-              !ordinarySameIdTerminal &&
-              !shouldReplaceActiveTurn
-                ? activeSnapshot.liveAssistantMessageId
-                : null;
             const next: ChatMessage[] = prev.flatMap((message): ChatMessage[] => {
               const replacement = loadedById.get(message.id);
               if (replacement !== undefined) {
-                if (
-                  liveAssistantIdForOverlay !== null &&
-                  message.id === liveAssistantIdForOverlay &&
-                  isActiveAssistantLifecycleStatus(message.status)
-                ) {
-                  return [mergeLiveAssistantWithCommittedHistory(message, replacement)];
-                }
-                if (
-                  (asyncContSameIdTerminal || ordinarySameIdTerminal) &&
-                  activeSnapshot !== undefined &&
-                  message.id === activeSnapshot.liveAssistantMessageId
-                ) {
-                  return [mergeTerminalAssistantWithLiveAttachments(replacement, message)];
-                }
-                return [replacement];
+                return [
+                  {
+                    ...replacement,
+                    attachments: mergeAttachmentsById(message.attachments, replacement.attachments)
+                  }
+                ];
               }
               if (
                 shouldReplaceActiveTurn &&
@@ -3183,13 +2984,13 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                 missingToAbsorb = missing.filter(
                   (message) =>
                     message.role === "assistant" &&
-                    !isLocalScopedAssistantId(message.id) &&
+                    !isClientOwnedAssistantMessage(message.id) &&
                     message.id !== liveAssistantId
                 );
               } else {
                 const liveUserIdForAbsorb = activeSnapshot.liveUserMessageId;
                 const liveUserIndexInLoaded =
-                  liveUserIdForAbsorb !== null && !liveUserIdForAbsorb.startsWith("local-user-")
+                  liveUserIdForAbsorb !== null && !isOptimisticUserMessageId(liveUserIdForAbsorb)
                     ? loaded.findIndex((message) => message.id === liveUserIdForAbsorb)
                     : -1;
                 if (liveUserIndexInLoaded >= 0) {
@@ -3212,11 +3013,13 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
               // while a demoted local-assistant-* is still visible. Still absorb
               // newly landed server assistants so notify completion can settle.
               const hasVisibleLocalAssistant = prev.some(
-                (message) => message.role === "assistant" && isLocalScopedAssistantId(message.id)
+                (message) =>
+                  message.role === "assistant" && isClientOwnedAssistantMessage(message.id)
               );
               if (hasVisibleLocalAssistant) {
                 missingToAbsorb = missing.filter(
-                  (message) => message.role === "assistant" && !isLocalScopedAssistantId(message.id)
+                  (message) =>
+                    message.role === "assistant" && !isClientOwnedAssistantMessage(message.id)
                 );
               }
             } else if (shouldReplaceActiveTurn && activeSnapshot !== undefined) {
@@ -3233,7 +3036,8 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
               merged = sortChatMessagesChronologically([...next, ...missingToAbsorb]);
             }
             const absorbedServerAssistant = missingToAbsorb.some(
-              (message) => message.role === "assistant" && !isLocalScopedAssistantId(message.id)
+              (message) =>
+                message.role === "assistant" && !isClientOwnedAssistantMessage(message.id)
             );
             if (
               absorbedServerAssistant &&
@@ -3241,7 +3045,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                 (activeSnapshot === undefined &&
                   prev.some(
                     (message) =>
-                      message.role === "assistant" && isLocalScopedAssistantId(message.id)
+                      message.role === "assistant" && isClientOwnedAssistantMessage(message.id)
                   )))
             ) {
               // Committed continuation bubble landed — drop every local-scoped
@@ -3252,7 +3056,9 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
               const liveAssistantId = activeSnapshot?.liveAssistantMessageId;
               merged = stripEmptyActiveAssistantPlaceholders(
                 merged.filter((message) => {
-                  if (!(message.role === "assistant" && isLocalScopedAssistantId(message.id))) {
+                  if (
+                    !(message.role === "assistant" && isClientOwnedAssistantMessage(message.id))
+                  ) {
                     return true;
                   }
                   if (liveAssistantId !== undefined && message.id === liveAssistantId) {
@@ -3322,7 +3128,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
           if (
             reconciledOptimisticTurn &&
             activeSnapshot !== undefined &&
-            isAsyncContinuationClientTurnId(activeSnapshot.clientTurnId)
+            isAsyncContinuationTurn(activeSnapshot.clientTurnId)
           ) {
             finalizeReconciledDetachedTurn(targetThreadKey, {
               ownerClientTurnId: activeSnapshot.clientTurnId
@@ -3380,7 +3186,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
       status: WebChatTurnStatusState,
       options?: { liveTokenStream?: boolean }
     ): "running" | "terminal" | "terminal_status" | "unknown" => {
-      const isAsyncContinuation = isAsyncContinuationClientTurnId(clientTurnId);
+      const isAsyncContinuation = isAsyncContinuationTurn(clientTurnId);
       // Continuations must not bind a prior source user into live-turn identity.
       const userMessage =
         isAsyncContinuation || status.userMessage === null || status.userMessage === undefined
@@ -3448,7 +3254,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
         const publishAssistantId =
           isAsyncContinuation &&
           statusAssistantMessage !== null &&
-          !isLocalScopedAssistantId(statusAssistantMessage.id)
+          !isClientOwnedAssistantMessage(statusAssistantMessage.id)
             ? statusAssistantMessage.id
             : null;
         const committedPublishRow =
@@ -3478,6 +3284,9 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
             thoughtStartedAt: null,
             thoughtFinishedAt: null
           };
+        if (assistantMessageProvenanceById.get(fallbackAssistantMessage.id) === undefined) {
+          recordAssistantMessageProvenance(fallbackAssistantMessage.id, "optimistic");
+        }
         const nextContent =
           statusAssistantMessage !== null &&
           statusAssistantMessage.content.length > fallbackAssistantMessage.content.length
@@ -3502,25 +3311,6 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
             : statusAssistantMessage !== null && !primaryStreamStillOwnsTurn
               ? statusAssistantMessage.id
               : fallbackAssistantMessage.id;
-        // Ordinary user-turn status must not stick older media onto a brand
-        // new pending local bubble (no existingAssistant found — the
-        // `local-assistant-${clientTurnId}` default fallback has no
-        // attachments field to begin with). But when `existingAssistant` WAS
-        // found, `fallbackAssistantMessage` IS that live bubble, and its
-        // attachments (if any) are mid-turn media already delivered on this
-        // very turn — a "running" reattach/reconcile must preserve them, not
-        // wipe the image while the turn keeps narrating/continuing (it would
-        // otherwise disappear until the next terminal snapshot). Async-cont
-        // overlays the publish row and must preserve attachments already
-        // committed on that id (ADR-162 P4).
-        const preservedAttachments =
-          publishAssistantId !== null
-            ? (fallbackAssistantMessage.attachments ??
-              statusAssistantMessage?.attachments ??
-              committedPublishRow?.attachments)
-            : fallbackAssistantMessage.attachments;
-        // Preserve attachment identity/ordering only; receipt presentation is now
-        // derived entirely by the renderer from message status + attachments.
         const liveAssistantMessage: ChatMessage = {
           ...fallbackAssistantMessage,
           id: nextAssistantId,
@@ -3532,12 +3322,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                 thoughtFinishedAt: statusAssistantMessage.thoughtFinishedAt
               }),
           content: nextContent,
-          status: assistantLifecycleStatus,
-          ...(preservedAttachments !== undefined && preservedAttachments.length > 0
-            ? { attachments: preservedAttachments }
-            : publishAssistantId !== null
-              ? {}
-              : { attachments: undefined })
+          status: assistantLifecycleStatus
         };
         const currentActivity = status.currentActivity;
         const previousLiveAssistantIdForActivities =
@@ -3944,17 +3729,17 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
       }
       // One stream owner per thread: notify continuation waits while an ordinary
       // send/stream still owns the thread (history poll still lands the final msg).
-      if (isAsyncContinuationClientTurnId(clientTurnId)) {
+      if (isAsyncContinuationTurn(clientTurnId)) {
         const existingSnapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
         const existingController = abortControllersByThreadRef.current.get(targetThreadKey);
         const ordinaryOwnsThread =
           (existingSnapshot !== undefined &&
-            !isAsyncContinuationClientTurnId(existingSnapshot.clientTurnId) &&
+            !isAsyncContinuationTurn(existingSnapshot.clientTurnId) &&
             (activeThreadsRef.current.has(targetThreadKey) ||
               softDetachedClientTurnIdsRef.current.has(existingSnapshot.clientTurnId) ||
               existingController?.clientTurnId === existingSnapshot.clientTurnId)) ||
           (existingController !== undefined &&
-            !isAsyncContinuationClientTurnId(existingController.clientTurnId) &&
+            !isAsyncContinuationTurn(existingController.clientTurnId) &&
             existingController.clientTurnId !== clientTurnId);
         if (ordinaryOwnsThread) {
           return "unknown";
@@ -3966,16 +3751,16 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
         const token = await getToken({ skipCache: true });
         if (!token) return "unknown";
         // Re-check ownership after the await — user send may have claimed the thread.
-        if (isAsyncContinuationClientTurnId(clientTurnId)) {
+        if (isAsyncContinuationTurn(clientTurnId)) {
           const existingSnapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
           const existingController = abortControllersByThreadRef.current.get(targetThreadKey);
           if (
             (existingSnapshot !== undefined &&
-              !isAsyncContinuationClientTurnId(existingSnapshot.clientTurnId) &&
+              !isAsyncContinuationTurn(existingSnapshot.clientTurnId) &&
               (activeThreadsRef.current.has(targetThreadKey) ||
                 softDetachedClientTurnIdsRef.current.has(existingSnapshot.clientTurnId))) ||
             (existingController !== undefined &&
-              !isAsyncContinuationClientTurnId(existingController.clientTurnId) &&
+              !isAsyncContinuationTurn(existingController.clientTurnId) &&
               existingController.clientTurnId !== clientTurnId)
           ) {
             return "unknown";
@@ -3994,8 +3779,8 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
           const mayReplacePrevious =
             previousControllerEntry.clientTurnId === clientTurnId ||
             softDetachedClientTurnIdsRef.current.has(previousControllerEntry.clientTurnId) ||
-            (isAsyncContinuationClientTurnId(previousControllerEntry.clientTurnId) &&
-              isAsyncContinuationClientTurnId(clientTurnId));
+            (isAsyncContinuationTurn(previousControllerEntry.clientTurnId) &&
+              isAsyncContinuationTurn(clientTurnId));
           if (!mayReplacePrevious) {
             return "unknown";
           }
@@ -4078,10 +3863,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                   payload.assistantMessageId.trim().length > 0
                     ? payload.assistantMessageId.trim()
                     : null;
-                if (
-                  startedAssistantMessageId !== null &&
-                  isAsyncContinuationClientTurnId(clientTurnId)
-                ) {
+                if (startedAssistantMessageId !== null && isAsyncContinuationTurn(clientTurnId)) {
                   const existingSnapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
                   const previousLiveAssistantId = existingSnapshot?.liveAssistantMessageId ?? null;
                   const baseMessages =
@@ -4196,7 +3978,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                 ) {
                   // Status may already have committed the turn pair. Refresh only
                   // when we still need history absorb (async-cont has no user row).
-                  if (isAsyncContinuationClientTurnId(clientTurnId)) {
+                  if (isAsyncContinuationTurn(clientTurnId)) {
                     void finalizeAfterTerminal("committed");
                   } else {
                     finalizeReconciledDetachedTurn(targetThreadKey, {
@@ -4219,7 +4001,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                   reattachState.latestResult === "terminal" ||
                   reattachState.latestResult === "terminal_status"
                 ) {
-                  if (isAsyncContinuationClientTurnId(clientTurnId)) {
+                  if (isAsyncContinuationTurn(clientTurnId)) {
                     void finalizeAfterTerminal("committed");
                   } else {
                     finalizeReconciledDetachedTurn(targetThreadKey, {
@@ -4375,18 +4157,14 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                   void refreshChatPlan();
                 }
               },
-              onMedia: ({
-                assistantMessageId: serverAssistantMessageId,
-                attachments,
-                afterToolCallId
-              }) => {
+              onMedia: ({ assistantMessageId: serverAssistantMessageId, attachments }) => {
                 if (attachments.length === 0) {
                   return;
                 }
                 const currentLiveId = resolveLiveAssistantId();
                 if (
                   currentLiveId !== null &&
-                  isLocalScopedAssistantId(currentLiveId) &&
+                  isClientOwnedAssistantMessage(currentLiveId) &&
                   currentLiveId !== serverAssistantMessageId
                 ) {
                   const snapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
@@ -4426,15 +4204,16 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                 }
                 const assistantMessageId = resolveLiveAssistantId() ?? serverAssistantMessageId;
                 applyThreadMessages(targetThreadKey, (prev) =>
-                  prev.map((message) => {
-                    if (message.id !== assistantMessageId) {
-                      return message;
-                    }
-                    return mergeMediaEventIntoAssistantMessage(message, {
-                      attachments,
-                      ...(afterToolCallId === undefined ? {} : { afterToolCallId })
-                    });
-                  })
+                  prev.map((message) =>
+                    message.id === assistantMessageId
+                      ? {
+                          ...message,
+                          status: "streaming",
+                          streamingTextActive: false,
+                          attachments: mergeAttachmentsById(message.attachments, attachments)
+                        }
+                      : message
+                  )
                 );
               },
               onToolProgress: ({ toolName, toolCallId, kind, line, step }) => {
@@ -5087,6 +4866,9 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
       const userMsgId = `local-user-${Date.now()}`;
       // ADR-165 — may be rebound to the early server assistant row on first media SSE.
       let assistantMsgId = `local-assistant-${Date.now()}`;
+      recordTurnProvenance(clientTurnId, "ordinary");
+      optimisticUserMessageIds.add(userMsgId);
+      recordAssistantMessageProvenance(assistantMsgId, "optimistic");
       const controller = new AbortController();
       // User send wins the single stream-owner slot: abort any in-flight
       // continuation reattach / prior controller and clear sticky so notify
@@ -5101,7 +4883,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
         softDetachedClientTurnIdsRef.current.delete(previousSnapshot.clientTurnId);
         continuationReattachStartedRef.current.delete(previousSnapshot.clientTurnId);
         clearSoftDetachReconcileTimer(sendThreadKey);
-        if (isAsyncContinuationClientTurnId(previousSnapshot.clientTurnId)) {
+        if (isAsyncContinuationTurn(previousSnapshot.clientTurnId)) {
           clearStoredActiveTurnClientTurnId(sendThreadKey, previousSnapshot.clientTurnId);
           activeTurnSnapshotsRef.current.delete(sendThreadKey);
         }
@@ -5652,8 +5434,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
         },
         onMedia: ({
           assistantMessageId: serverAssistantMessageId,
-          attachments,
-          afterToolCallId
+          attachments
         }: {
           assistantMessageId: string;
           attachments: ChatHistoryAttachment[];
@@ -5665,7 +5446,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
           flushBufferedAssistantState(true);
           markAssistantActivityBoundary();
           if (
-            isLocalScopedAssistantId(assistantMsgId) &&
+            isClientOwnedAssistantMessage(assistantMsgId) &&
             assistantMsgId !== serverAssistantMessageId
           ) {
             const previousId = assistantMsgId;
@@ -5712,15 +5493,16 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
             );
           }
           applyThreadMessages(sendThreadKey, (prev) =>
-            prev.map((message) => {
-              if (message.id !== assistantMsgId) {
-                return message;
-              }
-              return mergeMediaEventIntoAssistantMessage(message, {
-                attachments,
-                ...(afterToolCallId === undefined ? {} : { afterToolCallId })
-              });
-            })
+            prev.map((message) =>
+              message.id === assistantMsgId
+                ? {
+                    ...message,
+                    status: "streaming",
+                    streamingTextActive: false,
+                    attachments: mergeAttachmentsById(message.attachments, attachments)
+                  }
+                : message
+            )
           );
         },
         onToolProgress: ({
@@ -5949,10 +5731,8 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
             assistantMessage?: {
               id?: string;
               content?: string;
-              workingNotes?: string[];
               toolInvocations?: RuntimeTurnToolInvocation[];
               attachments?: ChatAttachment[];
-              inlineMediaPlacement?: Array<{ toolCallId: string; attachmentIds: string[] }>;
               turnEvents?: TurnEvent[];
             };
             followUpAssistantMessage?: {
@@ -5997,23 +5777,10 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
           const realUserMsgId = typeof t?.userMessage?.id === "string" ? t.userMessage.id : null;
           const newAssistantId =
             typeof t?.assistantMessage?.id === "string" ? t.assistantMessage.id : null;
-          const authoritativeInlineMediaPlacement =
-            Array.isArray(t?.assistantMessage?.inlineMediaPlacement) &&
-            t.assistantMessage.inlineMediaPlacement.length > 0
-              ? t.assistantMessage.inlineMediaPlacement
-              : undefined;
           const assistantAttachments =
             Array.isArray(t?.assistantMessage?.attachments) &&
             t.assistantMessage.attachments.length > 0
-              ? t.assistantMessage.attachments.map((attachment) => {
-                  const mapped = toChatAttachment(attachment);
-                  const placementToolCallId = authoritativeInlineMediaPlacement?.find((entry) =>
-                    entry.attachmentIds.includes(mapped.id)
-                  )?.toolCallId;
-                  return placementToolCallId === undefined
-                    ? mapped
-                    : { ...mapped, inlineAfterToolCallId: placementToolCallId };
-                })
+              ? t.assistantMessage.attachments.map((attachment) => toChatAttachment(attachment))
               : undefined;
           const followUpAssistantMessage =
             typeof t?.followUpAssistantMessage?.id === "string" &&
@@ -6055,16 +5822,6 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                   typeof t?.assistantMessage?.content === "string"
                     ? reconcileAuthoritativeAssistantContent(m.content, t.assistantMessage.content)
                     : null;
-                const authoritativeWorkingNotes =
-                  Array.isArray(t?.assistantMessage?.workingNotes) &&
-                  t.assistantMessage.workingNotes.length > 0
-                    ? t.assistantMessage.workingNotes
-                    : null;
-                const authoritativeToolInvocations =
-                  Array.isArray(t?.assistantMessage?.toolInvocations) &&
-                  t.assistantMessage.toolInvocations.length > 0
-                    ? t.assistantMessage.toolInvocations
-                    : null;
                 // ADR-170 — the completed transport carries the authoritative,
                 // fully-healed log (D3.3); it fully replaces whatever was built
                 // incrementally from live `turn_event` chunks, never merges.
@@ -6098,15 +5855,6 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                   ...(newAssistantId ? { id: newAssistantId } : {}),
                   ...(authoritativeAssistantContent !== null
                     ? { content: authoritativeAssistantContent }
-                    : {}),
-                  ...(authoritativeWorkingNotes !== null
-                    ? { workingNotes: authoritativeWorkingNotes }
-                    : {}),
-                  ...(authoritativeToolInvocations !== null
-                    ? { toolInvocations: authoritativeToolInvocations }
-                    : {}),
-                  ...(authoritativeInlineMediaPlacement !== undefined
-                    ? { inlineMediaPlacement: authoritativeInlineMediaPlacement }
                     : {}),
                   ...(authoritativeTurnEvents !== null
                     ? { turnEvents: authoritativeTurnEvents }
@@ -6552,6 +6300,8 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
       }
       const assistantMsgId = `local-assistant-welcome-${Date.now()}`;
       const clientTurnId = createClientTurnId();
+      recordTurnProvenance(clientTurnId, "ordinary");
+      recordAssistantMessageProvenance(assistantMsgId, "optimistic");
       const controller = new AbortController();
       abortControllersByThreadRef.current.set(sendThreadKey, { controller, clientTurnId });
       const releaseAbortController = () => {
@@ -6726,16 +6476,6 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                 t.assistantMessage.attachments.length > 0
                   ? t.assistantMessage.attachments.map((attachment) => toChatAttachment(attachment))
                   : undefined;
-              const authoritativeWorkingNotes =
-                Array.isArray(t?.assistantMessage?.workingNotes) &&
-                t.assistantMessage.workingNotes.length > 0
-                  ? t.assistantMessage.workingNotes
-                  : null;
-              const authoritativeToolInvocations =
-                Array.isArray(t?.assistantMessage?.toolInvocations) &&
-                t.assistantMessage.toolInvocations.length > 0
-                  ? t.assistantMessage.toolInvocations
-                  : null;
               // ADR-170 — fully replace, never merge with live-built events.
               const authoritativeTurnEvents =
                 Array.isArray(t?.assistantMessage?.turnEvents) &&
@@ -6759,12 +6499,6 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                     ...(newAssistantId ? { id: newAssistantId } : {}),
                     ...(authoritativeAssistantContent !== null
                       ? { content: authoritativeAssistantContent }
-                      : {}),
-                    ...(authoritativeWorkingNotes !== null
-                      ? { workingNotes: authoritativeWorkingNotes }
-                      : {}),
-                    ...(authoritativeToolInvocations !== null
-                      ? { toolInvocations: authoritativeToolInvocations }
                       : {}),
                     ...(authoritativeTurnEvents !== null
                       ? { turnEvents: authoritativeTurnEvents }
@@ -7706,6 +7440,9 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
       if (id !== null) clientTurnIds.add(id);
     }
     const targetThreadKey = currentThreadKeyRef.current;
+    for (const clientTurnId of clientTurnIds) {
+      recordTurnProvenance(clientTurnId, "async_continuation");
+    }
     for (const startedId of [...continuationReattachStartedRef.current]) {
       // Clear sticky + finalize whenever the job leaves claimed|dispatched.
       if (!clientTurnIds.has(startedId)) {
@@ -7726,7 +7463,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
       const controllerEntry = abortControllersByThreadRef.current.get(targetThreadKey);
       if (
         snapshot !== undefined &&
-        !isAsyncContinuationClientTurnId(snapshot.clientTurnId) &&
+        !isAsyncContinuationTurn(snapshot.clientTurnId) &&
         (activeThreadsRef.current.has(targetThreadKey) ||
           softDetachedClientTurnIdsRef.current.has(snapshot.clientTurnId) ||
           controllerEntry?.clientTurnId === snapshot.clientTurnId)
@@ -7734,8 +7471,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
         return true;
       }
       return (
-        controllerEntry !== undefined &&
-        !isAsyncContinuationClientTurnId(controllerEntry.clientTurnId)
+        controllerEntry !== undefined && !isAsyncContinuationTurn(controllerEntry.clientTurnId)
       );
     })();
     for (const clientTurnId of clientTurnIds) {
@@ -7784,10 +7520,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
           return;
         }
         // Error / disconnect / deferred: drop Stop if we still own this cont.
-        if (
-          snapshot?.clientTurnId === clientTurnId &&
-          isAsyncContinuationClientTurnId(clientTurnId)
-        ) {
+        if (snapshot?.clientTurnId === clientTurnId && isAsyncContinuationTurn(clientTurnId)) {
           markStreamingRef.current(targetThreadKey, false);
         }
       })();
@@ -7900,6 +7633,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
           continuationDiscoveryCursorByChatRef.current.get(discoveryChatId) ?? 0,
           ({ clientTurnId, cursor }) => {
             continuationDiscoveryCursorByChatRef.current.set(discoveryChatId, cursor);
+            recordTurnProvenance(clientTurnId, "async_continuation");
             attachDiscoveredTurn(clientTurnId);
           },
           controller.signal
