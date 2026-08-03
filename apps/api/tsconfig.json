@@ -6,7 +6,10 @@
     "paths": {
       "@persai/config": ["../../packages/config/src"],
       "@persai/logger": ["../../packages/logger/src"],
-      "@persai/types": ["../../packages/types/src"]
+      "@persai/types": ["../../packages/types/src"],
+      "@persai/contracts/turn-event-surface-projection": [
+        "../../packages/contracts/src/turn-event-surface-projection.ts"
+      ]
     },
     "types": ["node"]
   },

@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import { loadApiConfig } from "@persai/config";
-import { isTurnEventVisibleOnSurface } from "@persai/contracts";
+// Nest externalizes `@persai/contracts`; the package barrel cannot load under
+// Node (extensionless Orval re-export). ADR-170 D6 lives in this subpath alone.
+import { isTurnEventVisibleOnSurface } from "@persai/contracts/turn-event-surface-projection";
 import type {
   RuntimeFailedEvent,
   RuntimeAttachmentRef,
