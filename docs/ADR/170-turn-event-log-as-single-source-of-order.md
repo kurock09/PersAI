@@ -646,10 +646,6 @@ proven byte-identical to the current cumulative text on a fixture turn. Telegram
 has no durable log today — the API deliberately ignores `turn_event` on that
 path — so S4 also persists the log for Telegram turns and extends D5.3's
 answer-text reconciliation to the two Telegram body-settling call sites that were
-correctly excluded while no log existed for them. Telegram
-has no durable log today — the API deliberately ignores `turn_event` on that
-path — so S4 also persists the log for Telegram turns and extends D5.3's
-answer-text reconciliation to the two Telegram body-settling call sites that were
 correctly excluded while no log existed for them.
 
 **S5 — Legacy fields removed and junk cleared.** `workingNotes`,
