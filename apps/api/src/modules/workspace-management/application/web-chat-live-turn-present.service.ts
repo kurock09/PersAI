@@ -167,10 +167,7 @@ export class WebChatLiveTurnPresentService {
       assistantId: input.attempt.assistantId,
       author: "assistant",
       content: "",
-      metadata: {
-        sourceUserMessageId: input.attempt.userMessageId,
-        inlineMediaPlacement: []
-      }
+      metadata: { sourceUserMessageId: input.attempt.userMessageId }
     });
     const bound = await this.webChatTurnAttemptService.bindOrDiscardAssistantMessageCandidate({
       assistantId: input.attempt.assistantId,
@@ -197,7 +194,6 @@ export class WebChatLiveTurnPresentService {
     attempt: OpenWebUserTurnAttempt;
     assistantMessageId: string;
     attachments: AssistantWebChatMessageAttachmentState[];
-    afterToolCallId?: string;
   }): void {
     if (input.attachments.length === 0) {
       return;
@@ -209,8 +205,7 @@ export class WebChatLiveTurnPresentService {
       event: "media",
       payload: {
         assistantMessageId: input.assistantMessageId,
-        attachments: input.attachments,
-        ...(input.afterToolCallId === undefined ? {} : { afterToolCallId: input.afterToolCallId })
+        attachments: input.attachments
       }
     });
   }

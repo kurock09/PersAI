@@ -579,7 +579,7 @@ describe("useChat", () => {
     expect(assistantEntry?.message.id).toBe("assistant-msg-1");
   });
 
-  it("preserves working notes when completed transport carries workingNotes field", async () => {
+  it("uses the completed transport body", async () => {
     assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
       async (
         _token: string,
@@ -612,7 +612,6 @@ describe("useChat", () => {
             assistantMessage: {
               id: "assistant-msg-1",
               content: "Итоговый ответ",
-              workingNotes: ["Проверяю сайт."],
               attachments: []
             },
             runtime: null
@@ -3459,9 +3458,6 @@ describe("useChat", () => {
       author: "assistant" as const,
       content: "",
       attachments: [publishAttachment],
-      workingNotes: ["сверяю"],
-      toolInvocations: [{ name: "web_fetch", iteration: 0, ok: true }],
-      inlineMediaPlacement: [{ toolCallId: "call-img-1", attachmentIds: [publishAttachment.id] }],
       conversationalPublish: true,
       createdAt: "2026-07-19T12:00:02.000Z"
     };
@@ -8196,7 +8192,6 @@ describe("useChat", () => {
             onMedia?: (payload: {
               assistantMessageId: string;
               attachments: Array<typeof sseOnlyAttachment>;
-              afterToolCallId?: string;
             }) => void;
           }
         ) => {
@@ -8208,8 +8203,7 @@ describe("useChat", () => {
           handlers.onDelta?.({ delta: "Working on images" });
           handlers.onMedia?.({
             assistantMessageId: "assistant-166-1",
-            attachments: [sseOnlyAttachment],
-            afterToolCallId: "tool-img-1"
+            attachments: [sseOnlyAttachment]
           });
           await new Promise<void>((resolve) => {
             streamGate.release = resolve;
@@ -8353,7 +8347,6 @@ describe("useChat", () => {
             onMedia?: (payload: {
               assistantMessageId: string;
               attachments: Array<typeof sseDocumentAttachment>;
-              afterToolCallId?: string;
             }) => void;
           }
         ) => {
@@ -8364,8 +8357,7 @@ describe("useChat", () => {
           });
           handlers.onMedia?.({
             assistantMessageId: "assistant-166-doc",
-            attachments: [sseDocumentAttachment],
-            afterToolCallId: "tool-doc-1"
+            attachments: [sseDocumentAttachment]
           });
           await new Promise<void>((resolve) => {
             streamGate.release = resolve;
@@ -8433,7 +8425,6 @@ describe("useChat", () => {
               onMedia?: (payload: {
                 assistantMessageId: string;
                 attachments: Array<typeof sseOnlyAttachment>;
-                afterToolCallId?: string;
               }) => void;
             },
             signal?: AbortSignal
@@ -8445,8 +8436,7 @@ describe("useChat", () => {
             });
             handlers.onMedia?.({
               assistantMessageId: "assistant-166-poll",
-              attachments: [sseOnlyAttachment],
-              afterToolCallId: "tool-img-poll"
+              attachments: [sseOnlyAttachment]
             });
             await new Promise<void>((resolve, reject) => {
               streamGate.release = resolve;
@@ -8612,7 +8602,6 @@ describe("useChat", () => {
               onMedia?: (payload: {
                 assistantMessageId: string;
                 attachments: Array<typeof sseOnlyAttachment>;
-                afterToolCallId?: string;
               }) => void;
               onAsyncJobsOpen?: (payload: {
                 activeMediaJobs: typeof remainingJobs;
@@ -8633,8 +8622,7 @@ describe("useChat", () => {
             handlers.onDelta?.({ delta: "Working on images" });
             handlers.onMedia?.({
               assistantMessageId: "assistant-166-contentful",
-              attachments: [sseOnlyAttachment],
-              afterToolCallId: "tool-img-contentful"
+              attachments: [sseOnlyAttachment]
             });
             handlers.onAsyncJobsOpen?.({
               activeMediaJobs: remainingJobs,
@@ -8748,7 +8736,6 @@ describe("useChat", () => {
               onMedia?: (payload: {
                 assistantMessageId: string;
                 attachments: Array<typeof historyAttachment>;
-                afterToolCallId?: string;
               }) => void;
             }
           ) => {
@@ -8763,8 +8750,7 @@ describe("useChat", () => {
             });
             handlers.onMedia?.({
               assistantMessageId: "assistant-166-empty-demote",
-              attachments: [historyAttachment],
-              afterToolCallId: "tool-img-empty"
+              attachments: [historyAttachment]
             });
             throw new TypeError("network disconnected while tab was backgrounded");
           }
@@ -8841,7 +8827,7 @@ describe("useChat", () => {
       }
     });
 
-    it("same-id onMedia retry enriches inlineMediaPlacement on primary and reattach", async () => {
+    it("same-id onMedia retries preserve receipt identity on primary and reattach", async () => {
       const streamGate: { release: () => void } = { release: () => undefined };
       assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
         async (
@@ -8853,7 +8839,6 @@ describe("useChat", () => {
             onMedia?: (payload: {
               assistantMessageId: string;
               attachments: Array<typeof sseOnlyAttachment>;
-              afterToolCallId?: string;
             }) => void;
           }
         ) => {
@@ -8862,16 +8847,13 @@ describe("useChat", () => {
             chat: { id: "chat-166-place" },
             userMessage: { id: "user-166-place", chatId: "chat-166-place", attachments: [] }
           });
-          // First event: attachment without placement.
           handlers.onMedia?.({
             assistantMessageId: "assistant-166-place",
             attachments: [sseOnlyAttachment]
           });
-          // Retry: same id + afterToolCallId must enrich placement, not no-op.
           handlers.onMedia?.({
             assistantMessageId: "assistant-166-place",
-            attachments: [sseOnlyAttachment],
-            afterToolCallId: "tool-img-place"
+            attachments: [sseOnlyAttachment]
           });
           await new Promise<void>((resolve) => {
             streamGate.release = resolve;
@@ -8944,7 +8926,6 @@ describe("useChat", () => {
             onMedia?: (payload: {
               assistantMessageId: string;
               attachments: Array<typeof sseOnlyAttachment>;
-              afterToolCallId?: string;
             }) => void;
           }
         ) => {
@@ -8982,8 +8963,7 @@ describe("useChat", () => {
           });
           handlers.onMedia?.({
             assistantMessageId: "assistant-166-place-reattach",
-            attachments: [sseOnlyAttachment],
-            afterToolCallId: "tool-img-place-reattach"
+            attachments: [sseOnlyAttachment]
           });
         }
       );
@@ -9015,7 +8995,6 @@ describe("useChat", () => {
             onMedia?: (payload: {
               assistantMessageId: string;
               attachments: Array<typeof sseOnlyAttachment>;
-              afterToolCallId?: string;
             }) => void;
           }
         ) => {
@@ -9027,8 +9006,7 @@ describe("useChat", () => {
           handlers.onDelta?.({ delta: "partial " });
           handlers.onMedia?.({
             assistantMessageId: "assistant-166-parity",
-            attachments: [sseOnlyAttachment],
-            afterToolCallId: "tool-img-parity"
+            attachments: [sseOnlyAttachment]
           });
           await new Promise<void>((resolve) => {
             streamGate.release = resolve;
@@ -9099,7 +9077,6 @@ describe("useChat", () => {
             onMedia?: (payload: {
               assistantMessageId: string;
               attachments: Array<typeof sseOnlyAttachment>;
-              afterToolCallId?: string;
             }) => void;
           }
         ) => {
@@ -9133,8 +9110,7 @@ describe("useChat", () => {
           });
           handlers.onMedia?.({
             assistantMessageId: "assistant-166-reattach",
-            attachments: [{ ...sseOnlyAttachment, id: "att-reattach-only" }],
-            afterToolCallId: "tool-img-reattach"
+            attachments: [{ ...sseOnlyAttachment, id: "att-reattach-only" }]
           });
         }
       );
@@ -13255,7 +13231,6 @@ describe("useChat", () => {
         onMedia?: (payload: {
           assistantMessageId: string;
           attachments: Array<ReturnType<typeof mediaAttachment>>;
-          afterToolCallId?: string;
         }) => void;
         onAsyncJobsOpen?: (payload: {
           activeMediaJobs: Array<ReturnType<typeof openMediaJob>>;
@@ -13339,8 +13314,7 @@ describe("useChat", () => {
       await act(async () => {
         handlers.onMedia?.({
           assistantMessageId: "assistant-s5-series",
-          attachments: [attC],
-          afterToolCallId: "tool-img-c"
+          attachments: [attC]
         });
         handlers.onAsyncJobsOpen?.({
           activeMediaJobs: [jobA, jobB],
@@ -13354,8 +13328,7 @@ describe("useChat", () => {
       await act(async () => {
         handlers.onMedia?.({
           assistantMessageId: "assistant-s5-series",
-          attachments: [attA],
-          afterToolCallId: "tool-img-a"
+          attachments: [attA]
         });
         handlers.onAsyncJobsOpen?.({
           activeMediaJobs: [jobB],
@@ -13369,8 +13342,7 @@ describe("useChat", () => {
       await act(async () => {
         handlers.onMedia?.({
           assistantMessageId: "assistant-s5-series",
-          attachments: [attB],
-          afterToolCallId: "tool-img-b"
+          attachments: [attB]
         });
         handlers.onAsyncJobsOpen?.({
           activeMediaJobs: [],
@@ -13429,7 +13401,6 @@ describe("useChat", () => {
         onMedia?: (payload: {
           assistantMessageId: string;
           attachments: Array<ReturnType<typeof mediaAttachment>>;
-          afterToolCallId?: string;
         }) => void;
       };
       let resolveHandlers: (handlers: Handlers) => void = () => undefined;
@@ -13464,16 +13435,11 @@ describe("useChat", () => {
       });
       const handlers = await handlersReady;
 
-      for (const [att, toolCallId] of [
-        [attA, "tool-img-a"],
-        [attB, "tool-img-b"],
-        [attC, "tool-img-c"]
-      ] as const) {
+      for (const att of [attA, attB, attC]) {
         await act(async () => {
           handlers.onMedia?.({
             assistantMessageId: "assistant-s5-order",
-            attachments: [att],
-            afterToolCallId: toolCallId
+            attachments: [att]
           });
         });
       }
@@ -13559,7 +13525,6 @@ describe("useChat", () => {
             onMedia?: (payload: {
               assistantMessageId: string;
               attachments: Array<ReturnType<typeof mediaAttachment>>;
-              afterToolCallId?: string;
             }) => void;
             onAsyncJobsOpen?: (payload: {
               activeMediaJobs: Array<ReturnType<typeof openMediaJob>>;
@@ -13584,8 +13549,7 @@ describe("useChat", () => {
           });
           handlers.onMedia?.({
             assistantMessageId: "assistant-s5-hist",
-            attachments: [attFirst],
-            afterToolCallId: "tool-img-early"
+            attachments: [attFirst]
           });
           handlers.onAsyncJobsOpen?.({
             activeMediaJobs: remainingJobs,
@@ -13662,7 +13626,6 @@ describe("useChat", () => {
             onMedia?: (payload: {
               assistantMessageId: string;
               attachments: Array<ReturnType<typeof mediaAttachment>>;
-              afterToolCallId?: string;
             }) => void;
           }
         ) => {
@@ -13673,8 +13636,7 @@ describe("useChat", () => {
           });
           handlers.onMedia?.({
             assistantMessageId: "assistant-s5-parity",
-            attachments: [attPrimary],
-            afterToolCallId: "tool-img-primary"
+            attachments: [attPrimary]
           });
           await new Promise<void>((resolve) => {
             streamGate.release = resolve;
@@ -13741,7 +13703,6 @@ describe("useChat", () => {
             onMedia?: (payload: {
               assistantMessageId: string;
               attachments: Array<ReturnType<typeof mediaAttachment>>;
-              afterToolCallId?: string;
             }) => void;
           }
         ) => {
@@ -13775,8 +13736,7 @@ describe("useChat", () => {
           });
           handlers.onMedia?.({
             assistantMessageId: "assistant-s5-parity-reattach",
-            attachments: [attPrimary, attReattach],
-            afterToolCallId: "tool-img-reattach"
+            attachments: [attPrimary, attReattach]
           });
         }
       );
@@ -13852,7 +13812,6 @@ describe("useChat", () => {
         onMedia?: (payload: {
           assistantMessageId: string;
           attachments: Array<ReturnType<typeof mediaAttachment>>;
-          afterToolCallId?: string;
         }) => void;
         onAsyncJobsOpen?: (payload: {
           activeMediaJobs: Array<ReturnType<typeof openMediaJob>>;
@@ -13904,8 +13863,7 @@ describe("useChat", () => {
       await act(async () => {
         handlers.onMedia?.({
           assistantMessageId: "assistant-s5-fail",
-          attachments: [attOk],
-          afterToolCallId: "tool-fail-a"
+          attachments: [attOk]
         });
         handlers.onAsyncJobsOpen?.({
           activeMediaJobs: [jobB],
@@ -14125,7 +14083,6 @@ describe("useChat", () => {
             onMedia?: (payload: {
               assistantMessageId: string;
               attachments: Array<ReturnType<typeof mediaAttachment>>;
-              afterToolCallId?: string;
             }) => void;
             onAsyncJobsOpen?: (payload: {
               activeMediaJobs: Array<ReturnType<typeof openMediaJob>>;
@@ -14144,8 +14101,7 @@ describe("useChat", () => {
           });
           handlers.onMedia?.({
             assistantMessageId: "assistant-s5-stop",
-            attachments: [attOne],
-            afterToolCallId: "tool-stop-1"
+            attachments: [attOne]
           });
           handlers.onAsyncJobsOpen?.({
             activeMediaJobs: [openMediaJob("job-s5-stop-2"), openMediaJob("job-s5-stop-3")],

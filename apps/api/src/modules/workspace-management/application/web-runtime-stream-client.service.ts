@@ -447,8 +447,7 @@ export class WebRuntimeStreamClientService {
             yield {
               type: "done",
               respondedAt: event.result.respondedAt,
-              finalAnswer: event.result.answerText ?? event.result.assistantText,
-              workingNotes: event.result.workingNotes ?? [],
+              finalAnswer: event.result.assistantText,
               ...(event.result.textUsageAccounting === undefined
                 ? {}
                 : { textUsageAccounting: event.result.textUsageAccounting }),

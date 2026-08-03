@@ -936,7 +936,7 @@ export class AssistantAsyncJobContinuationSchedulerService
       if (rows[0] === undefined) return { outcome: "lost" as const };
       const existingContinuationMessageId = rows[0]?.messageId;
 
-      const content = result.answerText ?? result.assistantText;
+      const content = result.assistantText;
       const metadata = {
         asyncContinuationClientTurnId: context.handle.continuationClientTurnId,
         ...this.catchUpMessageMetadataFromFacts(context.facts)
@@ -1106,7 +1106,7 @@ export class AssistantAsyncJobContinuationSchedulerService
         workspaceId: context.handle.workspaceId,
         chatId: context.handle.chatId,
         assistantMessageId,
-        text: result.answerText ?? result.assistantText,
+        text: result.assistantText,
         mediaAlreadyDelivered: true
       });
       await this.handleState.recordDeliveryAttemptResult({

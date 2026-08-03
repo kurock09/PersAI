@@ -76,7 +76,7 @@ describe("persistOutputOnce delivery-bubble reuse", () => {
             };
             facts: Record<string, unknown>;
           },
-          turnResult: { answerText: string }
+          turnResult: { assistantText: string }
         ) => Promise<{ outcome: string; messageId: string }>;
       }
     ).persistOutputOnce(
@@ -91,7 +91,7 @@ describe("persistOutputOnce delivery-bubble reuse", () => {
         },
         facts: { jobRef: "jr1", queueOrdinal: 1, queueTotal: 1 }
       },
-      { answerText: "Кот готов." }
+      { assistantText: "Кот готов." }
     );
 
     assert.deepEqual(result, { outcome: "persisted", messageId: "delivery-message-1" });
@@ -161,7 +161,7 @@ describe("persistOutputOnce delivery-bubble reuse", () => {
                 };
                 facts: Record<string, unknown>;
               },
-              turnResult: { answerText: string }
+              turnResult: { assistantText: string }
             ) => Promise<{ outcome: string; messageId: string }>;
           }
         ).persistOutputOnce(
@@ -176,7 +176,7 @@ describe("persistOutputOnce delivery-bubble reuse", () => {
             },
             facts: {}
           },
-          { answerText: "Картинка готова." }
+          { assistantText: "Картинка готова." }
         ),
       /missing ConversationalPublish id/
     );

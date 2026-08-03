@@ -155,8 +155,6 @@ export interface RuntimeOutputArtifact {
   caption?: string | null;
   downloadUrl?: string | null;
   billingFacts?: RuntimeBillingFacts | null;
-  /** ADR-165 — tool call that produced this artifact (sync in-loop image present). */
-  producingToolCallId?: string | null;
 }
 
 export interface RuntimeDocumentSourceFile {
@@ -4269,19 +4267,6 @@ export interface RuntimeTurnResult {
    * should continue using this field.
    */
   assistantText: string;
-  /**
-   * The texts the model produced BEFORE each tool call across the tool loop,
-   * one entry per step (in order). Each entry is the provider text of that
-   * iteration only — never the cumulative text — so a later step's note never
-   * re-contains an earlier note. Empty array when no tools ran.
-   */
-  workingNotes?: string[];
-  /**
-   * The sanitised final answer after the last tool finished (or the entire
-   * text when no tools ran). Contains no working notes. This is the
-   * authoritative content to persist.
-   */
-  answerText?: string;
   artifacts: RuntimeOutputArtifact[];
   respondedAt: IsoTimestamp;
   usage: RuntimeUsageSnapshot | null;
@@ -4317,9 +4302,7 @@ export interface RuntimeTurnResult {
   /**
    * ADR-170 S1 — the ordered fact-log drafts produced by this turn, in
    * emission order (no `seq` yet; that is allocated by the S2 append
-   * primitive). Additive alongside `workingNotes` / `answerText` /
-   * `assistantText` / `toolInvocations` per ADR-170 D5.2 — nothing consumes
-   * this field yet.
+   * primitive).
    */
   turnEvents?: TurnEventDraft[];
 }

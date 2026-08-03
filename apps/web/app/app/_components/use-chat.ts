@@ -39,7 +39,7 @@ import {
   type PendingBrowserLoginState,
   deleteAssistantBrowserProfile
 } from "../assistant-api-client";
-import type { RuntimeTodoItem, RuntimeTurnToolInvocation } from "@persai/runtime-contract";
+import type { RuntimeTodoItem } from "@persai/runtime-contract";
 import { isKnowledgeEligibleFile } from "../chat-file-policy";
 import {
   getCachedCurrentLocalBrowserBridgeStatus,
@@ -88,8 +88,6 @@ type PendingSendStatus =
 export type ChatAttachment = ChatHistoryAttachment & {
   localPreviewUrl?: string | undefined;
   uploadProgressPercent?: number | undefined;
-  /** ADR-165/167 — durable delivery-order hint for assistant-facing receipt lines. */
-  inlineAfterToolCallId?: string | undefined;
 };
 type ChatPlatformNotice = {
   kind: "safety_inbound_warn" | "safety_inbound_restricted";
@@ -110,8 +108,6 @@ export interface ChatMessage {
   thought?: string;
   thoughtStartedAt?: string | null;
   thoughtFinishedAt?: string | null;
-  /** Sanitized tool calls emitted by the runtime, used to interleave process badges with working notes. */
-  toolInvocations?: RuntimeTurnToolInvocation[];
   /** ADR-170 D9 — server-projected ConversationalPublish provenance. */
   conversationalPublish?: true;
   /** Local-only streaming hint: true while text deltas are actively being appended. */
@@ -893,9 +889,6 @@ function toCommittedChatMessage(message: ChatHistoryMessage): ChatMessage | null
     ...(stopReason !== undefined ? { stopReason } : {}),
     createdAt: message.createdAt,
     ...(message.platformNotice ? { platformNotice: message.platformNotice } : {}),
-    ...(Array.isArray(message.toolInvocations) && message.toolInvocations.length > 0
-      ? { toolInvocations: message.toolInvocations }
-      : {}),
     ...(Array.isArray(message.turnEvents) && message.turnEvents.length > 0
       ? { turnEvents: message.turnEvents }
       : {}),
@@ -4077,31 +4070,9 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                 const recordToolInvocation = () => {
                   applyThreadMessages(targetThreadKey, (prev) =>
                     prev.map((message) => {
-                      if (message.id !== assistantMessageId) {
-                        return message;
-                      }
-                      const prior = Array.isArray(message.toolInvocations)
-                        ? message.toolInvocations
-                        : [];
-                      const already = prior.some((tool) => tool.toolCallId === toolCallId);
-                      return {
-                        ...message,
-                        status: "streaming",
-                        streamingTextActive: false,
-                        toolInvocations: already
-                          ? prior.map((tool) =>
-                              tool.toolCallId === toolCallId ? { ...tool, ok: !isError } : tool
-                            )
-                          : [
-                              ...prior,
-                              {
-                                name: toolName,
-                                iteration: prior.length,
-                                ok: !isError,
-                                toolCallId
-                              }
-                            ]
-                      };
+                      return message.id === assistantMessageId
+                        ? { ...message, status: "streaming", streamingTextActive: false }
+                        : message;
                     })
                   );
                 };
@@ -5365,27 +5336,9 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
           const recordToolInvocation = () => {
             applyThreadMessages(sendThreadKey, (prev) =>
               prev.map((message) => {
-                if (message.id !== assistantMsgId) {
-                  return message;
-                }
-                const prior = Array.isArray(message.toolInvocations) ? message.toolInvocations : [];
-                const already = prior.some((tool) => tool.toolCallId === toolCallId);
-                return {
-                  ...message,
-                  toolInvocations: already
-                    ? prior.map((tool) =>
-                        tool.toolCallId === toolCallId ? { ...tool, ok: !isError } : tool
-                      )
-                    : [
-                        ...prior,
-                        {
-                          name: toolName,
-                          iteration: prior.length,
-                          ok: !isError,
-                          toolCallId
-                        }
-                      ]
-                };
+                return message.id === assistantMsgId
+                  ? { ...message, streamingTextActive: false }
+                  : message;
               })
             );
           };
@@ -5438,7 +5391,6 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
         }: {
           assistantMessageId: string;
           attachments: ChatHistoryAttachment[];
-          afterToolCallId?: string;
         }) => {
           if (attachments.length === 0) {
             return;
@@ -5731,7 +5683,6 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
             assistantMessage?: {
               id?: string;
               content?: string;
-              toolInvocations?: RuntimeTurnToolInvocation[];
               attachments?: ChatAttachment[];
               turnEvents?: TurnEvent[];
             };
@@ -5839,14 +5790,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                     byId.set(attachment.id, attachment);
                   }
                   for (const attachment of assistantAttachments) {
-                    const prior = byId.get(attachment.id);
-                    byId.set(
-                      attachment.id,
-                      prior?.inlineAfterToolCallId !== undefined &&
-                        attachment.inlineAfterToolCallId === undefined
-                        ? { ...attachment, inlineAfterToolCallId: prior.inlineAfterToolCallId }
-                        : attachment
-                    );
+                    byId.set(attachment.id, attachment);
                   }
                   return [...byId.values()];
                 })();
@@ -6462,8 +6406,6 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                 assistantMessage?: {
                   id?: string;
                   content?: string;
-                  workingNotes?: string[];
-                  toolInvocations?: RuntimeTurnToolInvocation[];
                   attachments?: ChatAttachment[];
                   turnEvents?: TurnEvent[];
                 };

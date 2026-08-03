@@ -552,7 +552,6 @@ describe("StreamWebChatTurnService", () => {
             type: "done",
             respondedAt: "2026-04-05T12:00:01.000Z",
             finalAnswer: "Готово.",
-            workingNotes: ["Сначала проверю файл."],
             toolInvocations: [
               {
                 name: "knowledge_search",
@@ -664,19 +663,15 @@ describe("StreamWebChatTurnService", () => {
     // Golden test 2: no working markers in content
     assert.doesNotMatch(String(createdMessages[0]?.content), /:::working/);
     assert.doesNotMatch(String(createdMessages[0]?.content), /:::/);
-    // Golden test 3: working notes preserved in metadata as an array
-    assert.deepEqual((createdMessages[0]?.metadata as Record<string, unknown>)?.workingNotes, [
-      "Сначала проверю файл."
-    ]);
-    assert.deepEqual((createdMessages[0]?.metadata as Record<string, unknown>)?.toolInvocations, [
-      { name: "knowledge_search", iteration: 0, ok: true, toolCallId: "tool-1" }
-    ]);
-    const transport = (
-      outcome as { transport: { assistantMessage: { toolInvocations?: unknown[] } } }
-    ).transport.assistantMessage;
-    assert.deepEqual(transport.toolInvocations, [
-      { name: "knowledge_search", iteration: 0, ok: true, toolCallId: "tool-1" }
-    ]);
+    // ADR-170 — tool bookkeeping is never part of the client-facing message.
+    // Process order lives only in the server-numbered turn event log.
+    const metadata = (createdMessages[0]?.metadata ?? {}) as Record<string, unknown>;
+    assert.equal("toolInvocations" in metadata, false);
+    assert.equal("workingNotes" in metadata, false);
+    const transport = (outcome as { transport: { assistantMessage: Record<string, unknown> } })
+      .transport.assistantMessage;
+    assert.equal("toolInvocations" in transport, false);
+    assert.equal("workingNotes" in transport, false);
   });
 
   test("persists final answer from done chunk without working markers (multi-tool turn)", async () => {
@@ -776,7 +771,6 @@ describe("StreamWebChatTurnService", () => {
             type: "done",
             respondedAt: "2026-04-05T12:00:01.000Z",
             finalAnswer: "Done.",
-            workingNotes: ["First plan.", "Second plan."],
             turnRouting: {
               mode: "shadow",
               executionMode: "premium",
@@ -877,17 +871,6 @@ describe("StreamWebChatTurnService", () => {
     // content is the clean final answer — no :::working markers
     assert.equal(createdMessages[0]?.content, "Done.");
     assert.doesNotMatch(String(createdMessages[0]?.content), /:::working/);
-    // multi-step working notes preserved in metadata as an array
-    assert.deepEqual((createdMessages[0]?.metadata as Record<string, unknown>)?.workingNotes, [
-      "First plan.",
-      "Second plan."
-    ]);
-    // Symptom 1: the live completed transport carries workingNotes so the
-    // "Done" block renders without reopening the chat.
-    const liveTransport = (outcome as { transport?: Record<string, unknown> | null }).transport;
-    const liveAssistantMessage = (liveTransport as { assistantMessage?: Record<string, unknown> })
-      ?.assistantMessage;
-    assert.deepEqual(liveAssistantMessage?.workingNotes, ["First plan.", "Second plan."]);
   });
 
   test("delivers compaction follow-up on streamed turns after media has already been attached", async () => {
@@ -2881,7 +2864,6 @@ describe("StreamWebChatTurnService", () => {
     const mediaCallbacks: Array<{
       assistantMessageId: string;
       attachments: Array<{ id: string }>;
-      afterToolCallId?: string;
     }> = [];
 
     const service = new StreamWebChatTurnService(
@@ -2962,8 +2944,7 @@ describe("StreamWebChatTurnService", () => {
                 sourceToolCode: "image_generate",
                 mimeType: "image/png",
                 filename: "owl.png",
-                sizeBytes: 2048,
-                producingToolCallId: "call-img-1"
+                sizeBytes: 2048
               }
             ]
           };
@@ -2971,7 +2952,6 @@ describe("StreamWebChatTurnService", () => {
             type: "done",
             respondedAt: "2026-04-05T12:00:01.000Z",
             finalAnswer: "Вот сова.",
-            workingNotes: ["сейчас"],
             toolInvocations: [
               {
                 name: "image_generate",
@@ -3097,14 +3077,8 @@ describe("StreamWebChatTurnService", () => {
     assert.equal(outcome.status, "completed");
     assert.equal(createdMessages.length, 1);
     assert.equal(createdMessages[0]?.content, "");
-    assert.ok(
-      Array.isArray(
-        (createdMessages[0]?.metadata as Record<string, unknown> | undefined)?.inlineMediaPlacement
-      ) || true
-    );
     assert.equal(mediaCallbacks.length, 1);
     assert.equal(mediaCallbacks[0]?.assistantMessageId, "early-assistant-msg-1");
-    assert.equal(mediaCallbacks[0]?.afterToolCallId, "call-img-1");
     assert.equal(mediaCallbacks[0]?.attachments[0]?.id, "att-img-1");
     assert.ok(deliverCalls.some((call) => call.artifactCount === 1));
     assert.ok(
@@ -3117,16 +3091,12 @@ describe("StreamWebChatTurnService", () => {
           assistantMessage: {
             id: string;
             attachments: Array<{ id: string }>;
-            inlineMediaPlacement?: Array<{ toolCallId: string; attachmentIds: string[] }>;
           };
         };
       }
     ).transport;
     assert.equal(transport.assistantMessage.id, "early-assistant-msg-1");
     assert.equal(transport.assistantMessage.attachments[0]?.id, "att-img-1");
-    assert.deepEqual(transport.assistantMessage.inlineMediaPlacement, [
-      { toolCallId: "call-img-1", attachmentIds: ["att-img-1"] }
-    ]);
   });
 });
 

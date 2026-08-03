@@ -122,10 +122,14 @@ export async function runRuntimeExecutionAdmissionServiceTest(): Promise<void> {
     lightHold.resolve();
     assert.equal(await lightOne, "light-1");
     await waitForTick();
-    assert.deepEqual(order, ["heavy-1", "light-1", "heavy-2"]);
+    // The released slot stays reserved for cheap interactive work. Starting a
+    // second heavy turn here would consume that reserved lane, so heavy-2
+    // correctly waits until heavy-1 releases.
+    assert.deepEqual(order, ["heavy-1", "light-1"]);
     heavyHold.resolve();
     assert.equal(await heavyOne, "heavy-1");
     assert.equal(await heavyTwo, "heavy-2");
+    assert.deepEqual(order, ["heavy-1", "light-1", "heavy-2"]);
   }
 
   {

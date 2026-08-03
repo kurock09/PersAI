@@ -71,7 +71,7 @@ function createBundle(): AssistantRuntimeBundle {
 describe("RuntimeImageGenerateToolService", () => {
   test("preserves deferred quota guidance", async () => {
     const service = new RuntimeImageGenerateToolService(
-      {} as never,
+      createOutboundManifestApiStub() as never,
       {
         async enqueueDeferredMediaJob() {
           return {
@@ -290,7 +290,7 @@ describe("RuntimeImageGenerateToolService", () => {
           };
         }
       } as never,
-      {} as never,
+      createOutboundManifestApiStub() as never,
       {} as never
     );
 
@@ -439,7 +439,7 @@ describe("RuntimeImageGenerateToolService", () => {
           });
         }
       } as never,
-      {} as never,
+      createOutboundManifestApiStub() as never,
       {
         buildWorkspaceObjectKey() {
           return "fake-object-key";

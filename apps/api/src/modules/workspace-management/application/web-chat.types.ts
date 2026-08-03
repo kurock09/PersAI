@@ -1,4 +1,3 @@
-import type { ClientRuntimeTurnToolInvocation } from "./strip-tool-invocations-for-client";
 import type { PendingBrowserLoginState } from "@persai/runtime-contract";
 import type { PublicTurnEvent } from "./turn-event-wire-projection";
 
@@ -116,22 +115,11 @@ export interface AssistantWebChatMessageState {
   /** Present when the user explicitly stopped mid-turn. */
   stopReason?: "user_stopped";
   platformNotice?: AssistantWebChatPlatformNoticeState;
-  /** The texts the model wrote before each tool call across the tool loop. Absent/empty when no tools ran. */
-  workingNotes?: string[];
-  /** Tool-call summaries for process badges. Heavy billing facts are stripped before persistence/client transport. */
-  toolInvocations?: ClientRuntimeTurnToolInvocation[];
-  /**
-   * ADR-165 — which attachments belong after which tool call for organic
-   * in-loop image interleaving after F5 / history reload.
-   */
-  inlineMediaPlacement?: Array<{ toolCallId: string; attachmentIds: string[] }>;
   /**
    * ADR-170 D1/D3/D3.3.1 — the durable, server-numbered fact log for this
    * message's turn, stripped of server-only `draftKey`/`draftKeys`
-   * idempotency bookkeeping. Additive alongside `workingNotes` /
-   * `toolInvocations` / `inlineMediaPlacement` per D5.2 (S5 removes those);
-   * absent/empty for a historical message with no log (D7) — no
-   * special-case branch for that.
+   * idempotency bookkeeping. It is absent/empty for a historical message with
+   * no log (D7), with no special-case branch.
    */
   turnEvents?: PublicTurnEvent[];
   /** ADR-170 D9 — durable ConversationalPublish provenance from message metadata. */

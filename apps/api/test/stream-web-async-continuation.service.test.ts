@@ -251,7 +251,6 @@ describe("StreamWebAsyncContinuationService", () => {
                 requestId: "req-1",
                 sessionId: "session-1",
                 assistantText: "Hello",
-                answerText: "Hello",
                 respondedAt: "2026-07-19T00:00:00.000Z",
                 artifacts: [],
                 usage: null
@@ -678,7 +677,6 @@ describe("StreamWebAsyncContinuationService", () => {
                   requestId: "req-order",
                   sessionId: "session-1",
                   assistantText: "ok",
-                  answerText: "ok",
                   respondedAt: "2026-07-19T00:00:00.000Z",
                   artifacts: [],
                   usage: null
@@ -1204,7 +1202,6 @@ describe("StreamWebAsyncContinuationService", () => {
                   requestId: "req-accept-bind",
                   sessionId: "session-1",
                   assistantText: "done",
-                  answerText: "done",
                   respondedAt: "2026-07-27T00:00:00.000Z",
                   artifacts: [],
                   usage: null
@@ -1318,7 +1315,6 @@ describe("StreamWebAsyncContinuationService", () => {
                   requestId: "req-s5-retry",
                   sessionId: "session-1",
                   assistantText: "catch-up after interleave",
-                  answerText: "catch-up after interleave",
                   respondedAt: "2026-07-27T18:30:00.000Z",
                   artifacts: [],
                   usage: null

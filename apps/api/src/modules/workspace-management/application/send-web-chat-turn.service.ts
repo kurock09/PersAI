@@ -65,8 +65,6 @@ import { NotificationDeliveryWorkerService } from "./notifications/notification-
 import { persistAssistantMessage } from "./persist-assistant-message";
 import { AppendTurnEventsService } from "./append-turn-events.service";
 import { AssistantAsyncJobHandleStateService } from "./assistant-async-job-handle-state.service";
-import { extractToolInvocationsFromMetadata } from "./web-chat-message-state.mapper";
-import { stripToolInvocationsForClient } from "./strip-tool-invocations-for-client";
 import { resolvePendingBrowserLoginFromRuntimeTurn } from "./resolve-pending-browser-login-for-web-chat";
 
 export const WELCOME_TURN_SENTINEL = "__welcome_init__";
@@ -522,11 +520,6 @@ export class SendWebChatTurnService {
         toolExchanges:
           runtimeResponse.toolExchanges !== undefined && runtimeResponse.toolExchanges.length > 0
             ? runtimeResponse.toolExchanges
-            : undefined,
-        toolInvocations:
-          runtimeResponse.toolInvocations !== undefined &&
-          runtimeResponse.toolInvocations.length > 0
-            ? stripToolInvocationsForClient(runtimeResponse.toolInvocations)
             : undefined
       });
       persistedAssistantMessageId = assistantMessage.id;
@@ -662,11 +655,7 @@ export class SendWebChatTurnService {
           author: assistantMessage.author,
           content: postRuntime.finalAssistantContent,
           attachments: postRuntime.deliveredAttachments,
-          createdAt: assistantMessage.createdAt.toISOString(),
-          ...(runtimeResponse.toolInvocations !== undefined &&
-          runtimeResponse.toolInvocations.length > 0
-            ? { toolInvocations: stripToolInvocationsForClient(runtimeResponse.toolInvocations) }
-            : {})
+          createdAt: assistantMessage.createdAt.toISOString()
         },
         ...(postRuntime.followUpAssistantMessage === null
           ? {}
@@ -875,7 +864,6 @@ export class SendWebChatTurnService {
       messageToolContext === null
         ? null
         : resolvePendingBrowserLoginFromRuntimeTurn({
-            toolInvocations: extractToolInvocationsFromMetadata(messageToolContext.metadata),
             toolExchanges: messageToolContext.toolExchanges ?? undefined
           });
 
@@ -913,13 +901,7 @@ export class SendWebChatTurnService {
         author: assistantMessage.author,
         content: assistantMessage.content,
         attachments: assistantAttachments.map((attachment) => toAttachmentState(attachment)),
-        createdAt: assistantMessage.createdAt.toISOString(),
-        ...(() => {
-          const replayToolInvocations = extractToolInvocationsFromMetadata(
-            assistantMessage.metadata
-          );
-          return replayToolInvocations.length > 0 ? { toolInvocations: replayToolInvocations } : {};
-        })()
+        createdAt: assistantMessage.createdAt.toISOString()
       },
       ...(followUpAssistantMessage === null
         ? {}

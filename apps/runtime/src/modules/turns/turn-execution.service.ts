@@ -621,49 +621,6 @@ const BACKGROUND_TASK_SYNTHETIC_TURN_EXCLUDED_TOOLS = new Set([
   "compact_context"
 ]);
 
-/**
- * Assemble the multi-step working notes, the answer-only text, and the
- * backward-compatible full assistant text for a completed turn.
- *
- * Inputs (all already produced by the streaming loop / corrections):
- * - `toolStepTexts` — the text the model produced before EACH tool call across
- *   the tool loop, one entry per `tool_calls` step. Each entry is the provider
- *   text of that iteration ONLY (never the cumulative text), so a later step's
- *   note never re-contains an earlier note.
- * - `finalAnswerText` — the corrected text of the FINAL iteration only (the
- *   answer after the last tool). It must NOT be derived from the cumulative
- *   corrected text, which already contains every note; deriving it that way is
- *   the historical duplication bug this function exists to prevent.
- * - `fullAssistantText` — the cumulative corrected provider text (single copy
- *   of each note + the answer). Kept verbatim as the backward-compat
- *   `assistantText` for Telegram / non-web consumers.
- *
- * Contract:
- * - `workingNotes` = the trimmed, non-empty `toolStepTexts` in order (each note
- *   exactly once; whitespace-only steps dropped).
- * - `answerText` = `finalAnswerText` (the answer only, no notes).
- * - `assistantText` = `fullAssistantText` verbatim (never reconstructed from
- *   `notes + answer`, which would risk doubling notes).
- */
-export function assembleWorkingNotesAndAnswer(input: {
-  toolStepTexts: readonly string[];
-  finalAnswerText: string;
-  fullAssistantText: string;
-}): { workingNotes: string[]; answerText: string; assistantText: string } {
-  const workingNotes: string[] = [];
-  for (const stepText of input.toolStepTexts) {
-    const trimmed = stepText.trim();
-    if (trimmed.length > 0) {
-      workingNotes.push(trimmed);
-    }
-  }
-  return {
-    workingNotes,
-    answerText: input.finalAnswerText,
-    assistantText: input.fullAssistantText
-  };
-}
-
 @Injectable()
 export class TurnExecutionService {
   private readonly logger = new Logger(TurnExecutionService.name);
@@ -1314,10 +1271,6 @@ export class TurnExecutionService {
     let forceFinalTextOnly = catchUpLightPresentOnly;
     let contextOverflowRetryAttempted = false;
     let projectSynthesisEventsEmitted = false;
-    // Working notes: the text the model produced before EACH tool call across
-    // the tool loop, captured per-iteration (one entry per tool_calls step).
-    const toolStepTexts: string[] = [];
-
     yield {
       type: "started",
       requestId: acceptedTurn.receipt.requestId,
@@ -1530,9 +1483,6 @@ export class TurnExecutionService {
                 // corrected by applyAssistantTextCorrections.
                 const stepNote = (event.result.text ?? "").trim();
                 const bodyBeforeStep = iterationBaseText;
-                if (stepNote.length > 0) {
-                  toolStepTexts.push(stepNote);
-                }
                 this.recordUsageEntry(turnState, {
                   stepType: iteration === 0 ? "main_turn" : "tool_loop_followup",
                   modelRole: execution.selectedModelRole,
@@ -1826,8 +1776,7 @@ export class TurnExecutionService {
                     terminalProviderResult,
                     turnState,
                     execution.routeDecision,
-                    trace?.build("ok"),
-                    { workingNotes: [], answerText: terminalStaticAssistantText }
+                    trace?.build("ok")
                   );
                   yield* this.drainNewTurnEventStreamEvents(turnState, turnEventsBeforeResult);
                   try {
@@ -1948,21 +1897,6 @@ export class TurnExecutionService {
                   modelRole: execution.selectedModelRole,
                   textUsage: correctedProviderResult.textUsage
                 });
-                // Answer-only text = corrections applied to the FINAL iteration's
-                // own provider text (`event.result.text`), never the cumulative
-                // corrected text. The cumulative text already contains every
-                // working note; deriving the answer from it would duplicate the
-                // notes into the answer. Corrections here are
-                // identity-or-full-replacement (deferred-media/document
-                // acknowledgement), so they produce the same final answer whether
-                // applied to the final-iteration text or the cumulative text.
-                const correctedFinalAnswerText = this.applyAssistantTextCorrections({
-                  assistantText: event.result.text ?? "",
-                  artifacts: turnState.artifacts,
-                  deferredMediaJobs: turnState.deferredMediaJobs,
-                  deferredDocumentJobs: turnState.deferredDocumentJobs,
-                  locale: input.message.locale ?? execution.bundle.userContext.locale ?? null
-                });
                 correctedProviderResult = await this.runPostFinalChatPlanSelfCheck({
                   acceptedTurn,
                   execution,
@@ -1983,15 +1917,6 @@ export class TurnExecutionService {
                     yield selfCheckDeltaEvent;
                   }
                 }
-                const finalAnswerText =
-                  selfCheckedAssistantText === correctedAssistantText
-                    ? correctedFinalAnswerText
-                    : selfCheckedAssistantText;
-                const { workingNotes, answerText } = assembleWorkingNotesAndAnswer({
-                  toolStepTexts,
-                  finalAnswerText,
-                  fullAssistantText: selfCheckedAssistantText
-                });
                 await this.autoAttachUndeliveredProducedPaths({
                   acceptedTurn,
                   execution,
@@ -2004,8 +1929,7 @@ export class TurnExecutionService {
                   correctedProviderResult,
                   turnState,
                   execution.routeDecision,
-                  trace?.build("ok"),
-                  { workingNotes, answerText }
+                  trace?.build("ok")
                 );
                 yield* this.drainNewTurnEventStreamEvents(turnState, turnEventsBeforeResult);
                 try {
@@ -2383,8 +2307,7 @@ export class TurnExecutionService {
     providerResult: ProviderGatewayTextGenerateResult,
     turnState: TurnExecutionState,
     routeDecision?: TurnRouteDecision,
-    trace?: RuntimeTrace,
-    workingNotesAndAnswer?: { workingNotes: readonly string[]; answerText: string }
+    trace?: RuntimeTrace
   ): RuntimeTurnResult {
     if (providerResult.stopReason !== "completed") {
       throw new InternalServerErrorException(
@@ -2403,15 +2326,9 @@ export class TurnExecutionService {
       );
     }
 
-    // `providerResult.text` is the final corrected FULL text (every working
-    // note once + the answer). Use it directly as the backward-compat
-    // `assistantText`. `workingNotes` and `answerText` are pre-assembled by the
-    // streaming caller (per-step notes + the final-iteration answer only); when
-    // absent (non-stream / Telegram path) there are no tool-loop notes and the
-    // answer equals the full text.
+    // The settled body is retained for provider replay. Presentation comes only
+    // from the ordered event log below.
     const assistantText = providerResult.text ?? "";
-    const workingNotes = workingNotesAndAnswer ? [...workingNotesAndAnswer.workingNotes] : [];
-    const answerText = workingNotesAndAnswer ? workingNotesAndAnswer.answerText : assistantText;
     // ADR-170 D5.1 — `answer_text` draft the moment the final answer resolves.
     // Segmentation is the S2 append primitive's job, not the runtime's: this
     // is emitted as one segment per resolution, in order, with no invented
@@ -2420,9 +2337,13 @@ export class TurnExecutionService {
       .filter((event) => event.kind === "note" || event.kind === "answer_text")
       .map((event) => event.text)
       .join("");
+    // ADR-170 D5.4.1 — a post-final self-check may rewrite the whole body, so the
+    // numbered notes are no longer its prefix. The answer event then carries the
+    // entire settled body and settlement reconciliation trims the notes whose
+    // text did not survive.
     const answerEventText = assistantText.startsWith(numberedText)
       ? assistantText.slice(numberedText.length)
-      : answerText;
+      : assistantText;
     if (answerEventText.length > 0) {
       this.pushTurnEventDraft(turnState, {
         kind: "answer_text",
@@ -2440,8 +2361,6 @@ export class TurnExecutionService {
       requestId: acceptedTurn.receipt.requestId,
       sessionId: acceptedTurn.session.sessionId,
       assistantText,
-      workingNotes,
-      answerText,
       artifacts: [...turnState.artifacts],
       respondedAt: providerResult.respondedAt,
       usage: providerResult.usage,
@@ -5008,10 +4927,7 @@ export class TurnExecutionService {
       ...(artifacts === undefined
         ? {}
         : {
-            artifacts: artifacts.map((artifact) => ({
-              ...artifact,
-              producingToolCallId: artifact.producingToolCallId ?? toolCall.id
-            }))
+            artifacts
           }),
       ...(discoveredFileHandles === undefined || discoveredFileHandles.length === 0
         ? {}

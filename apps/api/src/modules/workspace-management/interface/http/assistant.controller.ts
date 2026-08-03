@@ -1580,13 +1580,12 @@ export class AssistantController {
             ...(sandboxJob === undefined ? {} : { sandboxJob })
           });
         },
-        onMediaAttachments: ({ assistantMessageId, attachments, afterToolCallId }) => {
+        onMediaAttachments: ({ assistantMessageId, attachments }) => {
           // The original POST receives this through the attached bus consumer,
           // avoiding a same-pod direct+bus duplicate.
           const payload = {
             assistantMessageId,
-            attachments,
-            ...(afterToolCallId === undefined ? {} : { afterToolCallId })
+            attachments
           };
           if (assistantIdForRegistry !== undefined && clientTurnIdForRegistry !== undefined) {
             this.webChatTurnStreamRegistry.publish({

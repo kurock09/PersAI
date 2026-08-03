@@ -160,7 +160,6 @@ describe("InternalRuntimeAsyncContinuationClientService", () => {
       requestId: "runtime-request-1",
       sessionId: "session-1",
       assistantText: "Done.",
-      answerText: "Done.",
       artifacts: [],
       respondedAt: "2026-07-18T00:00:00.000Z",
       usage: null

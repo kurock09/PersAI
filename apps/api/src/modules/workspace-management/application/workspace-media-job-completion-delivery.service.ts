@@ -81,45 +81,6 @@ function truncateLastError(message: string): string {
   return `${message.slice(0, COMPLETION_DELIVERY_LAST_ERROR_MAX_CHARS - 3)}...`;
 }
 
-function firstProducingToolCallId(artifacts: RuntimeOutputArtifact[]): string | null {
-  for (const artifact of artifacts) {
-    if (
-      typeof artifact.producingToolCallId === "string" &&
-      artifact.producingToolCallId.trim().length > 0
-    ) {
-      return artifact.producingToolCallId.trim();
-    }
-  }
-  return null;
-}
-
-function readInlineMediaPlacement(
-  metadata: unknown
-): Array<{ toolCallId: string; attachmentIds: string[] }> {
-  if (metadata === null || typeof metadata !== "object" || Array.isArray(metadata)) {
-    return [];
-  }
-  const raw = (metadata as Record<string, unknown>).inlineMediaPlacement;
-  if (!Array.isArray(raw)) {
-    return [];
-  }
-  return raw.flatMap((entry) => {
-    if (entry === null || typeof entry !== "object" || Array.isArray(entry)) {
-      return [];
-    }
-    const row = entry as Record<string, unknown>;
-    if (typeof row.toolCallId !== "string" || row.toolCallId.trim().length === 0) {
-      return [];
-    }
-    const attachmentIds = Array.isArray(row.attachmentIds)
-      ? row.attachmentIds.filter(
-          (id): id is string => typeof id === "string" && id.trim().length > 0
-        )
-      : [];
-    return [{ toolCallId: row.toolCallId.trim(), attachmentIds }];
-  });
-}
-
 function computeRetryBackoffMs(attempt: number): number {
   const safeAttempt = Math.max(1, Math.floor(attempt));
   return Math.min(
@@ -1044,50 +1005,10 @@ export class AssistantMediaJobCompletionDeliveryService {
     if (input.attachments.length === 0) {
       return;
     }
-    // Only bind placement to a real producing tool call. The enqueue-time
-    // `sourceToolCallId` (the tool call that *started* the async job) used to
-    // be a fallback here, but it is chronologically wrong for any job that
-    // takes long enough for the model to keep narrating/calling more tools
-    // while it awaits delivery (the common case for image/video jobs): the
-    // receipt would render bound to that early call, i.e. above every note
-    // said afterward, including notes said immediately after the job was
-    // enqueued. Confirmed live on persai.dev (banner rendered above all
-    // narration, "Начнём..." etc., inside the expanded "Выполнено" panel).
-    // Leaving `afterToolCallId` unset here makes the client treat this
-    // receipt as unclaimed, which renders it after whatever notes/answer
-    // text exist at delivery time instead of at a stale early position.
-    const afterToolCallId = firstProducingToolCallId(input.artifacts);
-    if (afterToolCallId !== null) {
-      const existing = await this.assistantChatRepository.findMessageByIdForAssistant(
-        input.messageId,
-        input.job.assistantId
-      );
-      const priorPlacement = readInlineMediaPlacement(existing?.metadata);
-      const nextPlacement = [
-        ...priorPlacement.filter((entry) => entry.toolCallId !== afterToolCallId),
-        {
-          toolCallId: afterToolCallId,
-          attachmentIds: [
-            ...(priorPlacement.find((entry) => entry.toolCallId === afterToolCallId)
-              ?.attachmentIds ?? []),
-            ...input.attachments.map((attachment) => attachment.id)
-          ]
-        }
-      ];
-      await this.assistantChatRepository.mergeMessageMetadata(
-        input.messageId,
-        input.job.assistantId,
-        {
-          sourceUserMessageId: input.job.sourceUserMessageId,
-          inlineMediaPlacement: nextPlacement
-        }
-      );
-    }
     this.liveTurnPresent.publishMedia({
       attempt: input.attempt,
       assistantMessageId: input.messageId,
-      attachments: input.attachments,
-      ...(afterToolCallId === null ? {} : { afterToolCallId })
+      attachments: input.attachments
     });
   }
 

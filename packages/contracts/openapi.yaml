@@ -14169,11 +14169,6 @@ components:
           allOf:
             - $ref: "#/components/schemas/AssistantWebChatPlatformNoticeState"
           nullable: true
-        workingNotes:
-          type: array
-          items:
-            type: string
-          description: The texts the model produced before each tool call across the tool loop, one entry per step. Absent/empty when no tools ran.
         turnEvents:
           type: array
           items:

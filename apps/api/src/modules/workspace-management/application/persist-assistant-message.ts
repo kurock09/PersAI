@@ -2,15 +2,6 @@ import type { AssistantChatMessage } from "../domain/assistant-chat-message.enti
 import type { AssistantChatRepository } from "../domain/assistant-chat.repository";
 import type { AssistantMediaJobService } from "./workspace-media-job.service";
 import type { ProviderGatewayToolExchange } from "@persai/runtime-contract";
-import {
-  stripToolInvocationsForClient,
-  type ClientRuntimeTurnToolInvocation
-} from "./strip-tool-invocations-for-client";
-
-export type InlineMediaPlacementEntry = {
-  toolCallId: string;
-  attachmentIds: string[];
-};
 
 type PersistAssistantMessageInput = {
   chatRepository: Pick<
@@ -30,13 +21,9 @@ type PersistAssistantMessageInput = {
   discoveredFilePaths?: string[] | undefined;
   deferredMediaJobCount?: number | undefined;
   sourceUserMessageId?: string | null | undefined;
-  workingNotes?: string[] | undefined;
-  toolInvocations?: readonly ClientRuntimeTurnToolInvocation[] | undefined;
   toolExchanges?: readonly ProviderGatewayToolExchange[] | undefined;
   /** ADR-165 — reuse an early mid-stream live assistant message when present. */
   reuseMessageId?: string | null | undefined;
-  /** ADR-165 — tool→attachment placement for organic F5 interleaving. */
-  inlineMediaPlacement?: readonly InlineMediaPlacementEntry[] | undefined;
   /** "partial" when the turn was aborted / stalled before a completed event arrived. */
   partialStatus?: "partial" | undefined;
   /** ADR-122 Slice 3: "truncated" when the provider stopped due to the output-token ceiling. */
@@ -48,30 +35,15 @@ export async function persistAssistantMessage(
 ): Promise<AssistantChatMessage> {
   const hasFileRefs =
     input.discoveredFilePaths !== undefined && input.discoveredFilePaths.length > 0;
-  const hasWorkingNotes = Array.isArray(input.workingNotes) && input.workingNotes.length > 0;
-  const hasToolInvocations =
-    Array.isArray(input.toolInvocations) && input.toolInvocations.length > 0;
-  const hasInlineMediaPlacement =
-    Array.isArray(input.inlineMediaPlacement) && input.inlineMediaPlacement.length > 0;
   const hasSourceUserMessageId =
     typeof input.sourceUserMessageId === "string" && input.sourceUserMessageId.length > 0;
   const resolvedStatus = input.truncatedStatus ?? input.partialStatus;
   const hasStatus = resolvedStatus !== undefined;
   const metadata: Record<string, unknown> | undefined =
-    hasFileRefs ||
-    hasWorkingNotes ||
-    hasToolInvocations ||
-    hasInlineMediaPlacement ||
-    hasStatus ||
-    hasSourceUserMessageId
+    hasFileRefs || hasStatus || hasSourceUserMessageId
       ? {
           ...(hasSourceUserMessageId ? { sourceUserMessageId: input.sourceUserMessageId } : {}),
           ...(hasFileRefs ? { discoveredFilePaths: input.discoveredFilePaths } : {}),
-          ...(hasWorkingNotes ? { workingNotes: input.workingNotes } : {}),
-          ...(hasToolInvocations
-            ? { toolInvocations: stripToolInvocationsForClient(input.toolInvocations ?? []) }
-            : {}),
-          ...(hasInlineMediaPlacement ? { inlineMediaPlacement: input.inlineMediaPlacement } : {}),
           ...(hasStatus ? { status: resolvedStatus } : {})
         }
       : undefined;

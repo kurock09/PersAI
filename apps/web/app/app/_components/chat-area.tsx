@@ -955,7 +955,6 @@ export function ChatArea({
                 <Menu className="h-5 w-5" strokeWidth={1.15} />
               </button>
               <div
-                data-testid="chat-title-pill"
                 className={cn(
                   // Opaque pill — edge dissolve lives on the message scroll mask, not behind chrome.
                   // p-[3px] keeps the left meter circle coaxial with the rounded cap (same inset as composer).

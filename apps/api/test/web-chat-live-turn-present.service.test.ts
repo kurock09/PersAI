@@ -73,8 +73,7 @@ describe("WebChatLiveTurnPresentService", () => {
           processingStatus: "ready",
           createdAt: "2026-07-26T17:42:58.000Z"
         }
-      ],
-      afterToolCallId: "call-image-1"
+      ]
     });
     await service.publishOpenJobsSnapshot({
       attempt,
@@ -98,8 +97,7 @@ describe("WebChatLiveTurnPresentService", () => {
           processingStatus: "ready",
           createdAt: "2026-07-26T17:42:58.000Z"
         }
-      ],
-      afterToolCallId: "call-image-1"
+      ]
     });
     assert.equal(published[1]?.event, "async_jobs_open");
     assert.deepEqual(published[1]?.payload, {

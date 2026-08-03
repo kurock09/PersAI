@@ -19,7 +19,6 @@ import {
   type AssistantRuntimeWebChatTurnStreamChunk,
   type RuntimeMediaArtifact
 } from "./assistant-runtime.facade";
-import type { InlineMediaPlacementEntry } from "./persist-assistant-message";
 import { AppendTurnEventsService } from "./append-turn-events.service";
 import type { TurnEventDraft } from "@persai/runtime-contract";
 import type { PublicTurnEvent } from "./turn-event-wire-projection";
@@ -82,11 +81,6 @@ import { NotificationDeliveryWorkerService } from "./notifications/notification-
 import { PlatformHttpMetricsService } from "../../platform-core/application/platform-http-metrics.service";
 import { persistAssistantMessage } from "./persist-assistant-message";
 import { AssistantAsyncJobHandleStateService } from "./assistant-async-job-handle-state.service";
-import {
-  extractToolInvocationsFromMetadata,
-  extractWorkingNotesFromMetadata
-} from "./web-chat-message-state.mapper";
-import { stripToolInvocationsForClient } from "./strip-tool-invocations-for-client";
 import {
   resolvePendingBrowserLoginForWebChat,
   resolvePendingBrowserLoginFromRuntimeTurn
@@ -428,16 +422,10 @@ export class StreamWebChatTurnService {
         summary: string;
         detail?: string | null;
       }) => void;
-      /**
-       * ADR-165 — sync in-loop media delivered mid-stream into the live assistant
-       * bubble. Includes `assistantMessageId` so the client can bind the local
-       * streaming bubble to the early server row (avoids history-refresh orphans).
-       * `afterToolCallId` is set when the runtime stamped producingToolCallId.
-       */
+      /** Sync in-loop media delivered into the live assistant bubble. */
       onMediaAttachments?: (payload: {
         assistantMessageId: string;
         attachments: AssistantWebChatMessageAttachmentState[];
-        afterToolCallId?: string;
       }) => void;
       /**
        * ADR-170 D1/D3 — every durably-numbered `TurnEvent` appended during
@@ -472,8 +460,6 @@ export class StreamWebChatTurnService {
     let discoveredFilePaths: string[] | undefined = undefined;
     /** The authoritative final answer from the runtime `completed` event. null until the `done` chunk arrives. */
     let runtimeFinalAnswer: string | null = null;
-    /** Working notes from the runtime. Empty when no tools ran or before `done` arrives. */
-    let runtimeWorkingNotes: string[] = [];
     /** ADR-122 Slice 3: true when the runtime reported truncated=true on the done chunk. */
     let runtimeTruncated = false;
     const collectedMedia: RuntimeMediaArtifact[] = [];
@@ -489,12 +475,10 @@ export class StreamWebChatTurnService {
     const liveSyncMediaPresent: {
       earlyAssistantMessageId: string | null;
       deliveredIdentities: Set<string>;
-      inlineMediaPlacement: InlineMediaPlacementEntry[];
       deliveredAttachments: AssistantWebChatMessageAttachmentState[];
     } = {
       earlyAssistantMessageId: null,
       deliveredIdentities: new Set<string>(),
-      inlineMediaPlacement: [],
       deliveredAttachments: []
     };
     const trace =
@@ -650,9 +634,6 @@ export class StreamWebChatTurnService {
         if (result.finalAnswer !== null) {
           runtimeFinalAnswer = result.finalAnswer;
         }
-        if (result.workingNotes.length > 0) {
-          runtimeWorkingNotes = result.workingNotes;
-        }
         if (result.truncated === true) {
           runtimeTruncated = true;
         }
@@ -724,7 +705,6 @@ export class StreamWebChatTurnService {
         });
         accumulated = "";
         runtimeFinalAnswer = null;
-        runtimeWorkingNotes = [];
         respondedAt = null;
         turnRouting = null;
         primaryFirstDeltaMs = null;
@@ -767,7 +747,6 @@ export class StreamWebChatTurnService {
           callbacks.isUserStopped?.() === true,
           {
             reuseMessageId: liveSyncMediaPresent.earlyAssistantMessageId,
-            inlineMediaPlacement: liveSyncMediaPresent.inlineMediaPlacement,
             deliveredAttachments: liveSyncMediaPresent.deliveredAttachments
           }
         );
@@ -883,18 +862,9 @@ export class StreamWebChatTurnService {
         discoveredFilePaths,
         deferredMediaJobCount: deferredMediaJobs?.length,
         sourceUserMessageId: prepared.userMessage.id,
-        workingNotes: runtimeWorkingNotes.length > 0 ? runtimeWorkingNotes : undefined,
         toolExchanges:
           toolExchanges !== undefined && toolExchanges.length > 0 ? toolExchanges : undefined,
-        toolInvocations:
-          toolInvocations !== undefined && toolInvocations.length > 0
-            ? stripToolInvocationsForClient(toolInvocations)
-            : undefined,
         reuseMessageId: liveSyncMediaPresent.earlyAssistantMessageId,
-        inlineMediaPlacement:
-          liveSyncMediaPresent.inlineMediaPlacement.length > 0
-            ? liveSyncMediaPresent.inlineMediaPlacement
-            : undefined,
         partialStatus: isCompletedNormally ? undefined : "partial",
         truncatedStatus: isCompletedNormally && runtimeTruncated ? "truncated" : undefined
       });
@@ -1065,16 +1035,7 @@ export class StreamWebChatTurnService {
             author: assistantMessage.author,
             content: postRuntime.finalAssistantContent,
             attachments: postRuntime.deliveredAttachments,
-            createdAt: assistantMessage.createdAt.toISOString(),
-            // Symptom 1 fix: carry the working notes on the live completed
-            // transport so the "Done" block appears without reopening the chat.
-            ...(runtimeWorkingNotes.length > 0 ? { workingNotes: runtimeWorkingNotes } : {}),
-            ...(toolInvocations !== undefined && toolInvocations.length > 0
-              ? { toolInvocations: stripToolInvocationsForClient(toolInvocations) }
-              : {}),
-            ...(liveSyncMediaPresent.inlineMediaPlacement.length > 0
-              ? { inlineMediaPlacement: liveSyncMediaPresent.inlineMediaPlacement }
-              : {})
+            createdAt: assistantMessage.createdAt.toISOString()
           },
           ...(postRuntime.followUpAssistantMessage === null
             ? {}
@@ -1132,7 +1093,6 @@ export class StreamWebChatTurnService {
           }
         : await this.persistInterruptedOutcome(prepared, accumulated, respondedAt, false, {
             reuseMessageId: liveSyncMediaPresent.earlyAssistantMessageId,
-            inlineMediaPlacement: liveSyncMediaPresent.inlineMediaPlacement,
             deliveredAttachments: liveSyncMediaPresent.deliveredAttachments
           });
       if (prepared.clientTurnId !== undefined && this.webChatTurnAttemptService) {
@@ -1194,13 +1154,11 @@ export class StreamWebChatTurnService {
     liveSyncMediaPresent: {
       earlyAssistantMessageId: string | null;
       deliveredIdentities: Set<string>;
-      inlineMediaPlacement: InlineMediaPlacementEntry[];
       deliveredAttachments: AssistantWebChatMessageAttachmentState[];
     };
     onMediaAttachments?: (payload: {
       assistantMessageId: string;
       attachments: AssistantWebChatMessageAttachmentState[];
-      afterToolCallId?: string;
     }) => void;
   }): Promise<void> {
     const pending = input.artifacts.filter(
@@ -1283,56 +1241,9 @@ export class StreamWebChatTurnService {
 
     input.liveSyncMediaPresent.deliveredAttachments.push(...succeededAttachments);
 
-    // Place each succeeded attachment under its own producingToolCallId.
-    let afterToolCallId: string | undefined;
-    for (let index = 0; index < succeededArtifacts.length; index += 1) {
-      const artifact = succeededArtifacts[index]!;
-      const attachment =
-        artifact.source === "persai_object_storage"
-          ? deliveredByPath.get(artifact.objectKey)
-          : succeededAttachments[index];
-      if (attachment === undefined) {
-        continue;
-      }
-      const toolCallId =
-        typeof artifact.producingToolCallId === "string" &&
-        artifact.producingToolCallId.trim().length > 0
-          ? artifact.producingToolCallId.trim()
-          : null;
-      if (toolCallId === null) {
-        continue;
-      }
-      afterToolCallId ??= toolCallId;
-      const existing = input.liveSyncMediaPresent.inlineMediaPlacement.find(
-        (entry) => entry.toolCallId === toolCallId
-      );
-      if (existing !== undefined) {
-        if (!existing.attachmentIds.includes(attachment.id)) {
-          existing.attachmentIds.push(attachment.id);
-        }
-      } else {
-        input.liveSyncMediaPresent.inlineMediaPlacement.push({
-          toolCallId,
-          attachmentIds: [attachment.id]
-        });
-      }
-    }
-
-    if (input.liveSyncMediaPresent.inlineMediaPlacement.length > 0) {
-      await this.assistantChatRepository.mergeMessageMetadata(
-        messageId,
-        input.prepared.assistantId,
-        {
-          sourceUserMessageId: input.prepared.userMessage.id,
-          inlineMediaPlacement: input.liveSyncMediaPresent.inlineMediaPlacement
-        }
-      );
-    }
-
     input.onMediaAttachments?.({
       assistantMessageId: messageId,
-      attachments: succeededAttachments,
-      ...(afterToolCallId === undefined ? {} : { afterToolCallId })
+      attachments: succeededAttachments
     });
   }
 
@@ -1352,7 +1263,6 @@ export class StreamWebChatTurnService {
     liveSyncMediaPresent: {
       earlyAssistantMessageId: string | null;
       deliveredIdentities: Set<string>;
-      inlineMediaPlacement: InlineMediaPlacementEntry[];
       deliveredAttachments: AssistantWebChatMessageAttachmentState[];
     };
     onTurnEvent?: (events: PublicTurnEvent[]) => void;
@@ -1408,7 +1318,6 @@ export class StreamWebChatTurnService {
     liveSyncMediaPresent: {
       earlyAssistantMessageId: string | null;
       deliveredIdentities: Set<string>;
-      inlineMediaPlacement: InlineMediaPlacementEntry[];
       deliveredAttachments: AssistantWebChatMessageAttachmentState[];
     };
     onTurnEvent?: (events: PublicTurnEvent[]) => void;
@@ -1448,7 +1357,6 @@ export class StreamWebChatTurnService {
     liveSyncMediaPresent: {
       earlyAssistantMessageId: string | null;
       deliveredIdentities: Set<string>;
-      inlineMediaPlacement: InlineMediaPlacementEntry[];
       deliveredAttachments: AssistantWebChatMessageAttachmentState[];
     };
   }): Promise<void> {
@@ -1460,10 +1368,7 @@ export class StreamWebChatTurnService {
       assistantId: input.prepared.assistantId,
       author: "assistant",
       content: "",
-      metadata: {
-        sourceUserMessageId: input.prepared.userMessage.id,
-        inlineMediaPlacement: []
-      }
+      metadata: { sourceUserMessageId: input.prepared.userMessage.id }
     });
     if (input.prepared.clientTurnId === undefined || this.webChatTurnAttemptService === undefined) {
       input.liveSyncMediaPresent.earlyAssistantMessageId = candidate.id;
@@ -1649,7 +1554,6 @@ export class StreamWebChatTurnService {
       onMediaAttachments?: (payload: {
         assistantMessageId: string;
         attachments: AssistantWebChatMessageAttachmentState[];
-        afterToolCallId?: string;
       }) => void;
       onTurnEvent?: (events: PublicTurnEvent[]) => void;
       onTextTail?: (payload: { messageId: string | null; text: string }) => void;
@@ -1659,7 +1563,6 @@ export class StreamWebChatTurnService {
     liveSyncMediaPresent: {
       earlyAssistantMessageId: string | null;
       deliveredIdentities: Set<string>;
-      inlineMediaPlacement: InlineMediaPlacementEntry[];
       deliveredAttachments: AssistantWebChatMessageAttachmentState[];
     };
     trace: OverviewLatencyTraceHandle;
@@ -1670,7 +1573,6 @@ export class StreamWebChatTurnService {
     status: "completed" | "client-aborted" | "stalled" | "retry_after_compaction";
     accumulated: string;
     finalAnswer: string | null;
-    workingNotes: string[];
     respondedAt: string | null;
     textUsageAccounting: AssistantRuntimeWebChatTurnStreamChunk["textUsageAccounting"];
     turnRouting: AssistantRuntimeWebChatTurnStreamChunk["turnRouting"];
@@ -1687,7 +1589,6 @@ export class StreamWebChatTurnService {
   }> {
     let accumulated = input.attempt === 1 ? input.accumulatedSoFar : "";
     let finalAnswer: string | null = null;
-    let workingNotes: string[] = [];
     let truncated: true | undefined = undefined;
     let respondedAt: string | null = null;
     let textUsageAccounting: AssistantRuntimeWebChatTurnStreamChunk["textUsageAccounting"] =
@@ -1767,7 +1668,6 @@ export class StreamWebChatTurnService {
             status: "client-aborted",
             accumulated,
             finalAnswer: null,
-            workingNotes: [],
             respondedAt,
             textUsageAccounting,
             turnRouting,
@@ -2040,12 +1940,9 @@ export class StreamWebChatTurnService {
           toolInvocations = chunk.toolInvocations;
           toolExchanges = chunk.toolExchanges;
           discoveredFilePaths = chunk.discoveredFilePaths;
-          // Capture the authoritative final answer and working notes from the runtime.
+          // Capture the settled assistant body from the runtime.
           if (typeof chunk.finalAnswer === "string") {
             finalAnswer = chunk.finalAnswer;
-          }
-          if (Array.isArray(chunk.workingNotes)) {
-            workingNotes = chunk.workingNotes;
           }
           if (chunk.truncated === true) {
             truncated = true;
@@ -2101,7 +1998,6 @@ export class StreamWebChatTurnService {
           status: "stalled",
           accumulated,
           finalAnswer: null,
-          workingNotes: [],
           respondedAt,
           textUsageAccounting,
           turnRouting,
@@ -2133,7 +2029,6 @@ export class StreamWebChatTurnService {
           status: "retry_after_compaction",
           accumulated,
           finalAnswer: null,
-          workingNotes: [],
           respondedAt,
           textUsageAccounting,
           turnRouting,
@@ -2158,7 +2053,6 @@ export class StreamWebChatTurnService {
         status: "client-aborted",
         accumulated,
         finalAnswer: null,
-        workingNotes: [],
         respondedAt,
         textUsageAccounting,
         turnRouting,
@@ -2181,7 +2075,6 @@ export class StreamWebChatTurnService {
         status: "completed",
         accumulated,
         finalAnswer,
-        workingNotes,
         respondedAt,
         textUsageAccounting,
         turnRouting,
@@ -2201,7 +2094,6 @@ export class StreamWebChatTurnService {
       status: "completed",
       accumulated,
       finalAnswer,
-      workingNotes,
       respondedAt,
       textUsageAccounting,
       turnRouting,
@@ -2428,7 +2320,6 @@ export class StreamWebChatTurnService {
       messageToolContext === null
         ? null
         : resolvePendingBrowserLoginFromRuntimeTurn({
-            toolInvocations: extractToolInvocationsFromMetadata(messageToolContext.metadata),
             toolExchanges: messageToolContext.toolExchanges ?? undefined
           });
 
@@ -2463,17 +2354,7 @@ export class StreamWebChatTurnService {
         author: assistantMessage.author,
         content: assistantMessage.content,
         attachments: assistantAttachments.map((attachment) => toAttachmentState(attachment)),
-        createdAt: assistantMessage.createdAt.toISOString(),
-        ...(() => {
-          const replayWorkingNotes = extractWorkingNotesFromMetadata(assistantMessage.metadata);
-          const replayToolInvocations = extractToolInvocationsFromMetadata(
-            assistantMessage.metadata
-          );
-          return {
-            ...(replayWorkingNotes.length > 0 ? { workingNotes: replayWorkingNotes } : {}),
-            ...(replayToolInvocations.length > 0 ? { toolInvocations: replayToolInvocations } : {})
-          };
-        })()
+        createdAt: assistantMessage.createdAt.toISOString()
       },
       ...(followUpAssistantMessage === null
         ? {}
@@ -2560,7 +2441,6 @@ export class StreamWebChatTurnService {
     userStopped = false,
     options?: {
       reuseMessageId?: string | null;
-      inlineMediaPlacement?: InlineMediaPlacementEntry[];
       deliveredAttachments?: AssistantWebChatMessageAttachmentState[];
     }
   ): Promise<StreamWebChatTurnOutcomeInterrupted> {
@@ -2582,11 +2462,6 @@ export class StreamWebChatTurnService {
     const lifecycleMetadata: Record<string, unknown> = userStopped
       ? { status: "partial", stopReason: "user_stopped" }
       : { status: "partial" };
-    if (Array.isArray(options?.inlineMediaPlacement) && options.inlineMediaPlacement.length > 0) {
-      lifecycleMetadata.inlineMediaPlacement = options.inlineMediaPlacement;
-      lifecycleMetadata.sourceUserMessageId = prepared.userMessage.id;
-    }
-
     let partialAssistantMessage =
       reuseMessageId === null
         ? null
@@ -2663,11 +2538,7 @@ export class StreamWebChatTurnService {
           createdAt: partialAssistantMessage.createdAt.toISOString(),
           ...(userStopped
             ? { status: "partial" as const, stopReason: "user_stopped" as const }
-            : { status: "partial" as const }),
-          ...(Array.isArray(options?.inlineMediaPlacement) &&
-          options.inlineMediaPlacement.length > 0
-            ? { inlineMediaPlacement: options.inlineMediaPlacement }
-            : {})
+            : { status: "partial" as const })
         },
         runtime: {
           respondedAt: respondedAt ?? partialAssistantMessage.createdAt.toISOString(),

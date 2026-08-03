@@ -4,7 +4,6 @@ import type {
   AssistantWebChatMessageState,
   AssistantWebChatPlatformNoticeState
 } from "./web-chat.types";
-import type { ClientRuntimeTurnToolInvocation } from "./strip-tool-invocations-for-client";
 import {
   projectTurnEventForWire,
   type PublicTurnEvent,
@@ -54,9 +53,6 @@ export function mapAssistantChatMessageToWebState(input: {
   attachments: AssistantWebChatMessageAttachmentState[];
 }): AssistantWebChatMessageState {
   const platformNotice = extractAssistantWebChatPlatformNotice(input.message.metadata);
-  const workingNotes = extractWorkingNotesFromMetadata(input.message.metadata);
-  const toolInvocations = extractToolInvocationsFromMetadata(input.message.metadata);
-  const inlineMediaPlacement = extractInlineMediaPlacementFromMetadata(input.message.metadata);
   const turnEvents = extractTurnEventsFromMetadata(input.message.metadata);
   const conversationalPublish = extractConversationalPublishFromMetadata(input.message.metadata);
   const lifecycle = extractMessageLifecycleFromMetadata(input.message.metadata);
@@ -70,9 +66,6 @@ export function mapAssistantChatMessageToWebState(input: {
     createdAt: input.message.createdAt.toISOString(),
     ...lifecycle,
     ...(platformNotice !== null ? { platformNotice } : {}),
-    ...(workingNotes.length > 0 ? { workingNotes } : {}),
-    ...(toolInvocations.length > 0 ? { toolInvocations } : {}),
-    ...(inlineMediaPlacement.length > 0 ? { inlineMediaPlacement } : {}),
     ...(turnEvents.length > 0 ? { turnEvents } : {}),
     ...(conversationalPublish ? { conversationalPublish: true } : {})
   };
@@ -82,45 +75,6 @@ export function extractConversationalPublishFromMetadata(
   metadata: Record<string, unknown> | null | undefined
 ): boolean {
   return metadata?.conversationalPublish === true;
-}
-
-export function extractWorkingNotesFromMetadata(
-  metadata: Record<string, unknown> | null | undefined
-): string[] {
-  if (metadata === null || metadata === undefined) {
-    return [];
-  }
-  const value = metadata.workingNotes;
-  if (!Array.isArray(value)) {
-    return [];
-  }
-  return value.filter(
-    (entry): entry is string => typeof entry === "string" && entry.trim().length > 0
-  );
-}
-
-export function extractToolInvocationsFromMetadata(
-  metadata: Record<string, unknown> | null | undefined
-): ClientRuntimeTurnToolInvocation[] {
-  if (metadata === null || metadata === undefined) {
-    return [];
-  }
-  const value = metadata.toolInvocations;
-  if (!Array.isArray(value)) {
-    return [];
-  }
-  return value.filter((entry): entry is ClientRuntimeTurnToolInvocation => {
-    if (entry === null || typeof entry !== "object" || Array.isArray(entry)) {
-      return false;
-    }
-    const candidate = entry as Record<string, unknown>;
-    return (
-      typeof candidate.name === "string" &&
-      typeof candidate.iteration === "number" &&
-      Number.isInteger(candidate.iteration) &&
-      typeof candidate.ok === "boolean"
-    );
-  });
 }
 
 const TURN_EVENT_KINDS = new Set([
@@ -169,40 +123,4 @@ export function extractTurnEventsFromMetadata(
       );
     })
     .map(projectTurnEventForWire);
-}
-
-export function extractInlineMediaPlacementFromMetadata(
-  metadata: Record<string, unknown> | null | undefined
-): Array<{ toolCallId: string; attachmentIds: string[] }> {
-  if (metadata === null || metadata === undefined) {
-    return [];
-  }
-  const value = metadata.inlineMediaPlacement;
-  if (!Array.isArray(value)) {
-    return [];
-  }
-  const placements: Array<{ toolCallId: string; attachmentIds: string[] }> = [];
-  for (const entry of value) {
-    if (entry === null || typeof entry !== "object" || Array.isArray(entry)) {
-      continue;
-    }
-    const candidate = entry as Record<string, unknown>;
-    if (typeof candidate.toolCallId !== "string" || candidate.toolCallId.trim().length === 0) {
-      continue;
-    }
-    if (!Array.isArray(candidate.attachmentIds)) {
-      continue;
-    }
-    const attachmentIds = candidate.attachmentIds.filter(
-      (id): id is string => typeof id === "string" && id.trim().length > 0
-    );
-    if (attachmentIds.length === 0) {
-      continue;
-    }
-    placements.push({
-      toolCallId: candidate.toolCallId.trim(),
-      attachmentIds
-    });
-  }
-  return placements;
 }

@@ -81,8 +81,6 @@ export interface RuntimeUrlMediaArtifact {
   caption?: string;
   downloadUrl?: string | null;
   billingFacts?: RuntimeBillingFacts | null;
-  /** ADR-165 — tool call that produced this artifact (sync in-loop image present). */
-  producingToolCallId?: string | null;
 }
 
 export interface PersaiObjectStorageRuntimeMediaArtifact {
@@ -98,8 +96,6 @@ export interface PersaiObjectStorageRuntimeMediaArtifact {
   caption?: string;
   downloadUrl?: string | null;
   billingFacts?: RuntimeBillingFacts | null;
-  /** ADR-165 — tool call that produced this artifact (sync in-loop image present). */
-  producingToolCallId?: string | null;
 }
 
 export type RuntimeMediaArtifact =
@@ -199,8 +195,6 @@ export interface AssistantRuntimeWebChatTurnStreamChunk {
   discoveredFilePaths?: string[];
   /** The authoritative final answer from the runtime `completed` event. Carried on `done` only. */
   finalAnswer?: string;
-  /** The texts the model wrote before each tool call across the tool loop. Empty when no tools ran. Carried on `done` only. */
-  workingNotes?: string[];
   /** ADR-122 Slice 3: true when the provider stopped due to max_output_tokens. Carried on `done` only. */
   truncated?: boolean;
   /** ADR-170 S2 — carried on `turn_event` chunks only: the live draft the runtime just emitted. */
@@ -330,11 +324,7 @@ export function runtimeOutputArtifactsToMediaArtifacts(
         ? {}
         : { billingFacts: artifact.billingFacts }),
       ...(artifact.caption ? { caption: artifact.caption } : {}),
-      ...(artifact.voiceNote ? { audioAsVoice: true } : {}),
-      ...(typeof artifact.producingToolCallId === "string" &&
-      artifact.producingToolCallId.trim().length > 0
-        ? { producingToolCallId: artifact.producingToolCallId.trim() }
-        : {})
+      ...(artifact.voiceNote ? { audioAsVoice: true } : {})
     });
   }
   return mediaArtifacts;

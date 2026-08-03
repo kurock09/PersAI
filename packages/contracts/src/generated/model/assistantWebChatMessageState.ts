@@ -19,8 +19,6 @@ export interface AssistantWebChatMessageState {
   createdAt: string;
   /** @nullable */
   platformNotice?: AssistantWebChatMessageStatePlatformNotice;
-  /** The texts the model produced before each tool call across the tool loop, one entry per step. Absent/empty when no tools ran. */
-  workingNotes?: string[];
   /** ADR-170 — the durable, server-numbered fact log for this message's turn, sorted by `seq`. Absent/empty for a historical message with no log. */
   turnEvents?: TurnEvent[];
   /** ADR-170 D9 — this message was created by ConversationalPublish. */

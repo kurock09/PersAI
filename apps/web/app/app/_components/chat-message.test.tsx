@@ -2507,42 +2507,6 @@ describe("ChatMessageBubble — pre-response status", () => {
     expect(screen.queryByText(/browser/)).not.toBeInTheDocument();
     expect(screen.queryByText(/todo write/)).not.toBeInTheDocument();
   });
-
-  // ADR-125 follow-up: per-message engagement annotation moved to the chat
-  // header subtitle. Process badges do not reintroduce skill/scenario text.
-  it("never renders an engagement annotation in the process badge row", () => {
-    render(
-      <ChatMessageBubble
-        chatId="chat-1"
-        message={makeAssistantMessage({
-          status: "committed",
-          content: "Done.",
-          turnEvents: [noteEvent(1, "Checking facts."), answerTextEvent(2, "Done.")]
-        })}
-      />
-    );
-
-    expect(screen.queryByTestId("engagement-annotation")).not.toBeInTheDocument();
-  });
-});
-
-describe("ChatMessageBubble — normal assistant layout (ADR-167 D3)", () => {
-  it("does not render any remembered assistant-body min-height shell", () => {
-    render(
-      <ChatMessageBubble
-        chatId="chat-1"
-        message={makeAssistantMessage({
-          status: "committed",
-          content: "Short final answer.",
-          attachments: [makeImageAttachment("att-no-min-height")]
-        })}
-      />
-    );
-
-    expect(screen.queryByTestId("assistant-body-high-water")).toBeNull();
-    expect(document.body.innerHTML).not.toMatch(/min-height:\s*\d+px/i);
-    expect(document.body.innerHTML).not.toMatch(/min-h-\[8\.75rem\]/);
-  });
 });
 
 describe("resolveInternalChatCta", () => {

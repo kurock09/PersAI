@@ -1,17 +1,23 @@
 import { pathToFileURL } from "node:url";
 
 async function run(): Promise<void> {
-  const [modulePath, exportName] = process.argv.slice(2);
-  if (!modulePath || !exportName) {
-    throw new Error("Usage: tsx test/run-one.ts <modulePath> <exportName>");
+  const [modulePath] = process.argv.slice(2);
+  if (!modulePath) {
+    throw new Error("Usage: tsx test/run-one.ts <modulePath>");
   }
-  const moduleUrl = pathToFileURL(modulePath).href;
-  const loaded = (await import(moduleUrl)) as Record<string, unknown>;
-  const candidate = loaded[exportName];
-  if (typeof candidate !== "function") {
-    throw new Error(`Export "${exportName}" was not found in ${modulePath}.`);
+  const loaded = (await import(pathToFileURL(modulePath).href)) as Record<string, unknown>;
+  const runners = Object.entries(loaded)
+    .filter(([name, value]) => /^run.+Test$/u.test(name) && typeof value === "function")
+    .sort(([left], [right]) => left.localeCompare(right));
+
+  if (runners.length === 0) {
+    return;
   }
-  await (candidate as () => Promise<void>)();
+  // Every exported `run*Test` function is a file entry point. Shared helpers
+  // must not be exported; this replaces the old hand-maintained selection list.
+  for (const [, candidate] of runners) {
+    await (candidate as () => Promise<void>)();
+  }
 }
 
 run().catch((error) => {

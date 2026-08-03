@@ -319,8 +319,7 @@ export class InternalRuntimeAsyncContinuationClientService {
       typeof value.respondedAt !== "string" ||
       value.respondedAt.length === 0 ||
       !Array.isArray(value.artifacts) ||
-      !(value.usage === null || (this.isRecord(value.usage) && !Array.isArray(value.usage))) ||
-      (value.answerText !== undefined && typeof value.answerText !== "string")
+      !(value.usage === null || (this.isRecord(value.usage) && !Array.isArray(value.usage)))
     ) {
       return false;
     }

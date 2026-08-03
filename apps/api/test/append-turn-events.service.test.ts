@@ -298,16 +298,15 @@ describe("append-turn-events.service", () => {
     );
   });
 
-  test("preserves other metadata keys untouched (D5.2 — no deletion of coexisting fields)", async () => {
+  test("preserves unrelated metadata keys untouched", async () => {
     const double = createPrismaDouble({
-      initialMetadata: { workingNotes: ["kept"], sourceUserMessageId: "user-message-1" }
+      initialMetadata: { sourceUserMessageId: "user-message-1" }
     });
     const service = new AppendTurnEventsService(double.prisma as never);
 
     await service.append({ messageId: MESSAGE_ID, drafts: [note("first")] });
 
     const metadata = double.getMetadata();
-    assert.deepEqual(metadata.workingNotes, ["kept"]);
     assert.equal(metadata.sourceUserMessageId, "user-message-1");
     assert.ok(Array.isArray(metadata.turnEvents));
   });

@@ -522,6 +522,7 @@ describe("runtime media request parsing", () => {
     ).parseInput({
       assistantId: "assistant-1",
       workspaceId: "workspace-1",
+      runtimeSessionId: "session-1",
       runtimeTier: "paid_shared_restricted",
       runtimeBundleDocument: "{}",
       job: {

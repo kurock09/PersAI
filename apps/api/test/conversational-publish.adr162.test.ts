@@ -316,7 +316,7 @@ describe("ADR-162 Phase 1 ConversationalPublish", () => {
             };
             facts: Record<string, unknown>;
           },
-          turnResult: { answerText: string }
+          turnResult: { assistantText: string }
         ) => Promise<{ outcome: string; messageId: string }>;
       }
     ).persistOutputOnce(
@@ -331,7 +331,7 @@ describe("ADR-162 Phase 1 ConversationalPublish", () => {
         },
         facts: { jobRef: "jr1" }
       },
-      { answerText: "Here is your cat." }
+      { assistantText: "Here is your cat." }
     );
 
     assert.deepEqual(persisted, { outcome: "existing", messageId: "publish-msg-1" });

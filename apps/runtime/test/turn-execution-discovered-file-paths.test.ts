@@ -23,6 +23,7 @@ type TurnExecutionState = {
   closedOpenLoopRefs: string[];
   sharedCompaction: { invoked: boolean; durableStatePersisted: boolean };
   discoveredFilePathSet: string[];
+  turnEvents: unknown[];
 };
 
 type ToolExecutionOutcomeShape = {
@@ -41,7 +42,8 @@ function createTurnState(): TurnExecutionState {
     deferredDocumentJobs: [],
     closedOpenLoopRefs: [],
     sharedCompaction: { invoked: false, durableStatePersisted: false },
-    discoveredFilePathSet: []
+    discoveredFilePathSet: [],
+    turnEvents: []
   };
 }
 

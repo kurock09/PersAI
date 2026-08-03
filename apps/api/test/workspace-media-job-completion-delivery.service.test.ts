@@ -2231,7 +2231,7 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
           assistantId: "assistant-1",
           author: "assistant" as const,
           createdAt: new Date(),
-          metadata: { inlineMediaPlacement: [] }
+          metadata: {}
         }),
         updateMessageContent: async () => null,
         mergeMessageMetadata: async () => undefined
@@ -2336,9 +2336,9 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
     // tool call — the tool call that *started* the async job, not the one
     // producing it — put the receipt above every note the model wrote while
     // the job was still in flight, including notes said immediately after
-    // enqueueing. `requestJson.sourceToolCallId` must never become
-    // `afterToolCallId`/`inlineMediaPlacement`; only a real
-    // `artifact.producingToolCallId` (worker artifacts never set this) may.
+    // enqueueing. Per ADR-170, deferred media receipts are ordered by the
+    // server-numbered `delivery` event in the turn event log; enqueue-time
+    // tool call ids never bind a receipt.
     const mergeMessageMetadataCalls: Array<Record<string, unknown>> = [];
     const publishMediaCalls: Array<Record<string, unknown>> = [];
 
@@ -2422,7 +2422,7 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
           assistantId: "assistant-1",
           author: "assistant" as const,
           createdAt: new Date(),
-          metadata: { inlineMediaPlacement: [] }
+          metadata: {}
         }),
         updateMessageContent: async () => null,
         mergeMessageMetadata: async (
@@ -2494,10 +2494,8 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
 
     assert.equal(processed, 1);
     assert.equal(publishMediaCalls.length, 1);
-    // No `afterToolCallId` key at all — never the enqueue-time id.
-    assert.equal("afterToolCallId" in publishMediaCalls[0]!, false);
-    // No inlineMediaPlacement write either — an unbound receipt renders
-    // after current content/notes on the client, not at a stale position.
+    // Per ADR-170, ordering comes from the server-numbered `delivery` event
+    // in the turn event log, not from any tool-call-bound message metadata.
     assert.equal(mergeMessageMetadataCalls.length, 0);
   });
 
@@ -2752,14 +2750,7 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
           assistantId: "assistant-1",
           author: "assistant" as const,
           createdAt: new Date(),
-          metadata: {
-            inlineMediaPlacement: [
-              {
-                toolCallId: "call-img-retry-1",
-                attachmentIds: ["attachment-retry-1"]
-              }
-            ]
-          }
+          metadata: {}
         }),
         updateMessageContent: async () => null,
         mergeMessageMetadata: async () => undefined
@@ -3020,7 +3011,6 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
     const publishMediaCalls: Array<{
       assistantMessageId?: string;
       attachments?: Array<{ id: string }>;
-      afterToolCallId?: string;
     }> = [];
     const openJobsSnapshotCounts: number[] = [];
     const claimOutcomes: string[] = [];
@@ -3131,7 +3121,7 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
           assistantId: "assistant-1",
           author: "assistant" as const,
           createdAt: new Date(),
-          metadata: { inlineMediaPlacement: [] }
+          metadata: {}
         }),
         updateMessageContent: async () => null,
         mergeMessageMetadata: async () => undefined
@@ -3195,11 +3185,7 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
           claimOutcomes.push("newly_claimed");
           return "newly_claimed";
         },
-        publishMedia(input: {
-          assistantMessageId?: string;
-          attachments?: Array<{ id: string }>;
-          afterToolCallId?: string;
-        }) {
+        publishMedia(input: { assistantMessageId?: string; attachments?: Array<{ id: string }> }) {
           publishMediaCalls.push(input);
         },
         async publishOpenJobsSnapshot() {

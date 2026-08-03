@@ -84,17 +84,17 @@ function createCompletionService(overrides?: {
           leaseReleased: true
         };
       },
-      failAcceptedTurn: async () => {
-        throw new Error("should not fail");
+      // Surface why completion failed instead of hiding it behind a bare label.
+      failAcceptedTurn: async (_acceptedTurn: unknown, failure: unknown) => {
+        throw new Error(`unexpected media-job completion failure: ${JSON.stringify(failure)}`);
       }
     } as never,
     new RuntimeExecutionAdmissionService(new RuntimeObservabilityService()),
     {
-      downloadObject:
-        overrides?.downloadObject ??
-        (async () => {
-          return null;
-        })
+      downloadByWorkspacePath: async (input: { storagePath: string }) =>
+        overrides?.downloadObject === undefined
+          ? null
+          : await overrides.downloadObject(input.storagePath)
     } as never
   );
 

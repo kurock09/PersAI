@@ -724,9 +724,7 @@ function mapMessage(message: unknown): Record<string, unknown> | null {
   return {
     id: row.id ?? null,
     content: row.content ?? "",
-    attachments,
-    toolInvocations: row.toolInvocations ?? [],
-    workingNotes: row.workingNotes ?? []
+    attachments
   };
 }
 

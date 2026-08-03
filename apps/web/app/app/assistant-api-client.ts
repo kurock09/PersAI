@@ -217,7 +217,6 @@ import {
 } from "@persai/contracts";
 import type {
   PendingBrowserLoginState,
-  RuntimeTurnToolInvocation,
   RuntimeTodoItem,
   AssistantBrowserProfileStatus
 } from "@persai/runtime-contract";
@@ -395,7 +394,6 @@ type WebChatStreamEvent =
       data: {
         assistantMessageId: string;
         attachments: ChatHistoryAttachment[];
-        afterToolCallId?: string;
       };
     }
   | {
@@ -517,11 +515,7 @@ export interface AssistantWebChatStreamHandlers {
     };
   }) => void;
   /** ADR-165 — media attached to the live assistant bubble (stream or job-deliver). */
-  onMedia?: (payload: {
-    assistantMessageId: string;
-    attachments: ChatHistoryAttachment[];
-    afterToolCallId?: string;
-  }) => void;
+  onMedia?: (payload: { assistantMessageId: string; attachments: ChatHistoryAttachment[] }) => void;
   onActivity?: (payload: {
     source: "skill" | "user" | "product" | "web";
     phase: "start";
@@ -1248,16 +1242,11 @@ function toStreamEvent(eventName: string, payload: unknown): WebChatStreamEvent 
     ) {
       return null;
     }
-    const afterToolCallId =
-      typeof body.afterToolCallId === "string" && body.afterToolCallId.trim().length > 0
-        ? body.afterToolCallId.trim()
-        : undefined;
     return {
       event: "media",
       data: {
         assistantMessageId: body.assistantMessageId.trim(),
-        attachments: body.attachments as ChatHistoryAttachment[],
-        ...(afterToolCallId === undefined ? {} : { afterToolCallId })
+        attachments: body.attachments as ChatHistoryAttachment[]
       }
     };
   }
@@ -2982,10 +2971,6 @@ export type ChatHistoryMessage = {
     kind: "safety_inbound_warn" | "safety_inbound_restricted";
     reasonCode: string;
   } | null;
-  workingNotes?: string[];
-  toolInvocations?: RuntimeTurnToolInvocation[];
-  /** ADR-165 — organic in-loop image placement after F5 / history reload. */
-  inlineMediaPlacement?: Array<{ toolCallId: string; attachmentIds: string[] }>;
   /** ADR-170 — the durable, server-numbered fact log for this message's turn, sorted by `seq`. */
   turnEvents?: TurnEvent[];
   /** ADR-170 D9 — durable ConversationalPublish provenance. */

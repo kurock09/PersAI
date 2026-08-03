@@ -1579,7 +1579,6 @@ describe("AssistantAsyncJobContinuationSchedulerService", () => {
           requestId: "runtime-1",
           sessionId: "session-1",
           assistantText: "Done.",
-          answerText: "Done.",
           artifacts: [],
           respondedAt: "2026-07-18T00:00:00.000Z",
           usage: null
@@ -1758,7 +1757,6 @@ describe("AssistantAsyncJobContinuationSchedulerService", () => {
               requestId: "runtime-stuck",
               sessionId: "session-1",
               assistantText: "Late.",
-              answerText: "Late.",
               artifacts: [],
               respondedAt: "2026-07-18T00:00:00.000Z",
               usage: null

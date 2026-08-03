@@ -645,37 +645,6 @@ describe("ManageWebChatListService", () => {
     assert.equal(attachment?.path, "chat-1/msg-1/a.png");
   });
 
-  test("returns tool invocations from assistant message metadata", async () => {
-    const { service } = createService({
-      messages: [
-        {
-          id: "msg-1",
-          chatId: "chat-1",
-          assistantId: "assistant-1",
-          author: "assistant",
-          content: "Found it.",
-          metadata: {
-            workingNotes: ["Проверяю источник."],
-            toolInvocations: [
-              { name: "knowledge_search", iteration: 0, ok: true, toolCallId: "tool-1" }
-            ]
-          },
-          createdAt: new Date("2026-06-23T00:00:00.000Z")
-        }
-      ]
-    });
-
-    const result = await service.listChatMessages("user-1", "chat-1", {
-      cursor: null,
-      limit: 20
-    });
-
-    assert.deepEqual(result.messages[0]?.workingNotes, ["Проверяю источник."]);
-    assert.deepEqual(result.messages[0]?.toolInvocations, [
-      { name: "knowledge_search", iteration: 0, ok: true, toolCallId: "tool-1" }
-    ]);
-  });
-
   test("does not expose server-only tool exchanges on client message reads", async () => {
     const { service } = createService({
       messages: [
@@ -686,7 +655,17 @@ describe("ManageWebChatListService", () => {
           author: "assistant",
           content: "Done.",
           metadata: {
-            toolInvocations: [{ name: "knowledge_search", iteration: 0, ok: true }]
+            turnEvents: [
+              {
+                kind: "tool_call",
+                at: "2026-07-02T18:30:00.000Z",
+                seq: 1,
+                name: "knowledge_search",
+                ok: true,
+                executionMode: "sync",
+                toolCallId: "tool-call-1"
+              }
+            ]
           },
           toolExchanges: [
             {
@@ -713,11 +692,10 @@ describe("ManageWebChatListService", () => {
       limit: 20
     });
 
-    assert.deepEqual(result.messages[0]?.toolInvocations, [
-      { name: "knowledge_search", iteration: 0, ok: true }
-    ]);
     assert.equal("toolExchanges" in (result.messages[0] ?? {}), false);
     assert.equal(JSON.stringify(result.messages[0]).includes("private tool result body"), false);
+    // The client learns that a tool ran, never what it was asked or answered.
+    assert.equal(JSON.stringify(result.messages[0]).includes("private"), false);
   });
 
   test("hard-deletes a chat after removing runtime/media state", async () => {

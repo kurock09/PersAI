@@ -3,7 +3,6 @@ import type {
   ProviderGatewayToolExchange,
   RuntimeTurnToolInvocation
 } from "@persai/runtime-contract";
-import type { ClientRuntimeTurnToolInvocation } from "./strip-tool-invocations-for-client";
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
@@ -119,10 +118,7 @@ function browserLoginSucceeded(
 }
 
 export function extractPendingBrowserLoginFromTurn(
-  toolInvocations?:
-    | readonly RuntimeTurnToolInvocation[]
-    | readonly ClientRuntimeTurnToolInvocation[]
-    | undefined,
+  toolInvocations?: readonly RuntimeTurnToolInvocation[] | undefined,
   toolExchanges?: readonly ProviderGatewayToolExchange[] | undefined
 ): PendingBrowserLoginState | null {
   if (toolExchanges === undefined || toolExchanges.length === 0) {

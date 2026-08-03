@@ -39,8 +39,7 @@ type TurnEventEmissionAccessor = {
     providerResult: unknown,
     turnState: unknown,
     routeDecision?: unknown,
-    trace?: unknown,
-    workingNotesAndAnswer?: unknown
+    trace?: unknown
   ): { assistantText: string; turnEvents?: TurnEventDraft[] };
 };
 

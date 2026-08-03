@@ -1,330 +1,36 @@
-import { spawn } from "node:child_process";
-import path from "node:path";
+import { spawnSync } from "node:child_process";
+import { globSync, readFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const tsxCliPath = require.resolve("tsx/cli");
+const require = createRequire(import.meta.url);
+const testDir = dirname(fileURLToPath(import.meta.url));
+const tsxPackagePath = require.resolve("tsx/package.json");
+const tsxCliPath = join(dirname(tsxPackagePath), "dist", "cli.mjs");
 
-type TestEntry =
-  | { modulePath: string; exportName: string; mode?: undefined }
-  // `mode: "node-test"` runs the whole file under Node's built-in test
-  // runner (`tsx --test <file>`) for files written with bare `describe`/
-  // `test` from `node:test` instead of exporting a named async run
-  // function. Use only for files that cannot be trivially converted to
-  // the exportName convention.
-  | { modulePath: string; exportName?: undefined; mode: "node-test" };
+const testFiles = globSync("*.test.ts", { cwd: testDir })
+  .filter((file) => !file.includes(".e2e.") && !file.includes(".integration."))
+  .sort();
 
-const TESTS: TestEntry[] = [
-  { modulePath: "./runtime-config.test.ts", exportName: "runRuntimeConfigTest" },
-  {
-    modulePath: "./runtime-bundle-coordinator.service.test.ts",
-    exportName: "runRuntimeBundleCoordinatorServiceTest"
-  },
-  {
-    modulePath: "./runtime-bundle-registry.service.test.ts",
-    exportName: "runRuntimeBundleRegistryServiceTest"
-  },
-  {
-    modulePath: "./runtime-bundle-auto-refresh.service.test.ts",
-    exportName: "runRuntimeBundleAutoRefreshServiceTest"
-  },
-  {
-    modulePath: "./runtime-state-keyspace.service.test.ts",
-    exportName: "runRuntimeStateKeyspaceServiceTest"
-  },
-  {
-    modulePath: "./runtime-state-postgres.service.test.ts",
-    exportName: "runRuntimeStatePostgresServiceTest"
-  },
-  {
-    modulePath: "./runtime-state-redis.service.test.ts",
-    exportName: "runRuntimeStateRedisServiceTest"
-  },
-  {
-    modulePath: "./provider-gateway.client.service.test.ts",
-    exportName: "runProviderGatewayClientServiceTest"
-  },
-  {
-    modulePath: "./runtime-media-transcription.service.test.ts",
-    exportName: "runRuntimeMediaTranscriptionServiceTest"
-  },
-  {
-    modulePath: "./runtime-background-task-evaluation.service.test.ts",
-    exportName: "runRuntimeBackgroundTaskEvaluationServiceTest"
-  },
-  {
-    modulePath: "./runtime-background-task-evaluation.service.test.ts",
-    exportName: "runQuotaAdvisoryClassificationTest"
-  },
-  {
-    modulePath: "./runtime-background-task-evaluation.service.test.ts",
-    exportName: "runUniqueExternalThreadKeyTest"
-  },
-  {
-    modulePath: "./runtime-background-task-evaluation.service.test.ts",
-    exportName: "runLegacyThreadKeyFallbackTest"
-  },
-  {
-    modulePath: "./runtime-background-task-evaluation.service.test.ts",
-    exportName: "runEmptyAttemptIdFallsBackToLegacyKeyTest"
-  },
-  {
-    modulePath: "./runtime-quota-status-tool.service.test.ts",
-    exportName: "runRuntimeQuotaStatusToolServiceTest"
-  },
-  {
-    modulePath: "./runtime-scheduled-action-tool.service.test.ts",
-    exportName: "runRuntimeScheduledActionToolServiceTest"
-  },
-  { modulePath: "./runtime-tts-tool.service.test.ts", exportName: "runRuntimeTtsToolServiceTest" },
-  {
-    modulePath: "./runtime-email-send-tool.service.test.ts",
-    exportName: "runRuntimeEmailSendToolServiceTest"
-  },
-  {
-    modulePath: "./runtime-browser-tool.service.test.ts",
-    exportName: "runRuntimeBrowserToolServiceTest"
-  },
-  {
-    modulePath: "./runtime-await-tool.service.test.ts",
-    exportName: "runRuntimeAwaitToolServiceTest"
-  },
-  {
-    modulePath: "./adr157-image-perception-wire.test.ts",
-    exportName: "runAdr157ImagePerceptionWireTest"
-  },
-  {
-    modulePath: "./persai-internal-api-async-job-status.test.ts",
-    exportName: "runPersaiInternalApiAsyncJobStatusTest"
-  },
-  {
-    modulePath: "./runtime-video-generate-tool.service.test.ts",
-    exportName: "runRuntimeVideoGenerateToolServiceTest"
-  },
-  {
-    modulePath: "./runtime-memory-write-tool.service.test.ts",
-    exportName: "runRuntimeMemoryWriteToolServiceTest"
-  },
-  {
-    modulePath: "./runtime-todo-write-tool.service.test.ts",
-    exportName: "runRuntimeTodoWriteToolServiceTest"
-  },
-  {
-    modulePath: "./runtime-skill-tool.service.test.ts",
-    exportName: "runRuntimeSkillToolServiceTest"
-  },
-  {
-    modulePath: "./runtime-script-tool.service.test.ts",
-    exportName: "runRuntimeScriptToolServiceTest"
-  },
-  {
-    modulePath: "./runtime-script-browser-broker.service.test.ts",
-    exportName: "runRuntimeScriptBrowserBrokerServiceTest"
-  },
-  {
-    modulePath: "./build-active-scenario-block.service.test.ts",
-    exportName: "runBuildActiveScenarioBlockServiceTest"
-  },
-  { modulePath: "./session-store.service.test.ts", exportName: "runSessionStoreServiceTest" },
-  { modulePath: "./session-lease.service.test.ts", exportName: "runSessionLeaseServiceTest" },
-  {
-    modulePath: "./session-compaction.service.test.ts",
-    exportName: "runSessionCompactionServiceTest"
-  },
-  { modulePath: "./idempotency.service.test.ts", exportName: "runIdempotencyServiceTest" },
-  { modulePath: "./adr149-receipt-reconcile.test.ts", exportName: "runAdr149ReceiptReconcileTest" },
-  {
-    modulePath: "./adr149-tool-abort-on-stop.test.ts",
-    exportName: "runAdr149ToolAbortOnStopTest"
-  },
-  { modulePath: "./turn-acceptance.service.test.ts", exportName: "runTurnAcceptanceServiceTest" },
-  {
-    modulePath: "./prompt-cache-stable-blocks.test.ts",
-    exportName: "runPromptCacheStableBlocksTest"
-  },
-  {
-    modulePath: "./prompt-cache-stable-prefix-guard.test.ts",
-    exportName: "runPromptCacheStablePrefixGuardTest"
-  },
-  {
-    modulePath: "./cross-session-carry-over-renderer.test.ts",
-    exportName: "runCrossSessionCarryOverRendererTest"
-  },
-  { modulePath: "./relative-time-formatter.test.ts", exportName: "runRelativeTimeFormatterTest" },
-  { modulePath: "./presence-renderer.test.ts", exportName: "runPresenceRendererTest" },
-  {
-    modulePath: "./turn-context-hydration.service.test.ts",
-    exportName: "runTurnContextHydrationServiceTest"
-  },
-  {
-    modulePath: "./turn-context-hydration.service.test.ts",
-    exportName: "runChatPlanBlockTest"
-  },
-  { modulePath: "./tool-budget-policy.test.ts", exportName: "runToolBudgetPolicyTest" },
-  {
-    modulePath: "./assemble-working-notes-and-answer.test.ts",
-    exportName: "runAssembleWorkingNotesAndAnswerTest"
-  },
-  {
-    modulePath: "./build-system-reminder-blocks.service.test.ts",
-    exportName: "runBuildSystemReminderBlocksServiceTest"
-  },
-  {
-    modulePath: "./sanitize-tool-result-for-model.test.ts",
-    exportName: "runSanitizeToolResultForModelTest"
-  },
-  {
-    modulePath: "./project-tool-exchanges-for-model.test.ts",
-    exportName: "runProjectToolExchangesForModelTest"
-  },
-  {
-    modulePath: "./tool-observation-spill.test.ts",
-    exportName: "runToolObservationSpillTest"
-  },
-  {
-    modulePath: "./prior-tool-exchange-replay.test.ts",
-    exportName: "runPriorToolExchangeReplayTest"
-  },
-  {
-    modulePath: "./deepseek-tool-loop-developer-freeze.test.ts",
-    exportName: "runDeepseekToolLoopDeveloperFreezeTest"
-  },
-  { modulePath: "./turn-execution.service.test.ts", exportName: "runTurnExecutionServiceTest" },
-  {
-    modulePath: "./turn-execution.service.test.ts",
-    exportName: "runTurnExecutionAwaitDispatchTest"
-  },
-  {
-    modulePath: "./turn-execution.service.test.ts",
-    exportName: "runAsyncContinuationAcceptanceTest"
-  },
-  {
-    modulePath: "./turn-execution.service.test.ts",
-    exportName: "runAdr151TurnDispatchIntegrationTest"
-  },
-  { modulePath: "./turn-execution.service.test.ts", exportName: "runRecentPdfsHintTests" },
-  {
-    modulePath: "./turn-execution.service.test.ts",
-    exportName: "runTurnExecutionEmailSendDispatchTest"
-  },
-  {
-    modulePath: "./turn-finalization.service.test.ts",
-    exportName: "runTurnFinalizationServiceTest"
-  },
-  {
-    modulePath: "./turn-lease-heartbeat.service.test.ts",
-    exportName: "runTurnLeaseHeartbeatServiceTest"
-  },
-  {
-    modulePath: "./internal-runtime-document-jobs.controller.test.ts",
-    exportName: "runInternalRuntimeDocumentJobsControllerTest"
-  },
-  { modulePath: "./turn-routing.service.test.ts", exportName: "runTurnRoutingServiceTest" },
-  {
-    modulePath: "./execution-profile-resolver.test.ts",
-    exportName: "runExecutionProfileResolverTest"
-  },
-  {
-    modulePath: "./native-tool-projection.test.ts",
-    exportName: "runNativeToolProjectionTest"
-  },
-  {
-    modulePath: "./catalog-tool-wire-expansion.test.ts",
-    exportName: "runCatalogToolWireExpansionTest"
-  },
-  {
-    modulePath: "./runtime-tool-contract-describe.test.ts",
-    exportName: "runRuntimeToolContractDescribeTest"
-  },
-  {
-    modulePath: "./catalog-tool-wire-budget.test.ts",
-    exportName: "runCatalogToolWireBudgetTest"
-  },
-  {
-    modulePath: "./catalog-tool-turn-metrics.test.ts",
-    exportName: "runCatalogToolTurnMetricsTest"
-  },
-  {
-    modulePath: "./native-tool-projection.test.ts",
-    exportName: "runMediaPromptFragmentsSanityTest"
-  },
-  {
-    modulePath: "./native-tool-projection.test.ts",
-    exportName: "runAdr119Slice7DescriptorTests"
-  },
-  {
-    modulePath: "./native-tool-projection.test.ts",
-    exportName: "runAdr119Invariantstest"
-  },
-  {
-    modulePath: "./adr119-golden-prompt-snapshot.test.ts",
-    exportName: "runAdr119GoldenPromptSnapshotTest"
-  },
-  {
-    modulePath: "./runtime-document-provider-adapter.service.test.ts",
-    exportName: "runRuntimeDocumentProviderAdapterServiceTest"
-  },
-  {
-    modulePath: "./runtime-document-tool.service.test.ts",
-    exportName: "runRuntimeDocumentToolServiceTest"
-  },
-  {
-    modulePath: "./model-output-budget.test.ts",
-    exportName: "runModelOutputBudgetTest"
-  },
-  {
-    modulePath: "./runtime-text-only-multimodal-sanitizer.test.ts",
-    exportName: "runRuntimeTextOnlyMultimodalSanitizerTest"
-  },
-  // Regression guard (2026-07-30): these two files were never registered in
-  // this suite, so a 2026-07-20 unrelated edit silently reverted the
-  // model-owned-reply policy (any non-empty model text alongside a deferred
-  // media/document job must be preserved verbatim; the canonical "Запрос
-  // принят…" line is a fallback for empty text only) without any test
-  // failing anywhere in the standard gate. Register them so this cannot
-  // regress silently again.
-  { modulePath: "./deferred-media-acknowledgement.test.ts", mode: "node-test" },
-  { modulePath: "./deferred-document-acknowledgement.test.ts", mode: "node-test" },
-  // ADR-170 S1 — turn event log contract + emission.
-  { modulePath: "./note-display.test.ts", mode: "node-test" },
-  { modulePath: "./turn-event-emission.test.ts", exportName: "runTurnEventEmissionTest" }
-];
-
-function runOneTest(entry: TestEntry): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const absoluteModulePath = path.resolve(__dirname, entry.modulePath);
-    const modulePath = entry.modulePath;
-    const args =
-      entry.mode === "node-test"
-        ? [tsxCliPath, "--test", absoluteModulePath]
-        : [tsxCliPath, path.resolve(__dirname, "run-one.ts"), absoluteModulePath, entry.exportName];
-    const child = spawn(process.execPath, args, {
-      cwd: path.resolve(__dirname, ".."),
-      stdio: "inherit",
-      env: process.env
-    });
-    child.on("error", reject);
-    child.on("exit", (code, signal) => {
-      if (code === 0) {
-        resolve();
-        return;
-      }
-      reject(
-        new Error(
-          `Runtime test ${path.basename(modulePath)} (${
-            entry.exportName ?? "node-test"
-          }) failed with code ${code ?? "null"} signal ${signal ?? "none"}.`
-        )
-      );
-    });
-  });
+if (testFiles.length === 0) {
+  throw new Error(`No runtime test files found in ${testDir}.`);
 }
 
-async function run(): Promise<void> {
-  for (const test of TESTS) {
-    await runOneTest(test);
+for (const file of testFiles) {
+  const fullPath = join(testDir, file);
+  process.stdout.write(`\n[runtime test suite] ${file}\n`);
+  const isNodeTest = /from\s+["']node:test["']/u.test(readFileSync(fullPath, "utf8"));
+  const args = isNodeTest
+    ? [tsxCliPath, "--test", fullPath]
+    : [tsxCliPath, join(testDir, "run-one.ts"), fullPath];
+  const result = spawnSync(process.execPath, args, {
+    cwd: dirname(testDir),
+    stdio: "inherit",
+    env: process.env
+  });
+
+  if (result.status !== 0) {
+    process.exit(result.status ?? 1);
   }
 }
-
-run().catch((error) => {
-  console.error(error);
-  process.exitCode = 1;
-});

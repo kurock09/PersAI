@@ -41,7 +41,6 @@ import { RecordModelCostLedgerService } from "./record-model-cost-ledger.service
 import { RecordToolPathLedgerFromToolInvocationsService } from "./record-tool-path-ledger-from-tool-invocations.service";
 import { persistAssistantMessage } from "./persist-assistant-message";
 import { AssistantAsyncJobHandleStateService } from "./assistant-async-job-handle-state.service";
-import { stripToolInvocationsForClient } from "./strip-tool-invocations-for-client";
 import { resolvePendingBrowserLoginFromRuntimeTurn } from "./resolve-pending-browser-login-for-web-chat";
 import type { PendingBrowserLoginState } from "@persai/runtime-contract";
 import { WebRuntimeSessionStateClientService } from "./web-runtime-session-state-client.service";
@@ -512,11 +511,6 @@ export class HandleInternalTelegramTurnService {
           toolExchanges:
             runtimeResponse.toolExchanges !== undefined && runtimeResponse.toolExchanges.length > 0
               ? runtimeResponse.toolExchanges
-              : undefined,
-          toolInvocations:
-            runtimeResponse.toolInvocations !== undefined &&
-            runtimeResponse.toolInvocations.length > 0
-              ? stripToolInvocationsForClient(runtimeResponse.toolInvocations)
               : undefined
         });
         assistantMessageId = assistantChatMessage.id;

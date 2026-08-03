@@ -247,7 +247,6 @@ describe("WebRuntimeStreamClientService", () => {
           type: "done",
           respondedAt: "2026-04-11T13:00:00.000Z",
           finalAnswer: "hello native",
-          workingNotes: [],
           runtimeTrace: {
             scope: "turn",
             status: "completed",
@@ -489,8 +488,7 @@ describe("WebRuntimeStreamClientService", () => {
         {
           type: "done",
           respondedAt: "2026-04-11T13:00:00.000Z",
-          finalAnswer: "",
-          workingNotes: []
+          finalAnswer: ""
         }
       ]);
     } finally {

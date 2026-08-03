@@ -2495,7 +2495,6 @@ describe("AssistantDocumentJobDeliveryService", () => {
     service.liveTurnPresent = {
       publishMedia(input) {
         events.push(`media:${String(input.assistantMessageId)}`);
-        assert.equal(input.afterToolCallId, undefined);
       },
       async publishOpenJobsSnapshot(input) {
         events.push(`terminal:${String((input.terminalJob as { id: string }).id)}`);
