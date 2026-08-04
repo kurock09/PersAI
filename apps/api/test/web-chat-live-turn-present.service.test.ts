@@ -108,6 +108,61 @@ describe("WebChatLiveTurnPresentService", () => {
     });
   });
 
+  test("publishes a delivery event on its async-continuation owner stream", async () => {
+    const published: Array<{ event: string; payload: unknown }> = [];
+    let capturedWhere: Record<string, unknown> | null = null;
+    const service = new WebChatLiveTurnPresentService(
+      {
+        assistantWebChatTurnAttempt: {
+          findFirst: async (input: { where: Record<string, unknown> }) => {
+            capturedWhere = input.where;
+            return {
+              assistantId: "assistant-1",
+              userId: "user-1",
+              clientTurnId: "async-cont:client-turn-1",
+              surfaceClient: "async_continuation"
+            };
+          }
+        }
+      } as never,
+      {
+        publish: (input: { event: string; payload: unknown }) => {
+          published.push({ event: input.event, payload: input.payload });
+        }
+      } as never,
+      { bindAssistantMessageId: async () => undefined } as never,
+      { listOpenJobsForWebChat: async () => [] } as never,
+      { listOpenJobsForWebChat: async () => [] } as never,
+      {
+        claimOpenTurnLivePresent: async () => "newly_claimed",
+        listOpenSandboxJobsForWebChat: async () => []
+      } as never,
+      { createMessage: async () => ({ id: "assistant-message-1" }) } as never
+    );
+    const deliveryEvent = {
+      seq: 7,
+      at: "2026-08-04T07:45:00.000Z",
+      kind: "delivery" as const,
+      attachmentId: "attachment-1",
+      artifactKind: "image" as const,
+      filename: "photo.png",
+      sizeBytes: 2048
+    };
+
+    await service.publishTurnEventsForOpenAttempt({
+      assistantId: "assistant-1",
+      assistantMessageId: "assistant-message-1",
+      events: [deliveryEvent]
+    });
+
+    assert.deepEqual(published, [{ event: "turn_event", payload: { event: deliveryEvent } }]);
+    assert.deepEqual(capturedWhere, {
+      assistantId: "assistant-1",
+      assistantMessageId: "assistant-message-1",
+      status: "running"
+    });
+  });
+
   test("query shape includes null surfaceClient and excludes async_continuation", async () => {
     let capturedWhere: Record<string, unknown> | null = null;
     const service = new WebChatLiveTurnPresentService(

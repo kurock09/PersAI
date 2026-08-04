@@ -1,5 +1,56 @@
 # SESSION-HANDOFF
 
+## 2026-08-04 — ADR-170 live-presentation repair after failed founder acceptance
+
+- **Scope:** the founder tested the deployed ADR-170 build and rejected it. Five
+  test turns produced UI stream breaks while the server kept working, a second
+  message sent into a still-running turn with replies then landing above it, no
+  receipts during streaming (they appeared only inside the final "Выполнено"
+  block), and an image that flashed for a second, vanished, and came back after
+  a catch-up reply. This slice fixes the causes, not the symptoms; no heuristics
+  and no timers were added.
+- **Diagnosis was taken from a live authenticated trace on `persai.dev`,** with
+  the SSE frames and DOM mutations recorded side by side. It found three
+  independent causes, each provable from the trace rather than inferred.
+- **Cause 1 — a numbered event that never reached the wire.** `delivery` events
+  at `seq` 7 and 14 existed in the durable log and in the committed read, and
+  appeared in no live frame at all: the attachment registration path appended
+  them and discarded the append result. It now publishes on the owning open
+  attempt, awaited, with async-continuation attempts included in the lookup and
+  a warning when there is no running attempt (ADR-170 D3.5).
+- **Cause 2 — the receipt waited for a payload it did not need.** The client
+  dropped a delivery whose attachment had not arrived on the same frame. In the
+  trace that gap was eight seconds of "delivered but nothing on screen", ended by
+  a row appearing and the transcript re-laying itself out — the flicker the
+  founder described. The row now renders inert from the event's own filename,
+  size and kind at its `seq`, and the payload upgrades it in place (D8.2).
+- **Cause 3 — turn state was inferred from transport health.** A dropped stream
+  unlatched the turn, surfaced a red error and freed the composer while the pod
+  kept working, which is exactly how the founder's second message landed above
+  the first turn's replies. Passive losses now soft-detach and stay latched, the
+  POST stream gained the reattach stream's idle timeout and reader cancellation,
+  and — the direction the full-suite gate caught — every reconciliation that
+  concludes a turn is over records that attempt terminal for its thread, so a
+  passive close arriving afterwards cannot reopen it (D12.1).
+- **The open-turn guard was deliberately narrowed.** The first attempt disabled
+  the textarea, attachments, drag-drop and voice. Protecting turn order is not a
+  reason to take the keyboard away, so openness — derived once in `useChat` from
+  streaming, soft-detach and background jobs — gates only sending.
+- **Gate run:** recursive lint, `format:check`, recursive typecheck, full API
+  suite, `test:step2`, all non-web package suites, two consecutive full web runs
+  at 86 files / 1166 tests, and the web production build. All green. The web
+  race was intermittent under load, which is why it was run twice rather than
+  once.
+- **Residuals:** the synthetic receipt object carries a placeholder `mimeType`
+  that no receipt path reads; the terminal-attempt bookkeeping now has both a
+  cleaned per-attempt set and a per-thread record, which is defensible but is two
+  mechanisms for one fact; two existing tests were renamed rather than joined by
+  new ones, so their original intent is now less obvious from the name. S7's
+  dead-export sweep across `apps/web` is still not done.
+- **Next:** push, deploy, and repeat the live trace on `persai.dev` — receipts
+  visible during streaming in `seq` order, no flash-and-vanish image, no red
+  error on a reconnect, and a second send refused while work is open.
+
 ## 2026-08-03 — ADR-170 turn event log: S1–S5 landed, audit repairs landed
 
 - **Scope:** the founder banned the client-side ordering heuristics that made a

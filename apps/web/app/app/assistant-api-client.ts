@@ -1631,36 +1631,61 @@ export async function streamAssistantWebChatTurn(
   const decoder = new TextDecoder();
   let buffer = "";
   let sawTerminalEvent = false;
-
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) {
-      break;
+  let idleTimeoutId: ReturnType<typeof setTimeout> | null = null;
+  const clearIdleTimeout = (): void => {
+    if (idleTimeoutId !== null) {
+      clearTimeout(idleTimeoutId);
+      idleTimeoutId = null;
     }
+  };
+  const readWithIdleTimeout = (): Promise<ReadableStreamReadResult<Uint8Array>> =>
+    Promise.race([
+      reader.read(),
+      new Promise<ReadableStreamReadResult<Uint8Array>>((_, reject) => {
+        clearIdleTimeout();
+        idleTimeoutId = setTimeout(() => {
+          reject(new Error("Stream stalled before terminal event."));
+        }, REATTACH_STREAM_IDLE_TIMEOUT_MS);
+      })
+    ]);
 
-    buffer += decoder.decode(value, { stream: true });
-    const { blocks, rest } = resolveSseBlocks(buffer);
-    buffer = rest;
-
-    for (const block of blocks) {
-      const parsed = parseSseBlock(block);
-      if (parsed === null) {
-        continue;
+  try {
+    for (;;) {
+      const { done, value } = await readWithIdleTimeout();
+      clearIdleTimeout();
+      if (done) {
+        break;
       }
 
-      let payloadObject: unknown = null;
-      try {
-        payloadObject = JSON.parse(parsed.data);
-      } catch {
-        continue;
-      }
+      buffer += decoder.decode(value, { stream: true });
+      const { blocks, rest } = resolveSseBlocks(buffer);
+      buffer = rest;
 
-      const streamEvent = toStreamEvent(parsed.eventName, payloadObject);
-      if (streamEvent === null) {
-        continue;
-      }
+      for (const block of blocks) {
+        const parsed = parseSseBlock(block);
+        if (parsed === null) {
+          continue;
+        }
 
-      sawTerminalEvent ||= dispatchAssistantWebChatStreamEvent(streamEvent, handlers);
+        let payloadObject: unknown = null;
+        try {
+          payloadObject = JSON.parse(parsed.data);
+        } catch {
+          continue;
+        }
+
+        const streamEvent = toStreamEvent(parsed.eventName, payloadObject);
+        if (streamEvent === null) {
+          continue;
+        }
+
+        sawTerminalEvent ||= dispatchAssistantWebChatStreamEvent(streamEvent, handlers);
+      }
+    }
+  } finally {
+    clearIdleTimeout();
+    if (!sawTerminalEvent) {
+      void reader.cancel().catch(() => undefined);
     }
   }
 
@@ -1766,6 +1791,9 @@ export async function reattachAssistantWebChatTurnStream(
     }
   } finally {
     clearIdleTimeout();
+    if (!sawTerminalEvent) {
+      void reader.cancel().catch(() => undefined);
+    }
   }
 
   // Flush trailing SSE block. The primary stream (above) handles the

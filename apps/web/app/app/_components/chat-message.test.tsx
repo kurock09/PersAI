@@ -2261,7 +2261,7 @@ describe("ChatMessageBubble — pre-response status", () => {
     expect(screen.getByRole("button", { name: "Выполнено · 1 шаг" })).toBeInTheDocument();
   });
 
-  it("ADR-170 D2.1/D11: a delivery whose attachment id is not yet in attachments renders nothing rather than crash or guess", () => {
+  it("renders a non-interactive receipt from an unresolved delivery event", () => {
     render(
       <ChatMessageBubble
         chatId="chat-1"
@@ -2271,18 +2271,67 @@ describe("ChatMessageBubble — pre-response status", () => {
           turnEvents: [
             noteEvent(1, "готовлю"),
             toolCallEvent(2, "image_generate", { toolCallId: "call-img-1" }),
-            deliveryEvent(3, "att-not-yet-caught-up")
+            deliveryEvent(3, "att-not-yet-caught-up", {
+              filename: "ginger-cat.png",
+              sizeBytes: 1_643_451
+            })
           ],
           attachments: []
         })}
       />
     );
 
-    // The note still renders; the unresolved delivery renders nothing.
     const stream = screen.getByTestId("process-live-note-receipt-stream");
     expect(stream).toHaveTextContent("готовлю");
-    expect(screen.queryByTestId("media-receipt-lines")).toBeNull();
-    expect(screen.queryByText(/Получено/)).toBeNull();
+    expect(stream).toHaveTextContent(/Получено изображение.*1\.6 MB/);
+    expect(screen.getByTestId("media-receipt-open-att-not-yet-caught-up")).toBeDisabled();
+  });
+
+  it("upgrades an unresolved delivery receipt in its existing log position", () => {
+    const events = [
+      noteEvent(1, "готовлю"),
+      deliveryEvent(2, "att-delivery-upgrade", {
+        filename: "ginger-cat.png",
+        sizeBytes: 1_643_451
+      }),
+      toolCallEvent(3, "image_generate", { toolCallId: "call-img-1" }),
+      answerTextEvent(4, "Готово.")
+    ];
+    const message = makeAssistantMessage({
+      status: "streaming",
+      content: "Готово.",
+      turnEvents: events,
+      attachments: []
+    });
+    const { rerender } = render(<ChatMessageBubble chatId="chat-1" message={message} />);
+
+    const streamBeforeUpgrade = screen.getByTestId("process-live-note-receipt-stream");
+    const receiptBeforeUpgrade = screen.getByTestId("media-receipt-lines");
+    expect(
+      streamBeforeUpgrade.compareDocumentPosition(receiptBeforeUpgrade) &
+        Node.DOCUMENT_POSITION_CONTAINED_BY
+    ).toBeTruthy();
+    expect(screen.getByTestId("media-receipt-open-att-delivery-upgrade")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Выполнено · 2 шага" })).toBeInTheDocument();
+
+    rerender(
+      <ChatMessageBubble
+        chatId="chat-1"
+        message={{
+          ...message,
+          attachments: [{ ...makeImageAttachment("att-delivery-upgrade"), sizeBytes: 1_643_451 }]
+        }}
+      />
+    );
+
+    const streamAfterUpgrade = screen.getByTestId("process-live-note-receipt-stream");
+    const receiptAfterUpgrade = screen.getByTestId("media-receipt-lines");
+    expect(
+      streamAfterUpgrade.compareDocumentPosition(receiptAfterUpgrade) &
+        Node.DOCUMENT_POSITION_CONTAINED_BY
+    ).toBeTruthy();
+    expect(screen.getByTestId("media-receipt-open-att-delivery-upgrade")).not.toBeDisabled();
+    expect(screen.getByRole("button", { name: "Выполнено · 2 шага" })).toBeInTheDocument();
   });
 
   it("ADR-170: a job_accepted bookkeeping event carries no visible piece of its own", () => {

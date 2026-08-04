@@ -163,8 +163,9 @@ export interface UseChatReturn {
   chatId: string | null;
   activeMediaJobs: WebChatActiveMediaJobState[];
   activeDocumentJobs: WebChatActiveDocumentJobState[];
-  activeSandboxJobs?: WebChatActiveSandboxJobState[];
+  activeSandboxJobs: WebChatActiveSandboxJobState[];
   isStreaming: boolean;
+  hasOpenTurn: boolean;
   historyLoading: boolean;
   hasOlderMessages: boolean;
   olderMessagesLoading: boolean;
@@ -1236,6 +1237,7 @@ function isPassiveStreamDisconnect(error: unknown): boolean {
   if (error instanceof Error) {
     return (
       error.message === "Stream closed before terminal event." ||
+      error.message === "Stream stalled before terminal event." ||
       error.name === "AbortError" ||
       error.name === "TypeError" ||
       error.name === "NetworkError"
@@ -1839,6 +1841,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
   const softDetachedClientTurnIdsRef = useRef<Set<string>>(new Set());
   /** ADR-166 — authoritative attempt terminal from turn_status (not content). */
   const knownTerminalAttemptClientTurnIdsRef = useRef<Set<string>>(new Set());
+  const terminalAttemptClientTurnIdByThreadRef = useRef<Map<string, string>>(new Map());
   /** ADR-166 — authoritative non-terminal attempt from turn_status / reattach. */
   const knownRunningAttemptClientTurnIdsRef = useRef<Set<string>>(new Set());
   const activeTurnSnapshotsRef = useRef<Map<string, ActiveTurnSnapshot>>(new Map());
@@ -2404,6 +2407,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
         cacheThreadHistorySnapshot(targetThreadKey, cleanedSnapshot);
         clearStoredActiveTurnClientTurnId(targetThreadKey, snapshot.clientTurnId);
         softDetachedClientTurnIdsRef.current.delete(snapshot.clientTurnId);
+        terminalAttemptClientTurnIdByThreadRef.current.set(targetThreadKey, snapshot.clientTurnId);
         knownTerminalAttemptClientTurnIdsRef.current.delete(snapshot.clientTurnId);
         knownRunningAttemptClientTurnIdsRef.current.delete(snapshot.clientTurnId);
         continuationReattachStartedRef.current.delete(snapshot.clientTurnId);
@@ -3211,6 +3215,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
         : null;
       if (status.status === "accepted" || status.status === "running") {
         knownTerminalAttemptClientTurnIdsRef.current.delete(clientTurnId);
+        terminalAttemptClientTurnIdByThreadRef.current.delete(targetThreadKey);
         knownRunningAttemptClientTurnIdsRef.current.add(clientTurnId);
         // Continuations have no new user row (server markRunning userMessageId=null).
         // Do not require a user message for live heuristics.
@@ -3485,6 +3490,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
       ) {
         knownRunningAttemptClientTurnIdsRef.current.delete(clientTurnId);
         knownTerminalAttemptClientTurnIdsRef.current.add(clientTurnId);
+        terminalAttemptClientTurnIdByThreadRef.current.set(targetThreadKey, clientTurnId);
         const terminalKind: "committed" | "partial" =
           status.status === "completed" ? "committed" : "partial";
         // Discovery replay / post-hydrate restore of a settled turn must not
@@ -4815,6 +4821,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
       const compactionBeforeTurn = compaction;
       const pendingFiles = files ?? [];
       const clientTurnId = options?.clientTurnId ?? createClientTurnId();
+      terminalAttemptClientTurnIdByThreadRef.current.delete(sendThreadKey);
       const clientAttachmentIds =
         options?.clientAttachmentIds?.length === pendingFiles.length
           ? options.clientAttachmentIds
@@ -6143,13 +6150,13 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
               true
             );
           }
-        } else if (
-          isPassiveStreamDisconnect(error) &&
-          !hardStoppedClientTurnIdsRef.current.has(clientTurnId)
-        ) {
-          const targetChatId = resolveKnownChatIdForThread(sendThreadKey);
-          const hasActiveSnapshot = activeTurnSnapshotsRef.current.has(sendThreadKey);
-          if (hasActiveSnapshot) {
+        } else if (isPassiveStreamDisconnect(error)) {
+          if (
+            !hardStoppedClientTurnIdsRef.current.has(clientTurnId) &&
+            !knownTerminalAttemptClientTurnIdsRef.current.has(clientTurnId) &&
+            terminalAttemptClientTurnIdByThreadRef.current.get(sendThreadKey) !== clientTurnId
+          ) {
+            const targetChatId = resolveKnownChatIdForThread(sendThreadKey);
             softDetached = true;
             softDetachedClientTurnIdsRef.current.add(clientTurnId);
             if (targetChatId) {
@@ -6928,6 +6935,13 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
           });
           if (merged.replacedActiveTurn && activeSnapshot !== undefined) {
             clearStoredActiveTurnClientTurnId(targetThreadKey, activeSnapshot.clientTurnId);
+            softDetachedClientTurnIdsRef.current.delete(activeSnapshot.clientTurnId);
+            knownRunningAttemptClientTurnIdsRef.current.delete(activeSnapshot.clientTurnId);
+            knownTerminalAttemptClientTurnIdsRef.current.add(activeSnapshot.clientTurnId);
+            terminalAttemptClientTurnIdByThreadRef.current.set(
+              targetThreadKey,
+              activeSnapshot.clientTurnId
+            );
             activeTurnSnapshotsRef.current.delete(targetThreadKey);
             abortControllersByThreadRef.current.get(targetThreadKey)?.controller.abort();
             abortControllersByThreadRef.current.delete(targetThreadKey);
@@ -7091,6 +7105,17 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                   targetThreadKey,
                   currentActiveSnapshot.clientTurnId
                 );
+                softDetachedClientTurnIdsRef.current.delete(currentActiveSnapshot.clientTurnId);
+                knownRunningAttemptClientTurnIdsRef.current.delete(
+                  currentActiveSnapshot.clientTurnId
+                );
+                knownTerminalAttemptClientTurnIdsRef.current.add(
+                  currentActiveSnapshot.clientTurnId
+                );
+                terminalAttemptClientTurnIdByThreadRef.current.set(
+                  targetThreadKey,
+                  currentActiveSnapshot.clientTurnId
+                );
                 activeTurnSnapshotsRef.current.delete(targetThreadKey);
                 abortControllersByThreadRef.current.get(targetThreadKey)?.controller.abort();
                 abortControllersByThreadRef.current.delete(targetThreadKey);
@@ -7147,6 +7172,12 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
               localActiveSnapshot?.clientTurnId ?? rawActiveTurn?.clientTurnId;
             if (activeClientTurnId !== undefined) {
               softDetachedClientTurnIdsRef.current.delete(activeClientTurnId);
+              knownRunningAttemptClientTurnIdsRef.current.delete(activeClientTurnId);
+              knownTerminalAttemptClientTurnIdsRef.current.add(activeClientTurnId);
+              terminalAttemptClientTurnIdByThreadRef.current.set(
+                targetThreadKey,
+                activeClientTurnId
+              );
               clearStoredActiveTurnClientTurnId(targetThreadKey, activeClientTurnId);
             }
             activeTurnSnapshotsRef.current.delete(targetThreadKey);
@@ -7672,6 +7703,11 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
   for (const ev of orphanActivities) {
     entries.push({ kind: "activity", event: ev });
   }
+  const hasOpenTurn =
+    isStreaming ||
+    activeMediaJobs.length > 0 ||
+    activeDocumentJobs.length > 0 ||
+    activeSandboxJobs.length > 0;
   return {
     entries,
     messages,
@@ -7681,6 +7717,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
     activeDocumentJobs,
     activeSandboxJobs,
     isStreaming,
+    hasOpenTurn,
     historyLoading,
     hasOlderMessages,
     olderMessagesLoading,

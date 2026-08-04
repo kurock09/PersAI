@@ -3,7 +3,39 @@
 > Archive: detailed historical entries from 2026-06-05 and earlier moved to `docs/CHANGELOG.archive-2026-06-05-details-and-earlier.md`; entries from 2026-05-19 and earlier remain in `docs/CHANGELOG.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: current entries plus concise recent summaries only.
 
-## 2026-08-03 (latest)
+## 2026-08-04 (latest)
+
+- **fix(api): a numbered delivery event is now published live, not only stored
+  (ADR-170 D3.5).** The attachment registration path appended the `delivery`
+  event and threw away the result, so a receipt the server had already numbered
+  at `seq` 7 first reached the user at the end of the turn, inside the collapsed
+  summary. The append result is now published on the owning open attempt — the
+  lookup includes async-continuation attempts, because a deferred job's delivery
+  belongs to the continuation that owns it — awaited so a late deliverer cannot
+  publish into a drained bus, and logged when no running attempt exists.
+- **fix(web): the delivery event alone draws the receipt (ADR-170 D8.2).** The
+  receipt was dropped whenever its attachment payload had not arrived on the
+  same frame, which is the normal shape of a deferred job: in one traced turn the
+  event landed at t+58.3s and the payload at t+66.3s, and for eight seconds the
+  log said "delivered" while the screen showed nothing, then the row appeared and
+  the transcript re-laid itself out. The event carries filename, size and kind,
+  so the row now renders inert at its `seq` immediately and the payload upgrades
+  it in place to openable. Nothing is invented: an absent size renders a no-size
+  label, and no path or URL is fabricated.
+- **fix(web): a dropped stream no longer ends a turn (ADR-170 D12.1).** A passive
+  transport loss — closed, stalled, aborted, network error — detaches softly and
+  keeps the turn latched until the server says otherwise, and the original POST
+  stream now has the same idle timeout and reader cancellation the reattach
+  stream already had. The reverse direction is closed too: reconciliation that
+  concludes a turn is over records that attempt as terminal for its thread, so a
+  passive close arriving afterwards cannot reopen it.
+- **fix(web): the open-turn guard blocks sending and nothing else.** Turn
+  openness is derived in `useChat` from streaming, soft-detach and outstanding
+  background jobs, and gates only the send action; composing, staging
+  attachments, drag-and-drop and voice stay available, and the composer explains
+  itself in the existing helper line when work is open with no visible streaming.
+
+## 2026-08-03
 
 - **feat(api,web,runtime): one server-numbered turn event log decides process
   order (ADR-170).** Media receipts used to jump to the top of a message, ride

@@ -920,7 +920,7 @@ function MarkdownFragment({ content }: { content: string }) {
 type IterationProcessPiece =
   | { kind: "text"; markdown: string }
   | { kind: "tool"; tool: { name: string; ok: boolean } }
-  | { kind: "receipt"; attachment: ChatAttachment };
+  | { kind: "receipt"; attachment: ReceiptAttachment };
 
 type IterationBlock =
   | { kind: "content"; markdown: string }
@@ -930,7 +930,11 @@ type IterationBlock =
  * at the exact `seq` position the log recorded it — see `buildTurnEventDisplay`. */
 type AnswerSegment =
   | { kind: "text"; text: string }
-  | { kind: "receipt"; attachment: ChatAttachment };
+  | { kind: "receipt"; attachment: ReceiptAttachment };
+
+type ReceiptAttachment = Omit<ChatAttachment, "sizeBytes"> & {
+  sizeBytes: number | null;
+};
 
 type TurnEventDisplay = {
   iterationBlocks: IterationBlock[];
@@ -952,15 +956,28 @@ function shouldSuppressMediaReceipts(message: ChatMessage): boolean {
   return message.conversationalPublish === true;
 }
 
-/** ADR-170 D2.1/D11 — a `delivery` event carries only the durable attachment
- * id; the receipt it renders is resolved by that id, never by array
- * position or tool-call placement. Absent from `attachments` yet (not
- * caught up on this frame) renders nothing rather than guessing. */
+/** A delivery event is sufficient to render its non-openable receipt; a later
+ * attachment payload replaces these access-null fields at the same event key. */
 function resolveDeliveryAttachment(
-  attachmentId: string,
+  event: Extract<TurnEvent, { kind: "delivery" }>,
   attachments: readonly ChatAttachment[]
-): ChatAttachment | null {
-  return attachments.find((attachment) => attachment.id === attachmentId) ?? null;
+): ReceiptAttachment {
+  const attachment = attachments.find((candidate) => candidate.id === event.attachmentId);
+  if (attachment !== undefined) {
+    return attachment;
+  }
+  return {
+    id: event.attachmentId,
+    path: null,
+    thumbnailStoragePath: null,
+    posterStoragePath: null,
+    attachmentType: event.artifactKind,
+    originalFilename: event.filename,
+    mimeType: "application/octet-stream",
+    sizeBytes: event.sizeBytes,
+    processingStatus: "completed",
+    createdAt: event.at
+  };
 }
 
 /**
@@ -1010,10 +1027,7 @@ function buildTurnEventDisplay(
       continue;
     }
     if (event.kind === "delivery") {
-      const attachment = resolveDeliveryAttachment(event.attachmentId, attachments);
-      if (attachment === null) {
-        continue;
-      }
+      const attachment = resolveDeliveryAttachment(event, attachments);
       // ADR-170 D5/D5.1/D4 — one event renders in exactly one place: a
       // delivery at/after the first `answer_text` is part of the answer
       // region and belongs only to `answerSegments`; one before it belongs
@@ -1460,7 +1474,7 @@ function IterationBlocks({
 
 function resolveAttachmentAccessUrls(input: {
   chatId: string | null | undefined;
-  attachment: ChatAttachment;
+  attachment: ReceiptAttachment;
 }): { viewUrl: string | null; downloadUrl: string | null } {
   const attachment = input.attachment;
   if (
@@ -1501,9 +1515,9 @@ function MediaReceiptLines({
   embedded = false
 }: {
   chatId?: string | null | undefined;
-  attachments: ChatAttachment[];
+  attachments: ReceiptAttachment[];
   /** Full image set for lightbox gallery when rendering one receipt in a stream. */
-  galleryAttachments?: ChatAttachment[] | undefined;
+  galleryAttachments?: ReceiptAttachment[] | undefined;
   live: boolean;
   /** Inside process stream — no outer margin / no live region (parent owns it). */
   embedded?: boolean;
@@ -1780,28 +1794,26 @@ function formatBytes(bytes: number): string {
 }
 
 function formatMediaReceiptLabel(
-  attachment: ChatAttachment,
+  attachment: ReceiptAttachment,
   t: (key: string, values?: Record<string, string | number | Date>) => string
 ): string {
-  const size = formatBytes(
+  const size =
     typeof attachment.sizeBytes === "number" && Number.isFinite(attachment.sizeBytes)
-      ? attachment.sizeBytes
-      : 0
-  );
+      ? formatBytes(attachment.sizeBytes)
+      : null;
   if (attachment.attachmentType === "image") {
-    return t("mediaReceiptImage", {
-      detail: t("mediaReceiptImageGeneration"),
-      size
-    });
+    return size === null
+      ? t("mediaReceiptImageWithoutSize", { detail: t("mediaReceiptImageGeneration") })
+      : t("mediaReceiptImage", { detail: t("mediaReceiptImageGeneration"), size });
   }
   if (attachment.attachmentType === "video") {
-    return t("mediaReceiptVideo", { size });
+    return size === null ? t("mediaReceiptVideoWithoutSize") : t("mediaReceiptVideo", { size });
   }
   const name = attachment.originalFilename?.trim();
-  return t("mediaReceiptFile", {
-    name: name && name.length > 0 ? name : t("mediaReceiptFileGeneric"),
-    size
-  });
+  const filename = name && name.length > 0 ? name : t("mediaReceiptFileGeneric");
+  return size === null
+    ? t("mediaReceiptFileWithoutSize", { name: filename })
+    : t("mediaReceiptFile", { name: filename, size });
 }
 
 function attachmentTypeBadge(attachment: ChatAttachment): string {
@@ -2668,11 +2680,11 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
     if (message.role !== "assistant") {
       return EMPTY_TURN_EVENT_DISPLAY;
     }
-    const events = Array.isArray(message.turnEvents) ? message.turnEvents : [];
-    const attachmentsForReceipts = shouldSuppressMediaReceipts(message)
-      ? []
-      : (message.attachments ?? []);
-    return buildTurnEventDisplay(events, attachmentsForReceipts);
+    const allEvents = Array.isArray(message.turnEvents) ? message.turnEvents : [];
+    const events = shouldSuppressMediaReceipts(message)
+      ? allEvents.filter((event) => event.kind !== "delivery")
+      : allEvents;
+    return buildTurnEventDisplay(events, message.attachments ?? []);
   }, [message.attachments, message.conversationalPublish, message.role, message.turnEvents]);
   const bottomStripAttachments = useMemo(() => {
     // Keep the full attachment strip out of active assistant bubbles. Terminal

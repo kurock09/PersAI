@@ -48,10 +48,12 @@ vi.mock("./chat-input", () => ({
   ChatInput: forwardRef(function MockChatInput(
     {
       showScrollToBottom,
-      onScrollToBottom
+      onScrollToBottom,
+      hasOpenTurn
     }: {
       showScrollToBottom?: boolean;
       onScrollToBottom?: () => void;
+      hasOpenTurn: boolean;
     },
     ref
   ) {
@@ -59,7 +61,7 @@ vi.mock("./chat-input", () => ({
       setDraft: setDraftMock
     }));
     return (
-      <div data-testid="chat-composer-chrome">
+      <div data-testid="chat-composer-chrome" data-open-turn={hasOpenTurn ? "true" : "false"}>
         <div data-testid="chat-input" />
         {showScrollToBottom ? (
           <div
@@ -143,6 +145,7 @@ function createChat(
   options?: {
     chatId?: string;
     isStreaming?: boolean;
+    hasOpenTurn?: boolean;
     hasOlderMessages?: boolean;
     olderMessagesLoading?: boolean;
     loadOlderMessages?: UseChatReturn["loadOlderMessages"];
@@ -154,10 +157,16 @@ function createChat(
     compaction?: UseChatReturn["compaction"];
     compactionRunning?: boolean;
     compactNow?: UseChatReturn["compactNow"];
+    activeMediaJobs?: UseChatReturn["activeMediaJobs"];
+    activeDocumentJobs?: UseChatReturn["activeDocumentJobs"];
+    activeSandboxJobs?: NonNullable<UseChatReturn["activeSandboxJobs"]>;
   }
 ): UseChatReturn {
   const contents = Array.isArray(messageContent) ? messageContent : [messageContent];
   const isStreaming = options?.isStreaming ?? true;
+  const activeMediaJobs = options?.activeMediaJobs ?? [];
+  const activeDocumentJobs = options?.activeDocumentJobs ?? [];
+  const activeSandboxJobs = options?.activeSandboxJobs ?? [];
   const messages: ChatMessage[] =
     options?.messages ??
     contents.map((content, index) => ({
@@ -171,8 +180,9 @@ function createChat(
     entries: messages.map((message) => ({ kind: "message", message })),
     messages,
     chatId: options?.chatId ?? "chat-1",
-    activeMediaJobs: [],
-    activeDocumentJobs: [],
+    activeMediaJobs,
+    activeDocumentJobs,
+    activeSandboxJobs,
     currentEngagement: options?.currentEngagement ?? null,
     pendingBrowserLogin: null,
     browserLoginModalOpen: false,
@@ -181,6 +191,12 @@ function createChat(
     reopenBrowserLogin: vi.fn(),
     clearPendingBrowserLogin: vi.fn(),
     isStreaming,
+    hasOpenTurn:
+      options?.hasOpenTurn ??
+      (isStreaming ||
+        activeMediaJobs.length > 0 ||
+        activeDocumentJobs.length > 0 ||
+        activeSandboxJobs.length > 0),
     historyLoading: false,
     hasOlderMessages: options?.hasOlderMessages ?? false,
     olderMessagesLoading: options?.olderMessagesLoading ?? false,
@@ -257,6 +273,29 @@ describe("ChatArea", () => {
       "saturate-75"
     );
     expect(modePill).not.toHaveClass("opacity-50");
+  });
+
+  it("derives the composer open-turn gate from async work after streaming ends", () => {
+    render(
+      <ChatArea
+        chat={createChat("Waiting for image", {
+          isStreaming: false,
+          activeMediaJobs: [
+            {
+              id: "media-open-1",
+              kind: "image",
+              operation: "image_generate",
+              status: "running",
+              createdAt: "2026-08-04T08:00:00.000Z",
+              startedAt: "2026-08-04T08:00:00.000Z",
+              updatedAt: "2026-08-04T08:00:00.000Z"
+            }
+          ]
+        })}
+      />
+    );
+
+    expect(screen.getByTestId("chat-composer-chrome")).toHaveAttribute("data-open-turn", "true");
   });
 
   it("opens the sidebar and signals project files hint on mobile project activation", async () => {

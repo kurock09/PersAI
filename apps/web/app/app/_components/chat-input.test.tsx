@@ -105,6 +105,7 @@ describe("ChatInput", () => {
         onTranscribeVoice={vi.fn(async () => "")}
         onStop={vi.fn()}
         isStreaming={false}
+        hasOpenTurn={false}
       />
     );
 
@@ -127,6 +128,7 @@ describe("ChatInput", () => {
         onTranscribeVoice={vi.fn(async () => "")}
         onStop={vi.fn()}
         isStreaming={false}
+        hasOpenTurn={false}
       />
     );
 
@@ -154,6 +156,7 @@ describe("ChatInput", () => {
         onTranscribeVoice={vi.fn(async () => "")}
         onStop={vi.fn()}
         isStreaming={false}
+        hasOpenTurn={false}
       />
     );
 
@@ -176,6 +179,7 @@ describe("ChatInput", () => {
         onTranscribeVoice={vi.fn(async () => "")}
         onStop={vi.fn()}
         isStreaming={false}
+        hasOpenTurn={false}
       />
     );
 
@@ -208,6 +212,7 @@ describe("ChatInput", () => {
         onTranscribeVoice={vi.fn(async () => "")}
         onStop={vi.fn()}
         isStreaming={false}
+        hasOpenTurn={false}
       />
     );
 
@@ -241,6 +246,7 @@ describe("ChatInput", () => {
         onTranscribeVoice={vi.fn(async () => "")}
         onStop={vi.fn()}
         isStreaming={false}
+        hasOpenTurn={false}
       />
     );
 
@@ -258,6 +264,7 @@ describe("ChatInput", () => {
         onTranscribeVoice={vi.fn(async () => "")}
         onStop={vi.fn()}
         isStreaming={false}
+        hasOpenTurn={false}
       />
     );
 
@@ -272,6 +279,7 @@ describe("ChatInput", () => {
         onTranscribeVoice={vi.fn(async () => "")}
         onStop={vi.fn()}
         isStreaming={false}
+        hasOpenTurn={false}
       />
     );
 
@@ -296,6 +304,7 @@ describe("ChatInput", () => {
         onTranscribeVoice={vi.fn(async () => "")}
         onStop={vi.fn()}
         isStreaming={false}
+        hasOpenTurn={false}
       />
     );
 
@@ -321,6 +330,7 @@ describe("ChatInput", () => {
         onTranscribeVoice={vi.fn(async () => "")}
         onStop={vi.fn()}
         isStreaming={false}
+        hasOpenTurn={false}
       />
     );
 
@@ -348,6 +358,7 @@ describe("ChatInput", () => {
           onTranscribeVoice={vi.fn(async () => "")}
           onStop={vi.fn()}
           isStreaming={isStreaming}
+          hasOpenTurn={isStreaming}
         />
       );
     }
@@ -384,6 +395,7 @@ describe("ChatInput", () => {
           onTranscribeVoice={vi.fn(async () => "")}
           onStop={vi.fn()}
           isStreaming={false}
+          hasOpenTurn={false}
           pendingSendStatus={pendingSendStatus}
         />
       );
@@ -403,6 +415,36 @@ describe("ChatInput", () => {
     expect(screen.getByTitle("send")).toBeDisabled();
   });
 
+  it("refuses another send while an open turn has async work after streaming ends", () => {
+    const onSend = vi.fn();
+    const { rerender } = render(
+      <ChatInput
+        onSend={onSend}
+        onTranscribeVoice={vi.fn(async () => "")}
+        onStop={vi.fn()}
+        isStreaming={false}
+        hasOpenTurn={false}
+      />
+    );
+
+    fillComposer(screen.getByPlaceholderText("placeholder"), "second request");
+    rerender(
+      <ChatInput
+        onSend={onSend}
+        onTranscribeVoice={vi.fn(async () => "")}
+        onStop={vi.fn()}
+        isStreaming={false}
+        hasOpenTurn
+      />
+    );
+
+    expect(screen.getByPlaceholderText("placeholder")).not.toBeDisabled();
+    expect(screen.getByText("turnOpenComposerHint")).toBeInTheDocument();
+    expect(screen.getByTitle("attachFile")).not.toBeDisabled();
+    fireEvent.click(screen.getByTitle("send"));
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
   it("shows a Working pill that opens media job rows with elapsed time", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-05-05T12:02:00Z"));
@@ -413,6 +455,7 @@ describe("ChatInput", () => {
         onTranscribeVoice={vi.fn(async () => "")}
         onStop={vi.fn()}
         isStreaming={false}
+        hasOpenTurn={false}
         activeMediaJobs={[
           {
             id: "job-1",
@@ -463,6 +506,7 @@ describe("ChatInput", () => {
         onTranscribeVoice={vi.fn(async () => "")}
         onStop={vi.fn()}
         isStreaming={false}
+        hasOpenTurn={false}
         activeMediaJobs={[
           {
             id: "job-1",
@@ -510,6 +554,7 @@ describe("ChatInput", () => {
         onTranscribeVoice={vi.fn(async () => "")}
         onStop={vi.fn()}
         isStreaming={false}
+        hasOpenTurn={false}
         activeMediaJobs={[
           {
             id: "job-1",
@@ -538,6 +583,7 @@ describe("ChatInput", () => {
         onTranscribeVoice={vi.fn(async () => "")}
         onStop={vi.fn()}
         isStreaming={false}
+        hasOpenTurn={false}
         activeMediaJobs={[
           {
             id: "job-video",
@@ -596,6 +642,7 @@ describe("ChatInput", () => {
         onTranscribeVoice={vi.fn(async () => "")}
         onStop={vi.fn()}
         isStreaming={false}
+        hasOpenTurn={false}
         activeMediaJobs={[
           {
             id: "job-series",
@@ -636,6 +683,7 @@ describe("ChatInput", () => {
         onTranscribeVoice={vi.fn(async () => "")}
         onStop={vi.fn()}
         isStreaming={false}
+        hasOpenTurn={false}
         activeMediaJobs={[
           {
             id: "job-single",
@@ -666,6 +714,7 @@ describe("ChatInput", () => {
         onTranscribeVoice={vi.fn(async () => "")}
         onStop={vi.fn()}
         isStreaming={false}
+        hasOpenTurn={false}
         activeDocumentJobs={[
           {
             id: "doc-job-1",
@@ -694,6 +743,7 @@ describe("ChatInput", () => {
         onTranscribeVoice: vi.fn(async () => ""),
         onStop: vi.fn(),
         isStreaming: false,
+        hasOpenTurn: false,
         activeMediaJobs: [
           {
             id: "kling-cinematic-1",
@@ -731,6 +781,7 @@ describe("ChatInput", () => {
           onTranscribeVoice={vi.fn(async () => "")}
           onStop={vi.fn()}
           isStreaming={false}
+          hasOpenTurn={false}
           activeMediaJobs={[
             {
               id: "legacy-row-1",
@@ -761,6 +812,7 @@ describe("ChatInput", () => {
         onTranscribeVoice: vi.fn(async () => ""),
         onStop: vi.fn(),
         isStreaming: false,
+        hasOpenTurn: false,
         activeMediaJobs: [
           {
             id: "heygen-talking-1",
@@ -830,6 +882,7 @@ describe("ChatInput", () => {
         onTranscribeVoice={vi.fn(async () => "")}
         onStop={vi.fn()}
         isStreaming={false}
+        hasOpenTurn={false}
       />
     );
 
@@ -879,6 +932,7 @@ describe("ChatInput", () => {
         onTranscribeVoice={vi.fn(async () => "")}
         onStop={vi.fn()}
         isStreaming={false}
+        hasOpenTurn={false}
       />
     );
 
@@ -929,6 +983,7 @@ describe("ChatInput", () => {
         onTranscribeVoice={vi.fn(async () => "")}
         onStop={vi.fn()}
         isStreaming={false}
+        hasOpenTurn={false}
       />
     );
 
@@ -978,6 +1033,7 @@ describe("ChatInput", () => {
         onTranscribeVoice={vi.fn(async () => "")}
         onStop={vi.fn()}
         isStreaming={false}
+        hasOpenTurn={false}
       />
     );
 
@@ -1026,6 +1082,7 @@ describe("ChatInput", () => {
         onTranscribeVoice={vi.fn(async () => "")}
         onStop={vi.fn()}
         isStreaming={false}
+        hasOpenTurn={false}
       />
     );
 
@@ -1081,6 +1138,7 @@ describe("ChatInput", () => {
         onTranscribeVoice={vi.fn(async () => "")}
         onStop={vi.fn()}
         isStreaming={false}
+        hasOpenTurn={false}
       />
     );
 
@@ -1145,6 +1203,7 @@ describe("ChatInput", () => {
         onVoiceTranscriptionError={onVoiceTranscriptionError}
         onStop={vi.fn()}
         isStreaming={false}
+        hasOpenTurn={false}
       />
     );
 
@@ -1178,6 +1237,7 @@ describe("ChatInput", () => {
         onTranscribeVoice={vi.fn(async () => "")}
         onStop={vi.fn()}
         isStreaming={false}
+        hasOpenTurn={false}
       />
     );
 

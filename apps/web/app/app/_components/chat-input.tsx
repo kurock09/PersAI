@@ -346,6 +346,7 @@ interface ChatInputProps {
   onVoiceTranscriptionError?: (error: unknown) => void;
   onStop: () => void;
   isStreaming: boolean;
+  hasOpenTurn: boolean;
   disabled?: boolean;
   /**
    * Single-slot pending send state surfaced from useChat. When the previous
@@ -383,6 +384,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
     onVoiceTranscriptionError,
     onStop,
     isStreaming,
+    hasOpenTurn,
     disabled,
     pendingSendStatus = null,
     activeMediaJobs = [],
@@ -530,7 +532,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
     pendingSendStatus === "send_failed_confirmed";
 
   const handleSend = useCallback(() => {
-    if (sendBlockedByFailedSlot) return;
+    if (sendBlockedByFailedSlot || disabled || hasOpenTurn) return;
     const el = textareaRef.current;
     if (!el) return;
     const text = draftText.trim();
@@ -558,7 +560,16 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
       focusRestoreDeadlineRef.current = Date.now() + 400;
       restoreComposerFocusAfterSend(el);
     }
-  }, [addToKnowledgeBase, draftText, isTouchDevice, onSend, pendingFiles, sendBlockedByFailedSlot]);
+  }, [
+    addToKnowledgeBase,
+    disabled,
+    draftText,
+    hasOpenTurn,
+    isTouchDevice,
+    onSend,
+    pendingFiles,
+    sendBlockedByFailedSlot
+  ]);
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -569,12 +580,12 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
       if (isTouchDevice) return;
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
-        if (!isStreaming && !disabled && !sendBlockedByFailedSlot) {
+        if (!hasOpenTurn && !disabled && !sendBlockedByFailedSlot) {
           handleSend();
         }
       }
     },
-    [handleSend, isStreaming, disabled, isTouchDevice, sendBlockedByFailedSlot]
+    [handleSend, hasOpenTurn, disabled, isTouchDevice, sendBlockedByFailedSlot]
   );
 
   const appendFiles = useCallback(
@@ -702,6 +713,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
     disabled === true || isRecording || isTranscribing || hardBlockedByFailedSlot;
   const controlsDisabled =
     disabled === true || isRecording || isTranscribing || sendBlockedByFailedSlot;
+  const sendDisabled = controlsDisabled || hasOpenTurn;
   const hasKnowledgeEligibleFiles = pendingFiles.some((file) => isKnowledgeEligibleFile(file));
   const backgroundJobCount =
     activeMediaJobs.length + activeDocumentJobs.length + activeSandboxJobs.length;
@@ -1334,6 +1346,15 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
               <ChatWorkingJobsPill jobs={workingJobRows} />
             </div>
           ) : null}
+          {hasOpenTurn && !isStreaming ? (
+            <div
+              role="status"
+              aria-live="polite"
+              className="mb-2 rounded-lg border border-border bg-surface-raised px-3 py-2 text-xs text-text-muted"
+            >
+              {t("turnOpenComposerHint")}
+            </div>
+          ) : null}
 
           <AnimatePresence>
             {isTouchDevice && isRecording && (
@@ -1675,9 +1696,9 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
                   }
                 }}
                 onClick={handleSend}
-                disabled={controlsDisabled}
+                disabled={sendDisabled}
                 className={cn(
-                  composerSendButtonClass(controlsDisabled),
+                  composerSendButtonClass(sendDisabled),
                   composerActionSwapClass(showSend)
                 )}
                 title={t("send")}

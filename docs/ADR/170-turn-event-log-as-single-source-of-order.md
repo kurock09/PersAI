@@ -210,12 +210,69 @@ there is nothing to split: a stopped turn simply has the events that were
 emitted plus a terminal event. The divergent partial-turn text assembly is
 deleted, not ported.
 
+### D3.5 — Appending and publishing are one act, never two
+
+An event that is numbered but not put on the live bus is a silent failure: the
+log is right, the durable read after reload is right, and the user sees nothing
+until the turn commits. This is exactly what happened to `delivery` — the
+attachment registration path appended the event and discarded the result, so a
+receipt the server had already numbered at `seq` 7 first became visible to the
+user at the end of the turn, as part of the collapsed summary.
+
+Therefore the append primitive's caller must publish what it appended, on the
+same open attempt, before it returns. The publish is awaited, not fired and
+forgotten, because an out-of-turn deliverer racing turn completion would
+otherwise publish into a drained bus. When there is no running attempt to
+publish onto — the ordinary case for a delivery that lands after its turn is
+fully closed — that is logged, not swallowed, so a future regression in live
+visibility is observable rather than invisible.
+
+The attempt lookup deliberately includes async-continuation attempts: a deferred
+job's delivery belongs to the continuation that owns it (D3.2), and restricting
+the lookup to ordinary user turns would silently drop precisely the deliveries
+that most need live presentation.
+
 ### D4 — The client never computes position
 
 Consumers merge by event identity and sort by `seq`. There is exactly one
 renderer for a turn's process stream, used by live streaming, reconciling,
 committed, history-after-reload, and continuation bubbles alike. The only
 difference between live and committed is whether the log is still open.
+
+### D12.1 — Turn openness is a server fact; transport health is not evidence about it
+
+A dropped SSE connection says nothing about whether the turn is running — the
+pod keeps working, the log keeps growing, and the client will read every event
+it missed by `sinceSeq`. Treating a transport loss as the end of the turn is
+what let the founder send a second message into a still-running turn and then
+watch the first turn's replies arrive above it.
+
+So a passive transport loss — a closed or stalled stream, an abort, a network
+error — never ends a turn and never surfaces an error. It detaches softly and
+the turn stays latched until the server says otherwise: a terminal event, or
+reconciliation against the authoritative status. The only thing that unlatches a
+turn early is an explicit Stop, or a terminal outcome already known for that
+attempt. A stalled read is detected by the same idle timeout on both the
+original POST stream and the reattach stream, and the reader is cancelled on
+non-terminal exit so a half-dead connection cannot linger.
+
+Openness is therefore derived from facts, not from the socket: a turn is open
+while its stream is live, or while it is soft-detached, or while it has
+outstanding background jobs. That single derived fact — and nothing else — gates
+sending. It gates *only* sending: composing, staging attachments, drag-and-drop,
+and voice stay available throughout, because protecting turn order is not a
+reason to take the keyboard away. When work is still open with no visible
+streaming, the composer says so in the existing helper line rather than leaving
+a disabled button unexplained.
+
+The rule has to hold in both directions, and the second direction is the one
+that bites: a transport event that arrives *after* the turn was authoritatively
+closed must not reopen it. Committed history that replaces a restored live turn
+is such an authority, so every reconciliation path that concludes a turn is over
+records that attempt as terminal for its thread at the moment it concludes it.
+A passive close landing afterwards then finds a settled attempt and does
+nothing. Without that record the outcome depends on which of the two arrives
+first, which is precisely the timing-dependence this decision exists to remove.
 
 ### D5 — Answer text is events, not a cumulative blob
 
@@ -465,6 +522,27 @@ the status path. What remains is a dictionary keyed by an id the server issued.
 A frame may therefore never be treated as a full replacement of a message's
 artifacts. Nothing renders from that store directly either: it is only consulted
 for the ids the log already ordered.
+
+### D8.2 — The event is enough to render the receipt; the payload only makes it openable
+
+D8.1 says the payload store is consulted for ids the log ordered. Read strictly,
+that made the payload a precondition for drawing anything, and the receipt was
+dropped whenever the attachment had not arrived on the same frame. That is not a
+rare race — it is the normal shape of a deferred job. In one traced turn the
+delivery event arrived at t+58.3s and the attachment payload at t+66.3s, and for
+eight seconds the log asserted "delivered" while the screen showed nothing, then
+the row appeared and the transcript re-laid itself out around it.
+
+The delivery event already carries filename, size, and artifact kind, which is
+everything the receipt line says. So the receipt renders from the event, at its
+`seq` position, the moment the event arrives — inert, because there is nothing
+to open yet. When the payload lands it upgrades that same keyed row in place to
+an openable one. Nothing is fabricated: an absent size renders a no-size label
+rather than a zero, and no path or URL is invented while the payload is missing.
+
+The row never moves, never disappears, and never waits on a timer. This is the
+difference between a placeholder and a fabrication: a placeholder states only
+facts the server already numbered.
 
 ### D9 — Identity and provenance are typed fields, never string prefixes
 

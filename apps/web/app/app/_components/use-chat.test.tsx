@@ -5545,8 +5545,15 @@ describe("useChat", () => {
     ).toBe(true);
   });
 
-  it("loadHistory removes a restored live assistant when committed history has the final turn", async () => {
+  it("keeps a restored turn closed when a passive stream close follows committed history", async () => {
     window.sessionStorage.setItem("persai.active-web-turn.v1.thread-1", "turn-1");
+    let rejectPassiveReattach: ((reason?: unknown) => void) | null = null;
+    assistantApiMocks.reattachAssistantWebChatTurnStream.mockImplementation(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          rejectPassiveReattach = reject;
+        })
+    );
     assistantApiMocks.getAssistantWebChatTurnStatus.mockResolvedValueOnce({
       status: "running",
       chat: {
@@ -5646,6 +5653,18 @@ describe("useChat", () => {
       })
     ]);
     expect(window.sessionStorage.getItem("persai.active-web-turn.v1.thread-1")).toBeNull();
+
+    await act(async () => {
+      rejectPassiveReattach?.(new Error("Stream closed before terminal event."));
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(result.current.isStreaming).toBe(false);
+      expect(result.current.hasOpenTurn).toBe(false);
+      expect(result.current.issue).toBeNull();
+    });
+    expect(assistantApiMocks.reattachAssistantWebChatTurnStream).toHaveBeenCalledTimes(1);
   });
 
   it("loadHistory keeps the live cursor when history has active user but only an older assistant", async () => {
@@ -8916,10 +8935,10 @@ describe("useChat", () => {
         runtime: null,
         error: null
       });
-      assistantApiMocks.reattachAssistantWebChatTurnStream.mockImplementationOnce(
+      assistantApiMocks.reattachAssistantWebChatTurnStream.mockImplementation(
         async (
           _token: string,
-          _clientTurnId: string,
+          clientTurnId: string,
           handlers: {
             onHeadersOk?: () => void;
             onTurnStatus?: (payload: { turn: unknown }) => void;
@@ -8929,6 +8948,14 @@ describe("useChat", () => {
             }) => void;
           }
         ) => {
+          if (clientTurnId !== "turn-166-place-reattach") {
+            const turn = await assistantApiMocks.getAssistantWebChatTurnStatus(
+              "token-1",
+              clientTurnId
+            );
+            handlers.onTurnStatus?.({ turn });
+            return;
+          }
           handlers.onHeadersOk?.();
           handlers.onTurnStatus?.({
             turn: {
@@ -10205,7 +10232,7 @@ describe("useChat", () => {
       }
     });
 
-    it("keeps a soft-detached long turn alive past the old polling cap and reconciles later", async () => {
+    it("keeps a passive mid-turn disconnect latched without an error until reconciliation", async () => {
       vi.useFakeTimers();
       try {
         assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
@@ -10293,6 +10320,7 @@ describe("useChat", () => {
         });
 
         await vi.waitFor(() => expect(result.current.isStreaming).toBe(true));
+        expect(result.current.issue).toBeNull();
         expect(result.current.messages.some((message) => message.status === "streaming")).toBe(
           true
         );

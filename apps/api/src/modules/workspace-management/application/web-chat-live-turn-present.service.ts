@@ -18,6 +18,7 @@ import type {
 import { WebChatTurnAttemptService } from "./web-chat-turn-attempt.service";
 import { WebChatTurnStreamRegistry } from "./web-chat-turn-stream-registry.service";
 import { AssistantMediaJobService } from "./workspace-media-job.service";
+import type { PublicTurnEvent } from "./turn-event-wire-projection";
 
 export type { OpenTurnLivePresentClaimOutcome };
 
@@ -208,6 +209,54 @@ export class WebChatLiveTurnPresentService {
         attachments: input.attachments
       }
     });
+  }
+
+  async publishTurnEventsForOpenAttempt(input: {
+    assistantId: string;
+    assistantMessageId: string;
+    events: PublicTurnEvent[];
+  }): Promise<void> {
+    if (input.events.length === 0) {
+      return;
+    }
+    try {
+      // Delivery belongs to this assistant message; its active stream may be
+      // an async continuation, unlike the source-user-message lookup above.
+      const attempt = await this.prisma.assistantWebChatTurnAttempt.findFirst({
+        where: {
+          assistantId: input.assistantId,
+          assistantMessageId: input.assistantMessageId,
+          status: "running"
+        },
+        orderBy: [{ runningAt: "desc" }, { updatedAt: "desc" }],
+        select: {
+          assistantId: true,
+          userId: true,
+          clientTurnId: true
+        }
+      });
+      if (attempt === null) {
+        this.logger.warn(
+          `web_chat_live_turn_events_no_running_attempt assistantMessageId=${input.assistantMessageId} eventCount=${String(input.events.length)}`
+        );
+        return;
+      }
+      for (const event of input.events) {
+        this.streamRegistry.publish({
+          assistantId: attempt.assistantId,
+          clientTurnId: attempt.clientTurnId,
+          userId: attempt.userId,
+          event: "turn_event",
+          payload: { event }
+        });
+      }
+    } catch (error) {
+      this.logger.warn(
+        `web_chat_live_turn_events_publish_failed assistantId=${input.assistantId} assistantMessageId=${input.assistantMessageId}: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+    }
   }
 
   async publishOpenJobsSnapshot(input: {

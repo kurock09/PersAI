@@ -134,6 +134,11 @@ function createLiveTurnPresentService(
     ensureOpenTurnAssistantMessage?: (input: {
       attempt: { assistantMessageId: string | null };
     }) => Promise<string>;
+    publishTurnEventsForOpenAttempt?: (input: {
+      assistantId: string;
+      assistantMessageId: string;
+      events: unknown[];
+    }) => Promise<void>;
   } = {}
 ) {
   return {
@@ -149,7 +154,8 @@ function createLiveTurnPresentService(
           return input.attempt.assistantMessageId;
         }
         throw new Error("Open web turn no longer accepts an assistant message binding.");
-      })
+      }),
+    publishTurnEventsForOpenAttempt: overrides.publishTurnEventsForOpenAttempt ?? (async () => {})
   };
 }
 
@@ -283,6 +289,86 @@ describe("register-chat-attachment.service", () => {
     assert.equal(drafts[0]?.artifactKind, "image");
     assert.equal(drafts[0]?.filename, "photo.png");
     assert.equal(drafts[0]?.sizeBytes, 2048);
+  });
+
+  test("publishes a deferred delivery's durable turn event on the open web turn stream", async () => {
+    const createdInputs: Record<string, unknown>[] = [];
+    const published: Array<Record<string, unknown>> = [];
+    const deliveryEvent = {
+      seq: 7,
+      at: "2026-08-04T07:45:00.000Z",
+      kind: "delivery" as const,
+      attachmentId: "attachment-1",
+      artifactKind: "image" as const,
+      filename: "photo.png",
+      sizeBytes: 2048
+    };
+    const service = createRegisterService({
+      deliverOnce: createDeliverOnceService(createdInputs),
+      liveTurnPresent: createLiveTurnPresentService({
+        publishTurnEventsForOpenAttempt: async (input) => {
+          published.push(input);
+        }
+      }),
+      appendTurnEvents: createAppendTurnEventsService({
+        append: async () => [deliveryEvent]
+      })
+    });
+
+    const result = await service.execute({
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      chatId: "chat-1",
+      messageId: "assistant-message-1",
+      storagePath: `${SESSION_ROOT}/photo.png`,
+      attachmentType: "image",
+      mimeType: "image/png",
+      sizeBytes: 2048,
+      originalFilename: "photo.png",
+      kind: "image_generate"
+    });
+
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(result.appendedTurnEvents, [deliveryEvent]);
+    assert.deepEqual(published, [
+      {
+        assistantId: "assistant-1",
+        assistantMessageId: "assistant-message-1",
+        events: [deliveryEvent]
+      }
+    ]);
+  });
+
+  test("does not publish an already-appended duplicate delivery", async () => {
+    const createdInputs: Record<string, unknown>[] = [];
+    let publishCount = 0;
+    const service = createRegisterService({
+      deliverOnce: createDeliverOnceService(createdInputs),
+      liveTurnPresent: createLiveTurnPresentService({
+        publishTurnEventsForOpenAttempt: async () => {
+          publishCount += 1;
+        }
+      }),
+      appendTurnEvents: createAppendTurnEventsService({
+        append: async () => []
+      })
+    });
+
+    const result = await service.execute({
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      chatId: "chat-1",
+      messageId: "assistant-message-1",
+      storagePath: `${SESSION_ROOT}/photo.png`,
+      attachmentType: "image",
+      mimeType: "image/png",
+      sizeBytes: 2048,
+      originalFilename: "photo.png",
+      kind: "image_generate"
+    });
+
+    assert.deepEqual(result.appendedTurnEvents, []);
+    assert.equal(publishCount, 0);
   });
 
   test("ADR-170 D3.2 — a closed-turn published delivery appends to the log of the message that owns the attachment, not the original user message", async () => {

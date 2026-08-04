@@ -1427,6 +1427,7 @@ export function ChatArea({
               onVoiceTranscriptionError={chat.reportIssue}
               onStop={chat.stop}
               isStreaming={chat.isStreaming}
+              hasOpenTurn={chat.hasOpenTurn}
               disabled={!assistantReady}
               pendingSendStatus={chat.pendingSendStatus}
               activeMediaJobs={chat.activeMediaJobs}

@@ -23,6 +23,7 @@ import {
 } from "./deliver-chat-attachment-once.service";
 import { WebChatLiveTurnPresentService } from "./web-chat-live-turn-present.service";
 import { AppendTurnEventsService } from "./append-turn-events.service";
+import type { PublicTurnEvent } from "./turn-event-wire-projection";
 
 export type RegisterChatAttachmentKind =
   | "user_upload"
@@ -64,6 +65,7 @@ export type RegisterChatAttachmentOutcome = {
   alreadyDelivered: boolean;
   attachment: Pick<AssistantChatMessageAttachment, "id" | "storagePath" | "metadata">;
   delivery: { kind: "new" | "existing"; canonicalKey: string };
+  appendedTurnEvents: PublicTurnEvent[];
 };
 
 type FilesAttachDocumentLinkContext = {
@@ -274,8 +276,9 @@ export class RegisterChatAttachmentService {
     // ConversationalPublish). `AppendTurnEventsService` is idempotent by
     // `attachmentId`, so a retried/duplicate call (including the
     // `alreadyDelivered` case) is a safe no-op rather than a duplicate event.
+    let appendedTurnEvents: PublicTurnEvent[] = [];
     try {
-      await this.appendTurnEventsService.append({
+      appendedTurnEvents = await this.appendTurnEventsService.append({
         messageId: input.messageId,
         drafts: [
           {
@@ -288,6 +291,13 @@ export class RegisterChatAttachmentService {
           }
         ]
       });
+      if (appendedTurnEvents.length > 0) {
+        await this.webChatLiveTurnPresentService.publishTurnEventsForOpenAttempt({
+          assistantId: input.assistantId,
+          assistantMessageId: input.messageId,
+          events: appendedTurnEvents
+        });
+      }
     } catch (error) {
       this.logger.warn(
         `turn_event_delivery_append_failed attachmentId=${delivered.attachment.id} messageId=${input.messageId} reason=${
@@ -326,7 +336,8 @@ export class RegisterChatAttachmentService {
       storagePath: delivered.attachment.storagePath ?? storagePath,
       alreadyDelivered: delivered.alreadyDelivered,
       attachment: delivered.attachment,
-      delivery: delivered.delivery
+      delivery: delivered.delivery,
+      appendedTurnEvents
     };
   }
 
